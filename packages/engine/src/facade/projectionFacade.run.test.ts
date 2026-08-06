@@ -4,7 +4,7 @@
  * stop-working-age preview.
  */
 import { describe, it, expect } from "vitest";
-import { Projection, resolvedJobPaySpan } from "../index";
+import { Projection, resolvedJobPaySpan, type ProjectionState } from "../index";
 import { resolvedJobEndMonth } from "../ledger/household";
 import { samplePlan, stateOf, SAMPLE_START_YEAR } from "../testing/samplePlan";
 import { mockJurisdiction } from "../testing/mockJurisdiction";
@@ -12,7 +12,7 @@ import { nullJurisdiction, type Jurisdiction } from "../jurisdiction/jurisdictio
 import { dollarsToCents } from "../money/cashFlowSeries";
 import { goalFundAccountId } from "../compile/projectionBase";
 import { type Job } from "../job/job";
-import { P1, freshProjection, JOB_END_YEAR, plainJob } from "../testing/projectionFacadeFixtures";
+import { P1, freshProjection, JOB_END_YEAR, plainJob, partnerEvent } from "../testing/projectionFacadeFixtures";
 
 describe("Projection root — run(jurisdiction) → immutable result, no mutation", () => {
   it("computes a per-month series and is frozen", () => {
@@ -108,25 +108,51 @@ describe("Projection root — horizon spans to the LONGEST-LIVED member, not the
   // The boundary is `min(their death, the primary's)`, and here that is the PRIMARY's month 540 —
   // Sam, born 1996 at expectancy 85, would otherwise reach 660.
   //
-  // Authoring now REFUSES a separation dated at or after that boundary, so a posthumous one can
-  // only arrive the way a real user produces it: booked while both were long-lived, then left
-  // stranded by an expectancy revised DOWN underneath it. That is the sequence these build, and it
-  // is why the horizon still has to handle the case rather than assuming authoring prevented it.
+  // Authoring cannot produce a posthumous separation at all any more: the write is refused when it
+  // is dated past a death, and an edit that would strand an existing one is refused too. So these
+  // build the state through RESTORATION, which is the only door left and exactly what the
+  // simulation's clamp is a safeguard for — a file written by another build, hand-edited, or
+  // exported before the rule existed. The clamp is what makes such a household model sensibly
+  // rather than being refused at the door with nothing the user can open.
   describe("a separation ends their claim on the horizon only while both are alive", () => {
     const SAM_REACH = (1996 + 85 - 2026) * 12; // 660
 
-    /** Book a separation at `month` while both live long, then lower both to expectancy 85. */
-    const strandedAt = (month: number) => {
-      const p = freshProjection();
-      p.updatePlan({ lifeExpectancy: 100 }); // dies 2086
-      const partnerId = p.marry({ month: 12, name: "Sam", birthYear: 1996, lifeExpectancy: 95 });
-      p.separate({ month, partnerPersonId: partnerId }); // legal against those expectancies
-      p.updatePlan({ lifeExpectancy: samplePlan.primary.lifeExpectancy }); // primary now dies at 540
-      p.reviseTransaction(partnerId, {
-        type: "marry",
-        lifeExpectancy: samplePlan.primary.lifeExpectancy, // Sam now dies at 660
+    /**
+     * A restored household whose separation at `month` has become posthumous: authored legally
+     * against long expectancies, then lowered OUTSIDE the authoring gate the way an imported file
+     * arrives.
+     */
+    const strandedAt = (month: number, expectancy = samplePlan.primary.lifeExpectancy) => {
+      const authored = freshProjection();
+      authored.updatePlan({ lifeExpectancy: 100 }); // dies 2086
+      const partnerId = authored.marry({
+        month: 12,
+        name: "Sam",
+        birthYear: 1996,
+        lifeExpectancy: 95, // dies 2091 — so the separation below is legal when written
       });
-      return p;
+      authored.separate({ month, partnerPersonId: partnerId });
+
+      const state = JSON.parse(JSON.stringify(authored.toState())) as ProjectionState;
+      const lowered: ProjectionState = {
+        ...state,
+        scenario: {
+          ...state.scenario,
+          plan: {
+            ...state.scenario.plan,
+            primary: { ...state.scenario.plan.primary, lifeExpectancy: expectancy },
+          },
+          ledger: {
+            ...state.scenario.ledger,
+            events: state.scenario.ledger.events.map((e) =>
+              e.type === "RelationshipEvent"
+                ? { ...e, person: { ...e.person, lifeExpectancy: expectancy } }
+                : e,
+            ),
+          },
+        },
+      };
+      return Projection.fromState(lowered, nullJurisdiction);
     };
 
     it("BEFORE either death: Sam leaves, and the run stops at the primary's own expectancy", () => {
@@ -166,31 +192,48 @@ describe("Projection root — horizon spans to the LONGEST-LIVED member, not the
     it("covers the survivor through their death — the issue's worked example", () => {
       // Primary dies 2070, Sam dies 2080, separation booked for 2085. Sam never leaves while
       // alive, so the projection must run through 2080 rather than stopping at the primary's
-      // 2070 and leaving the survivor's last decade unmodelled.
-      const p = freshProjection();
-      p.updatePlan({ lifeExpectancy: 100 });
-      const partnerId = p.marry({ month: 12, name: "Sam", birthYear: 1996, lifeExpectancy: 95 });
-      p.separate({ month: (2085 - 2026) * 12, partnerPersonId: partnerId });
-      p.updatePlan({ lifeExpectancy: 84 }); // born 1986 → dies 2070
-      p.reviseTransaction(partnerId, { type: "marry", lifeExpectancy: 84 }); // → dies 2080
-      expect(monthsOf(p)).toBe((2080 - 2026) * 12);
+      // 2070 and leaving the survivor's last decade unmodelled. Both at expectancy 84: the
+      // primary (born 1986) reaches it in 2070, Sam (born 1996) in 2080.
+      expect(monthsOf(strandedAt((2085 - 2026) * 12, 84))).toBe((2080 - 2026) * 12);
     });
 
     it("is symmetric — a separation after the PARTNER's death is equally moot", () => {
-      // Sam is older and ends up dying 2061, before the primary's 2071, with the separation
-      // booked 2065. Sam's own reach is below the primary's, so the horizon is unchanged — but
-      // the reason is that Sam never left, not that they did, and the binding death here is the
-      // PARTNER's rather than the primary's.
-      const p = freshProjection();
-      p.updatePlan({ lifeExpectancy: 100 });
-      const partnerId = p.marry({ month: 12, name: "Sam", birthYear: 1976, lifeExpectancy: 95 });
-      p.separate({ month: (2065 - 2026) * 12, partnerPersonId: partnerId });
-      p.updatePlan({ lifeExpectancy: samplePlan.primary.lifeExpectancy });
-      p.reviseTransaction(partnerId, {
-        type: "marry",
-        lifeExpectancy: samplePlan.primary.lifeExpectancy, // Sam now dies 2061
+      // Sam is OLDER (born 1976) and so dies 2061, before the primary's 2071, with the separation
+      // stranded at 2065. Sam's own reach is below the primary's, so the horizon is unchanged —
+      // but the reason is that Sam never left, not that they did, and the binding death here is
+      // the PARTNER's rather than the primary's.
+      const authored = freshProjection();
+      authored.updatePlan({ lifeExpectancy: 100 });
+      const partnerId = authored.marry({
+        month: 12,
+        name: "Sam",
+        birthYear: 1976,
+        lifeExpectancy: 95,
       });
-      expect(monthsOf(p)).toBe(PRIMARY_HORIZON);
+      authored.separate({ month: (2065 - 2026) * 12, partnerPersonId: partnerId });
+      const state = JSON.parse(JSON.stringify(authored.toState())) as ProjectionState;
+      const lowered = {
+        ...state,
+        scenario: {
+          ...state.scenario,
+          plan: {
+            ...state.scenario.plan,
+            primary: {
+              ...state.scenario.plan.primary,
+              lifeExpectancy: samplePlan.primary.lifeExpectancy,
+            },
+          },
+          ledger: {
+            ...state.scenario.ledger,
+            events: state.scenario.ledger.events.map((e) =>
+              e.type === "RelationshipEvent"
+                ? { ...e, person: { ...e.person, lifeExpectancy: samplePlan.primary.lifeExpectancy } }
+                : e,
+            ),
+          },
+        },
+      } as ProjectionState;
+      expect(monthsOf(Projection.fromState(lowered, nullJurisdiction))).toBe(PRIMARY_HORIZON);
     });
   });
 });
@@ -256,6 +299,75 @@ describe("Projection root — a marriage or separation needs both partners alive
     expect(() =>
       p.startPartnered({ partneredForMonths: 24, name: "Sam", birthYear: 1996, lifeExpectancy: 85 }),
     ).not.toThrow();
+  });
+
+  // The other direction. A separation legal when written can be STRANDED by a later edit that moves
+  // a death earlier — and no second write to the separation happens, so nothing would catch it.
+  // Both edit paths therefore revalidate every separation against the state they would produce.
+  describe("an edit that would strand an existing separation is refused", () => {
+    /** A household with a separation in 2076, legal against expectancies of 100 and 95. */
+    const withLateSeparation = () => {
+      const p = freshProjection();
+      p.updatePlan({ lifeExpectancy: 100 }); // dies 2086
+      const partnerId = p.marry({ month: 12, name: "Sam", birthYear: 1996, lifeExpectancy: 95 });
+      p.separate({ month: 600, partnerPersonId: partnerId }); // 2076
+      return { p, partnerId };
+    };
+
+    it("updatePlan: refuses a lowered life expectancy, naming what it would strand", () => {
+      const { p } = withLateSeparation();
+      expect(() => p.updatePlan({ lifeExpectancy: 85 })).toThrow(
+        /would strand the 2076 separation.*live only to 2071.*both partners alive/,
+      );
+      // And leaves the plan exactly as it was — a refused write moves nothing.
+      expect(p.plan.primary.lifeExpectancy).toBe(100);
+    });
+
+    it("updatePlan: refuses a moved BIRTH YEAR too — it moves the death just as surely", () => {
+      const { p } = withLateSeparation();
+      expect(() => p.updatePlan({ birthYear: 1970 })).toThrow(/would strand the 2076 separation/);
+      expect(p.plan.primary.birthYear).toBe(samplePlan.primary.birthYear);
+    });
+
+    it("reviseTransaction: refuses lowering the PARTNER's expectancy under their own separation", () => {
+      const { p, partnerId } = withLateSeparation();
+      expect(() => p.reviseTransaction(partnerId, { type: "marry", lifeExpectancy: 60 })).toThrow(
+        /would strand the 2076 separation.*Sam is projected to live only to 2056/,
+      );
+      expect(partnerEvent(p).person.lifeExpectancy).toBe(95);
+    });
+
+    it("reviseTransaction: refuses a moved partner birth year for the same reason", () => {
+      const { p, partnerId } = withLateSeparation();
+      expect(() => p.reviseTransaction(partnerId, { type: "marry", birthYear: 1940 })).toThrow(
+        /would strand the 2076 separation/,
+      );
+      expect(partnerEvent(p).person.birthYear).toBe(1996);
+    });
+
+    it("still allows an edit that keeps the separation reachable", () => {
+      // The guard is about reachability, not about expectancies being immovable: 99 still leaves
+      // the primary alive in 2076, so the edit lands.
+      const { p, partnerId } = withLateSeparation();
+      expect(() => p.updatePlan({ lifeExpectancy: 99 })).not.toThrow();
+      expect(p.plan.primary.lifeExpectancy).toBe(99);
+      expect(() =>
+        p.reviseTransaction(partnerId, { type: "marry", lifeExpectancy: 90 }),
+      ).not.toThrow();
+    });
+
+    it("leaves an unrelated scalar edit alone", () => {
+      const { p } = withLateSeparation();
+      expect(() => p.updatePlan({ inflationPct: 4 })).not.toThrow();
+    });
+
+    it("does not fire for a household with no separation at all", () => {
+      // The common case: lowering an expectancy is an ordinary edit, and must stay one.
+      const p = freshProjection();
+      p.marry({ month: 12, name: "Sam", birthYear: 1996, lifeExpectancy: 85 });
+      expect(() => p.updatePlan({ lifeExpectancy: 70 })).not.toThrow();
+      expect(p.plan.primary.lifeExpectancy).toBe(70);
+    });
   });
 
   it("refuses a separation naming nobody, rather than booking one against no partner", () => {

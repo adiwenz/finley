@@ -61,15 +61,26 @@ Delivered as three commits:
   the graph and the sentence describing it cannot diverge. They used to hold separate copies, and
   both copies had the same bug: any separation, at any date, cancelled the partner's tail.
 
-- **An impossible date is REFUSED at authoring.** `marry` and `separate` both throw for a month at
-  or after `min(the primary's death, the partner's)` — the same boundary — because each is a thing a
-  couple does. Refused before the first mint, so nothing is issued and abandoned; `fromInput` turns
-  it into `{ ok: false }` and the app's `useProjection` already renders a thrown write as a conflict
-  message, so the reason is written to survive the `Projection: cannot X —` prefix being stripped.
+- **An impossible date is REFUSED at authoring, in both directions.** `marry` and `separate` throw
+  for a month at or after `min(the primary's death, the partner's)` — the same boundary — because
+  each is a thing a couple does. Refused before the first mint, so nothing is issued and abandoned;
+  `fromInput` turns it into `{ ok: false }`, and the app's `useProjection` already renders a thrown
+  write as a conflict, so each reason is written to survive the `Projection: cannot X —` prefix
+  being stripped.
 
-  The horizon rule above still stands rather than being made unreachable by this: an expectancy
-  revised DOWN can strand a separation that was perfectly legal when it was written, which is the
-  path the regression tests take to build one.
+  The other direction is an EDIT that strands a separation legal when written:
+  `assertSeparationsStillReachable` revalidates every separation against the state an edit would
+  produce, and both `updateProjectionPlan` and `reviseProjectionTransaction` call it. Lowering
+  either party's `lifeExpectancy` or moving either `birthYear` under a booked separation is refused
+  and moves nothing. An edit that keeps it reachable still lands, and a household with no
+  separation is untouched — lowering an expectancy stays an ordinary edit.
+
+- **The simulation keeps its own horizon clamp anyway.** With both authoring doors closed, a
+  posthumous separation can now only arrive by RESTORATION — a file from another build, hand-edited,
+  or exported before the rule existed. Refusing a whole imported file over one stranded separation
+  would leave the user nothing to open and no way to fix it, so `restore` stays out of it and
+  `memberHorizonReach` models such a household sensibly instead. That is also the door the horizon
+  regression tests come through, since authoring can no longer produce the state they test.
 
 - **The solved age and `plannedWorkStopAge` stay in the PRIMARY's years** (unchanged): they are
   facts about the household reaching one calendar boundary. Only the *horizon* the portfolio must
