@@ -191,7 +191,7 @@ function earliestSurvivingAge(
   survives: (age: number) => boolean,
 ): number | null {
   const lo = startYear - budget.primary.birthYear;
-  const hi = budget.primary.lifeExpectancy ?? lo;
+  const hi = budget.primary.lifeExpectancy;
   if (lo > hi) return null;
   if (!survives(hi)) return null;
   let a = lo;
@@ -407,7 +407,7 @@ export function authoredPlanSurvives(scenario: Scenario, ctx: ProjectionContext)
 export function horizonAnchorOf(scenario: Scenario, ctx: ProjectionContext): HorizonAnchor {
   const base = createProjectionBase(scenario.plan, ctx);
   const household = interpretLedger(scenario.ledger, base);
-  const householdAge = scenario.plan.primary.lifeExpectancy ?? ctx.startYear - scenario.plan.primary.birthYear;
+  const householdAge = scenario.plan.primary.lifeExpectancy;
   let best: { age: number; deathYear: number; isPrimary: boolean; name: string } | null = null;
   for (const m of household.memberships) {
     // A separated member leaves before their expectancy, so they never set the horizon.
@@ -439,11 +439,7 @@ export function solveRetirement(scenario: Scenario, ctx: ProjectionContext): Ret
   // age un-blocks the stranded obligation.
   const blockProbe =
     fullRetirementAge === null
-      ? projectFullRetirement(
-          scenario,
-          scenario.plan.primary.lifeExpectancy ?? ctx.startYear - scenario.plan.primary.birthYear,
-          ctx,
-        )
+      ? projectFullRetirement(scenario, scenario.plan.primary.lifeExpectancy, ctx)
       : undefined;
   const blocked = blockProbe?.status === "blocked";
   return {

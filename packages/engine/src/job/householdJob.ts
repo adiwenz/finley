@@ -308,11 +308,13 @@ export function membershipWindow(membership: HouseholdMembership): {
  * expectancy contributes to the projection horizon.
  * Derived from their birth year and expectancy age against the plan's frozen "now"; `fallbackAge`
  * (the primary's own {@link import("../plan/person").Person.lifeExpectancy}) stands in when the
- * member states none of their own.
+ * member states none of their own. This is the ONE inheritance: a partner may defer to the
+ * primary, and the primary's is required
+ * ({@link import("../plan/person").PrimaryPerson}), so the chain is one link long and bottoms out
+ * in a stated number.
  *
- * `Infinity` when neither the member nor the household names an expectancy — the legacy unbounded
- * membership a hand-built base with no expectancy still gets, so a fixture that never set one is
- * unchanged.
+ * `Infinity` only when no expectancy is reachable at all — a hand-built base holding no primary,
+ * where there is nothing to inherit from. Unreachable for any household built from a `Plan`.
  */
 export function lifeExpectancyEndMonthExclusive(
   person: Pick<Person, "birthYear" | "lifeExpectancy">,

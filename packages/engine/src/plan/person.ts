@@ -28,8 +28,12 @@ export interface Person {
    * `undefined` means **inherit the primary's own expectancy**
    * ({@link import("./plan").Plan.primary}`.lifeExpectancy`), resolved on read at the sim
    * boundary rather than frozen here — the same "not stated, so use the household default" shape
-   * {@link continuationJobId} uses. The primary always states theirs; a partner may state their
-   * own or leave it to the primary's.
+   * {@link continuationJobId} uses.
+   *
+   * Optional on `Person` because a PARTNER may genuinely leave it to the primary's. The primary
+   * themself always states one, and says so in the type: {@link PrimaryPerson} is what
+   * {@link import("./plan").Plan.primary} holds. Nothing else may be the fallback, so nothing else
+   * needs the field optional.
    */
   readonly lifeExpectancy?: number;
   /** An input, never solved for. */
@@ -67,3 +71,21 @@ export interface Person {
    */
   readonly continuationJobId?: JobId | null;
 }
+
+/**
+ * The primary household member: a {@link Person} whose {@link Person.lifeExpectancy} is
+ * **required**.
+ *
+ * The primary's expectancy is the household's fallback — every other member who states none
+ * inherits it — so it is the one expectancy that has nothing behind it to inherit from. Left
+ * optional it made every read site invent its own answer for "the primary named no expectancy",
+ * and they did not agree: the projection horizon read it as the current age (a run of ZERO
+ * months), the retirement search as the low end of its own range, the budget editor's slider as
+ * {@link import("./plan").MAX_AGE}. A plan could be authored with no expectancy at all, build
+ * clean, and project nothing, while the editor beside it showed 120.
+ *
+ * Requiring it deletes all of that rather than picking one of the fallbacks to standardize on: a
+ * default nobody typed is not a household's plan, and the state those fallbacks covered for is
+ * now unrepresentable.
+ */
+export type PrimaryPerson = Person & { readonly lifeExpectancy: number };

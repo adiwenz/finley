@@ -97,12 +97,12 @@ export function BudgetEditor({ budget, transact }: BudgetEditorProps) {
           value={START_YEAR - budget.primary.birthYear}
           onChange={(currentAge) => updateBudget({ birthYear: START_YEAR - currentAge })}
           min={18}
-          max={Math.min(MAX_LIVED_AGE, budget.primary.lifeExpectancy ?? MAX_AGE)}
+          max={Math.min(MAX_LIVED_AGE, budget.primary.lifeExpectancy)}
           step={1}
         />
         <NumInput
           label="Life expectancy"
-          value={budget.primary.lifeExpectancy ?? MAX_AGE}
+          value={budget.primary.lifeExpectancy}
           onChange={(lifeExpectancy) => updateBudget({ lifeExpectancy })}
           min={Math.max(60, START_YEAR - budget.primary.birthYear)}
           max={MAX_AGE}

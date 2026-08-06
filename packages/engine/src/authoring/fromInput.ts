@@ -61,6 +61,15 @@ export function interpretScenarioInput(
   // makes this an authoring path: the state it starts from holds no id at all, so restoration has
   // nothing to floor past and the counter opens at 1.
   const { jobs, goals, budgetLines, events: _events, continuationJobRef, ...scalars } = input;
+  // Same reason as the age bound below: `open` throws for a document with no primary expectancy,
+  // and a document's answer is `{ ok: false }` with a reason. The type already requires it, but a
+  // published package is reached from JavaScript too, and a `NaN` horizon is not a refusal.
+  if (
+    typeof scalars.lifeExpectancy !== "number" ||
+    !Number.isFinite(scalars.lifeExpectancy)
+  ) {
+    return { ok: false, error: { reason: "lifeExpectancy is required — the primary's own expectancy is what every other member inherits" } };
+  }
   // `open` REFUSES an over-large age by throwing, which is right for a caller holding a handle
   // but wrong for a document: this path answers `{ ok: false }` with a reason, so the age is
   // checked here and reported like any other thing wrong with the input.

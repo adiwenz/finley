@@ -328,6 +328,49 @@ describe("Projection.fromInput", () => {
 });
 
 /**
+ * The PRIMARY's life expectancy is required — it is the household's own fallback, the one
+ * expectancy with nothing behind it to inherit from. `Person.lifeExpectancy` stays optional so a
+ * partner can genuinely defer to it; `Plan.primary` is a `PrimaryPerson`, where it is not.
+ *
+ * The type says so, and these pin that the type is not the only thing saying so: `@finley/engine`
+ * is published, so a JavaScript caller can omit the field, and an unstated expectancy now reaches
+ * arithmetic that would answer `NaN` months rather than the 0 it used to.
+ */
+describe("Projection — the primary's life expectancy is required, not defaulted", () => {
+  /** `base` minus the one field under test. */
+  const withoutLifeExpectancy = () => {
+    const { lifeExpectancy: _drop, ...rest } = base;
+    return rest as ScenarioInput;
+  };
+
+  it("refuses a DOCUMENT that omits it, with a reason rather than a throw", () => {
+    const result = Projection.fromInput(withoutLifeExpectancy(), nullJurisdiction);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected refusal");
+    expect(result.error.reason).toMatch(/lifeExpectancy is required/);
+  });
+
+  it("throws for a caller holding a handle — the same split every other bad age uses", () => {
+    expect(() => Projection.init(withoutLifeExpectancy(), nullJurisdiction)).toThrow(
+      /without the primary's lifeExpectancy/,
+    );
+  });
+
+  it("never lets a plan patch CLEAR it — an explicit undefined is not a write", () => {
+    // A patch is `Partial`, so `{ lifeExpectancy: undefined }` type-checks; spreading it would
+    // erase the household's fallback and take the horizon with it.
+    const p = built(base);
+    p.updatePlan({ lifeExpectancy: undefined });
+    expect(p.plan.primary.lifeExpectancy).toBe(90);
+    expect(p.run(nullJurisdiction).series.months.length).toBe((90 - 30) * 12);
+    // A real value still lands, so skipping `undefined` has not made the field unpatchable.
+    p.updatePlan({ lifeExpectancy: 100 });
+    expect(p.plan.primary.lifeExpectancy).toBe(100);
+    expect(p.run(nullJurisdiction).series.months.length).toBe((100 - 30) * 12);
+  });
+});
+
+/**
  * A partner's life expectancy is authorable from a DOCUMENT, not only from the imperative
  * `marry()`/`startPartnered()` calls. Without the entry field a document could state every other
  * thing about a partner and never their expectancy, so a scenario round-tripped through

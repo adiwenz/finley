@@ -287,9 +287,6 @@ export function createProjectionBase(
     annualInflationRate: inflationRate,
     benefitColaRate: budget.benefitColaRate,
     startYear,
-    // The fallback expectancy a partner who states none inherits, and the primary's own — the
-    // horizon takes the max of every member's expectancy month against it.
-    householdLifeExpectancyAge: budget.primary.lifeExpectancy,
     // Authoring Persons only; SimPerson is derived at the sim boundary, never here.
     initialPersons: [standingPerson],
     initialAccounts: buildPlanAccounts(budget),

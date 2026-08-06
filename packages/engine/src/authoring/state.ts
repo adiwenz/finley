@@ -58,6 +58,15 @@ export const CURRENT_FORMAT_VERSION = 1;
  */
 export function emptyState(scalars: ScenarioScalars): ProjectionState {
   const { startYear, name, birthYear, lifeExpectancy, benefitClaimingAge, ...rest } = scalars;
+  // The primary's expectancy is REQUIRED — it is the household's own fallback, so there is nothing
+  // behind it to inherit from — and `@finley/engine` is published, so the type is not the only
+  // guard: a JavaScript caller omitting it would otherwise reach `planHorizonMonths` and produce a
+  // horizon of `NaN` months. Refused rather than defaulted, for the reason `MAX_AGE` is refused
+  // rather than clamped: a plan projected to an age it does not state is a plan whose numbers
+  // disagree with the answer beside them.
+  if (typeof lifeExpectancy !== "number" || !Number.isFinite(lifeExpectancy)) {
+    throw new Error("Projection: cannot open a plan without the primary's lifeExpectancy");
+  }
   // The age bound applies at the door as well as on every later edit — `Projection.init` is a
   // way into the plan that does not pass through `withPlanPatch`, and a horizon nobody can
   // afford to simulate is no more welcome for having arrived first.

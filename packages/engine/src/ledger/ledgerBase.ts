@@ -21,14 +21,6 @@ export interface LedgerBaseConfig {
   /** Benefit COLA rate (decimal); unset couples it to {@link annualInflationRate}. */
   readonly benefitColaRate?: number;
   readonly startYear?: number;
-  /**
-   * The primary's own life-expectancy age
-   * ({@link import("../plan/person").Person.lifeExpectancy}), carried so `interpret` can resolve
-   * a member who states no expectancy of their own to it — and so every member's expectancy
-   * month is comparable when the horizon takes the max across them. Absent leaves such a member
-   * unbounded, the legacy behaviour.
-   */
-  readonly householdLifeExpectancyAge?: number;
   /** Persons present before any events — authoring {@link Person}s. */
   readonly initialPersons?: readonly Person[];
   /**

@@ -6,7 +6,7 @@
 import type { GoalDisposal } from "../goal/goal";
 import type { SharedContributionScheme } from "../projection/waterfall";
 import type { BudgetLine } from "../budget/budgetLine";
-import type { Person } from "./person";
+import type { Person, PrimaryPerson } from "./person";
 
 /**
  * A goal fund account's {@link import("./simAccount").SimAccountTaxProfile} and liquidity:
@@ -82,8 +82,11 @@ export interface Plan {
    * `ProjectionContext.startYear` on every compile — the same way a partner's is set once at
    * `marry` and never revisited. Re-projecting the same plan against a later "now" ages the
    * primary the way it already ages a partner: not at all, on the engine's own account.
+   *
+   * A {@link PrimaryPerson}, not a bare `Person`: the primary's `lifeExpectancy` is REQUIRED,
+   * because it is what every other member who states none inherits.
    */
-  readonly primary: Person;
+  readonly primary: PrimaryPerson;
   /**
    * The sole expense authoring surface, and REQUIRED: a plan always states its spend, even if
    * that statement is "nothing". `createProjectionBase` compiles the *expense* lines into the
@@ -162,8 +165,7 @@ export function planHorizonMonths(
   startYear: number,
 ): number {
   const currentAge = startYear - plan.primary.birthYear;
-  const lifeExpectancy = plan.primary.lifeExpectancy ?? currentAge;
-  return Math.max(0, lifeExpectancy - currentAge) * 12;
+  return Math.max(0, plan.primary.lifeExpectancy - currentAge) * 12;
 }
 
 /**
@@ -221,7 +223,7 @@ type PrimaryPatchKeys = "name" | "birthYear" | "lifeExpectancy" | "benefitClaimi
  * "scalar" patch and walk straight past that guard.
  */
 export type PlanPatch = Partial<Omit<Plan, "goals" | "budgetLines" | "primary">> &
-  Partial<Pick<Person, PrimaryPatchKeys>>;
+  Partial<Pick<PrimaryPerson, PrimaryPatchKeys>>;
 
 /** {@link PlanPatch}'s primary-scoped keys, named once so `withPlanPatch` can split on them. */
 const PRIMARY_PATCH_KEYS: readonly PrimaryPatchKeys[] = [
@@ -284,12 +286,18 @@ export function withGoalReordered(
  */
 export function withPlanPatch(plan: Plan, patch: PlanPatch, startYear: number): Plan {
   const { goals: _g, budgetLines: _b, ...rest } = patch as Partial<Plan> & Partial<Plan["primary"]>;
-  const primaryPatch: Partial<Pick<Person, PrimaryPatchKeys>> = {};
+  const primaryPatch: Partial<Pick<PrimaryPerson, PrimaryPatchKeys>> = {};
   const scalars: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(rest)) {
     if ((PRIMARY_PATCH_KEYS as readonly string[]).includes(key)) {
-      (primaryPatch as Record<string, unknown>)[key] = value;
+      // Every primary scalar is REQUIRED on the Person, so an explicit `undefined` is a clear,
+      // not a write — and spreading it would erase a field the type says is always there
+      // (`lifeExpectancy` above all, the household's own fallback). Skipped for the same reason
+      // the collections are dropped at runtime: a type that is the only guard is not a guard.
+      if (value !== undefined) (primaryPatch as Record<string, unknown>)[key] = value;
     } else {
+      // A plan scalar may be genuinely optional (`surplusCashTo`, `benefitColaRate`), so an
+      // `undefined` here is left alone — unsetting one is a real edit.
       scalars[key] = value;
     }
   }

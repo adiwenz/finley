@@ -22,6 +22,7 @@ import type { Household } from "../ledger/household";
 import { interpretLedger } from "../ledger/interpret";
 import type { Ledger } from "../ledger/ledger";
 import { compilePerson } from "../compile/compilePerson";
+import { PRIMARY_PERSON_ID } from "../compile/projectionBase";
 import {
   lifeExpectancyEndMonthExclusive,
   membershipWindow,
@@ -124,16 +125,25 @@ export function buildHouseholdSimInput(
     base.stopWorking === undefined
       ? { kind: "authored" }
       : { kind: "hypothetical", stopWorking: base.stopWorking };
+  // The expectancy a member who states none inherits: the PRIMARY's own, read straight off the
+  // roster. A plain read rather than a value threaded down from the base, because the primary is
+  // already here — they are a member like any other — and `Plan.primary` is a `PrimaryPerson`, so
+  // for any household built from a plan this is a `number`. It is `undefined` only for a
+  // hand-built base holding no primary at all, which leaves an unstated member unbounded exactly
+  // as before.
+  const householdExpectancyAge = household.memberships.find(
+    (m) => m.person.id === PRIMARY_PERSON_ID,
+  )?.person.lifeExpectancy;
   // The membership window rides along: the income series were clipped to it up here, but a
   // government benefit is derived inside the sim and would otherwise be paid to a household the
   // person has left.
   // Each member resolved once: their household window (start..separation) and the month their own
-  // life ends (their expectancy, or the household's when they state none). The life-end bounds the
+  // life ends (their expectancy, or the primary's when they state none). The life-end bounds the
   // government benefit inside the sim; it never touches a wage, which ends where the job was
   // authored to.
   const resolvedMembers = household.memberships.map((m) => ({
     memberWindow: membershipWindow(m),
-    lifeEnd: lifeExpectancyEndMonthExclusive(m.person, nowYear, base.householdLifeExpectancyAge),
+    lifeEnd: lifeExpectancyEndMonthExclusive(m.person, nowYear, householdExpectancyAge),
     person: m.person,
   }));
 
