@@ -27,9 +27,15 @@ function render(budget: Plan) {
   );
 }
 
-function renderWithView(view: RetirementView, previewing = false) {
+function renderWithView(view: RetirementView, previewing = false, pending = false) {
   return renderToStaticMarkup(
-    <RetirementPanel view={view} budget={PLAN_DEFAULTS} previewing={previewing} onTogglePreview={noop} />,
+    <RetirementPanel
+      view={view}
+      budget={PLAN_DEFAULTS}
+      previewing={previewing}
+      pending={pending}
+      onTogglePreview={noop}
+    />,
   );
 }
 
@@ -167,6 +173,51 @@ describe("RetirementPanel", () => {
         .earlyRetireeHealth;
     expect(flagOf(5_000).shortfallMonthlyCents).toBe(0);
     expect(flagOf(0).shortfallMonthlyCents).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The solve is deferred, so between an edit committing and the search catching up the panel is
+ * showing the PREVIOUS plan's answer (see `useRetirementSurface`). What it must not do in that
+ * window is present that answer as the current plan's, or let it start a preview.
+ */
+describe("RetirementPanel — while the solve is behind the plan", () => {
+  const feasible = retirementView(Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction));
+
+  it("says the answer is for the previous plan, and holds the preview toggle", () => {
+    const html = renderWithView(feasible, false, true);
+    expect(html).toMatch(/Recalculating/i);
+    expect(html).toContain("previous plan");
+    // Held, not hidden: the age in the toggle's own sentence is about to change, so flipping it
+    // either way would act on a number that no longer applies.
+    expect(html).toMatch(/<input[^>]*type="checkbox"[^>]*disabled/);
+  });
+
+  it("says nothing of the sort, and takes the toggle, once it has caught up", () => {
+    const html = renderWithView(feasible);
+    expect(html).not.toMatch(/Recalculating/i);
+    expect(html).toContain("checkbox");
+    expect(html).not.toMatch(/<input[^>]*disabled/);
+  });
+
+  it("keeps an open preview usable to look at, but not to change", () => {
+    // The charts go on drawing the previous plan's preview — a real answer one edit old, which
+    // beats blanking them on every keystroke. It is labelled rather than trusted.
+    const html = renderWithView(feasible, true, true);
+    expect(html).toMatch(/Recalculating/i);
+    expect(html).toMatch(/<input[^>]*checked[^>]*disabled|<input[^>]*disabled[^>]*checked/);
+  });
+
+  it("flags a stale BLOCK too — the edit in flight may be the one that unblocks it", () => {
+    const blocked: RetirementView = {
+      ...feasible,
+      headlineAge: null,
+      headlineMonth: null,
+      blocked: true,
+      blockedAtAge: 40,
+    };
+    expect(renderWithView(blocked, false, true)).toMatch(/Recalculating/i);
+    expect(renderWithView(blocked)).not.toMatch(/Recalculating/i);
   });
 });
 

@@ -18,7 +18,7 @@ import { RetirementPanel } from "./components/retirementPanel/retirementPanel";
 import { DebugPanel } from "./components/debugPanel/debugPanel";
 import { BaseAdjustmentsPanel } from "./components/baseAdjustments/baseAdjustmentsPanel";
 import { JobsPanel } from "./components/jobsPanel/jobsPanel";
-import { retirementView } from "./retirementView";
+import { useRetirementSurface } from "./hooks/useRetirementSurface";
 import { OBLIGATION_SURFACE_ANCHORS } from "./components/baseAdjustments/obligationLink";
 import { useProjection } from "./hooks/useProjection";
 import { DEFAULT_SCRUB_MONTH } from "./planDefaults";
@@ -110,34 +110,50 @@ export function App() {
    *
    * Deferred rather than GATED on the retirement panel being open, which was the obvious move
    * and is wrong: the solved age is not panel-local. It dates the graph's retirement reference
-   * line, bounds the Base + Adjustments quickstart's savings line, and is what `previewResult`
-   * simulates at — all of them visible with the panel untouched.
+   * line and is what `previewResult` simulates at, both visible with the panel untouched.
    *
    * Stale for a frame is honest here in a way it would not be on an authoring surface: these are
-   * read-only overlays on a plan the user is still typing into. Every editable surface below
-   * stays on the undeferred `projection`.
+   * read-only overlays on a plan the user is still typing into. So the lag is confined by two
+   * rules, and everything below is one or the other of them:
+   *
+   * - **Nothing WRITES from it.** The Base + Adjustments quickstart used to bound its savings
+   *   line at `retirement.plannedWorkStopAge`, which made a deferred value an input to a budget
+   *   edit; it reads `projection.plannedWorkStopAge` below instead — the same figure, no search,
+   *   off the live handle.
+   * - **Nothing PRESENTS it as current.** `retirementPending` says the answer is a plan behind,
+   *   and each surface reading it either says so (the panel, the chart note) or steps aside
+   *   until it lands (the reference line, the jobs' pay figures, the preview toggle).
    */
   const solvedProjection = useDeferredValue(projection);
-  // The retirement panel reasons about the SAME scenario the graph draws — plan plus the
-  // live ledger — so "when can we retire?" reflects every event the user added (a child, a
-  // new expense, a separation), not the bare plan.
-  const retirement = useMemo(
-    () => retirementView(solvedProjection, usJurisdiction),
-    [solvedProjection],
-  );
+  /**
+   * The retirement panel reasons about the SAME scenario the graph draws — plan plus the live
+   * ledger — so "when can we retire?" reflects every event the user added (a child, a new
+   * expense, a separation), not the bare plan.
+   *
+   * The answer and its stop-working preview come back paired, off ONE handle, and
+   * `retirementPending` says when that pair is a plan behind — see `useRetirementSurface`, which
+   * holds the reasoning and the hazard the pairing exists to prevent.
+   */
+  const {
+    retirement,
+    previewResult,
+    pending: retirementPending,
+  } = useRetirementSurface({
+    projection,
+    solvedProjection,
+    previewEnabled: previewRetirement,
+    jurisdiction: usJurisdiction,
+  });
 
-  // The "what if everyone stopped working at the solved age" run — the same non-mutating
-  // stop-working boundary the solver searched with, surfaced instead of discarded. Computed
-  // only when the toggle is actually on AND a feasible headline age exists — an ordinary plan
-  // edit re-renders this memo on every keystroke, and the preview toggle is off far more often
-  // than it's on, so gating on `previewRetirement` keeps an unused extra projection from
-  // running on every edit. Turning the toggle ON is what should pay for the simulation.
-  const previewResult = useMemo(
-    () =>
-      previewRetirement && retirement.headlineAge !== null
-        ? projection.runAtStopWorkingAge(usJurisdiction, retirement.headlineAge)
-        : null,
-    [projection, previewRetirement, retirement.headlineAge],
+  /**
+   * Where the Base + Adjustments quickstart stops its savings line. Read off the LIVE handle,
+   * not the solve: it is a plain read of when the authored jobs stop paying — no search — and it
+   * is an authoring input, since the quickstart writes a budget bounded by it. A deferred value
+   * is fine to draw with and not fine to write from.
+   */
+  const plannedWorkStopAge = useMemo(
+    () => projection.plannedWorkStopAge(usJurisdiction),
+    [projection],
   );
   // `previewResult` is already gated on `previewRetirement` above, so this collapses to a
   // simple null check — a stale toggle with no feasible age still reports itself off.
@@ -201,9 +217,21 @@ export function App() {
                 stopped early — a blocked series is truncated at the block. */}
             <NetWorthChart
               series={chartSeries}
-              retirementMonth={retirement.headlineMonth}
+              // Dropped while the solve is behind: the line marks WHERE ON THIS SERIES work
+              // could stop, and a month solved from the previous plan lands somewhere arbitrary
+              // on the current one. Absent for a frame beats confidently misplaced.
+              retirementMonth={retirementPending ? null : retirement.headlineMonth}
               horizonMonths={horizonMonths}
             />
+
+            {/* The charts above are still drawing the previous plan's preview — a real answer,
+                one edit old. Said outright rather than left to look current, since nothing else
+                on screen distinguishes it from a preview of what the user just typed. */}
+            {retirementPending && previewing && (
+              <p className="hint" role="status">
+                Recalculating the retirement preview — the charts still show the previous plan.
+              </p>
+            )}
 
             {/* Deep-link target for a read-only obligation whose fact lives on the timeline —
                 an event-spawned expense or a loan payment (see Base + Adjustments). */}
@@ -292,6 +320,7 @@ export function App() {
               view={retirement}
               budget={budget}
               previewing={previewing}
+              pending={retirementPending}
               onTogglePreview={setPreviewRetirement}
             />
           </div>
@@ -305,7 +334,11 @@ export function App() {
           household={household}
           ledger={ledger}
           projection={projection}
-          payDisplay={(previewResult ?? result).jobPayDisplay}
+          // The job LIST beside these figures is the live plan's, so the figures have to be
+          // too whenever the preview is a plan behind — a pay display looked up from the
+          // previous plan's run is either about a job the user has since changed or missing
+          // outright. The preview's own pay figures return the moment it catches up.
+          payDisplay={(retirementPending ? result : previewResult ?? result).jobPayDisplay}
         />
       </div>
 
@@ -322,7 +355,7 @@ export function App() {
           household={household}
           ledger={ledger}
           projection={projection}
-          plannedWorkStopAge={retirement.plannedWorkStopAge}
+          plannedWorkStopAge={plannedWorkStopAge}
         />
       </div>
 

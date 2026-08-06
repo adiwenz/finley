@@ -66,16 +66,37 @@ function Whose({ owner }: { owner: { ownerId: string; ownerName: string } }) {
   );
 }
 
+/**
+ * Says the answer below is one edit behind. `role="status"` so it is announced rather than only
+ * seen: a reader who cannot see the panel dim is the reader most likely to act on a stale age.
+ */
+function Recalculating() {
+  return (
+    <p className="hint" role="status">
+      Recalculating… the answer below is for your previous plan.
+    </p>
+  );
+}
+
 export function RetirementPanel({
   view,
   budget,
   previewing,
+  pending = false,
   onTogglePreview,
 }: {
   view: RetirementView;
   budget: Plan;
   /** Whether the net-worth and income charts are currently showing the stop-working preview. */
   previewing: boolean;
+  /**
+   * The solve below describes an EARLIER plan than the one being edited — the search is deferred
+   * and has not caught up (see `useRetirementSurface`). The answer stays on screen, because a
+   * moment-old real answer beats a blank panel on every keystroke, but it is labelled as
+   * recalculating and the preview toggle is held: flipping it would ask the app to preview an
+   * age that is about to change.
+   */
+  pending?: boolean;
   /** Flip the preview on or off. The parent owns the state; the panel only reports the intent. */
   onTogglePreview: (next: boolean) => void;
 }) {
@@ -86,6 +107,9 @@ export function RetirementPanel({
     return (
       <>
         <h2>Retirement</h2>
+        {/* A block is as stale as an age: it says the PREVIOUS plan could not be simulated, and
+            the edit in flight may be the one that unblocks it. */}
+        {pending && <Recalculating />}
         <p className="alert alert-red" role="status">
           Can’t compute a retirement age — your projection is{" "}
           <strong>blocked at age {view.blockedAtAge}</strong>. Fund the blocking obligation
@@ -98,6 +122,7 @@ export function RetirementPanel({
   return (
     <>
       <h2>Retirement</h2>
+      {pending && <Recalculating />}
 
       {/* The plan as WRITTEN, answered on its own terms and first, because it is the one the
           household is actually living. Nothing here is solved: the stop age is a read of the
@@ -137,6 +162,10 @@ export function RetirementPanel({
           <input
             type="checkbox"
             checked={previewing}
+            // Held while the solve is behind: the age in this very sentence is about to change,
+            // so a flip now would open a preview of an answer that no longer applies — and
+            // closing one is just as suspect, since the user is reacting to a stale number.
+            disabled={pending}
             onChange={(e) => onTogglePreview(e.target.checked)}
           />
           <span>

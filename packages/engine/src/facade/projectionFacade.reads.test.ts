@@ -300,3 +300,37 @@ describe("ProjectionResult reads — over one run", () => {
  * arithmetic is `affordability`'s; these pin the DERIVATION — that the household's real gross
  * income and its already-serviced debt are what the guidelines are measured against.
  */
+
+/**
+ * `plannedWorkStopAge` on its own — the same figure `retirement()` reports, reachable without
+ * the search. It exists as a separate door because a caller bounding a savings line at the last
+ * paid month should not have to run (or hold onto) a solve to get it: the app's retirement solve
+ * is deferred, so the copy carried on an outlook can be a plan behind, while an authoring
+ * surface needs the age of the plan in front of the user.
+ */
+describe("Projection root — the authored work-stop age, without the solve", () => {
+  it("answers the same age the retirement outlook reports", () => {
+    const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
+    // Not a search: one resolution of the authored jobs. Agreeing with the outlook is the
+    // point — two ways to read one fact must not be two facts.
+    expect(p.plannedWorkStopAge(nullJurisdiction)).toBe(60);
+    expect(p.plannedWorkStopAge(nullJurisdiction)).toBe(
+      p.retirement(nullJurisdiction).solution.plannedWorkStopAge,
+    );
+  });
+
+  it("moves the moment a job's end moves, with no run in between", () => {
+    const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
+    const before = p.plannedWorkStopAge(nullJurisdiction)!;
+    const later = salariedJob(dollarsToCents(4_000), { endAge: before + 5 });
+    p.replaceJob(p.plan.jobs[0].id, later);
+    // Read off the jobs, so an edit is reflected immediately — which is what makes it safe for
+    // the authoring surfaces the deferred solve is not.
+    expect(p.plannedWorkStopAge(nullJurisdiction)).toBe(before + 5);
+  });
+
+  it("is null for a household holding no jobs — no work to stop", () => {
+    const p = Projection.fromState(stateOf({ ...samplePlan, jobs: [] }), nullJurisdiction);
+    expect(p.plannedWorkStopAge(nullJurisdiction)).toBeNull();
+  });
+});

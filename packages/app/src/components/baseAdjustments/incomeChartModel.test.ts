@@ -235,6 +235,38 @@ describe("buildIncomeChartModel", () => {
       expect(model.accessibleMoments).toHaveLength(3);
     });
 
+    /**
+     * The threshold itself. A step is `|after − before| / max(|before|, 1) >= 0.05`, so 5% exactly
+     * is a step and anything under it is drift — and the rule is on the SIZE of the move, which
+     * means a cut of the same size reads out exactly as a raise does. Pinned here because the
+     * constant is the whole difference between a table of 16 moments and one of 563.
+     */
+    const stepFrom = (fromCents: number, toCents: number) => {
+      const series = {
+        months: [
+          { month: 0 },
+          { month: 1, flows: { incomeSources: [source("job:a", fromCents, "wages")] } },
+          { month: 2, flows: { incomeSources: [source("job:a", toCents, "wages")] } },
+        ],
+      } as unknown as ProjectionSeries;
+      const model = buildIncomeChartModel(buildIncomeChartData(series), { mode: "advanced" });
+      return model.accessibleMoments.find((m) => /month 2/.test(m.label))?.reason ?? null;
+    };
+    const BASE = dollarsToCents(5_000);
+
+    it("reads out a move of exactly 5% — the threshold is inclusive", () => {
+      expect(stepFrom(BASE, BASE * 1.05)).toMatch(/job:a changes/i);
+    });
+
+    it("stays quiet one cent under 5%", () => {
+      expect(stepFrom(BASE, BASE * 1.05 - 1)).toBeNull();
+    });
+
+    it("treats a cut like a raise — the size of the move is what makes it a moment", () => {
+      expect(stepFrom(BASE, BASE * 0.95)).toMatch(/job:a changes/i);
+      expect(stepFrom(BASE, BASE * 0.95 + 1)).toBeNull();
+    });
+
     it("keeps a band's beginning and end however small the amount", () => {
       // Below the drift threshold in absolute terms, but structural: the chart's shape changes.
       const series = {

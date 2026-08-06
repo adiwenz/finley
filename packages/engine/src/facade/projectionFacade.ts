@@ -88,7 +88,7 @@ import { buildRetirementOutlook } from "../retirement/retirementOutlook";
 import { firstDeferralLimitCrossing } from "../retirement/deferralLimit";
 import type { DeferralLimitCrossing } from "../retirement/deferralLimit";
 import type { RetirementOutlook } from "../retirement/retirementOutlook";
-import { stopWorkingBoundaryAt } from "../retirement/retirementSolver";
+import { stopWorkingBoundaryAt, plannedWorkStopAge } from "../retirement/retirementSolver";
 
 import type { ProjectionState, Written } from "../authoring/state";
 import { emptyState } from "../authoring/state";
@@ -582,6 +582,23 @@ export class Projection {
    */
   retirement(jurisdiction: Jurisdiction): RetirementOutlook {
     return buildRetirementOutlook(this.current, jurisdiction);
+  }
+
+  /**
+   * **The age the plan AS AUTHORED stops earning** — the last year any job pays this household,
+   * on the primary's clock, and `null` for a household holding none.
+   *
+   * Also reported by {@link retirement}, and available here on its own because it is not a
+   * search: no candidate ages, no simulation, one resolution of the authored jobs. A caller that
+   * wants only this — bounding a savings line at the last paid month, say — should not have to
+   * wait on (or hold onto) a whole retirement solve to get it, and one that reads it off a solve
+   * computed for an EARLIER edit would be answering about a plan the user has moved on from.
+   */
+  plannedWorkStopAge(jurisdiction: Jurisdiction): number | null {
+    return plannedWorkStopAge(this.current.scenario, {
+      jurisdiction,
+      startYear: this.current.startYear,
+    });
   }
 
   /**
