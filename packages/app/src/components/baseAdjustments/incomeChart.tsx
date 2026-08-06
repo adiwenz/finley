@@ -48,10 +48,10 @@ const MARKER = "#1f3a2e"; // the selected-month rule
  *
  * A table sizes to its content: `width`/`height` are minimums it ignores, and neither `overflow`
  * nor the legacy `clip` keeps it from laying out at full size. The a11y table below runs to a row
- * per interesting moment in a lifetime projection — some 4,900 rows — so hidden-on-the-table
- * left an absolutely-positioned 103,000px element on the page and the document scrolled a
- * hundred thousand pixels past the last thing anyone could see. A `<div>` honours all three
- * properties, and the table inside keeps its own display and its semantics intact.
+ * group per interesting moment in a lifetime projection, so hidden-on-the-table left a tall
+ * absolutely-positioned element on the page and the document scrolled thousands of pixels past
+ * the last thing anyone could see. A `<div>` honours all three properties, and the table inside
+ * keeps its own display and its semantics intact.
  */
 const VISUALLY_HIDDEN: CSSProperties = {
   position: "absolute",
