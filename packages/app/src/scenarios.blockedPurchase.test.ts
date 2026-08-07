@@ -25,6 +25,7 @@ import { usJurisdiction } from "@finley/rules";
 import { DEFAULT_INPUT } from "./planDefaults";
 import { START_YEAR } from "./config";
 import { retirementView } from "./retirementView";
+import { blockedWarning, timelineMarkers } from "./ledgerView";
 import { buildNetWorthChartData } from "./components/netWorthChart/netWorthChartData";
 import { toAxisX } from "./components/monthAxis";
 
@@ -102,6 +103,14 @@ describe("a purchase stranded by a later edit — what the projection does with 
     const untouched = household(OPENING_AFTER_EDIT).run(usJurisdiction).series.months[BUY_MONTH]!;
     expect(blocked.accountBalancesCents).toEqual(untouched.accountBalancesCents);
     expect(blocked.netWorthNominalCents).toBe(untouched.netWorthNominalCents);
+
+    // The timeline's claim has to agree with what actually happened: the SECOND purchase sits in
+    // the same month as the blocker, but its draw never resolved, so it reads `not-reached` — never
+    // `executed` — exactly like the artifacts above already show. Read off the public engine
+    // output only; nothing here parses an obligation id to make the join.
+    const outcome = new Map(timelineMarkers(p.ledger, series).map((m) => [m.id, m.outcome]));
+    expect(outcome.get(first)).toBe("blocked");
+    expect(outcome.get(second)).toBe("not-reached");
   });
 
   it("keeps an EARLIER same-month home whose down payment did resolve", () => {
@@ -153,5 +162,35 @@ describe("a purchase stranded by a later edit — what the projection does with 
     expect(chart.blocked?.netWorthCents).toBe(series.blockingObligation!.markerNetWorthCents);
     // Nothing is plotted past the block.
     expect(Math.max(...chart.points.map((pt) => pt.x))).toBe(toAxisX(BUY_MONTH));
+  });
+
+  it("warns naming the stranded purchase and its month, and marks every later event not-reached", () => {
+    const p = household(OPENING_WHEN_AUTHORED);
+    const stranded = buyHome(p, 500_000, 200_000);
+    // A second purchase authored strictly AFTER the block — the simulation stops before reaching it.
+    const later = p.buyHome({
+      month: 60,
+      ownerId: PRIMARY_PERSON_ID,
+      purchasePriceCents: dollarsToCents(300_000),
+      downPaymentCents: dollarsToCents(60_000),
+      downPaymentSourceIds: ["savings"],
+      mortgageApr: 0.06,
+      mortgageTermMonths: 360,
+    });
+    p.updatePlan({ openingBalanceCents: OPENING_AFTER_EDIT });
+    const series = p.run(usJurisdiction).series;
+
+    // The warning the household actually reads: the purchase in plain language, the month it was
+    // scheduled for, and the engine's bare (already post-tax) shortfall — a stop, not advice.
+    const warning = blockedWarning(p.ledger, series);
+    expect(warning?.eventLabel).toBe("Bought a home");
+    expect(warning?.month).toBe(BUY_MONTH);
+    expect(warning?.shortfallCents).toBe(series.blockingObligation!.shortfallCents);
+
+    // The timeline reads the same stop: the blocker is blocked, and the purchase after it — which
+    // the stopped simulation never tested — is not-reached.
+    const outcome = new Map(timelineMarkers(p.ledger, series).map((m) => [m.id, m.outcome]));
+    expect(outcome.get(stranded)).toBe("blocked");
+    expect(outcome.get(later)).toBe("not-reached");
   });
 });

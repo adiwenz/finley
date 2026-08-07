@@ -15,6 +15,7 @@ import {
 import { formatDollars, monthLabel, yearOf } from "../../format";
 import { TODAY_X, axisPointLabel, axisYearTickLabel, toAxisX } from "../monthAxis";
 import { buildNetWorthChartData, type BlockedMarker, type RunsOutMarker } from "./netWorthChartData";
+import { NotSimulatedHatch, useHatchId } from "./notSimulatedHatch";
 
 const INK = "#1f3a2e"; // ledger ink green (nominal)
 const AMBER = "#b5761f"; // real (today's dollars)
@@ -146,6 +147,8 @@ export function NetWorthChart({
     horizonMonths,
   );
 
+  const hatchId = useHatchId("nw");
+
   return (
     <div
       role="img"
@@ -156,6 +159,9 @@ export function NetWorthChart({
           data={[...points]}
           margin={{ top: 16, right: 16, bottom: 8, left: 16 }}
         >
+          <defs>
+            <NotSimulatedHatch id={hatchId} stroke={RED} />
+          </defs>
           <CartesianGrid stroke={GRID} vertical={false} />
           <XAxis
             dataKey="x"
@@ -174,16 +180,16 @@ export function NetWorthChart({
             stroke={GRID}
           />
           <ReferenceLine y={0} stroke="#c9bfa5" />
-          {/* The stretch the projection never simulated. Declared after the axes it is measured
-              against and before every series, so the curve and the markers paint on top of it, and
-              kept deliberately faint: it carries no figure and makes no claim about what would
-              have happened — only that the plan was not answered past here. */}
+          {/* The stretch the projection never simulated — hatched from the month AFTER the block,
+              so the blocked month stays solid. Declared after the axes it is measured against and
+              before every series, so the curve and the markers paint on top of it. It carries no
+              figure and makes no claim about what would have happened, only that the plan was not
+              answered past here. */}
           {stopped !== null && (
             <ReferenceArea
               x1={stopped.fromX}
               x2={stopped.toX}
-              fill={RED}
-              fillOpacity={0.05}
+              fill={`url(#${hatchId})`}
               stroke="none"
               label={{ value: "not simulated", position: "insideTop", fill: AXIS, fontSize: 11 }}
             />

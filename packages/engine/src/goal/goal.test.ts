@@ -36,6 +36,7 @@ function seriesFromFundBalances(balancesCents: readonly number[]): ProjectionSer
     months: built,
     status: "ran-to-horizon",
     simulatedThroughMonth: built.length - 1,
+    obligationOutcomes: {},
   };
 }
 

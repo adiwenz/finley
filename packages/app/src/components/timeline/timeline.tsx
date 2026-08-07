@@ -2,12 +2,25 @@
 
 import type { LifeEvent } from "@finley/engine";
 import { monthLabel } from "../../format";
-import type { TimelineMarker } from "../../ledgerView";
+import type { MarkerOutcome, TimelineMarker } from "../../ledgerView";
 import styles from "./timeline.module.css";
 
 // Left inset matches the chart's YAxis width (72) + left margin (16); right = 16.
 const TRACK_LEFT = 88;
 const TRACK_RIGHT = 16;
+
+/**
+ * Row-badge and track-dot presentation for the two non-executed outcomes; `executed` shows neither.
+ * The one place outcome maps to markup — both surfaces read `label`/`dot`/`badge` off it.
+ */
+const OUTCOME_INDICATOR: Record<
+  MarkerOutcome,
+  { readonly label: string; readonly dot: string; readonly badge: string } | null
+> = {
+  executed: null,
+  blocked: { label: "Blocked", dot: styles.blockedDot, badge: styles.mlBlocked },
+  "not-reached": { label: "Not reached", dot: styles.notReachedDot, badge: styles.mlNotReached },
+};
 
 export function Timeline({
   markers,
@@ -38,17 +51,20 @@ export function Timeline({
       <div className={styles.trackWrap} style={{ paddingLeft: TRACK_LEFT, paddingRight: TRACK_RIGHT }}>
         <div className={styles.track}>
           <div className={styles.scrubFill} style={{ width: pct(scrubMonth) }} />
-          {markers.map((m) => (
-            <button
-              key={m.id}
-              className={m.month <= scrubMonth ? styles.marker : `${styles.marker} ${styles.future}`}
-              style={{ left: pct(m.month) }}
-              title={`${m.label} — ${m.detail} · ${monthLabel(m.month)}`}
-              onClick={() => onScrub(m.month)}
-            >
-              <span className={styles.markerDot} />
-            </button>
-          ))}
+          {markers.map((m) => {
+            const indicator = OUTCOME_INDICATOR[m.outcome];
+            return (
+              <button
+                key={m.id}
+                className={m.month <= scrubMonth ? styles.marker : `${styles.marker} ${styles.future}`}
+                style={{ left: pct(m.month) }}
+                title={`${m.label} — ${m.detail} · ${monthLabel(m.month)}${indicator ? ` · ${indicator.label}` : ""}`}
+                onClick={() => onScrub(m.month)}
+              >
+                <span className={indicator ? `${styles.markerDot} ${indicator.dot}` : styles.markerDot} />
+              </button>
+            );
+          })}
           <div className={styles.handle} style={{ left: pct(scrubMonth) }} aria-hidden />
         </div>
         <input
@@ -67,21 +83,27 @@ export function Timeline({
         <p className="hint">No life events yet. Add one to see its marker here.</p>
       ) : (
         <ul className={styles.markerList}>
-          {markers.map((m) => (
-            <li key={m.id}>
-              <span className={styles.mlWhen}>{monthLabel(m.month)}</span>
-              <span className={styles.mlLabel}>{m.label}</span>
-              <span className={styles.mlDetail}>{m.detail}</span>
-              {editableTypes.has(m.type) && (
-                <button className="btn link" onClick={() => onEdit(m.id)}>
-                  Edit
+          {markers.map((m) => {
+            const indicator = OUTCOME_INDICATOR[m.outcome];
+            return (
+              <li key={m.id}>
+                <span className={styles.mlWhen}>{monthLabel(m.month)}</span>
+                <span className={styles.mlLabel}>{m.label}</span>
+                <span className={styles.mlDetail}>{m.detail}</span>
+                {indicator ? (
+                  <span className={`${styles.mlOutcome} ${indicator.badge}`}>{indicator.label}</span>
+                ) : null}
+                {editableTypes.has(m.type) && (
+                  <button className="btn link" onClick={() => onEdit(m.id)}>
+                    Edit
+                  </button>
+                )}
+                <button className="btn link" onClick={() => onRemove(m.id)}>
+                  Remove
                 </button>
-              )}
-              <button className="btn link" onClick={() => onRemove(m.id)}>
-                Remove
-              </button>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

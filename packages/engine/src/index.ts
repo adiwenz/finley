@@ -140,11 +140,12 @@ export type {
   ProjectionSeries,
   ProjectionMonth,
   BlockedObligation,
+  ObligationOutcome,
   InsolvencyReport,
   IncomeSourceCategory,
 } from "./projection/simulate.types";
 export type { SharedContributionScheme } from "./projection/waterfall.types";
-export type { FinancialObligation } from "./projection/financialObligation";
+export type { FinancialObligation, ObligationId } from "./projection/financialObligation";
 export type {
   ResolvedFunding,
   ResolvedFundingSource,

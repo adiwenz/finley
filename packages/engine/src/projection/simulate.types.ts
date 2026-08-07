@@ -9,7 +9,7 @@ import type { SimLiability, PaymentStatus, LoanStatus } from "../liability/liabi
 import type { SimCashFlowSeries, TaxCategory } from "../money/cashFlowSeries";
 import type { SimGoal } from "../goal/goal";
 import type { BudgetLine } from "../budget/budgetLine";
-import type { FinancialObligation, ObligationSource } from "./financialObligation";
+import type { FinancialObligation, ObligationId, ObligationSource } from "./financialObligation";
 import type { ResolvedFunding } from "./resolvedFunding";
 import type {
   PlanDescriptor,
@@ -292,6 +292,41 @@ export interface ProjectionIncomeSource {
 }
 
 /**
+ * What became of one explicitly-funded obligation across the whole simulation — the per-obligation
+ * companion to the series-level {@link ProjectionSeries.status}. Classified from ACTUAL resolution,
+ * never by comparing months: a same-month sibling of the blocker that was never resolved reports
+ * `not-reached` exactly like a later-month draw would, since resolution stops mid-month.
+ *   - `executed` — its draw actually resolved: money moved, its artifacts stand.
+ *   - `blocked` — this obligation is the one that stopped the projection; carries its month and the
+ *     bare shortfall (net of the capital-gains tax liquidating its sources owes). Classifying that
+ *     shortfall and offering alternatives is a later slice, not here.
+ *   - `not-reached` — its draw was never resolved because the block stopped resolution first, either
+ *     a same-month sibling after the blocker or something authored later. `blockedByObligationId`
+ *     names the obligation that stopped it. NOT a claim of dependency: once the sim halts nothing
+ *     later was tested, and marking only dependents would imply the rest were checked and found fine.
+ *
+ * Every variant carries `sourceEventId` — the life event that spawned this obligation, mirrored
+ * straight off {@link FinancialObligation.sourceEventId} — so a consumer (the app's timeline/warning)
+ * can join outcome back to authoring event without parsing `ObligationId`'s internal spelling. Absent
+ * exactly where the obligation itself carries none (a budget line, a liability payment — obligations
+ * with no event provenance at all, which is also why the map has no entry for them: see {@link
+ * ProjectionSeries.obligationOutcomes}).
+ */
+export type ObligationOutcome =
+  | { readonly status: "executed"; readonly sourceEventId?: string }
+  | {
+      readonly status: "blocked";
+      readonly month: number;
+      readonly shortfallCents: Cents;
+      readonly sourceEventId?: string;
+    }
+  | {
+      readonly status: "not-reached";
+      readonly blockedByObligationId: ObligationId;
+      readonly sourceEventId?: string;
+    };
+
+/**
  * The obligation that stopped a {@link ProjectionSeries}, and the funding gap that stopped it.
  * Presentation-only: nothing here is a balance or a later month's input — it exists so the chart
  * can name the failed purchase and the size of its shortfall. All figures are net of the
@@ -365,6 +400,18 @@ export interface ProjectionSeries {
    * across the engine's output seam like every other field here.
    */
   readonly omittedSourceEventIds?: readonly string[];
+  /**
+   * The fate of every explicitly-funded obligation, keyed by its {@link FinancialObligation.id}.
+   * Present always — `{}` when the plan authors no explicit draws — with every draw `executed` on a
+   * `"ran-to-horizon"` run.
+   *
+   * ONLY explicit obligations appear. Automatic obligations (budget lines, liability payments) can
+   * never block, so tracking them would be noise; structural events (marriage, a child, separation)
+   * spawn no obligation at all — `interpretLedger` folds them into the household before month 0, so
+   * they are already in the series whatever the block does, and marking one "not reached" would
+   * assert ignorance about something the engine unconditionally computed.
+   */
+  readonly obligationOutcomes: Readonly<Record<ObligationId, ObligationOutcome>>;
 }
 
 /**

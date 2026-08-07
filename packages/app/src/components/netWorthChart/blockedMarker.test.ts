@@ -52,6 +52,7 @@ function blockedSeries(): ProjectionSeries {
     simulatedThroughMonth: BLOCK_MONTH,
     blockedAtMonth: BLOCK_MONTH,
     blockingObligation: blocking,
+    obligationOutcomes: {},
   };
 }
 
@@ -86,6 +87,7 @@ describe("net-worth chart — the terminal blocked marker", () => {
       months,
       status: "ran-to-horizon",
       simulatedThroughMonth: 1,
+      obligationOutcomes: {},
     };
     expect(buildNetWorthChartData(ranToHorizon).blocked).toBeNull();
   });
@@ -105,9 +107,11 @@ describe("net-worth chart — the terminal blocked marker", () => {
       expect(data.blocked?.x).toBe(toAxisX(BLOCK_MONTH));
     });
 
-    it("shades everything from the block to the end of the axis", () => {
+    it("hatches from the month AFTER the block, leaving the blocked month itself solid", () => {
       const data = buildNetWorthChartData(blockedSeries(), HORIZON_MONTHS);
-      expect(data.stopped).toEqual({ fromX: toAxisX(BLOCK_MONTH), toX: data.xMax });
+      // The blocked month ran its full pipeline — its net worth is a real end-of-month figure, so
+      // it stays on the solid curve. Only the never-simulated tail, starting the month after, hatches.
+      expect(data.stopped).toEqual({ fromX: toAxisX(BLOCK_MONTH + 1), toX: data.xMax });
     });
 
     it("shades nothing for a plan that ran to the horizon", () => {
@@ -116,6 +120,7 @@ describe("net-worth chart — the terminal blocked marker", () => {
         months: [month(0, 5_000_000), month(1, 5_100_000)],
         status: "ran-to-horizon",
         simulatedThroughMonth: 1,
+        obligationOutcomes: {},
       };
       expect(buildNetWorthChartData(ranToHorizon, HORIZON_MONTHS).stopped).toBeNull();
     });

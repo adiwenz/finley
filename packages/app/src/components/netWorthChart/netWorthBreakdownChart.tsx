@@ -30,6 +30,7 @@ import {
 import { formatDollars, monthLabel, yearOf } from "../../format";
 import { TODAY_X, axisPointLabel, axisYearTickLabel, toAxisX, yearTickXs } from "../monthAxis";
 import type { BreakdownBand, NetWorthBreakdownData } from "./netWorthBreakdown";
+import { NotSimulatedHatch, useHatchId } from "./notSimulatedHatch";
 
 const AXIS = "#6b6552";
 const GRID = "#e3dcc6";
@@ -200,6 +201,8 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
   const colors = useMemo(() => colorsForBands(data.bands), [data.bands]);
   const visibleBands = bandsForMode(data.bands, activeMode);
 
+  const hatchId = useHatchId("nwb");
+
   // One point per month on the shared months-from-now axis: each visible band's value keyed by
   // id, liabilities negated in the net-worth view so debt stacks below zero and the stack's
   // total is true net worth. This is a balance sheet, so `opening` gets a real column at the
@@ -265,6 +268,9 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
       {data.bands.length === 0 ? null : (
         <ResponsiveContainer width="100%" height={220}>
           <ComposedChart data={rows} margin={{ top: 12, right: 16, bottom: 8, left: 16 }}>
+            <defs>
+              <NotSimulatedHatch id={hatchId} stroke={STOPPED} />
+            </defs>
             <CartesianGrid stroke={GRID} vertical={false} />
             <XAxis
               dataKey="month"
@@ -298,14 +304,14 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
               )}
             />
             <Legend wrapperStyle={{ fontSize: 12 }} />
-            {/* The stretch the projection never simulated, shaded exactly as on the chart above.
-                Declared before the bands so they paint on top of it. */}
+            {/* The stretch the projection never simulated, hatched exactly as on the chart above —
+                from the month after the block, never the blocked month itself. Declared before the
+                bands so they paint on top of it. */}
             {data.stopped !== null && (
               <ReferenceArea
                 x1={data.stopped.fromX}
                 x2={data.stopped.toX}
-                fill={STOPPED}
-                fillOpacity={0.05}
+                fill={`url(#${hatchId})`}
                 stroke="none"
               />
             )}

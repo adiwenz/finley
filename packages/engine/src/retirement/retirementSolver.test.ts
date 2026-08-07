@@ -241,6 +241,7 @@ describe("retirementSolver — a blocked projection is a third state", () => {
       months: [healthyMonth],
       status: "blocked",
       simulatedThroughMonth: 0,
+      obligationOutcomes: {},
       blockedAtMonth: 0,
     };
     expect(planSurvives(blocked)).toBe(false);

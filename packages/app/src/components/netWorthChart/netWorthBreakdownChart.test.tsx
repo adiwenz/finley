@@ -41,6 +41,7 @@ function series(months: readonly MonthSpec[]): ProjectionSeries {
     months: built,
     status: "ran-to-horizon",
     simulatedThroughMonth: built.length - 1,
+    obligationOutcomes: {},
   };
 }
 

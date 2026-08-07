@@ -23,7 +23,11 @@ import { TODAY_X, toAxisX } from "../monthAxis";
  * that reached the end and one that stopped part-way.
  */
 export interface StoppedSpan {
-  /** Axis position where the projection stopped — the blocked month. */
+  /**
+   * Axis position where the hatched tail begins — the month AFTER the block, never the blocked
+   * month itself. That month ran its full pipeline and its net worth is a real end-of-month figure,
+   * so it stays on the solid curve; only what was never simulated is hatched.
+   */
   readonly fromX: number;
   /** The end of the axis. */
   readonly toX: number;
@@ -51,13 +55,13 @@ export function chartXMax(
 }
 
 /**
- * What the projection never reached, or null when it reached the end. Anchored on the blocked
- * month rather than on the last point drawn, so the shading starts exactly where the blocked
- * marker sits. Null too when the block lands at the very end of the axis, where nothing is left
- * to shade.
+ * What the projection never simulated, or null when it reached the end. Anchored on the month
+ * AFTER the block, so the blocked month stays solid (it produced a real net worth) and the hatch
+ * begins where simulation genuinely stopped. Null when that month falls at or beyond the axis'
+ * end — the block lands so late nothing unsimulated is left to show.
  */
 export function stoppedSpan(series: ProjectionSeries, xMax: number): StoppedSpan | null {
   if (series.status !== "blocked" || series.blockedAtMonth === undefined) return null;
-  const fromX = toAxisX(series.blockedAtMonth);
+  const fromX = toAxisX(series.blockedAtMonth + 1);
   return fromX < xMax ? { fromX, toX: xMax } : null;
 }

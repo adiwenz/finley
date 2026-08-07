@@ -9,9 +9,11 @@ import { resolveFundingAttribution, type FundingSupplyPlan } from "./resolvedFun
 import {
   isPersonActiveAt,
   type HouseholdSimInput,
+  type ObligationOutcome,
   type ProjectionMonth,
   type ProjectionSeries,
 } from "./simulate.types";
+import type { FinancialObligation, ObligationId } from "./financialObligation";
 import { initSimState } from "./runState";
 import { snapshotMonth } from "./monthSnapshot";
 import {
@@ -44,10 +46,52 @@ export type {
   IncomeSourceCategory,
   ProjectionSeries,
   BlockedObligation,
+  ObligationOutcome,
   SimProperty,
 } from "./simulate.types";
 
 const DEFAULT_START_YEAR = 2026;
+
+/**
+ * The fate of every explicitly-funded obligation, classified by what actually happened during
+ * resolution — never by comparing months. `resolvedObligationIds` is the accumulated set of draws
+ * {@link resolveFundingDraws} actually resolved (money moved, attribution recorded) across every
+ * month the sim ran; that set, not a month comparison, is what makes a same-month sibling AFTER the
+ * blocker read as `not-reached` rather than `executed` — resolution stops mid-month, so a draw
+ * later in the SAME month as the blocker was never reached any more than one in a later month was.
+ *
+ * An absent block means the plan ran to the horizon: nothing stopped, so every draw resolved.
+ */
+function classifyObligationOutcomes(
+  fundingDraws: readonly FinancialObligation[],
+  resolvedObligationIds: ReadonlySet<ObligationId>,
+  block: ProjectionSeries["blockingObligation"],
+): Record<ObligationId, ObligationOutcome> {
+  const outcomes: Record<ObligationId, ObligationOutcome> = {};
+  for (const draw of fundingDraws) {
+    const sourceEventId =
+      draw.sourceEventId !== undefined ? { sourceEventId: draw.sourceEventId } : {};
+    if (block === undefined) {
+      outcomes[draw.id] = { status: "executed", ...sourceEventId };
+    } else if (draw.id === block.obligationId) {
+      outcomes[draw.id] = {
+        status: "blocked",
+        month: block.month,
+        shortfallCents: block.shortfallCents,
+        ...sourceEventId,
+      };
+    } else if (resolvedObligationIds.has(draw.id)) {
+      outcomes[draw.id] = { status: "executed", ...sourceEventId };
+    } else {
+      outcomes[draw.id] = {
+        status: "not-reached",
+        blockedByObligationId: block.obligationId,
+        ...sourceEventId,
+      };
+    }
+  }
+  return outcomes;
+}
 
 /**
  * Household simulator. Fixed pipeline per month, each step a named helper:
@@ -93,6 +137,10 @@ export function simulateHousehold(
   // Every event whose draw the block omitted — the blocker and the same-month draws after it,
   // whose artifacts were suppressed alongside its own. Captured with `blockingObligation`.
   let omittedSourceEventIds: ProjectionSeries["omittedSourceEventIds"];
+  // Every explicit obligation actually resolved (money moved, attribution recorded) across every
+  // month the loop ran — the ground truth `classifyObligationOutcomes` reports outcomes from,
+  // never a month comparison.
+  const resolvedObligationIds = new Set<ObligationId>();
 
   // `< horizonMonths` (not `<=`): the opening snapshot is no longer an array slot, so the
   // same span now yields exactly `horizonMonths` processed months, `month` 0-based.
@@ -163,6 +211,7 @@ export function simulateHousehold(
     // prices a candidate over its siblings the SAME way (exact under any regime).
     const fundingBase = buildTaxableByOwner(nonWithdrawalSources);
     const fundingDraw = resolveFundingDraws(state, month, jurisdiction, ctx, fundingBase);
+    for (const resolved of fundingDraw.resolvedFunding) resolvedObligationIds.add(resolved.obligationId);
     // An omitted draw suppresses the property and mortgage its authoring event would originate this
     // month — otherwise `advanceProperties`/`advanceLiabilities` would mint a house and a loan with
     // no cash ever leaving, which is the very fabrication blocking exists to stop. Keyed off EVERY
@@ -417,5 +466,10 @@ export function simulateHousehold(
     ...(blockedAtMonth !== undefined ? { blockedAtMonth } : {}),
     ...(blockingObligation !== undefined ? { blockingObligation } : {}),
     ...(omittedSourceEventIds !== undefined ? { omittedSourceEventIds } : {}),
+    obligationOutcomes: classifyObligationOutcomes(
+      state.fundingDraws,
+      resolvedObligationIds,
+      blockingObligation,
+    ),
   };
 }

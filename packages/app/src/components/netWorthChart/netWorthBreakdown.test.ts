@@ -38,6 +38,7 @@ function series(months: readonly MonthSpec[]): ProjectionSeries {
     months: built,
     status: "ran-to-horizon",
     simulatedThroughMonth: built.length - 1,
+    obligationOutcomes: {},
   };
 }
 
@@ -209,6 +210,7 @@ describe("buildNetWorthBreakdown", () => {
         months: [mkMonth({ accounts: { savings: 1050 } }, 0)],
         status: "ran-to-horizon",
         simulatedThroughMonth: 0,
+        obligationOutcomes: {},
       },
       META,
     );
@@ -225,6 +227,7 @@ describe("buildNetWorthBreakdown", () => {
         months: [mkMonth({ accounts: { savings: 0, brokerage: 0 } }, 0)],
         status: "ran-to-horizon",
         simulatedThroughMonth: 0,
+        obligationOutcomes: {},
       },
       META,
     );
@@ -238,6 +241,7 @@ describe("buildNetWorthBreakdown", () => {
         months: [mkMonth({ accounts: { savings: 8000 } }, 0), mkMonth({ accounts: { savings: 7000 } }, 1)],
         status: "ran-to-horizon",
         simulatedThroughMonth: 1,
+        obligationOutcomes: {},
       },
       META,
     );
@@ -266,6 +270,7 @@ describe("buildNetWorthBreakdown", () => {
         status: "blocked",
         simulatedThroughMonth: BLOCK_MONTH,
         blockedAtMonth: BLOCK_MONTH,
+        obligationOutcomes: {},
       };
     }
 
@@ -276,9 +281,11 @@ describe("buildNetWorthBreakdown", () => {
       expect(data.rows[data.rows.length - 1]?.month).toBe(BLOCK_MONTH);
     });
 
-    it("shades everything the projection never simulated", () => {
+    it("hatches from the month after the block, never the blocked month itself", () => {
       const data = buildNetWorthBreakdown(blocked(), META, HORIZON_MONTHS);
-      expect(data.stopped).toEqual({ fromX: toAxisX(BLOCK_MONTH), toX: data.xMax });
+      // Matches the total chart above: the blocked month is a real end-of-month row, so it stays
+      // solid and the never-simulated band begins one month later.
+      expect(data.stopped).toEqual({ fromX: toAxisX(BLOCK_MONTH + 1), toX: data.xMax });
     });
 
     it("shades nothing for a plan that ran to the horizon", () => {

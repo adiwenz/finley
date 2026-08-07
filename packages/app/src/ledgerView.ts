@@ -5,7 +5,7 @@
  * engine's job, see `snapshotAt` in @finley/engine.
  */
 
-import type { Ledger, LifeEvent, SnapshotSeries } from "@finley/engine";
+import type { Cents, Ledger, LifeEvent, ProjectionSeries, SnapshotSeries } from "@finley/engine";
 import { formatDollars } from "./format";
 
 export interface EventSummary {
@@ -85,22 +85,102 @@ export function seriesLabel(s: Pick<SnapshotSeries, "role" | "seriesType">): str
   }
 }
 
+/**
+ * How the projection treated the obligation an event spawned:
+ *   - `executed` — its month ran, or it never spawned an obligation (a structural event, a
+ *     pre-existing holding) so the stop never concerned it. The timeline shows no indicator.
+ *   - `blocked` — this event's down payment could not be funded and stopped the projection.
+ *   - `not-reached` — authored after the blocked month, so the simulation stopped before testing it.
+ */
+export type MarkerOutcome = "executed" | "blocked" | "not-reached";
+
 export interface TimelineMarker extends EventSummary {
   readonly id: string;
   readonly month: number;
   readonly type: LifeEvent["type"];
+  readonly outcome: MarkerOutcome;
 }
 
-/** The ledger as plain-language markers, sorted by (month, sequenceNumber). */
-export function timelineMarkers(ledger: Ledger): TimelineMarker[] {
+/** The projection fields the timeline reads to classify each event — nothing else of the series. */
+type OutcomeSource = Pick<ProjectionSeries, "status" | "obligationOutcomes">;
+
+/**
+ * Every authoring event the projection did not simply execute, keyed by its own id — the blocking
+ * purchase and every purchase authored after it. Read straight off each {@link ObligationOutcome}'s
+ * `sourceEventId`, which the engine mirrors from the obligation it classified — the app never parses
+ * `obligationId`'s spelling to recover the event that spawned it. Only obligation-bearing purchases
+ * carry a `sourceEventId` at all, so structural events (a marriage, a child, a separation) and
+ * pre-existing holdings are absent and fall through to `executed` with no indicator, exactly as the
+ * slice requires. Empty for a run that reached the horizon: nothing stopped, so every event executed.
+ */
+function eventOutcomes(series: OutcomeSource | undefined): Map<string, MarkerOutcome> {
+  const outcomes = new Map<string, MarkerOutcome>();
+  if (series === undefined || series.status !== "blocked") return outcomes;
+  for (const outcome of Object.values(series.obligationOutcomes)) {
+    if (outcome.status === "executed" || outcome.sourceEventId === undefined) continue;
+    outcomes.set(outcome.sourceEventId, outcome.status);
+  }
+  return outcomes;
+}
+
+/**
+ * The ledger as plain-language markers, sorted by (month, sequenceNumber). Pass the projection
+ * `series` to fold in per-event outcomes — the blocking purchase and every purchase stranded after
+ * it; omit it (the snapshot panel's use) and every marker reads `executed`.
+ */
+export function timelineMarkers(ledger: Ledger, series?: OutcomeSource): TimelineMarker[] {
+  const outcomes = eventOutcomes(series);
   return [...ledger.events]
     .sort((a, b) => a.month - b.month || a.sequenceNumber - b.sequenceNumber)
     .map((e) => ({
       id: e.id,
       month: e.month,
       type: e.type,
+      outcome: outcomes.get(e.id) ?? "executed",
       ...summarizeEvent(e),
     }));
+}
+
+/** The soft-warning's content: the event that stopped the projection, when, and by how much. */
+export interface BlockedWarningView {
+  /** The blocking event in the household's own words ("Bought a home"), not the obligation's id. */
+  readonly eventLabel: string;
+  /** The month it was scheduled for — {@link ProjectionSeries.blockedAtMonth}. */
+  readonly month: number;
+  /** The funding gap, net of the capital-gains tax liquidating the named sources owes. */
+  readonly shortfallCents: Cents;
+}
+
+/** The projection fields the warning reads — just the block, never a balance or a later month. */
+type WarningSource = Pick<ProjectionSeries, "status" | "blockingObligation">;
+
+/**
+ * The soft warning shown while a projection is blocked, or `null` when nothing stopped. Named from
+ * the AUTHORING event via `sourceEventId`, not the blocking obligation's own `label` — that is an
+ * engine-internal band namespace ("downpayment"), whereas the household authored "Bought a home".
+ * Same event→outcome join the timeline's indicators use; here it recovers one plain-language name.
+ *
+ * The month and shortfall come straight off `blockingObligation` — the gap is the engine's bare,
+ * already-post-tax figure, never recomputed here (classifying it is a later slice). Falls back to
+ * the obligation's own label only if the authoring event cannot be found, so the warning still
+ * names something rather than rendering blank.
+ */
+export function blockedWarning(
+  ledger: Ledger,
+  series: WarningSource | undefined,
+): BlockedWarningView | null {
+  if (series === undefined || series.status !== "blocked") return null;
+  const blocking = series.blockingObligation;
+  if (blocking === undefined) return null;
+  const event =
+    blocking.sourceEventId === undefined
+      ? undefined
+      : ledger.events.find((e) => e.id === blocking.sourceEventId);
+  return {
+    eventLabel: event !== undefined ? summarizeEvent(event).label : blocking.label,
+    month: blocking.month,
+    shortfallCents: blocking.shortfallCents,
+  };
 }
 
 /**
