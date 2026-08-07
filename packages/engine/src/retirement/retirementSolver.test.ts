@@ -189,19 +189,7 @@ describe("retirementSolver — a blocked projection is a third state", () => {
       budgetLines: [spendLine(dollarsToCents(4000)), healthLine(dollarsToCents(600))],
     };
     const base = createProjectionBase(strandPlan, CTX);
-    const financed = addEvent(emptyLedger, base, {
-      id: "mtg1",
-      type: "LoanEvent",
-      month: 2,
-      liabilityId: "mtg1",
-      ownerId: "p1",
-      kind: "mortgage",
-      openingBalanceCents: dollarsToCents(178_000),
-      apr: 0.06,
-      termMonths: 360,
-    });
-    if (!financed.ok) throw new Error(`mortgage rejected: ${financed.conflict}`);
-    const withHome = addEvent(financed.ledger, base, {
+    const withHome = addEvent(emptyLedger, base, {
       id: "buy1",
       type: "HomePurchaseEvent",
       month: 2,
@@ -210,7 +198,12 @@ describe("retirementSolver — a blocked projection is a third state", () => {
       purchasePriceCents: dollarsToCents(200_000),
       downPaymentCents: dollarsToCents(22_000),
       downPaymentSourceIds: [SAVINGS_ID],
-      securedByLiabilityId: "mtg1",
+      mortgage: {
+        liabilityId: "house1-mortgage",
+        openingBalanceCents: dollarsToCents(178_000),
+        apr: 0.06,
+        termMonths: 360,
+      },
     });
     if (!withHome.ok) throw new Error(`purchase rejected: ${withHome.conflict}`);
     const withDrain = addEvent(withHome.ledger, base, {

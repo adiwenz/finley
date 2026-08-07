@@ -575,9 +575,9 @@ describe("Projection.fromInput — the engine allocates every id", () => {
    * An event and the entity it creates deliberately share one id (`takeLoan` mints the loan's
    * event and liability as a single name, `haveChild` the event and the child, and so on), so
    * those aliases are counted once here; `sharesIdWithItsEntity` below pins that they really are
-   * aliases rather than something this helper is hiding. A purchase's mortgage is its own
-   * `LoanEvent` whose id is parent-suffixed off the property (`home-N-mortgage`), counted here
-   * like any other event id.
+   * aliases rather than something this helper is hiding. A purchase's embedded mortgage is
+   * different: it is a genuinely SEPARATE id, minted alongside the property id rather than shared
+   * with it, so it is listed here in its own right, not folded into an alias.
    */
   function allIds(p: Projection): string[] {
     const ids = [
@@ -588,6 +588,7 @@ describe("Projection.fromInput — the engine allocates every id", () => {
     for (const e of p.ledger.events) {
       ids.push(e.id);
       if (e.type === "RelationshipEvent") ids.push(...e.person.jobs.map((j) => j.id));
+      if (e.type === "HomePurchaseEvent" && e.mortgage !== undefined) ids.push(e.mortgage.liabilityId);
     }
     return ids;
   }
@@ -604,10 +605,10 @@ describe("Projection.fromInput — the engine allocates every id", () => {
 
   it("issues every id off the counter, in the shape the allocator mints", () => {
     const p = built(populated);
-    // `<kind>-<n>`, the one shape `mint` produces. A mortgage is parent-suffixed off its
-    // property, so it is the single derived exception.
+    // `<kind>-<n>`, the one shape `mint` produces — every authored id matches it exactly,
+    // including a purchase's mortgage, minted the same as everything else.
     for (const id of allIds(p)) {
-      expect(id).toMatch(/^[a-z]+-\d+(-mortgage)?$/);
+      expect(id).toMatch(/^[a-z]+-\d+$/);
     }
     // No ref leaked through as an id: the names the document used are gone.
     for (const name of AUTHORED_REFS) expect(allIds(p)).not.toContain(name);

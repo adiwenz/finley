@@ -266,7 +266,7 @@ describe("Projection root — a revision cannot replace an identity", () => {
     expect(event?.type === "LoanEvent" && event.kind).toBe("studentLoan");
   });
 
-  it("keeps the property and its securing-mortgage link across a buyHome revision", () => {
+  it("re-derives the mortgage balance and terms through one buyHome revision", () => {
     const p = Projection.fromState(stateOf({ ...samplePlan, goals: [] }), nullJurisdiction);
     const homeId = p.buyHome({
       month: 12, ownerId: P1,
@@ -276,22 +276,62 @@ describe("Projection root — a revision cannot replace an identity", () => {
       mortgageApr: 6, mortgageTermMonths: 360,
     });
     const before = p.ledger.events.find((e) => e.id === homeId);
-    const mortgageId = before?.type === "HomePurchaseEvent" ? before.securedByLiabilityId : "";
-    expect(mortgageId).toBe(`${homeId}-mortgage`);
+    expect(before?.type === "HomePurchaseEvent" && before.mortgage?.openingBalanceCents).toBe(
+      dollarsToCents(160_000), // $200k − $40k
+    );
 
-    // The property's own fields revise through `buyHome`; the mortgage is a separate `LoanEvent`,
-    // revised through `takeLoan` on the derived id. Neither re-mints the other's identity.
-    p.reviseTransaction(homeId, { type: "buyHome", downPaymentCents: dollarsToCents(50_000) });
-    p.reviseTransaction(`${homeId}-mortgage`, { type: "takeLoan", apr: 5, termMonths: 240 });
+    // The mortgage now rides inside the purchase, so ONE `buyHome` revision moves price, down, and
+    // the mortgage terms together. The financed balance is DERIVED, so raising the down payment
+    // shrinks it automatically — the desync the old two-event model allowed cannot happen.
+    p.reviseTransaction(homeId, {
+      type: "buyHome",
+      downPaymentCents: dollarsToCents(50_000),
+      mortgageApr: 5,
+      mortgageTermMonths: 240,
+    });
 
     const after = p.ledger.events.find((e) => e.id === homeId);
     expect(after?.type === "HomePurchaseEvent" && after.downPaymentCents).toBe(dollarsToCents(50_000));
     expect(after?.type === "HomePurchaseEvent" && after.propertyId).toBe(homeId);
-    expect(after?.type === "HomePurchaseEvent" && after.securedByLiabilityId).toBe(mortgageId);
+    if (after?.type === "HomePurchaseEvent") {
+      expect(after.mortgage?.openingBalanceCents).toBe(dollarsToCents(150_000)); // $200k − $50k
+      expect(after.mortgage?.apr).toBe(5);
+      expect(after.mortgage?.termMonths).toBe(240);
+    }
+  });
 
-    const mortgage = p.ledger.events.find((e) => e.id === `${homeId}-mortgage`);
-    expect(mortgage?.type === "LoanEvent" && mortgage.apr).toBe(5);
-    expect(mortgage?.type === "LoanEvent" && mortgage.kind === "mortgage" && mortgage.termMonths).toBe(240);
+  it("edits a holding's value, balance, and terms in one revision without coupling value to balance", () => {
+    // A holding opens at its mortgage's CURRENT balance, not price − down, so raising the home's
+    // value must NOT touch what is still owed — the reviewer's "edit it all in one place" case.
+    const p = Projection.fromState(stateOf({ ...samplePlan, goals: [] }), nullJurisdiction);
+    const homeId = p.ownHome({
+      ownerId: P1,
+      valueCents: dollarsToCents(400_000),
+      mortgage: { balanceCents: dollarsToCents(240_000), apr: 0.06, remainingTermMonths: 240 },
+    });
+
+    // Value alone: the balance stays put (the Part-1 desync-for-holdings this guards against).
+    p.reviseTransaction(homeId, { type: "buyHome", purchasePriceCents: dollarsToCents(450_000) });
+    const afterValue = p.ledger.events.find((e) => e.id === homeId);
+    expect(afterValue?.type === "HomePurchaseEvent" && afterValue.purchasePriceCents).toBe(dollarsToCents(450_000));
+    expect(afterValue?.type === "HomePurchaseEvent" && afterValue.mortgage?.openingBalanceCents).toBe(
+      dollarsToCents(240_000),
+    );
+
+    // The balance and terms are directly settable for a holding, all through the one verb.
+    p.reviseTransaction(homeId, {
+      type: "buyHome",
+      mortgageBalanceCents: dollarsToCents(200_000),
+      mortgageApr: 0.05,
+      mortgageTermMonths: 180,
+    });
+    const afterMortgage = p.ledger.events.find((e) => e.id === homeId);
+    if (afterMortgage?.type === "HomePurchaseEvent") {
+      expect(afterMortgage.mortgage?.openingBalanceCents).toBe(dollarsToCents(200_000));
+      expect(afterMortgage.mortgage?.apr).toBe(0.05);
+      expect(afterMortgage.mortgage?.termMonths).toBe(180);
+      expect(afterMortgage.purchasePriceCents).toBe(dollarsToCents(450_000)); // unchanged
+    }
   });
 
   it("offers no way to name an identity, at the type level", () => {
@@ -309,6 +349,126 @@ describe("Projection root — a revision cannot replace an identity", () => {
 
     // Untouched by any of the refused shapes above.
     expect(partnerEvent(p).person.id).toBe(partnerId);
+  });
+});
+
+/**
+ * The embedded mortgage's liability id is authored, minted through the same centralized `mint()`
+ * every other id draws from — never derived, never conjured during interpretation. These pin the
+ * revision semantics that identity: an edit to an already-financed purchase carries the id
+ * through, financing toggling off drops it, and toggling back on mints a fresh one every time.
+ */
+describe("Projection root — mortgage liability identity across buyHome revisions", () => {
+  it("carries the mortgage's liability id through an ordinary term-editing revision", () => {
+    const p = Projection.fromState(stateOf({ ...samplePlan, goals: [] }), nullJurisdiction);
+    const homeId = p.buyHome({
+      month: 12, ownerId: P1,
+      purchasePriceCents: dollarsToCents(200_000),
+      downPaymentCents: dollarsToCents(40_000),
+      downPaymentSourceIds: ["savings"],
+      mortgageApr: 6, mortgageTermMonths: 360,
+    });
+    const before = p.ledger.events.find((e) => e.id === homeId);
+    const mortgageId = before?.type === "HomePurchaseEvent" ? before.mortgage?.liabilityId : undefined;
+    expect(mortgageId).toBeDefined();
+
+    // Neither a price/down edit nor a bare term edit names `financed`, so the mortgage — and its
+    // id — simply carries through.
+    p.reviseTransaction(homeId, { type: "buyHome", mortgageApr: 5 });
+
+    const after = p.ledger.events.find((e) => e.id === homeId);
+    expect(after?.type === "HomePurchaseEvent" && after.mortgage?.liabilityId).toBe(mortgageId);
+    expect(after?.type === "HomePurchaseEvent" && after.mortgage?.apr).toBe(5);
+  });
+
+  it("financed: false drops the mortgage AND its liability id — the purchase becomes cash", () => {
+    const p = Projection.fromState(stateOf({ ...samplePlan, goals: [] }), nullJurisdiction);
+    const homeId = p.buyHome({
+      month: 12, ownerId: P1,
+      purchasePriceCents: dollarsToCents(200_000),
+      downPaymentCents: dollarsToCents(40_000),
+      downPaymentSourceIds: ["savings"],
+      mortgageApr: 6, mortgageTermMonths: 360,
+    });
+
+    p.reviseTransaction(homeId, { type: "buyHome", financed: false });
+
+    const after = p.ledger.events.find((e) => e.id === homeId);
+    expect(after?.type === "HomePurchaseEvent" && after.mortgage).toBeUndefined();
+    const household = p.run(nullJurisdiction).household;
+    expect(household.liabilities).toHaveLength(0);
+    expect(household.properties[0]?.mortgageLiabilityId).toBeNull();
+  });
+
+  it("financed: true mints a NEW mortgage liability id for a cash holding", () => {
+    // `ownHome` is the one creation path that can start cash — a plan-time `buyHome` purchase
+    // always finances. Toggling `financed: true` here is authoring's ONLY way to mint a mortgage
+    // outside of creation.
+    const p = Projection.fromState(stateOf({ ...samplePlan, goals: [] }), nullJurisdiction);
+    const homeId = p.ownHome({ ownerId: P1, valueCents: dollarsToCents(400_000) });
+    const before = p.ledger.events.find((e) => e.id === homeId);
+    expect(before?.type === "HomePurchaseEvent" && before.mortgage).toBeUndefined();
+
+    p.reviseTransaction(homeId, {
+      type: "buyHome",
+      financed: true,
+      mortgageBalanceCents: dollarsToCents(240_000),
+      mortgageApr: 0.05,
+      mortgageTermMonths: 240,
+    });
+
+    const after = p.ledger.events.find((e) => e.id === homeId);
+    const mortgageId = after?.type === "HomePurchaseEvent" ? after.mortgage?.liabilityId : undefined;
+    expect(mortgageId).toBeDefined();
+    expect(after?.type === "HomePurchaseEvent" && after.mortgage?.openingBalanceCents).toBe(
+      dollarsToCents(240_000),
+    );
+    const household = p.run(nullJurisdiction).household;
+    expect(household.liabilities.map((l) => l.id)).toEqual([mortgageId]);
+  });
+
+  it("refuses financed: true without mortgage terms — turning on financing is not a partial edit", () => {
+    const p = Projection.fromState(stateOf({ ...samplePlan, goals: [] }), nullJurisdiction);
+    const homeId = p.ownHome({ ownerId: P1, valueCents: dollarsToCents(400_000) });
+
+    expect(() =>
+      p.reviseTransaction(homeId, { type: "buyHome", financed: true }),
+    ).toThrow(/mortgageApr and mortgageTermMonths/);
+  });
+
+  it("cash → mortgage → cash → mortgage mints a THIRD distinct id, never reusing the removed one", () => {
+    const p = Projection.fromState(stateOf({ ...samplePlan, goals: [] }), nullJurisdiction);
+    const homeId = p.ownHome({ ownerId: P1, valueCents: dollarsToCents(400_000) });
+
+    p.reviseTransaction(homeId, {
+      type: "buyHome",
+      financed: true,
+      mortgageBalanceCents: dollarsToCents(240_000),
+      mortgageApr: 0.05,
+      mortgageTermMonths: 240,
+    });
+    const first = p.ledger.events.find((e) => e.id === homeId);
+    const firstMortgageId = first?.type === "HomePurchaseEvent" ? first.mortgage?.liabilityId : undefined;
+    expect(firstMortgageId).toBeDefined();
+
+    p.reviseTransaction(homeId, { type: "buyHome", financed: false });
+    const cash = p.ledger.events.find((e) => e.id === homeId);
+    expect(cash?.type === "HomePurchaseEvent" && cash.mortgage).toBeUndefined();
+
+    p.reviseTransaction(homeId, {
+      type: "buyHome",
+      financed: true,
+      mortgageBalanceCents: dollarsToCents(180_000),
+      mortgageApr: 0.06,
+      mortgageTermMonths: 180,
+    });
+    const second = p.ledger.events.find((e) => e.id === homeId);
+    const secondMortgageId = second?.type === "HomePurchaseEvent" ? second.mortgage?.liabilityId : undefined;
+
+    expect(secondMortgageId).toBeDefined();
+    expect(secondMortgageId).not.toBe(firstMortgageId);
+    const household = p.run(nullJurisdiction).household;
+    expect(household.liabilities.map((l) => l.id)).toEqual([secondMortgageId]);
   });
 });
 

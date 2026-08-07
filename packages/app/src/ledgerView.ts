@@ -15,6 +15,11 @@ export interface EventSummary {
   readonly detail: string;
 }
 
+/** A fractional rate (0.065) as a percent with trailing zeros trimmed ("6.5%"). */
+function formatApr(apr: number): string {
+  return `${Number((apr * 100).toFixed(2))}%`;
+}
+
 const KIND_NOUN: Record<string, string> = {
   mortgage: "mortgage",
   auto: "auto loan",
@@ -42,11 +47,19 @@ export function summarizeEvent(e: LifeEvent): EventSummary {
         bits.push(`child support ${formatDollars(e.childSupportMonthlyCents)}/mo`);
       return { label: "Separated", detail: bits.join(", ") || "no support" };
     }
-    case "HomePurchaseEvent":
-      return {
-        label: "Bought a home",
-        detail: `${formatDollars(e.purchasePriceCents)}, ${formatDollars(e.downPaymentCents)} down`,
-      };
+    case "HomePurchaseEvent": {
+      // One row for the whole purchase now that the mortgage is embedded, not a second "Took out a
+      // loan" marker. Lead with price, then the down payment when there is one (a holding draws
+      // none), then the financing — or "no mortgage" for a cash buy / a home owned outright.
+      const bits = [formatDollars(e.purchasePriceCents)];
+      if (e.downPaymentCents > 0) bits.push(`${formatDollars(e.downPaymentCents)} down`);
+      bits.push(
+        e.mortgage !== undefined
+          ? `${formatDollars(e.mortgage.openingBalanceCents)} mortgage at ${formatApr(e.mortgage.apr)}, ${Math.round(e.mortgage.termMonths / 12)} yr`
+          : "no mortgage",
+      );
+      return { label: "Bought a home", detail: bits.join(", ") };
+    }
     case "LoanEvent":
       return {
         label: "Took out a loan",

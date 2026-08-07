@@ -135,9 +135,10 @@ describe("buildIncomeChartModel", () => {
       );
       expect(reasonsByMonth.get("2")).toMatch(/job:a begins/i);
       expect(reasonsByMonth.get("4")).toMatch(/job:a ends/i);
-      // Month 3 is unchanged from month 2 and carries no reason to surface, so it stays out
-      // of the nonvisual table entirely.
-      expect(reasonsByMonth.has("3")).toBe(false);
+      // Month 3 changes nothing of its own, but it is the last month the band pays before the
+      // month-4 ending — so it surfaces as that ending's "before", not as a change.
+      expect(reasonsByMonth.get("3")).toMatch(/last reading before the change/i);
+      expect(reasonsByMonth.get("3")).not.toMatch(/changes/i);
     });
 
     it("adds a moment when a band's amount changes without beginning or ending", () => {
@@ -185,6 +186,111 @@ describe("buildIncomeChartModel", () => {
       const model = buildIncomeChartModel(data, { mode: "simple" });
       const withdrawal = model.accessibleMoments.find((m) => /month 1/.test(m.label));
       expect(withdrawal?.reason).toMatch(/first savings withdrawal/i);
+    });
+
+    it("says nothing about a steady drift — the chart draws it and the editor resolves it", () => {
+      // 0.25%/month — 3% a year, the default plan's inflation, which is what made an exact
+      // cents comparison call 563 of 660 months a moment.
+      const months = [
+        { month: 0 },
+        ...Array.from({ length: 240 }, (_, i) => ({
+          month: i + 1,
+          flows: {
+            incomeSources: [source("job:a", Math.round(dollarsToCents(5_000) * 1.0025 ** i), "wages")],
+          },
+        })),
+      ] as unknown as ProjectionSeries["months"];
+      const model = buildIncomeChartModel(
+        buildIncomeChartData({ months } as unknown as ProjectionSeries),
+        { mode: "advanced" },
+      );
+      // Every month differs, so the exact comparison this replaced surfaced all 240. Nothing
+      // STEPS, so the table is the projection's start and nothing else: the ramp is the chart's
+      // to draw, and any month of it is reachable through the editor's Month field.
+      expect(model.accessibleMoments).toHaveLength(1);
+      expect(model.accessibleMoments[0]!.reason).toMatch(/projection starts/i);
+    });
+
+    it("still catches a raise inside the drift — a step, not the indexation around it", () => {
+      const ramp = (i: number) => Math.round(dollarsToCents(5_000) * 1.0025 ** i);
+      const series = {
+        months: [
+          { month: 0 },
+          ...Array.from({ length: 24 }, (_, i) => ({
+            month: i + 1,
+            // A 20% raise at month 13, on top of the same 0.25%/month indexation.
+            flows: {
+              incomeSources: [source("job:a", ramp(i) * (i >= 12 ? 1.2 : 1), "wages")],
+            },
+          })),
+        ],
+      } as unknown as ProjectionSeries;
+      const model = buildIncomeChartModel(buildIncomeChartData(series), { mode: "advanced" });
+      const byMonth = new Map(
+        model.accessibleMoments.map((m) => [Number(m.label.match(/month (\d+)/)![1]), m]),
+      );
+      expect(byMonth.get(13)!.reason).toMatch(/job:a changes/i);
+      expect(byMonth.get(12)!.reason).toMatch(/last reading before the change/i);
+      // The indexation either side of it says nothing: start, the raise, and its before.
+      expect(model.accessibleMoments).toHaveLength(3);
+    });
+
+    it("keeps a band's beginning and end however small the amount", () => {
+      // Below the drift threshold in absolute terms, but structural: the chart's shape changes.
+      const series = {
+        months: [
+          { month: 0 },
+          { month: 1, flows: { incomeSources: [source("job:a", dollarsToCents(5_000), "wages")] } },
+          {
+            month: 2,
+            flows: {
+              incomeSources: [
+                source("job:a", dollarsToCents(5_000), "wages"),
+                source("job:b", 1, "wages"),
+              ],
+            },
+          },
+          { month: 3, flows: { incomeSources: [source("job:a", dollarsToCents(5_000), "wages")] } },
+        ],
+      } as unknown as ProjectionSeries;
+      const model = buildIncomeChartModel(buildIncomeChartData(series), { mode: "advanced" });
+      const reasonsByMonth = new Map(
+        model.accessibleMoments.map((m) => [m.label.match(/month (\d+)/)![1], m.reason]),
+      );
+      expect(reasonsByMonth.get("2")).toMatch(/job:b begins/i);
+      expect(reasonsByMonth.get("3")).toMatch(/job:b ends/i);
+    });
+
+    it("states the month before a discrete change, so it is heard as a before-and-after", () => {
+      // job:b starts at month 6 with nothing else moving, so months 2-5 are unremarkable and
+      // sampling alone would leave the change to be heard against month 1.
+      const flat = source("job:a", dollarsToCents(5_000), "wages");
+      const series = {
+        months: [
+          { month: 0 },
+          ...Array.from({ length: 5 }, (_, i) => ({
+            month: i + 1,
+            flows: { incomeSources: [flat] },
+          })),
+          {
+            month: 6,
+            flows: {
+              incomeSources: [flat, source("job:b", dollarsToCents(2_000), "wages")],
+            },
+          },
+        ],
+      } as unknown as ProjectionSeries;
+      const model = buildIncomeChartModel(buildIncomeChartData(series), { mode: "advanced" });
+      const byMonth = new Map(
+        model.accessibleMoments.map((m) => [Number(m.label.match(/month (\d+)/)![1]), m]),
+      );
+      expect(byMonth.get(6)!.reason).toMatch(/job:b begins/i);
+      // Month 5 carries no change of its own; it is here to be the "before".
+      expect(byMonth.get(5)!.reason).toMatch(/last reading before the change/i);
+      expect(byMonth.get(5)!.sources.find((s) => s.label === "job:b")!.amount).toBe("$0");
+      expect(byMonth.get(6)!.sources.find((s) => s.label === "job:b")!.amount).toBe("$2,000");
+      // Bought for one row group, not a run of them: months 2-4 stay out.
+      expect(byMonth.has(4)).toBe(false);
     });
 
     it("adds an insolvency moment naming the household's age", () => {

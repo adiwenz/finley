@@ -14,6 +14,7 @@ import { emptyLedger, type Ledger } from "../ledger/ledger";
 import { type LifeEvent } from "../ledger/eventTypes";
 import { type PersonId } from "../job/job";
 import { P1, freshProjection, JOB_END_YEAR, plainJob, partnerEvent, expenseLine, carGoalInput } from "../testing/projectionFacadeFixtures";
+import { PRE_NOW_MONTH } from "../projection/nowMarker";
 
 describe("Projection root — creating writes mint deterministic ids", () => {
   it("mints a monotonic sequence id and returns it", () => {
@@ -387,6 +388,60 @@ describe("Projection root — restoring a timeline that already holds ids", () =
 
     // Only the two sequence numbers moved the floor, so the next goal is goal-2, not goal-50001.
     expect(p.addGoal(carGoalInput)).toBe("goal-2");
+  });
+
+  it("floors the counter past a restored HomePurchaseEvent's embedded mortgage id, not just the property id", () => {
+    // The embedded mortgage's liability id is authored, minted the same as any other id — so a
+    // restored ledger holding one must step the counter past it exactly like it does for the
+    // property id beside it, or the next mint hands out an id this scenario already carries.
+    const p = Projection.fromState(
+      stateOf({ ...samplePlan, goals: [] }, {
+        events: [
+          {
+            id: "home-1",
+            type: "HomePurchaseEvent",
+            month: PRE_NOW_MONTH,
+            sequenceNumber: 0,
+            propertyId: "home-1",
+            ownerId: P1,
+            purchasePriceCents: dollarsToCents(400_000),
+            downPaymentCents: 0,
+            downPaymentSourceIds: [],
+            mortgage: {
+              liabilityId: "mortgage-2",
+              openingBalanceCents: dollarsToCents(240_000),
+              apr: 0.05,
+              termMonths: 240,
+            },
+          },
+        ],
+        nextSequenceNumber: 1,
+      }),
+      nullJurisdiction,
+    );
+
+    // Unfloored, the next home purchase would mint "home-1" (colliding with the restored property)
+    // and then "mortgage-2" (colliding with the restored mortgage). Floored past both, it lands
+    // clear of everything the restored ledger already holds. Kept modest so the point stays
+    // identity, not affordability.
+    const newHomeId = p.buyHome({
+      month: 6,
+      ownerId: P1,
+      purchasePriceCents: dollarsToCents(50_000),
+      downPaymentCents: dollarsToCents(10_000),
+      downPaymentSourceIds: ["savings"],
+      mortgageApr: 6,
+      mortgageTermMonths: 360,
+    });
+    expect(newHomeId).not.toBe("home-1");
+    const newEvent = p.ledger.events.find((e) => e.id === newHomeId);
+    const newMortgageId =
+      newEvent?.type === "HomePurchaseEvent" ? newEvent.mortgage?.liabilityId : undefined;
+    expect(newMortgageId).not.toBe("mortgage-2");
+
+    // Every id in the scenario — property and mortgage alike — is still distinct.
+    const liabilityIds = p.run(nullJurisdiction).household.liabilities.map((l) => l.id);
+    expect(new Set(liabilityIds).size).toBe(liabilityIds.length);
   });
 });
 

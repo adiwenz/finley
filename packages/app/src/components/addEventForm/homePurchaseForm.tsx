@@ -16,8 +16,9 @@ import { formatDollars } from "../../format";
 import { HoldingWhen, MonthSelect, type EditProps, type EventOf, type FormProps } from "./formControls";
 import { FundingSourcePicker } from "./fundingSourcePicker";
 
-/** Opening values — a plausible starter purchase to edit, not a recommendation. */
-const DEFAULTS: Omit<HomePurchaseDraft, "month" | "sourceIds"> = {
+/** Opening values — a plausible starter purchase to edit, not a recommendation. `mortgageBalance`
+ * is omitted: a plan-time purchase derives it from price − down at init. */
+const DEFAULTS: Omit<HomePurchaseDraft, "month" | "sourceIds" | "mortgageBalance"> = {
   price: 300_000,
   down: 60_000,
   apr: 6.5,
@@ -34,6 +35,11 @@ interface HomePurchaseDraft {
   readonly down: number;
   readonly apr: number;
   readonly termYears: number;
+  /**
+   * The balance still owed, in dollars. Only a HOLDING edits it directly — a plan-time purchase
+   * derives it as price − down. Carried for the plan-time case but never shown there.
+   */
+  readonly mortgageBalance: number;
   /**
    * Accounts the down payment drains, IN ORDER — the first empties before the next.
    * Stored intent, not the live selection: the render filters it to what can still pay at
@@ -67,15 +73,18 @@ export function HomePurchaseForm({
           month: edit.event.month,
           price: edit.event.purchasePriceCents / 100,
           down: edit.event.downPaymentCents / 100,
-          // The mortgage's own fields — a `buyHome` revision cannot reach them, so they are not
-          // shown; carried at their defaults only to satisfy the draft shape.
-          apr: DEFAULTS.apr,
-          termYears: DEFAULTS.termYears,
+          // The embedded mortgage's terms, prefilled so one form edits price, financing, and terms
+          // together. A cash purchase / owned-outright home has none, so fall back to the defaults
+          // (unshown there anyway).
+          apr: edit.event.mortgage ? edit.event.mortgage.apr * 100 : DEFAULTS.apr,
+          termYears: edit.event.mortgage ? edit.event.mortgage.termMonths / 12 : DEFAULTS.termYears,
+          mortgageBalance: edit.event.mortgage ? edit.event.mortgage.openingBalanceCents / 100 : 0,
           sourceIds: edit.event.downPaymentSourceIds,
         }
       : {
           month: defaultMonth,
           ...DEFAULTS,
+          mortgageBalance: DEFAULTS.price - DEFAULTS.down,
           // The largest account that can pay that month: a visible, editable default rather than
           // a hardcoded one.
           sourceIds: fundableAt(defaultMonth).slice(0, 1),
@@ -87,9 +96,17 @@ export function HomePurchaseForm({
    * A holding — a home the household already owns. It opened at the now marker with no draw and
    * no §4.5 gate, and its price field IS today's value, so the date is stated rather than picked
    * and there is no down payment to fund: the fields below are exactly what the Starting position
-   * form asked for. Its mortgage, as for any home, is revised through that loan's own marker.
+   * form asked for. Its mortgage rides inside the purchase now, so its balance and terms are edited
+   * right here rather than on a separate loan marker.
    */
   const holding = edit !== undefined && isPreExisting(edit.event.month);
+
+  /**
+   * Whether there is a mortgage to edit. Adding always finances (the down payment is below the
+   * price); editing shows the mortgage fields only when the event already carries one, so a cash
+   * purchase / owned-outright home is not offered financing it does not have.
+   */
+  const financed = edit === undefined || edit.event.mortgage !== undefined;
 
   /**
    * Moving the purchase re-prices every account, so one picked while it held money may hold
@@ -128,9 +145,9 @@ export function HomePurchaseForm({
   });
 
   function submit() {
-    // A `buyHome` revision touches only the property's own fields — the financing mortgage is a
-    // separate `LoanEvent`, revised through its own timeline marker — so its rate and term never
-    // ride here. Price, down payment, drain order, and month do.
+    // One `buyHome` revision carries the property's fields AND the embedded mortgage. The engine
+    // re-derives a plan-time purchase's balance from price − down; a holding's balance is decoupled
+    // from value, so it is sent explicitly. Mortgage fields are omitted for a cash purchase.
     if (edit) {
       edit.onRevise((p) =>
         p.reviseTransaction(edit.event.id, {
@@ -139,11 +156,15 @@ export function HomePurchaseForm({
           purchasePriceCents: dollarsToCents(draft.price),
           downPaymentCents: dollarsToCents(draft.down),
           downPaymentSourceIds: sourceIds,
+          ...(financed
+            ? { mortgageApr: draft.apr / 100, mortgageTermMonths: draft.termYears * 12 }
+            : {}),
+          ...(holding && financed ? { mortgageBalanceCents: dollarsToCents(draft.mortgageBalance) } : {}),
         }),
       );
       return;
     }
-    // `buyHome` mints the property id and derives `<propertyId>-mortgage` from it.
+    // `buyHome` mints the property id and, alongside it, the mortgage's own liability id.
     onAdd((p) =>
       p.buyHome({
         month: draft.month,
@@ -175,10 +196,20 @@ export function HomePurchaseForm({
       {!holding && (
         <NumInput label="Down payment" value={draft.down} onChange={(down) => patch({ down })} prefix="$" step={5000} />
       )}
-      {/* The mortgage's rate and term are the financing loan's, not the property's — an edit
-          leaves them to that loan's own marker and shows neither here. */}
-      {!edit && (
+      {/* The mortgage lives inside the purchase, so its terms are edited here. A holding's balance
+          is decoupled from its value, so it gets its own field; a plan-time purchase derives the
+          balance from price − down and shows none. */}
+      {financed && (
         <>
+          {holding && (
+            <NumInput
+              label="Mortgage balance"
+              value={draft.mortgageBalance}
+              onChange={(mortgageBalance) => patch({ mortgageBalance })}
+              prefix="$"
+              step={5000}
+            />
+          )}
           <NumInput label="Mortgage APR" value={draft.apr} onChange={(apr) => patch({ apr })} suffix="%" step={0.25} />
           <NumInput label="Term" value={draft.termYears} onChange={(termYears) => patch({ termYears })} suffix="yr" min={1} />
         </>
@@ -197,8 +228,8 @@ export function HomePurchaseForm({
       <button className="btn primary" onClick={submit}>
         {edit ? "Save changes" : "Add event"}
       </button>
-      {/* The advisory reads the mortgage payment, so it belongs to authoring — an edit here
-          cannot change the financing that drives it. */}
+      {/* The affordability advisory is an authoring-time nudge on a new purchase; an edit to an
+          already-recorded home does not re-open it. */}
       {!edit && dti.exceeded && <DtiWarning dti={dti} />}
       <p className="hint">
         {holding
