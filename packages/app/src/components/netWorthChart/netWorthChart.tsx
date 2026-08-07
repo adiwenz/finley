@@ -1,5 +1,4 @@
 import type { ProjectionSeries } from "@finley/engine";
-import { useId } from "react";
 import {
   Area,
   CartesianGrid,
@@ -16,6 +15,7 @@ import {
 import { formatDollars, monthLabel, yearOf } from "../../format";
 import { TODAY_X, axisPointLabel, axisYearTickLabel, toAxisX } from "../monthAxis";
 import { buildNetWorthChartData, type BlockedMarker, type RunsOutMarker } from "./netWorthChartData";
+import { NotSimulatedHatch, useHatchId } from "./notSimulatedHatch";
 
 const INK = "#1f3a2e"; // ledger ink green (nominal)
 const AMBER = "#b5761f"; // real (today's dollars)
@@ -147,10 +147,7 @@ export function NetWorthChart({
     horizonMonths,
   );
 
-  // An SVG `<pattern>` is addressed by a document-wide id, so two charts on one page sharing a
-  // literal id would have the second silently redefine the first. `useId` keeps it unique; the
-  // colons it emits are legal in an id but not in a `url(#…)` reference, so they go.
-  const hatchId = `nw-not-simulated-${useId().replace(/:/g, "")}`;
+  const hatchId = useHatchId("nw");
 
   return (
     <div
@@ -163,17 +160,7 @@ export function NetWorthChart({
           margin={{ top: 16, right: 16, bottom: 8, left: 16 }}
         >
           <defs>
-            {/* Diagonal hatch for the never-simulated tail: reads as "no data here" where a flat
-                fill could be mistaken for a plotted band. Faint failure-red, matching the marker. */}
-            <pattern
-              id={hatchId}
-              width={6}
-              height={6}
-              patternUnits="userSpaceOnUse"
-              patternTransform="rotate(45)"
-            >
-              <line x1={0} y1={0} x2={0} y2={6} stroke={RED} strokeWidth={1.5} strokeOpacity={0.28} />
-            </pattern>
+            <NotSimulatedHatch id={hatchId} stroke={RED} />
           </defs>
           <CartesianGrid stroke={GRID} vertical={false} />
           <XAxis

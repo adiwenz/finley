@@ -14,7 +14,7 @@
  * absent in jsdom).
  */
 
-import { useId, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Area,
   CartesianGrid,
@@ -30,6 +30,7 @@ import {
 import { formatDollars, monthLabel, yearOf } from "../../format";
 import { TODAY_X, axisPointLabel, axisYearTickLabel, toAxisX, yearTickXs } from "../monthAxis";
 import type { BreakdownBand, NetWorthBreakdownData } from "./netWorthBreakdown";
+import { NotSimulatedHatch, useHatchId } from "./notSimulatedHatch";
 
 const AXIS = "#6b6552";
 const GRID = "#e3dcc6";
@@ -200,10 +201,7 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
   const colors = useMemo(() => colorsForBands(data.bands), [data.bands]);
   const visibleBands = bandsForMode(data.bands, activeMode);
 
-  // Unique per render so two charts on a page can't collide on this document-wide pattern id; the
-  // colons `useId` emits are illegal in a `url(#…)` reference, so they go. Same hatch as the total
-  // chart above — the pair is read as one picture.
-  const hatchId = `nwb-not-simulated-${useId().replace(/:/g, "")}`;
+  const hatchId = useHatchId("nwb");
 
   // One point per month on the shared months-from-now axis: each visible band's value keyed by
   // id, liabilities negated in the net-worth view so debt stacks below zero and the stack's
@@ -271,23 +269,7 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
         <ResponsiveContainer width="100%" height={220}>
           <ComposedChart data={rows} margin={{ top: 12, right: 16, bottom: 8, left: 16 }}>
             <defs>
-              <pattern
-                id={hatchId}
-                width={6}
-                height={6}
-                patternUnits="userSpaceOnUse"
-                patternTransform="rotate(45)"
-              >
-                <line
-                  x1={0}
-                  y1={0}
-                  x2={0}
-                  y2={6}
-                  stroke={STOPPED}
-                  strokeWidth={1.5}
-                  strokeOpacity={0.28}
-                />
-              </pattern>
+              <NotSimulatedHatch id={hatchId} stroke={STOPPED} />
             </defs>
             <CartesianGrid stroke={GRID} vertical={false} />
             <XAxis

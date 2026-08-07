@@ -9,11 +9,17 @@ import styles from "./timeline.module.css";
 const TRACK_LEFT = 88;
 const TRACK_RIGHT = 16;
 
-/** Row indicator and track-dot modifier for the two non-executed outcomes; `executed` shows neither. */
-const OUTCOME_INDICATOR: Record<MarkerOutcome, { readonly label: string; readonly dot: string } | null> = {
+/**
+ * Row-badge and track-dot presentation for the two non-executed outcomes; `executed` shows neither.
+ * The one place outcome maps to markup — both surfaces read `label`/`dot`/`badge` off it.
+ */
+const OUTCOME_INDICATOR: Record<
+  MarkerOutcome,
+  { readonly label: string; readonly dot: string; readonly badge: string } | null
+> = {
   executed: null,
-  blocked: { label: "Blocked", dot: styles.blockedDot },
-  "not-reached": { label: "Not reached", dot: styles.notReachedDot },
+  blocked: { label: "Blocked", dot: styles.blockedDot, badge: styles.mlBlocked },
+  "not-reached": { label: "Not reached", dot: styles.notReachedDot, badge: styles.mlNotReached },
 };
 
 export function Timeline({
@@ -85,15 +91,7 @@ export function Timeline({
                 <span className={styles.mlLabel}>{m.label}</span>
                 <span className={styles.mlDetail}>{m.detail}</span>
                 {indicator ? (
-                  <span
-                    className={
-                      m.outcome === "blocked"
-                        ? `${styles.mlOutcome} ${styles.mlBlocked}`
-                        : `${styles.mlOutcome} ${styles.mlNotReached}`
-                    }
-                  >
-                    {indicator.label}
-                  </span>
+                  <span className={`${styles.mlOutcome} ${indicator.badge}`}>{indicator.label}</span>
                 ) : null}
                 {editableTypes.has(m.type) && (
                   <button className="btn link" onClick={() => onEdit(m.id)}>
