@@ -9,8 +9,12 @@ whole-issue mode, one commit per task. Read the issue for the full task text.
 - **Task 4 — hoist boundary-independent compilation out of the per-candidate loop.** DONE (this
   commit). Done out of numeric order (before 3) because it's independent and lower-risk.
 
-**Remaining:** tasks 3, 5, 6, 7 (3 = resumable core + prefix checkpoints; 5 = reuse solved run;
-6 = memoize solve on committed state; 7 = optional seed-from-plannedWorkStopAge).
+- **Task 3 — resumable core + prefix checkpoints.** IN PROGRESS. Resumable core + `forkSimState`
+  landed and green (this WIP commit); the search-side wiring (checkpoint a hi-run, resume each
+  candidate from its stop-working month) is NOT yet done.
+
+**Remaining:** finish task 3 wiring, then tasks 5, 6, 7 (5 = reuse solved run; 6 = memoize solve
+on committed state; 7 = optional seed-from-plannedWorkStopAge).
 
 ## Live constraints
 - **The load-bearing invariant:** every fast path must be a pure read off the SAME survival
@@ -49,9 +53,23 @@ whole-issue mode, one commit per task. Read the issue for the full task text.
   `projectScenarioParts`) runs interpret + buildHouseholdSimInput + survival-only sim. If a future
   field on the base becomes boundary-dependent, `rebaseStopWorking` must be updated or the test
   will (correctly) fail.
-- **Task 3 note:** it refactors `simulateHousehold`'s month loop into a resumable core. Keep the
-  `if (!survivalOnly)` reporting guard AND the survival-only early-exit break intact through that
-  refactor. The checkpoint run should be a `hi = lifeExpectancy` survival-only pass.
+- **Task 3 resumable core (`simulate.ts`, `runState.ts`):** `simulateHousehold` now takes
+  `options.resume = { startMonth, seedState }` (seed the loop from a checkpoint and emit only the
+  tail) and `options.onCheckpoint(month, fork)` (called at each month's TOP with a fork of the
+  entering state). `forkSimState` (runState.ts) shares the immutable arrays and copies every
+  mutable Map — `earningsByPerson`'s inner Maps are cloned (mutated in place by `addEarnings`).
+  Proven byte-identical by the "resume from a mid-run checkpoint" test in simulate.test.ts.
+  Remaining wiring for `earliestFullRetirementAge`: (1) run one `hi = lifeExpectancy`
+  survival-only pass WITH `onCheckpoint` capturing forks into `checkpoints[month]`; that pass caps
+  no normal job and carries a continuation job through year(hi) ≥ every pre-A month, so the prefix
+  `[0, k)` income is identical for every candidate A with `k = retirementMonth(A)`. (2) If that hi
+  pass does NOT survive → return null (no age works), no checkpoints needed. (3) Else binary-search
+  candidates: for age A, `k = retirementMonth(plan, A)`; if `k >= horizon` → survives; else resume
+  with `seedState: forkSimState(checkpoints[k])` (fork again — the stored checkpoint is reused
+  across candidates), `startMonth: k`, and the CANDIDATE's simInput (capped income, via
+  rebaseStopWorking at A). `planSurvives(tail)` is the candidate's feasibility because the skipped
+  prefix is known solvent (hi survived it). Correctness gate: the existing "survival-only fast path
+  agrees with the full sim at every age" test must stay green with this path.
 
 ## Dead ends
 - (none yet)

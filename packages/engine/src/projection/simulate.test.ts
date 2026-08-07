@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { simulateHousehold } from "./simulate";
+import type { SimState } from "./runState";
 import { dollarsToCents } from "../money/cashFlowSeries";
 import { nullJurisdiction } from "../jurisdiction/jurisdiction";
+import { AmortizingLoan } from "../liability/liability";
 import {
   makePerson,
   makeInvestmentAccount,
@@ -272,6 +274,46 @@ describe("simulateHousehold", () => {
       for (let i = 0; i < lean.months.length; i++) {
         expect(lean.months[i].netWorthNominalCents).toBe(full.months[i].netWorthNominalCents);
       }
+    });
+  });
+
+  describe("resume from a mid-run checkpoint", () => {
+    it("re-simulating the tail from a captured checkpoint is byte-identical to the full run", () => {
+      // The retirement search checkpoints one full pass and resumes each candidate from its
+      // stop-working month. The forward recurrence is pure — state at month m is a function of
+      // month m-1's state and month m's input — so resuming from the checkpoint entering month k
+      // must reproduce months k..horizon exactly.
+      const acc = makeInvestmentAccount(dollarsToCents(80_000), 0.05);
+      const loan = new AmortizingLoan({
+        id: "car",
+        ownerId: "p1",
+        kind: "auto",
+        openingBalanceCents: dollarsToCents(20_000),
+        apr: 0.06,
+        termMonths: 48,
+      });
+      const input = {
+        horizonMonths: 36,
+        annualInflationRate: 0.02,
+        persons: [makePerson()],
+        accounts: [acc],
+        incomeSeries: [{ series: monthlyIncome(dollarsToCents(5_000)), ownerId: "p1" }],
+        expenseSeries: [{ series: monthlyExpense(dollarsToCents(3_500)), ownerId: "p1" }],
+        liabilities: [loan],
+      };
+      const checkpoints: SimState[] = [];
+      const full = simulateHousehold(input, nullJurisdiction, {
+        onCheckpoint: (month, checkpoint) => {
+          checkpoints[month] = checkpoint;
+        },
+      });
+      const k = 18;
+      const resumed = simulateHousehold(input, nullJurisdiction, {
+        resume: { startMonth: k, seedState: checkpoints[k] },
+      });
+      // The tail emits exactly months k..horizon-1, each identical to the full pass.
+      expect(resumed.months.map((m) => m.month)).toEqual(full.months.slice(k).map((m) => m.month));
+      expect(resumed.months).toEqual(full.months.slice(k));
     });
   });
 });
