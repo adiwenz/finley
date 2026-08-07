@@ -85,10 +85,13 @@ describe("haveExistingChild — a child already born", () => {
   });
 });
 
-/** A partner carrying one long-running $2,000/mo ($24,000/yr) job that pays from "now". */
+/**
+ * A partner carrying one long-running $2,000/mo ($24,000/yr) job that pays from "now" — and
+ * ends inside their life: Sam is born 1990 at expectancy 90, so it runs to their last year.
+ */
 const partnerJob = {
   startYear: base.startYear,
-  endYear: 2090,
+  endYear: 2080,
   // Starts at "now", so both anchors are the one stated salary — a flat history.
   salary: { startingSalaryCents: 2_400_000, currentSalaryCents: 2_400_000, realGrowthPct: 0 },
 } as const;

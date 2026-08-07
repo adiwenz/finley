@@ -546,19 +546,112 @@ describe("Projection root — a marriage or separation needs both partners alive
       expect(p.plan.primary.jobs).toEqual([]);
     });
 
-    it("still accepts a job that ENDS past the expectancy — that one is clamped, not refused", () => {
-      // The asymmetry is the rule, not an oversight, and it is about what there is to do with the
-      // plan rather than about what death bounds. A job whose START is past the death describes
-      // employment nobody could take up: nothing survives interpreting it, so authoring refuses.
-      // A job that merely OUTLASTS its owner is an ordinary plan with a knowable answer — it is
-      // worked until they die — so it is accepted and clipped at run time by
-      // `personActiveWindow`. Refusing it instead would make "I'll work as long as I can" an
-      // unwritable plan.
-      const p = freshProjection();
-      expect(() =>
-        p.addJob(p.plan.primary.id, { ...plainJob, startYear: 2030, endYear: 2090 }),
-      ).not.toThrow();
-      expect(p.plan.primary.jobs).toHaveLength(1);
+    // A job is the one person-scoped artifact that occupies a STRETCH of a life rather than an
+    // instant, and containment is about the whole stretch: it starts inside the window and it
+    // ends inside it. The primary here is born 1986 at expectancy 85, so the window closes with
+    // 2071 — the last year they are alive to work.
+    describe("a job is contained end to end, not just at its start", () => {
+      const jobTo = (endYear: number) => ({ ...plainJob, startYear: 2030, endYear });
+
+      it("accepts a job that ends BEFORE its owner's death", () => {
+        const p = freshProjection();
+        expect(() => p.addJob(p.plan.primary.id, jobTo(2060))).not.toThrow();
+        expect(p.plan.primary.jobs).toHaveLength(1);
+      });
+
+      it("accepts a job that ends EXACTLY at its owner's death — the bound is exclusive", () => {
+        // `endYear` is exclusive and so is the death month, so these are the same month: the last
+        // month worked is the last month lived. Working to the end of your life is a plan a
+        // person may write, and the boundary is where an off-by-one would make it unwritable.
+        const p = freshProjection();
+        expect(() => p.addJob(p.plan.primary.id, jobTo(2071))).not.toThrow();
+        expect(p.plan.primary.jobs).toHaveLength(1);
+      });
+
+      it("refuses a job that ends AFTER its owner's death", () => {
+        // Not clamped at authoring time, which is what this used to be: a plan whose numbers are
+        // read one way by the form and another by the run is the thing the containment rule
+        // exists to stop. `personActiveWindow` still clips such a job, for state this build did
+        // not author — see the restored fixtures below.
+        const p = freshProjection();
+        expect(() => p.addJob(p.plan.primary.id, jobTo(2090))).toThrow(
+          /would run the 2030 job on to 2090.*live only to 2071.*must end while its owner is alive/,
+        );
+        expect(p.plan.primary.jobs).toEqual([]);
+      });
+
+      it("refuses a job whose end does not come after its start", () => {
+        // The other half of `startMonth < endMonthExclusive <= deathMonth`, and the half no
+        // expectancy can fix: a span that runs backwards describes no employment at all.
+        const p = freshProjection();
+        expect(() => p.addJob(p.plan.primary.id, jobTo(2030))).toThrow(
+          /the 2030 job would end in 2030, and a job must end after it starts/,
+        );
+        expect(p.plan.primary.jobs).toEqual([]);
+      });
+
+      it("refuses a partner's job that outlasts the PARTNER, on their own clock", () => {
+        // Sam is born 1996 at expectancy 80, so they die in 2076 — before the primary's own
+        // 2086 here. A job takes only its owner, so it is Sam's death that bounds Sam's job.
+        const p = freshProjection();
+        p.updatePlan({ lifeExpectancy: 100 });
+        const samId = p.marry({ month: 12, name: "Sam", birthYear: 1996, lifeExpectancy: 80 });
+        expect(() => p.addPartnerJob(samId, jobTo(2080))).toThrow(
+          /would run the 2030 job on to 2080.*Sam is projected to live only to 2076/,
+        );
+        expect(partnerEvent(p).person.jobs).toEqual([]);
+      });
+    });
+
+    // The other direction, for the end as much as for the start: a job legal when written is
+    // stranded by an edit that moves the death back under it, and there is no second write to
+    // that job to catch it.
+    describe("an edit that would leave an existing job posthumous is refused", () => {
+      it("updatePlan: refuses an expectancy lowered under a job's END", () => {
+        const p = freshProjection();
+        p.updatePlan({ lifeExpectancy: 100 }); // dies 2086
+        p.addJob(p.plan.primary.id, { ...plainJob, startYear: 2030, endYear: 2085 });
+        expect(() => p.updatePlan({ lifeExpectancy: 85 })).toThrow(
+          /would run the 2030 job on to 2085.*live only to 2071.*must end while its owner is alive/,
+        );
+        expect(p.plan.primary.lifeExpectancy).toBe(100);
+      });
+
+      it("updatePlan: refuses a birth year moved under a job's end IN THE SAME EDIT as an expectancy", () => {
+        // A birth year alone cannot do this any more — it carries the job with it, and the death
+        // it is compared against moves by the same delta (see the rebasing block below). What
+        // still can is moving the expectancy too: the job's end AGE is preserved at 99 and the
+        // life it must fit inside is cut to 85.
+        const p = freshProjection();
+        p.updatePlan({ lifeExpectancy: 100 });
+        p.addJob(p.plan.primary.id, { ...plainJob, startYear: 2030, endYear: 2085 });
+        expect(() => p.updatePlan({ birthYear: 1970, lifeExpectancy: 85 })).toThrow(
+          /would run the 2014 job on to 2069.*live only to 2055.*must end while its owner is alive/,
+        );
+        expect(p.plan.primary.birthYear).toBe(samplePlan.primary.birthYear);
+        expect(p.plan.primary.lifeExpectancy).toBe(100);
+      });
+
+      it("reviseTransaction: refuses a partner expectancy lowered under THEIR job's end", () => {
+        const p = freshProjection();
+        p.updatePlan({ lifeExpectancy: 100 });
+        const samId = p.marry({ month: 12, name: "Sam", birthYear: 1996, lifeExpectancy: 95 });
+        p.addPartnerJob(samId, { ...plainJob, startYear: 2030, endYear: 2085 });
+        expect(() => p.reviseTransaction(samId, { type: "marry", lifeExpectancy: 80 })).toThrow(
+          /would run the 2030 job on to 2085.*Sam is projected to live only to 2076/,
+        );
+        expect(partnerEvent(p).person.lifeExpectancy).toBe(95);
+      });
+
+      it("still allows an edit that keeps the whole job inside the life", () => {
+        // The guard is about containment, not about expectancies being immovable: an expectancy
+        // of 99 still has the primary alive through the job's 2085 end, so the edit lands.
+        const p = freshProjection();
+        p.updatePlan({ lifeExpectancy: 100 });
+        p.addJob(p.plan.primary.id, { ...plainJob, startYear: 2030, endYear: 2085 });
+        expect(() => p.updatePlan({ lifeExpectancy: 99 })).not.toThrow();
+        expect(p.plan.primary.lifeExpectancy).toBe(99);
+      });
     });
   });
 
@@ -960,25 +1053,62 @@ describe("every person-scoped stream ends at its own person's death", () => {
   });
 
   /**
-   * The primary and Sam, each holding one job authored to run PAST its own owner's death — the
-   * primary's to 2081 (month 660), Sam's to 2090 (month 768). Nothing here is refused: authoring
-   * a job that STARTS after its owner dies is, but a job that merely outlasts them is an ordinary
-   * plan, and what happens to it is this rule's job to say rather than the authoring guard's.
+   * The primary and Sam, each holding one job that runs PAST its own owner's death — the
+   * primary's to 2081 (month 660), Sam's to 2090 (month 768).
+   *
+   * **Built through RESTORATION**, like the stranded separations above and for the same reason:
+   * authoring cannot produce this household any more. A job must end while its owner is alive
+   * (`assertPersonEventsStillReachable`), so both jobs are authored against expectancies that
+   * cover them and the expectancies are then lowered OUTSIDE the authoring gate — which is what
+   * an imported file, a hand-edited state or one exported before the rule existed looks like.
+   *
+   * That is exactly the state `personActiveWindow` is a safeguard for, and what these tests are
+   * about: the clamp is not the rule, it is what keeps such a household modelling sensibly
+   * instead of paying a dead earner.
+   *
+   * `adjust` hangs further authoring off the jobs while the expectancies still cover them —
+   * the pay changes and bonuses the tests below date around a death. It runs BEFORE the lowering
+   * because every write revalidates the whole state, so a restored household this far out of
+   * contract accepts no edits at all; what it still does is RUN, which is the subject here.
    */
-  const household = () => {
-    const p = freshProjection();
-    const samId = p.marry({ month: 0, name: "Sam", birthYear: 1996, lifeExpectancy: 90 });
-    const primaryJob = p.addJob(P1, {
+  const household = (
+    adjust: (p: Projection, jobs: { primaryJob: string; samJob: string }) => void = () => {},
+  ) => {
+    const authored = freshProjection();
+    authored.updatePlan({ lifeExpectancy: 100 }); // dies 2086, so the 2081 job below is legal
+    const samId = authored.marry({ month: 0, name: "Sam", birthYear: 1996, lifeExpectancy: 95 });
+    const primaryJob = authored.addJob(P1, {
       startYear: 2030,
       endYear: 2081,
       salary: flatSalary(120_000),
     });
-    const samJob = p.addPartnerJob(samId, {
+    const samJob = authored.addPartnerJob(samId, {
       startYear: 2030,
-      endYear: 2090,
+      endYear: 2090, // legal against Sam's authored 95, which reaches 2091
       salary: flatSalary(60_000),
     });
-    return { p, samId, primaryJob, samJob };
+    adjust(authored, { primaryJob, samJob });
+
+    const state = JSON.parse(JSON.stringify(authored.toState())) as ProjectionState;
+    const lowered: ProjectionState = {
+      ...state,
+      scenario: {
+        ...state.scenario,
+        plan: {
+          ...state.scenario.plan,
+          primary: { ...state.scenario.plan.primary, lifeExpectancy: 85 }, // dies 2071
+        },
+        ledger: {
+          ...state.scenario.ledger,
+          events: state.scenario.ledger.events.map((e) =>
+            e.type === "RelationshipEvent"
+              ? { ...e, person: { ...e.person, lifeExpectancy: 90 } } // Sam dies 2086
+              : e,
+          ),
+        },
+      },
+    };
+    return { p: Projection.fromState(lowered, nullJurisdiction), samId, primaryJob, samJob };
   };
 
   /** What one job's income source paid in `month`, or `null` when it booked none at all. */
@@ -1037,9 +1167,10 @@ describe("every person-scoped stream ends at its own person's death", () => {
     // reset the salary for every later month) and a one-month bonus. Neither lands, and neither
     // disturbs the months before — the pay at 539 is exactly what it is with no adjustments
     // authored at all, which is the assertion that says "ignored" rather than "clipped".
-    const { p, primaryJob } = household();
-    p.addJobPayChange(primaryJob, { month: 600, kind: "setTo", cents: dollarsToCents(20_000) });
-    p.addJobIncomeOverride(primaryJob, { month: 602, kind: "addBonus", cents: dollarsToCents(50_000) });
+    const { p, primaryJob } = household((a, { primaryJob: job }) => {
+      a.addJobPayChange(job, { month: 600, kind: "setTo", cents: dollarsToCents(20_000) });
+      a.addJobIncomeOverride(job, { month: 602, kind: "addBonus", cents: dollarsToCents(50_000) });
+    });
     const r = p.run(nullJurisdiction);
 
     expect(paidBy(r, primaryJob, PRIMARY_DEATH - 1)).toBe(3_262_036);
@@ -1052,9 +1183,10 @@ describe("every person-scoped stream ends at its own person's death", () => {
     // The control the case above is worth nothing without. The same two adjustments, moved
     // before the death, do land: the salary is set to $20,000/month from 528 and the bonus adds
     // $50,000 to month 530 alone, with 539 back on the raised salary.
-    const { p, primaryJob } = household();
-    p.addJobPayChange(primaryJob, { month: 528, kind: "setTo", cents: dollarsToCents(20_000) });
-    p.addJobIncomeOverride(primaryJob, { month: 530, kind: "addBonus", cents: dollarsToCents(50_000) });
+    const { p, primaryJob } = household((a, { primaryJob: job }) => {
+      a.addJobPayChange(job, { month: 528, kind: "setTo", cents: dollarsToCents(20_000) });
+      a.addJobIncomeOverride(job, { month: 530, kind: "addBonus", cents: dollarsToCents(50_000) });
+    });
     const r = p.run(nullJurisdiction);
 
     expect(paidBy(r, primaryJob, 527)).toBe(3_167_025); // the un-raised path

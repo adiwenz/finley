@@ -13,6 +13,7 @@ import type { Cents } from "../money/money";
 import type { LifeEvent, NewLifeEvent } from "../ledger/eventTypes";
 import type { ProjectionState } from "./state";
 import { dropEvent, replaceEvent } from "./eventWrite";
+import { withBirthYear } from "../plan/person";
 
 /**
  * What may be changed about a transaction already in the log — its DATA, never its identity.
@@ -123,16 +124,20 @@ function revisedEvent(current: LifeEvent, revision: TransactionRevision): NewLif
   switch (current.type) {
     case "RelationshipEvent": {
       const r = at("marry");
+      // A partner's jobs are dated in the partner's own ages, so a corrected birth year moves
+      // them with it — the same rule the primary's edit runs, from the one definition of it, so
+      // the two planes cannot disagree about what correcting a birthday means. Everything else
+      // spreads over the result; their id and job list ride through either way.
+      const person =
+        r.birthYear === undefined ? current.person : withBirthYear(current.person, r.birthYear);
       return {
         ...kept,
         month: r.month ?? current.month,
-        // The person is spread, so their id and their whole job list ride through untouched.
         person: {
-          ...current.person,
-          name: r.name ?? current.person.name,
-          birthYear: r.birthYear ?? current.person.birthYear,
-          lifeExpectancy: r.lifeExpectancy ?? current.person.lifeExpectancy,
-          benefitClaimingAge: r.benefitClaimingAge ?? current.person.benefitClaimingAge,
+          ...person,
+          name: r.name ?? person.name,
+          lifeExpectancy: r.lifeExpectancy ?? person.lifeExpectancy,
+          benefitClaimingAge: r.benefitClaimingAge ?? person.benefitClaimingAge,
         },
       } as NewLifeEvent;
     }

@@ -355,6 +355,62 @@ describe("JobsPanel — add / edit / delete", () => {
     expect(within(screen.getByLabelText("Job 1")).getByText(/age 18–50/)).toBeTruthy();
   });
 
+  // A job must be WORKED while its owner is alive, so the engine refuses one ending past their
+  // death. A field that let a higher age through would commit a value the very next write
+  // rejected — the form would close on an edit that never landed, which reads to the user as
+  // nothing having happened at all. So the field stops where the engine does.
+  describe("the end age stops at the owner's own life expectancy", () => {
+    it("bounds the control by the owner's expectancy, not the engine's age ceiling", () => {
+      // Alex's expectancy is 90; MAX_LIVED_AGE (119) is not this field's bound.
+      render(<Harness />);
+      fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+      expect(Number(spin(/End age/i).max)).toBe(PLAN_DEFAULTS.primary.lifeExpectancy);
+      // A job must still have a month to be worked in, so its START stops one below that.
+      expect(Number(spin(/Start age/i).max)).toBe(PLAN_DEFAULTS.primary.lifeExpectancy - 1);
+    });
+
+    it("clamps a typed age past the expectancy, and the clamped edit LANDS", () => {
+      // The whole point: the edit commits at 90 rather than being refused and silently
+      // discarded. 91 is the age that used to close the form and change nothing.
+      render(<Harness />);
+      fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+      enterNumber(spin(/End age/i), "91");
+      fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+      expect(within(screen.getByLabelText("Job 1")).getByText(/age 18–90/)).toBeTruthy();
+    });
+
+    it("allows an end AT the expectancy — working to the last month lived stays writable", () => {
+      render(<Harness />);
+      fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+      enterNumber(spin(/End age/i), "90");
+      fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+      expect(authored().plan.primary.jobs[0].endYear).toBe(
+        PLAN_DEFAULTS.primary.birthYear + PLAN_DEFAULTS.primary.lifeExpectancy,
+      );
+    });
+
+    it("reads the bound off the PARTNER when the job is theirs", () => {
+      // Sam's expectancy is 85 and the primary's is 90. A job takes only its owner, so a
+      // partner's form must not be bounded by somebody else's life.
+      render(<Harness events={[partnerJoining([partnerJob(2500)])]} />);
+      fireEvent.click(screen.getByRole("button", { name: /Edit Sam · Job 1/i }));
+      expect(Number(spin(/End age/i).max)).toBe(85);
+    });
+  });
+
+  it("keeps the form open when a write is refused, rather than closing on an edit that never landed", () => {
+    // The bounds above mean the form cannot reach the ordinary refusals, but a state they
+    // cannot see (an expectancy lowered on another panel) still can. Losing the typed draft
+    // AND the plan change at once leaves nothing to tell the user anything happened.
+    render(<Harness rejectRevisions />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
+    enterNumber(spin(/End age/i), "50");
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    expect(screen.getByRole("button", { name: /^Save$/ })).toBeTruthy();
+    expect(Number(spin(/End age/i).value)).toBe(50);
+    expect(within(screen.getByLabelText("Job 1")).getByText(/age 18–65/)).toBeTruthy();
+  });
+
   it("offers no way to author a job without an end — the field is always there", () => {
     // There used to be an "Open-ended (runs until retirement)" checkbox that hid this field,
     // and a job with it ticked silently ended at whatever retirement age was authored on

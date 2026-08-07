@@ -529,3 +529,156 @@ describe("Projection.setContinuationJob — naming the job a what-if may continu
   });
 });
 
+
+/**
+ * **A job is authored in its owner's ages, so correcting a birthday moves the job with them.**
+ *
+ * The years on a job are a stored reading of ages the user typed ("started at 18, ends at 65"),
+ * joined to the calendar by the owner's birth year. Move that origin and leave the years alone and
+ * every one of those ages is silently restated — a job stated to end at 90 ending at 91 because a
+ * birthday was corrected on another panel. So the whole employment shifts by the same delta, ages
+ * unchanged, on whichever plane its owner is authored on.
+ *
+ * The primary is born 1986 (age 40 at the 2026 "now") throughout.
+ */
+describe("Projection root — a corrected birth year carries that person's jobs with it", () => {
+  /** A projection whose primary lives to 100 (dies 2086), with room for far-dated jobs. */
+  const longLived = () => {
+    const p = freshProjection();
+    p.updatePlan({ lifeExpectancy: 100 });
+    return p;
+  };
+
+  const job = (startYear: number, endYear: number) => ({ ...plainJob, startYear, endYear });
+  const primaryJob = (p: Projection) => p.plan.primary.jobs[0]!;
+
+  it("shifts the calendar years and preserves the authored AGES", () => {
+    // The issue's worked example, on this fixture's clock: a job ending at 90 is 2076 for a
+    // 1986 birth; correct the birth year to 1985 and it must end in 2075, still at 90.
+    const p = longLived();
+    p.addJob(P1, job(2026, 2076));
+    p.updatePlan({ birthYear: 1985 });
+
+    expect(primaryJob(p)).toMatchObject({ startYear: 2025, endYear: 2075 });
+    const { birthYear } = p.plan.primary;
+    expect([primaryJob(p).startYear - birthYear, primaryJob(p).endYear - birthYear]).toEqual([40, 90]);
+  });
+
+  it("moves forwards as readily as back, and by the whole delta", () => {
+    const p = longLived();
+    p.addJob(P1, job(2026, 2076));
+    p.updatePlan({ birthYear: 1991 }); // five years younger
+    expect(primaryJob(p)).toMatchObject({ startYear: 2031, endYear: 2081 });
+  });
+
+  it("carries every dated adjustment inside the job, so their ages do not move either", () => {
+    // A raise and a bonus are stored as absolute simulation months. Left where they were, a
+    // raise authored at 60 would land at 61 — or fall outside the employment altogether.
+    const p = longLived();
+    const jobId = p.addJob(P1, job(2026, 2076));
+    p.addJobPayChange(jobId, { month: 240, kind: "setTo", cents: dollarsToCents(15_000) }); // 2046
+    p.addJobIncomeOverride(jobId, { month: 300, kind: "addBonus", cents: dollarsToCents(50_000) });
+    p.updatePlan({ birthYear: 1985 });
+
+    // One year earlier is twelve months earlier, for both kinds of adjustment.
+    expect(primaryJob(p).payChanges?.map((c) => c.month)).toEqual([228]);
+    expect(primaryJob(p).incomeOverrides?.map((o) => o.month)).toEqual([288]);
+    // Which is the same age within the job it was authored at: month 240 was 2046, age 60.
+    expect(SAMPLE_START_YEAR + 228 / 12 - p.plan.primary.birthYear).toBe(60);
+  });
+
+  it("leaves the rest of the job alone — ids, pay and everything a shift does not date", () => {
+    const p = longLived();
+    p.addJob(P1, { ...job(2026, 2076), name: "Day job" });
+    const before = primaryJob(p);
+    p.updatePlan({ birthYear: 1985 });
+    expect(primaryJob(p)).toEqual({ ...before, startYear: 2025, endYear: 2075 });
+  });
+
+  it("moves a PARTNER's jobs on the partner's own birth year", () => {
+    // A partner is authored on the ledger plane and their jobs ride their `RelationshipEvent`.
+    // Same rule, one definition: their ages are theirs, read against their own birthday.
+    const p = longLived();
+    const samId = p.marry({ month: 12, name: "Sam", birthYear: 1996, lifeExpectancy: 95 });
+    p.addPartnerJob(samId, job(2030, 2070));
+    p.reviseTransaction(samId, { type: "marry", birthYear: 1993 });
+
+    const sam = partnerEvent(p).person;
+    expect(sam.jobs[0]).toMatchObject({ startYear: 2027, endYear: 2067 });
+    expect([sam.jobs[0]!.startYear - sam.birthYear, sam.jobs[0]!.endYear - sam.birthYear]).toEqual([34, 74]);
+  });
+
+  it("moves only that person's jobs — the other earner's stay where they are", () => {
+    const p = longLived();
+    p.addJob(P1, job(2026, 2076));
+    const samId = p.marry({ month: 12, name: "Sam", birthYear: 1996, lifeExpectancy: 95 });
+    p.addPartnerJob(samId, job(2030, 2070));
+
+    p.updatePlan({ birthYear: 1985 });
+    expect(partnerEvent(p).person.jobs[0]).toMatchObject({ startYear: 2030, endYear: 2070 });
+
+    p.reviseTransaction(samId, { type: "marry", birthYear: 1993 });
+    expect(primaryJob(p)).toMatchObject({ startYear: 2025, endYear: 2075 });
+  });
+
+  it("does NOT move the household's own events — they are dated on the calendar, not on a life", () => {
+    // The line: a wedding, a child's arrival and a loan are facts about a household's calendar,
+    // and nobody's birthday put them there. Moving them would re-date other people's lives.
+    const p = longLived();
+    p.addJob(P1, job(2026, 2076));
+    const samId = p.marry({ month: 120, name: "Sam", birthYear: 1996, lifeExpectancy: 95 });
+    p.haveChild({ month: 60, name: "Kid", annualCostCents: 0 });
+    p.takeLoan({
+      month: 72,
+      ownerId: P1,
+      kind: "studentLoan",
+      openingBalanceCents: dollarsToCents(20_000),
+      apr: 5,
+      termMonths: 120,
+    });
+
+    p.updatePlan({ birthYear: 1981 });
+
+    expect(p.ledger.events.map((e) => [e.type, e.month])).toEqual([
+      ["RelationshipEvent", 120],
+      ["ChildEvent", 60],
+      ["LoanEvent", 72],
+    ]);
+    // The separation a partner's own revision could have dragged is equally fixed.
+    p.reviseTransaction(samId, { type: "marry", birthYear: 1993 });
+    expect(partnerEvent(p).month).toBe(120);
+  });
+
+  it("still refuses the edit when the PRESERVED age outruns a life expectancy moved with it", () => {
+    // Rebasing is not an escape from containment. The job's end age is preserved at 90 and the
+    // life it has to fit inside is cut to 80, so the edit is refused and nothing moves.
+    const p = longLived();
+    p.addJob(P1, job(2026, 2076)); // ends at 90
+    expect(() => p.updatePlan({ birthYear: 1985, lifeExpectancy: 80 })).toThrow(
+      /would run the 2025 job on to 2075.*live only to 2065.*must end while its owner is alive/,
+    );
+    expect(primaryJob(p)).toMatchObject({ startYear: 2026, endYear: 2076 });
+    expect(p.plan.primary.birthYear).toBe(samplePlan.primary.birthYear);
+  });
+
+  it("and refuses it on the partner plane too, on the partner's own numbers", () => {
+    const p = longLived();
+    const samId = p.marry({ month: 12, name: "Sam", birthYear: 1996, lifeExpectancy: 95 });
+    p.addPartnerJob(samId, job(2030, 2081)); // ends at Sam's 85
+    expect(() =>
+      p.reviseTransaction(samId, { type: "marry", birthYear: 1993, lifeExpectancy: 80 }),
+    ).toThrow(/would run the 2027 job on to 2078.*Sam is projected to live only to 2073/);
+    expect(partnerEvent(p).person.jobs[0]).toMatchObject({ startYear: 2030, endYear: 2081 });
+    expect(partnerEvent(p).person.birthYear).toBe(1996);
+  });
+
+  it("still strands a point EVENT the birth year moves the death back under", () => {
+    // The other half of the same story. A job moves with its owner; a separation does not, so
+    // lowering the birth year still walks the death back under it and the edit is refused.
+    const p = longLived();
+    const samId = p.marry({ month: 12, name: "Sam", birthYear: 1996, lifeExpectancy: 95 });
+    p.separate({ month: 600, partnerPersonId: samId }); // 2076
+    expect(() => p.updatePlan({ birthYear: 1970 })).toThrow(/would strand the 2076 separation/);
+    expect(p.plan.primary.birthYear).toBe(samplePlan.primary.birthYear);
+  });
+});

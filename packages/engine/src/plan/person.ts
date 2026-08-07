@@ -8,6 +8,7 @@
  */
 
 import type { Job, JobId, PersonId } from "../job/job";
+import { withShiftedYears } from "../job/job";
 
 export interface Person {
   readonly id: PersonId;
@@ -22,6 +23,11 @@ export interface Person {
    * there, exactly as a separation stops all three. One window, so no subsystem can be left
    * checking death on its own — a wage used to go on being paid to a household years after the
    * earner it belonged to had died, while their Social Security had already stopped.
+   *
+   * On an AUTHORED plan that `min` never binds for a job: authoring refuses one that ends past
+   * its owner's death outright, since a plan whose stated end and worked end differ is two
+   * answers to one question ({@link import("../authoring/reachability").assertPersonEventsStillReachable}).
+   * The clamp stands for state this build did not author — a restored or imported file.
    *
    * Household spending is deliberately NOT bounded by it: it runs unchanged to the horizon,
    * funding the survivor at full cost, which is conservative rather than dangerous. That
@@ -79,4 +85,41 @@ export interface Person {
    * consulted at all.
    */
   readonly continuationJobId?: JobId | null;
+}
+
+/**
+ * **This person, born in a different year — and their whole working life moved with them.**
+ *
+ * A birth year is not an ordinary field, because it is the origin every age on this person is
+ * read against. Their jobs are authored in ages ("started at 18, ends at 65") and stored in
+ * calendar years; moving the birth year without moving the jobs would leave the years where they
+ * were and so silently restate every one of those ages. Someone correcting 1966 to 1965 would
+ * find the job they said ends at 90 now ending at 91 — an edit they did not make, to a field they
+ * were not looking at.
+ *
+ * So the jobs shift by the same delta, ages preserved, and the calendar follows the person. Their
+ * death moves by that delta too (it is `birthYear + lifeExpectancy`), which is why this move
+ * alone can never put a job past its owner's end: both sides of that comparison are ages, and
+ * neither changed. An edit that ALSO moves the life expectancy is a different question, and the
+ * one containment rule still answers it
+ * ({@link import("../authoring/reachability").assertPersonEventsStillReachable}) — a job ending at
+ * 90 under an expectancy lowered to 85 is refused, rebased or not.
+ *
+ * **Only what this person owns moves.** Their jobs are dated in their own ages; a wedding, a
+ * child's arrival, a loan they took out are dated on the household's calendar, and nobody's
+ * birthday is what put them there. Shifting those would move facts about other people.
+ *
+ * The single definition of the rule, shared by the two planes a person can be edited on — the
+ * plan's primary ({@link import("./plan").withPlanPatch}) and a partner on their
+ * `RelationshipEvent` ({@link import("../authoring/revise").reviseProjectionTransaction}) — so a
+ * partner's correction cannot behave differently from the primary's.
+ */
+export function withBirthYear(person: Person, birthYear: number): Person {
+  const deltaYears = birthYear - person.birthYear;
+  if (deltaYears === 0) return person;
+  return {
+    ...person,
+    birthYear,
+    jobs: person.jobs.map((job) => withShiftedYears(job, deltaYears)),
+  };
 }

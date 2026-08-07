@@ -40,7 +40,25 @@ function budget(opts: {
 }): Plan {
   let plan: Plan = { ...PLAN_DEFAULTS, ...(opts.overrides ?? {}) };
   if (opts.currentAge !== undefined) {
-    plan = { ...plan, primary: { ...plan.primary, birthYear: START_YEAR - opts.currentAge } };
+    // The job moves with the person. Its years are calendar years read against the OWNER's birth
+    // year, so re-aging Alex without shifting them would re-age the employment too — a 64-year-old
+    // would hold the default job at ages 47 to 94, which is not a job somebody lives to finish.
+    // Shifting by the same delta keeps the default's own start and end AGES, which is what a case
+    // saying "aged 64, retiring next year" means.
+    const birthYear = START_YEAR - opts.currentAge;
+    const shift = birthYear - PLAN_DEFAULTS.primary.birthYear;
+    plan = {
+      ...plan,
+      primary: {
+        ...plan.primary,
+        birthYear,
+        jobs: plan.primary.jobs.map((j) => ({
+          ...j,
+          startYear: j.startYear + shift,
+          endYear: j.endYear + shift,
+        })),
+      },
+    };
   }
   // The default plan's lone job, by its engine-minted id — these single-earner cases never
   // override `jobs`, so this is Alex's job on the plan being tuned.

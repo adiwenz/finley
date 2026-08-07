@@ -229,7 +229,12 @@ describe("Projection root — a revision cannot replace an identity", () => {
     expect(after.id).toBe(before.id);
     expect(after.person.id).toBe(partnerId);
     expect(after.person.jobs.map((j) => j.id)).toEqual([jobId]);
-    expect(after.person.jobs).toEqual(before.person.jobs);
+    // The jobs are the same jobs, moved: a corrected birth year carries the employment it dates
+    // (1988 → 1990, so +2 years, ages unchanged). Identity is what a revision cannot touch; the
+    // calendar is not identity. The rule itself is pinned in `projectionFacade.run.test.ts`.
+    expect(after.person.jobs).toEqual(
+      before.person.jobs.map((j) => ({ ...j, startYear: j.startYear + 2, endYear: j.endYear + 2 })),
+    );
   });
 
   it("keeps the child id across a haveChild revision", () => {

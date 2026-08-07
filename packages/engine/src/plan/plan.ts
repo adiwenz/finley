@@ -7,6 +7,7 @@ import type { GoalDisposal } from "../goal/goal";
 import type { SharedContributionScheme } from "../projection/waterfall";
 import type { BudgetLine } from "../budget/budgetLine";
 import type { Person } from "./person";
+import { withBirthYear } from "./person";
 
 /**
  * A goal fund account's {@link import("./simAccount").SimAccountTaxProfile} and liquidity:
@@ -338,7 +339,13 @@ export function withPlanPatch(plan: Plan, patch: PlanPatch, startYear: number): 
       scalars[key] = value;
     }
   }
-  const primary = { ...plan.primary, ...primaryPatch };
+  // `birthYear` is applied through {@link withBirthYear} rather than spread with its siblings: it
+  // is the origin the primary's job ages are read against, so moving it moves their whole working
+  // life with them rather than restating ages nobody edited. The rest spread over the result, so
+  // a patch moving the birth year AND the expectancy in one write still ends up with both.
+  const { birthYear, ...otherPrimaryPatch } = primaryPatch;
+  const rebased = birthYear === undefined ? plan.primary : withBirthYear(plan.primary, birthYear);
+  const primary = { ...rebased, ...otherPrimaryPatch };
   const bad = invalidAge(primary, startYear);
   if (bad) throw new Error(`Projection: cannot set ${bad.field} to ${bad.age} — it ${bad.problem}`);
   return { ...plan, ...scalars, primary };

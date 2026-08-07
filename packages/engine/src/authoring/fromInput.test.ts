@@ -352,8 +352,11 @@ describe("Projection.fromInput", () => {
       );
     expect(withJob(1996 + 200, 1996 + 201).ok).toBe(false); // starts at 200
     expect(withJob(2026, 1996 + 200).ok).toBe(false); // ends at 200
-    // The ceiling itself is fine.
-    expect(withJob(2026, 1996 + MAX_LIVED_AGE).ok).toBe(true);
+    // `MAX_LIVED_AGE` is the ceiling on the age itself, and it is not the only bound: a job also
+    // has to end inside its owner's own life, which for this document is expectancy 90. An end
+    // AT the ceiling is refused now — by containment, not by the age bound.
+    expect(withJob(2026, 1996 + MAX_LIVED_AGE).ok).toBe(false);
+    expect(withJob(2026, 1996 + base.lifeExpectancy).ok).toBe(true);
   });
 
   it("takes a partner within the bound, ages and all", () => {

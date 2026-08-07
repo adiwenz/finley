@@ -238,6 +238,9 @@ export function RelationshipForm({
             // Their age when they join, which is "now" for every age this form collects — a
             // partner's job is authored in the terms of the moment they arrive.
             currentAge={draft.age}
+            // The expectancy being authored in this very form, so the job's end age follows the
+            // partner's own life as it is typed — the engine bounds it by that, not the primary's.
+            lifeExpectancy={draft.lifeExpectancy}
             submitLabel="Add"
             onSubmit={addJob}
             onCancel={() => setAddingJob(false)}

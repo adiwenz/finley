@@ -206,6 +206,8 @@ export function JobCard({
         <JobForm
           initial={initialEditDraft}
           currentAge={currentAge}
+          // THIS owner's, not the primary's — a job is bounded by the life of whoever works it.
+          lifeExpectancy={owner.lifeExpectancy}
           submitLabel="Save"
           // Fixed, and shown as context when there is anyone else it could have been. The
           // submission type carries no owner at all.

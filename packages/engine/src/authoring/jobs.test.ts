@@ -27,9 +27,13 @@ import {
   setProjectionContinuationJob,
 } from "./jobs";
 
+/**
+ * A job spanning most of a working life, and ending inside one: the sample primary dies in 2071
+ * and the partner below in 2073, and a job must end while its owner is alive.
+ */
 const longRunningJob = {
   startYear: SAMPLE_START_YEAR,
-  endYear: 2090,
+  endYear: 2065,
   salary: { startingSalaryCents: dollarsToCents(100000), currentSalaryCents: dollarsToCents(100000), realGrowthPct: 0 },
 } as const;
 
