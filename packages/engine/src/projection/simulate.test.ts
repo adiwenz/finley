@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { simulateHousehold } from "./simulate";
+import type { SimState } from "./runState";
 import { dollarsToCents } from "../money/cashFlowSeries";
 import { nullJurisdiction } from "../jurisdiction/jurisdiction";
+import { AmortizingLoan } from "../liability/liability";
 import {
   makePerson,
   makeInvestmentAccount,
@@ -203,5 +205,118 @@ describe("simulateHousehold", () => {
     expect(series.months[2].netWorthNominalCents).toBe(0);
     expect(series.months[3].netWorthNominalCents).toBe(dollarsToCents(5000));
     expect(series.months[4].netWorthNominalCents).toBe(dollarsToCents(5000));
+  });
+
+  describe("survivalOnly early-exit", () => {
+    it("a plan that never fails runs the full horizon, identical to a full sim", () => {
+      // Income exceeds expense every month, so no month is insolvent: survivalOnly has
+      // nothing to short-circuit and must run every month the full sim runs.
+      const acc = makeInvestmentAccount(dollarsToCents(10_000), 0);
+      const input = {
+        horizonMonths: 24,
+        annualInflationRate: 0,
+        persons: [makePerson()],
+        accounts: [acc],
+        incomeSeries: [{ series: monthlyIncome(dollarsToCents(4_000)), ownerId: "p1" }],
+        expenseSeries: [{ series: monthlyExpense(dollarsToCents(2_000)), ownerId: "p1" }],
+      };
+      const full = simulateHousehold(input, nullJurisdiction);
+      const lean = simulateHousehold(input, nullJurisdiction, { survivalOnly: true });
+      expect(lean.status).toBe("ran-to-horizon");
+      expect(lean.months.length).toBe(full.months.length);
+      expect(lean.months.every((m) => !m.isInsolvent)).toBe(true);
+    });
+
+    it("stops at the first insolvent month, where the full sim runs the whole horizon", () => {
+      // A $30k/mo deficit with no assets exhausts the synthetic card and trips insolvency
+      // early. The full sim carries on nulling net worth to the horizon; survivalOnly has its
+      // answer at the first insolvent month and stops there.
+      const acc = makeInvestmentAccount(0, 0);
+      const input = {
+        horizonMonths: 6,
+        annualInflationRate: 0,
+        persons: [makePerson()],
+        accounts: [acc],
+        incomeSeries: [],
+        expenseSeries: [{ series: monthlyExpense(dollarsToCents(30_000)), ownerId: "p1" }],
+      };
+      const full = simulateHousehold(input, nullJurisdiction);
+      const lean = simulateHousehold(input, nullJurisdiction, { survivalOnly: true });
+      const firstInsolvent = full.months.findIndex((m) => m.isInsolvent);
+      expect(firstInsolvent).toBeGreaterThanOrEqual(0);
+      expect(full.months.length).toBe(6);
+      expect(lean.months.length).toBe(firstInsolvent + 1);
+      expect(lean.months[lean.months.length - 1].isInsolvent).toBe(true);
+    });
+
+    it("skips the reporting assembly the search never reads (no flows, no payment records)", () => {
+      // The survival check reads only `isInsolvent`/net worth, so the per-month flow record,
+      // funding attribution, and liability payment records are pure waste here. The full sim
+      // builds them on every month; survivalOnly must leave them out while the balances the
+      // survival signal derives from stay intact.
+      const acc = makeInvestmentAccount(dollarsToCents(50_000), 0);
+      const input = {
+        horizonMonths: 12,
+        annualInflationRate: 0,
+        persons: [makePerson()],
+        accounts: [acc],
+        incomeSeries: [{ series: monthlyIncome(dollarsToCents(4_000)), ownerId: "p1" }],
+        expenseSeries: [{ series: monthlyExpense(dollarsToCents(3_000)), ownerId: "p1" }],
+      };
+      const full = simulateHousehold(input, nullJurisdiction);
+      const lean = simulateHousehold(input, nullJurisdiction, { survivalOnly: true });
+      // The full sim carries a flow record on every processed month; survivalOnly carries none.
+      expect(full.months.every((m) => m.flows !== undefined)).toBe(true);
+      expect(lean.months.every((m) => m.flows === undefined)).toBe(true);
+      expect(lean.months.every((m) => Object.keys(m.liabilityPaymentRecords).length === 0)).toBe(true);
+      // Skipping reporting must not disturb the load-bearing balances: net worth still matches
+      // the full sim month for month.
+      for (let i = 0; i < lean.months.length; i++) {
+        expect(lean.months[i].netWorthNominalCents).toBe(full.months[i].netWorthNominalCents);
+      }
+    });
+  });
+
+  describe("resume from a mid-run checkpoint", () => {
+    it("re-simulating the tail from a captured checkpoint is byte-identical to the full run", () => {
+      // The retirement search checkpoints one full pass and resumes each candidate from its
+      // stop-working month. The forward recurrence is pure — state at month m is a function of
+      // month m-1's state and month m's input — so resuming from the checkpoint entering month k
+      // must reproduce months k..horizon exactly.
+      const acc = makeInvestmentAccount(dollarsToCents(80_000), 0.05);
+      const loan = new AmortizingLoan({
+        id: "car",
+        ownerId: "p1",
+        kind: "auto",
+        openingBalanceCents: dollarsToCents(20_000),
+        apr: 0.06,
+        termMonths: 48,
+      });
+      const input = {
+        horizonMonths: 36,
+        annualInflationRate: 0.02,
+        persons: [makePerson()],
+        accounts: [acc],
+        incomeSeries: [{ series: monthlyIncome(dollarsToCents(5_000)), ownerId: "p1" }],
+        expenseSeries: [{ series: monthlyExpense(dollarsToCents(3_500)), ownerId: "p1" }],
+        liabilities: [loan],
+      };
+      const checkpoints: SimState[] = [];
+      const full = simulateHousehold(input, nullJurisdiction, {
+        onCheckpoint: (month, checkpoint) => {
+          checkpoints[month] = checkpoint;
+        },
+      });
+      const k = 18;
+      const resumed = simulateHousehold(input, nullJurisdiction, {
+        resume: { startMonth: k, seedState: checkpoints[k] },
+      });
+      // The tail emits exactly months k..horizon-1, each identical to the full pass.
+      expect(resumed.months.map((m) => m.month)).toEqual(full.months.slice(k).map((m) => m.month));
+      expect(resumed.months).toEqual(full.months.slice(k));
+      // `simulatedThroughMonth` is the ABSOLUTE last-month index, not the tail's length: a resumed
+      // series reports the same end month as the full run, so it still lines up with `blockedAtMonth`.
+      expect(resumed.simulatedThroughMonth).toBe(full.simulatedThroughMonth);
+    });
   });
 });

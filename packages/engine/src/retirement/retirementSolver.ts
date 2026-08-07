@@ -23,8 +23,11 @@
 
 import { interpretLedger } from "../ledger/interpret";
 import { buildHouseholdSimInput } from "../projection/buildHouseholdInput";
-import { simulateHousehold } from "../projection/simulate";
-import { createProjectionBase } from "../compile/projectionBase";
+import { simulateHousehold, type SimulateOptions } from "../projection/simulate";
+import { forkSimState, type SimState } from "../projection/runState";
+import { planHorizonMonths } from "../plan/plan";
+import { createProjectionBase, rebaseStopWorking } from "../compile/projectionBase";
+import type { LedgerBaseConfig } from "../ledger/ledgerBase";
 import { jobDisplayNames } from "../compile/compilePerson";
 import type { ProjectionContext } from "../compile/projectionBase";
 import {
@@ -72,11 +75,26 @@ export function projectScenarioParts(
   scenario: Scenario,
   ctx: ProjectionContext,
   stopWorking?: StopWorkingBoundary,
+  options?: SimulateOptions,
 ): ScenarioProjection {
-  const base = createProjectionBase(scenario.plan, ctx, stopWorking);
+  return simulateFromBase(createProjectionBase(scenario.plan, ctx, stopWorking), scenario, ctx, options);
+}
+
+/**
+ * Run a scenario's ledger + sim off an ALREADY-compiled base. Split out so the retirement search
+ * can compile the boundary-independent base once ({@link earliestFullRetirementAge}) and feed a
+ * per-candidate base derived by {@link rebaseStopWorking} — the income series is all that changes
+ * across candidates, so accounts/expenses/goals/roster are compiled a single time.
+ */
+function simulateFromBase(
+  base: LedgerBaseConfig,
+  scenario: Scenario,
+  ctx: ProjectionContext,
+  options?: SimulateOptions,
+): ScenarioProjection {
   const household = interpretLedger(scenario.ledger, base);
   const simInput = buildHouseholdSimInput(household, base);
-  const series = simulateHousehold(simInput, ctx.jurisdiction);
+  const series = simulateHousehold(simInput, ctx.jurisdiction, options);
   return { household, simInput, series };
 }
 
@@ -90,8 +108,9 @@ export function projectScenario(
   scenario: Scenario,
   ctx: ProjectionContext,
   stopWorking?: StopWorkingBoundary,
+  options?: SimulateOptions,
 ): ProjectionSeries {
-  return projectScenarioParts(scenario, ctx, stopWorking).series;
+  return projectScenarioParts(scenario, ctx, stopWorking, options).series;
 }
 
 /**
@@ -243,8 +262,14 @@ export function projectFullRetirement(
   scenario: Scenario,
   age: number,
   ctx: ProjectionContext,
+  options?: SimulateOptions,
 ): ProjectionSeries {
-  return projectScenario(scenario, ctx, stopWorkingBoundaryAt(scenario.plan, age, ctx.startYear));
+  return projectScenario(
+    scenario,
+    ctx,
+    stopWorkingBoundaryAt(scenario.plan, age, ctx.startYear),
+    options,
+  );
 }
 
 /** Evaluate a run with all jobs ceased at `age`. */
@@ -264,8 +289,58 @@ export function evaluateFullRetirementAtAge(
  * The only retirement search there is: every job states its own end, so there is no category of
  * job that stops separately from the rest, and "when could we stop working" has one answer.
  */
-export function earliestFullRetirementAge(scenario: Scenario, ctx: ProjectionContext): number | null {
-  return earliestSurvivingAge(scenario.plan, (age) => evaluateFullRetirementAtAge(scenario, age, ctx).feasible);
+export function earliestFullRetirementAge(
+  scenario: Scenario,
+  ctx: ProjectionContext,
+  // The authored base ({@link createProjectionBase} with no boundary). Accepted so a caller
+  // running several solver reads — {@link solveRetirement} — compiles it once and shares it;
+  // omitted, it is compiled here.
+  sharedAuthoredBase?: LedgerBaseConfig,
+): number | null {
+  const plan = scenario.plan;
+  const horizon = planHorizonMonths(plan);
+  // The boundary-independent compilation (accounts, expenses, goals, roster) is identical for
+  // every candidate, so compile the authored base ONCE and re-derive only the income-series tail
+  // per candidate via `rebaseStopWorking`.
+  const authoredBase = sharedAuthoredBase ?? createProjectionBase(plan, ctx);
+
+  // ONE best-funded pass — everybody works to life expectancy, capping no normal job — run
+  // survival-only while capturing a checkpoint of the state ENTERING each month. Because a
+  // candidate at age A only caps income from its stop-working month `k = retirementMonth(A)`
+  // onward, and this pass carries even a continuation job through year(lifeExpectancy) ≥ every
+  // pre-`k` month, the months `[0, k)` are byte-identical income to every candidate — so the
+  // checkpoint entering month `k` seeds that candidate's tail exactly.
+  const checkpoints: SimState[] = [];
+  const hiBoundary = stopWorkingBoundaryAt(plan, plan.lifeExpectancy, ctx.startYear);
+  const hiSeries = simulateFromBase(rebaseStopWorking(authoredBase, plan, ctx, hiBoundary), scenario, ctx, {
+    survivalOnly: true,
+    onCheckpoint: (month, checkpoint) => {
+      checkpoints[month] = checkpoint;
+    },
+  }).series;
+  // If even this best-funded case fails, no age works — and no checkpoints were completed, so the
+  // resume path below would have nothing to seed from. (A surviving pass runs the full horizon:
+  // survival-only only truncates on failure, so every `checkpoints[0..horizon)` is present.)
+  if (!planSurvives(hiSeries)) return null;
+
+  // Survival is monotonic in the age (holding jobs longer never hurts), so binary-search the
+  // threshold, resuming each candidate from its stop-working checkpoint and simulating only the
+  // tail. `planSurvives(tail)` is the candidate's feasibility because the skipped prefix is known
+  // solvent — the hi pass above survived it.
+  return earliestSurvivingAge(plan, (age) => {
+    const k = retirementMonth(plan, age);
+    // A stop at/after life expectancy caps nothing before the horizon: the whole run IS the hi
+    // pass's already-surviving prefix, so there is no tail to simulate.
+    if (k >= horizon) return true;
+    const base = rebaseStopWorking(authoredBase, plan, ctx, stopWorkingBoundaryAt(plan, age, ctx.startYear));
+    const series = simulateFromBase(base, scenario, ctx, {
+      survivalOnly: true,
+      // Fork the STORED checkpoint: it is reused across every candidate that stops at this month,
+      // so the resumed tail must not mutate it.
+      resume: { startMonth: k, seedState: forkSimState(checkpoints[k]!) },
+    }).series;
+    return planSurvives(series);
+  });
 }
 
 /**
@@ -288,8 +363,16 @@ export function earliestFullRetirementAge(scenario: Scenario, ctx: ProjectionCon
  * income of its own accord.
  */
 function plannedWorkStopYear(scenario: Scenario, ctx: ProjectionContext): number | null {
-  const base = createProjectionBase(scenario.plan, ctx);
-  const household = interpretLedger(scenario.ledger, base);
+  return plannedWorkStopYearFromBase(createProjectionBase(scenario.plan, ctx), scenario, ctx);
+}
+
+/** {@link plannedWorkStopYear} off an already-compiled authored base — the shared-base core. */
+function plannedWorkStopYearFromBase(
+  authoredBase: LedgerBaseConfig,
+  scenario: Scenario,
+  ctx: ProjectionContext,
+): number | null {
+  const household = interpretLedger(scenario.ledger, authoredBase);
   // `"authored"`, and no `stopWorking` on the base either: a solver candidate is a hypothesis
   // about a plan the user has not adopted, and must never move what their own plan says.
   const resolved = resolveHouseholdJobs(householdJobContexts(household.memberships), ctx.startYear, {
@@ -306,7 +389,16 @@ function plannedWorkStopYear(scenario: Scenario, ctx: ProjectionContext): number
  * reported as if it were the partner's own age. `null` when the household has no jobs.
  */
 export function plannedWorkStopAge(scenario: Scenario, ctx: ProjectionContext): number | null {
-  const year = plannedWorkStopYear(scenario, ctx);
+  return plannedWorkStopAgeFromBase(createProjectionBase(scenario.plan, ctx), scenario, ctx);
+}
+
+/** {@link plannedWorkStopAge} off an already-compiled authored base — the shared-base core. */
+function plannedWorkStopAgeFromBase(
+  authoredBase: LedgerBaseConfig,
+  scenario: Scenario,
+  ctx: ProjectionContext,
+): number | null {
+  const year = plannedWorkStopYearFromBase(authoredBase, scenario, ctx);
   if (year === null) return null;
   const primaryBirthYear = ctx.startYear - scenario.plan.currentAge;
   return year - primaryBirthYear;
@@ -338,8 +430,23 @@ export function continuedJobsAt(
   age: number,
   ctx: ProjectionContext,
 ): readonly ContinuedJob[] {
+  return continuedJobsFromBase(createProjectionBase(scenario.plan, ctx), scenario, age, ctx);
+}
+
+/**
+ * {@link continuedJobsAt} off an already-compiled AUTHORED base — the shared-base core. The
+ * boundary base is `rebaseStopWorking(authoredBase, …)`, byte-identical to
+ * `createProjectionBase(plan, ctx, stopWorking)` (pinned in projectionBase.test.ts), so this
+ * reports exactly what the public wrapper does while reusing the compile the solve already paid.
+ */
+function continuedJobsFromBase(
+  authoredBase: LedgerBaseConfig,
+  scenario: Scenario,
+  age: number,
+  ctx: ProjectionContext,
+): readonly ContinuedJob[] {
   const stopWorking = stopWorkingBoundaryAt(scenario.plan, age, ctx.startYear);
-  const base = createProjectionBase(scenario.plan, ctx, stopWorking);
+  const base = rebaseStopWorking(authoredBase, scenario.plan, ctx, stopWorking);
   const household = interpretLedger(scenario.ledger, base);
   // The same contexts under both scopes, paired by index — one job, asked two questions. The
   // authored pass is what the household is paid without the hypothesis; nothing else can say
@@ -419,7 +526,21 @@ export function continuedJobsAt(
  * {@link RetirementSolution.authoredPlanSurvives}.
  */
 export function authoredPlanSurvives(scenario: Scenario, ctx: ProjectionContext): boolean {
-  return planSurvives(projectScenario(scenario, ctx));
+  return authoredPlanSurvivesFromBase(createProjectionBase(scenario.plan, ctx), scenario, ctx);
+}
+
+/**
+ * {@link authoredPlanSurvives} off an already-compiled authored base — the shared-base core. Runs
+ * the sim survival-only: it needs only the boolean, so it stops at the first insolvent month and
+ * skips the flow assembly, exactly as the search's candidates do (`planSurvives` is the identical
+ * verdict).
+ */
+function authoredPlanSurvivesFromBase(
+  authoredBase: LedgerBaseConfig,
+  scenario: Scenario,
+  ctx: ProjectionContext,
+): boolean {
+  return planSurvives(simulateFromBase(authoredBase, scenario, ctx, { survivalOnly: true }).series);
 }
 
 /**
@@ -430,25 +551,44 @@ export function authoredPlanSurvives(scenario: Scenario, ctx: ProjectionContext)
  * plan itself), and what the search had to assume to get there.
  */
 export function solveRetirement(scenario: Scenario, ctx: ProjectionContext): RetirementSolution {
-  const fullRetirementAge = earliestFullRetirementAge(scenario, ctx);
+  // Compile the authored base ONCE and reuse it for every read below — the search, the planned
+  // work-stop, the authored-survival run, and the continued-jobs disclosure each need it, and it
+  // is boundary-independent (a candidate boundary only re-derives the income-series tail, via
+  // `rebaseStopWorking`). Every helper here is the shared-base core of an identically-behaving
+  // public wrapper, so the solution is unchanged; only the redundant recompiles are gone.
+  const authoredBase = createProjectionBase(scenario.plan, ctx);
+  const fullRetirementAge = earliestFullRetirementAge(scenario, ctx, authoredBase);
   // Blocked and "no age works" both surface as a null age, so tell them apart. Only worth a probe
   // when the search found nothing: a plan that survives at some age is, by definition, not blocked.
   // Life expectancy is the best-funded case — jobs run longest — so if even it blocks, no earlier
-  // age un-blocks the stranded obligation.
+  // age un-blocks the stranded obligation. This reuses the shared base but must NOT run
+  // survival-only: a block can follow an insolvency, and the early-exit would stop at the
+  // insolvency and never see the block, misreporting `blocked`.
   const blockProbe =
     fullRetirementAge === null
-      ? projectFullRetirement(scenario, scenario.plan.lifeExpectancy, ctx)
+      ? simulateFromBase(
+          rebaseStopWorking(
+            authoredBase,
+            scenario.plan,
+            ctx,
+            stopWorkingBoundaryAt(scenario.plan, scenario.plan.lifeExpectancy, ctx.startYear),
+          ),
+          scenario,
+          ctx,
+        ).series
       : undefined;
   const blocked = blockProbe?.status === "blocked";
   return {
     fullRetirementAge,
-    plannedWorkStopAge: plannedWorkStopAge(scenario, ctx),
+    plannedWorkStopAge: plannedWorkStopAgeFromBase(authoredBase, scenario, ctx),
     blocked,
     ...(blocked ? { blockedAtMonth: blockProbe?.blockedAtMonth } : {}),
-    authoredPlanSurvives: authoredPlanSurvives(scenario, ctx),
+    authoredPlanSurvives: authoredPlanSurvivesFromBase(authoredBase, scenario, ctx),
     // Read at the age that was actually reported. With no feasible age there is no scenario to
     // describe, so there is nothing to disclose either.
     continuedJobs:
-      fullRetirementAge === null ? [] : continuedJobsAt(scenario, fullRetirementAge, ctx),
+      fullRetirementAge === null
+        ? []
+        : continuedJobsFromBase(authoredBase, scenario, fullRetirementAge, ctx),
   };
 }

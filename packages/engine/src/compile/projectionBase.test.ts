@@ -18,6 +18,7 @@ import {
 } from "../plan/simAccount";
 import {
   createProjectionBase,
+  rebaseStopWorking,
   buildPlanAccounts,
   planAccountDescriptors,
   goalFundAccountId,
@@ -67,6 +68,27 @@ describe("createProjectionBase — expenses come only from budget lines", () => 
     // budget is a plan that spends nothing.
     const base = createProjectionBase({ ...samplePlan, budgetLines: [] }, ctx());
     expect(base.initialExpenseSeries).toEqual([]);
+  });
+});
+
+describe("rebaseStopWorking — a candidate base from a hoisted authored base", () => {
+  it("re-deriving only the income series equals a full recompile at the same boundary", () => {
+    // The retirement search builds the boundary-INDEPENDENT base once and re-derives only the
+    // income-series tail per candidate. That shortcut is only sound if the result is
+    // byte-identical to a full `createProjectionBase` at the same boundary — everything but the
+    // income series and the carried `stopWorking` must be boundary-independent.
+    const authored = createProjectionBase(samplePlan, ctx());
+    for (const boundaryYearExclusive of [START_YEAR + 5, START_YEAR + 15, START_YEAR + 40]) {
+      const stopWorking = { boundaryYearExclusive };
+      const rebased = rebaseStopWorking(authored, samplePlan, ctx(), stopWorking);
+      const full = createProjectionBase(samplePlan, ctx(), stopWorking);
+      expect(rebased).toEqual(full);
+    }
+    // The shortcut is not trivially passing by leaving the boundary out: a boundary inside the
+    // authored working span (age 40–60) really shortens the income series away from the authored
+    // one, and re-deriving it is what rebaseStopWorking does.
+    const early = rebaseStopWorking(authored, samplePlan, ctx(), { boundaryYearExclusive: START_YEAR + 5 });
+    expect(early.initialIncomeSeries).not.toEqual(authored.initialIncomeSeries);
   });
 });
 

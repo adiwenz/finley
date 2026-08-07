@@ -8,10 +8,12 @@ import { buildObligations, automaticFundingTotal, fundedLiabilityPayments } from
 import { resolveFundingAttribution, type FundingSupplyPlan } from "./resolvedFunding";
 import type {
   HouseholdSimInput,
+  LiabilityPaymentRecord,
   ProjectionMonth,
+  ProjectionMonthFlows,
   ProjectionSeries,
 } from "./simulate.types";
-import { initSimState } from "./runState";
+import { initSimState, forkSimState, type SimState } from "./runState";
 import { snapshotMonth } from "./monthSnapshot";
 import {
   computeLiabilityPayments,
@@ -49,6 +51,44 @@ export type {
 const DEFAULT_START_YEAR = 2026;
 
 /**
+ * A resumable checkpoint: the mutable state as it stood at the TOP of {@link startMonth}, before
+ * that month was processed. Simulating from here reproduces month {@link startMonth} onward
+ * exactly, provided the input's months `[0, startMonth)` match those that produced the seed.
+ */
+export interface SimResume {
+  readonly startMonth: number;
+  readonly seedState: SimState;
+}
+
+/** Knobs that trim or resume the sim for callers that read less than the full forward pass. */
+export interface SimulateOptions {
+  /**
+   * Stop the moment the plan's fate is decided rather than running to the horizon. The
+   * retirement search only asks "does any month fail" ({@link planSurvives}), and the first
+   * insolvent month settles that — so the loop breaks there. The truncated series carries the
+   * IDENTICAL survival verdict: `planSurvives` reads the last emitted month, which is the
+   * insolvent one, and a block still stops the loop first, so a blocked run reports blocked in
+   * either mode. Net worth past the first failure is fiction the search never reads.
+   */
+  readonly survivalOnly?: boolean;
+  /**
+   * Called at the top of each processed month with the month index and a FORK of the state about
+   * to process it — a checkpoint safe to keep, since it evolves independently of the live run.
+   * Only invoked when supplied, so a normal run pays nothing.
+   */
+  readonly onCheckpoint?: (month: number, checkpoint: SimState) => void;
+  /**
+   * Resume from a seeded state at a later month instead of a fresh state at month 0. The seed is
+   * used AS GIVEN (fork it first if it is a stored checkpoint another candidate will reuse); the
+   * loop runs `[startMonth, horizon)` and the emitted `months` cover only that tail. Survival of
+   * the tail is the plan's survival only when the skipped prefix is known solvent — which is
+   * exactly the invariant the search relies on (checkpoints exist only for a fully-surviving
+   * pass).
+   */
+  readonly resume?: SimResume;
+}
+
+/**
  * Household simulator. Fixed pipeline per month, each step a named helper:
  *   3–6. allocation waterfall: per-source pre-tax deferrals, tax seam,
  *        take-home pools, shared/personal goals, surplus — plus the deficit charge
@@ -65,9 +105,14 @@ const DEFAULT_START_YEAR = 2026;
 export function simulateHousehold(
   input: HouseholdSimInput,
   jurisdiction: Jurisdiction,
+  options?: SimulateOptions,
 ): ProjectionSeries {
+  const survivalOnly = options?.survivalOnly ?? false;
+  const onCheckpoint = options?.onCheckpoint;
   const startYear = input.startYear ?? DEFAULT_START_YEAR;
-  const state = initSimState(input);
+  // A resumed run seeds from a checkpoint at `startMonth`; a fresh run builds state at month 0.
+  const state = options?.resume?.seedState ?? initSimState(input);
+  const startMonth = options?.resume?.startMonth ?? 0;
   // "Now", before any flow: the net-worth chart's first point and the baseline every
   // processed month builds on. Captured before the loop mutates state; carries no flows.
   const opening = snapshotMonth(state, {
@@ -94,8 +139,13 @@ export function simulateHousehold(
   let omittedSourceEventIds: ProjectionSeries["omittedSourceEventIds"];
 
   // `< horizonMonths` (not `<=`): the opening snapshot is no longer an array slot, so the
-  // same span now yields exactly `horizonMonths` processed months, `month` 0-based.
-  for (let month = 0; month < input.horizonMonths; month++) {
+  // same span now yields exactly `horizonMonths` processed months, `month` 0-based. A resumed
+  // run starts at `startMonth` and emits only that tail.
+  for (let month = startMonth; month < input.horizonMonths; month++) {
+    // The checkpoint is the state ENTERING this month — before `accumulateEarnings` and every
+    // other mutation below — so resuming here reproduces the month exactly. Forked so a stored
+    // checkpoint is immune to the mutations this iteration is about to make.
+    if (onCheckpoint !== undefined) onCheckpoint(month, forkSimState(state));
     // Calendar year for this month's flows. Month 0 is now processed like any other, so
     // `months[0..11]` accrue a full 12 covered-earnings months in year 0 — a $5k/mo salary
     // contributes the whole $60k, closing the graph-vs-panel benefit gap. A mid-year start
@@ -254,100 +304,113 @@ export function simulateHousehold(
     const fundedObligationTotalCents = Math.max(0, automaticFundingCents - unfundedObligationCents);
     const appliedLiabilityPayments = fundedLiabilityPayments(obligations, fundedObligationTotalCents);
 
-    // Per-line funding attribution — a partition of the SAME funded total, in the order the
-    // cascade consumed its sources: income cash, liquid drawdown, decumulation, then credit. The
-    // real, sized movements (each account liquidated, cards actually borrowed against) are
-    // attributed as-is; income is the waterfall's own obligation coverage net of the decumulation
-    // folded into it, and liquid absorbs whatever of the obligation's own share of the cascade's
-    // covering capacity ({@link obligationCoveredCents}) the real credit draw didn't need — so a
-    // rounding-sized gap the pre-allocation withdrawal sizing missed, but the liquid buffer (with
-    // room to spare) quietly covered, is attributed to savings rather than falsely to a card that
-    // was never touched.
-    const decumulationTotalCents = withdrawal.decumulationDraws.reduce(
-      (total, d) => total + d.netDeliveredCents,
-      0,
-    );
-    // Obligations' own slice of what the cascade's shared liquid+credit capacity covered this
-    // month (see the `unfundedObligationCents` comment above for the priority-over-contributions
-    // reasoning) — the total this layer split has to divide between liquid and credit.
-    const obligationCoveredCents = preCascadeObligationShortfallCents - unfundedObligationCents;
-    // Real credit used for obligations: obligations claim the cascade's combined capacity before
-    // contributions, so a card is only touched on their behalf once the household's REAL liquid
-    // contribution (covering capacity minus what genuinely landed on a card) can't cover them.
-    const realHouseholdLiquidCents = Math.max(0, coveredCapacityCents - borrowedOntoCreditCents);
-    const creditForObligationsCents = Math.max(0, obligationCoveredCents - realHouseholdLiquidCents);
-    const liquidToObligationsCents = obligationCoveredCents - creditForObligationsCents;
-    const incomeToObligationsCents = Math.max(
-      0,
-      Math.min(
-        automaticFundingCents - preCascadeObligationShortfallCents - decumulationTotalCents,
-        Math.max(0, fundedObligationTotalCents - liquidToObligationsCents - decumulationTotalCents),
-      ),
-    );
-    const supply: FundingSupplyPlan = {
-      incomeCents: incomeToObligationsCents,
-      liquidDrawdown:
-        state.liquidAccount !== null && liquidToObligationsCents > 0
-          ? { sourceId: state.liquidAccount.id, amountCents: liquidToObligationsCents }
-          : null,
-      decumulationDraws: withdrawal.decumulationDraws,
-      creditCents: Math.max(
-        0,
-        fundedObligationTotalCents -
-          incomeToObligationsCents -
-          liquidToObligationsCents -
-          decumulationTotalCents,
-      ),
-    };
-    // Explicit draws resolved first in the month, so their records lead the flat list; the
-    // automatic obligations follow, attributed from the shared supply. Both are the same shape —
-    // a consumer reads `kind`, never the id, to tell an account-drained purchase from an
-    // income-funded line.
-    const resolvedFunding = [
-      ...fundingDraw.resolvedFunding,
-      ...resolveFundingAttribution(obligations, supply),
-    ];
-
     applyAssetTransfers(state, month);
     compoundAssets(state, month, jurisdiction, ctx);
     advanceLiabilities(state, month, appliedLiabilityPayments, suppressedLiabilityIds);
     advanceProperties(state, month, suppressedPropertyIds);
-    const paymentRecords = buildLiabilityPaymentRecords(payments);
-    const bands = buildFlows(
-      // The down-payment gain bands are reporting-only: `cashInflowCents` the gain, no
-      // waterfall inflow — its tax already rode the net-neutral source through allocation.
-      [...incomeSources, ...fundingDraw.gainSources],
-      taxCents,
-      // The very list the waterfall funded above, re-shaped into the flow record — expenses,
-      // debt and per-line rollups all derive from it, so none can drift from the funded amount.
-      obligations,
-      // The withdrawal channel's liquid-buffer drawdown PLUS a down payment's returned
-      // principal (and any cash source's whole draw) — one `savingsDrawdown` source, so a
-      // month spent from savings isn't a zero band.
-      withdrawal.liquidDrawdownCents + fundingDraw.principalDrawdownCents,
-      // Undefined when the jurisdiction declines a breakdown; the app then draws one band.
-      taxByCategoryCents,
-      // The finer per-SOURCE splits, so a chart can band tax by job and show take-home
-      // per source.
-      taxBySourceCents,
-      deferralBySourceCents,
-      // Employee payroll tax (FICA) — its own line, already removed from take-home.
-      payrollTaxCents,
-      // The finer per-SOURCE payroll-tax splits, mirroring `taxBySourceCents`.
-      payrollTaxBySourceCents,
-    );
-    // The taxable base after this month's explicit draws but BEFORE decumulation, so the
-    // authoring gate prices a would-be draw on top of any sibling draw at this month — and NOT
-    // on top of decumulation, which now resolves after the candidate and so is not tax it
-    // induces. A newly appended event's draw is last in ledger order, hence last among the
-    // explicit draws in resolution, so this base is its marginal context.
-    const flows = {
-      ...bands,
-      resolvedFunding,
-      taxableByOwnerAfterFundingCents: toTaxableRecord(fundingDraw.taxableByOwnerAfter),
-      accountBalancesAfterFundingCents,
-      accountBasisAfterFundingCents,
-    };
+
+    // Everything below is REPORTING ONLY — the per-month flow bands, per-line funding
+    // attribution, and liability payment records. The survival search reads none of it (only
+    // `isInsolvent` and net worth), so it is skipped there: the state above is already advanced,
+    // so the survival signal and every later month are identical whether or not it runs. The
+    // funded total (`appliedLiabilityPayments`) that DOES move state was computed above and is
+    // outside this block. Attribution is computed here, after the state mutations, rather than at
+    // the seam it describes: its inputs are captured locals the mutations don't touch, so the
+    // result is unchanged and one guard covers the whole reporting cost.
+    let paymentRecords: Record<string, LiabilityPaymentRecord> = {};
+    let flows: ProjectionMonthFlows | undefined;
+    if (!survivalOnly) {
+      // Per-line funding attribution — a partition of the SAME funded total, in the order the
+      // cascade consumed its sources: income cash, liquid drawdown, decumulation, then credit. The
+      // real, sized movements (each account liquidated, cards actually borrowed against) are
+      // attributed as-is; income is the waterfall's own obligation coverage net of the decumulation
+      // folded into it, and liquid absorbs whatever of the obligation's own share of the cascade's
+      // covering capacity ({@link obligationCoveredCents}) the real credit draw didn't need — so a
+      // rounding-sized gap the pre-allocation withdrawal sizing missed, but the liquid buffer (with
+      // room to spare) quietly covered, is attributed to savings rather than falsely to a card that
+      // was never touched.
+      const decumulationTotalCents = withdrawal.decumulationDraws.reduce(
+        (total, d) => total + d.netDeliveredCents,
+        0,
+      );
+      // Obligations' own slice of what the cascade's shared liquid+credit capacity covered this
+      // month (see the `unfundedObligationCents` comment above for the priority-over-contributions
+      // reasoning) — the total this layer split has to divide between liquid and credit.
+      const obligationCoveredCents = preCascadeObligationShortfallCents - unfundedObligationCents;
+      // Real credit used for obligations: obligations claim the cascade's combined capacity before
+      // contributions, so a card is only touched on their behalf once the household's REAL liquid
+      // contribution (covering capacity minus what genuinely landed on a card) can't cover them.
+      const realHouseholdLiquidCents = Math.max(0, coveredCapacityCents - borrowedOntoCreditCents);
+      const creditForObligationsCents = Math.max(0, obligationCoveredCents - realHouseholdLiquidCents);
+      const liquidToObligationsCents = obligationCoveredCents - creditForObligationsCents;
+      const incomeToObligationsCents = Math.max(
+        0,
+        Math.min(
+          automaticFundingCents - preCascadeObligationShortfallCents - decumulationTotalCents,
+          Math.max(0, fundedObligationTotalCents - liquidToObligationsCents - decumulationTotalCents),
+        ),
+      );
+      const supply: FundingSupplyPlan = {
+        incomeCents: incomeToObligationsCents,
+        liquidDrawdown:
+          state.liquidAccount !== null && liquidToObligationsCents > 0
+            ? { sourceId: state.liquidAccount.id, amountCents: liquidToObligationsCents }
+            : null,
+        decumulationDraws: withdrawal.decumulationDraws,
+        creditCents: Math.max(
+          0,
+          fundedObligationTotalCents -
+            incomeToObligationsCents -
+            liquidToObligationsCents -
+            decumulationTotalCents,
+        ),
+      };
+      // Explicit draws resolved first in the month, so their records lead the flat list; the
+      // automatic obligations follow, attributed from the shared supply. Both are the same shape —
+      // a consumer reads `kind`, never the id, to tell an account-drained purchase from an
+      // income-funded line.
+      const resolvedFunding = [
+        ...fundingDraw.resolvedFunding,
+        ...resolveFundingAttribution(obligations, supply),
+      ];
+
+      paymentRecords = buildLiabilityPaymentRecords(payments);
+      const bands = buildFlows(
+        // The down-payment gain bands are reporting-only: `cashInflowCents` the gain, no
+        // waterfall inflow — its tax already rode the net-neutral source through allocation.
+        [...incomeSources, ...fundingDraw.gainSources],
+        taxCents,
+        // The very list the waterfall funded above, re-shaped into the flow record — expenses,
+        // debt and per-line rollups all derive from it, so none can drift from the funded amount.
+        obligations,
+        // The withdrawal channel's liquid-buffer drawdown PLUS a down payment's returned
+        // principal (and any cash source's whole draw) — one `savingsDrawdown` source, so a
+        // month spent from savings isn't a zero band.
+        withdrawal.liquidDrawdownCents + fundingDraw.principalDrawdownCents,
+        // Undefined when the jurisdiction declines a breakdown; the app then draws one band.
+        taxByCategoryCents,
+        // The finer per-SOURCE splits, so a chart can band tax by job and show take-home
+        // per source.
+        taxBySourceCents,
+        deferralBySourceCents,
+        // Employee payroll tax (FICA) — its own line, already removed from take-home.
+        payrollTaxCents,
+        // The finer per-SOURCE payroll-tax splits, mirroring `taxBySourceCents`.
+        payrollTaxBySourceCents,
+      );
+      // The taxable base after this month's explicit draws but BEFORE decumulation, so the
+      // authoring gate prices a would-be draw on top of any sibling draw at this month — and NOT
+      // on top of decumulation, which now resolves after the candidate and so is not tax it
+      // induces. A newly appended event's draw is last in ledger order, hence last among the
+      // explicit draws in resolution, so this base is its marginal context.
+      flows = {
+        ...bands,
+        resolvedFunding,
+        taxableByOwnerAfterFundingCents: toTaxableRecord(fundingDraw.taxableByOwnerAfter),
+        accountBalancesAfterFundingCents,
+        accountBasisAfterFundingCents,
+      };
+    }
 
     months.push(
       snapshotMonth(state, {
@@ -391,6 +454,12 @@ export function simulateHousehold(
       omittedSourceEventIds = [...omittedEventIds];
       break;
     }
+
+    // Survival-only callers have their answer at the first insolvent month — `planSurvives`
+    // reads exactly this signal — so stop rather than null net worth to the horizon. AFTER the
+    // block check so a month that both blocks and goes insolvent still records the block,
+    // leaving `status` identical to a full run and the verdict unchanged.
+    if (survivalOnly && isInsolvent) break;
   }
 
   const blockedAtMonth = blockingObligation?.month;
@@ -398,9 +467,11 @@ export function simulateHousehold(
     opening,
     months,
     status: blockedAtMonth !== undefined ? "blocked" : "ran-to-horizon",
-    // The last emitted month's index; equals `blockedAtMonth` when blocked, since the loop breaks
-    // right after pushing that month.
-    simulatedThroughMonth: months.length - 1,
+    // Absolute index of the last emitted month; equals `blockedAtMonth` when blocked, since the
+    // loop breaks right after pushing that month. `+ startMonth` so a resumed tail (which emits
+    // only `[startMonth, …]`) still reports an absolute index; a fresh run has `startMonth` 0, so
+    // this is the usual `months.length - 1`.
+    simulatedThroughMonth: startMonth + months.length - 1,
     ...(blockedAtMonth !== undefined ? { blockedAtMonth } : {}),
     ...(blockingObligation !== undefined ? { blockingObligation } : {}),
     ...(omittedSourceEventIds !== undefined ? { omittedSourceEventIds } : {}),

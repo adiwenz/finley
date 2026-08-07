@@ -115,6 +115,41 @@ export interface SimState {
   readonly lastComputedThroughYear: Map<string, number>;
 }
 
+/**
+ * A fork of the run-carried state: the immutable arrays (accounts, liabilities, cascade cards,
+ * persons, goals, contribution lines, properties, funding draws) are SHARED by reference — every
+ * per-month step writes account/liability/property state into the Maps below, never into those
+ * objects — while every mutable Map is copied so the fork evolves independently of its parent.
+ *
+ * Used by the retirement search to checkpoint the prefix of one full pass and resume each
+ * candidate from its stop-working month, simulating only the tail. Correctness rests on copying
+ * ALL mutation targets: most Map values are plain `Cents`, but two hold objects mutated IN PLACE,
+ * so a shallow Map copy alone would couple the forks — each value is cloned too. `earningsByPerson`
+ * holds an inner `Map` per person that `addEarnings` mutates, so each accumulator is re-wrapped;
+ * `earnedByPersonYear` holds a per-category record the allocation step folds each month's earnings
+ * into in place, so each is spread (its values are flat `Cents`, so a shallow spread fully isolates
+ * it). `accruedReturnByAccount`'s value is replaced wholesale each month, not mutated, so its clone
+ * is only defensive — cheap insurance against that ever changing.
+ */
+export function forkSimState(state: SimState): SimState {
+  return {
+    ...state,
+    assetBalances: new Map(state.assetBalances),
+    basisByAccount: new Map(state.basisByAccount),
+    accruedReturnByAccount: new Map(
+      Array.from(state.accruedReturnByAccount, ([id, v]) => [id, { ...v }]),
+    ),
+    liabilityBalances: new Map(state.liabilityBalances),
+    propertyValues: new Map(state.propertyValues),
+    deferredByPersonYear: new Map(state.deferredByPersonYear),
+    earnedByPersonYear: new Map(Array.from(state.earnedByPersonYear, ([key, v]) => [key, { ...v }])),
+    combinedDepositsByPlanYear: new Map(state.combinedDepositsByPlanYear),
+    earningsByPerson: new Map(Array.from(state.earningsByPerson, ([id, acc]) => [id, new Map(acc)])),
+    governmentBenefitBaseByPerson: new Map(state.governmentBenefitBaseByPerson),
+    lastComputedThroughYear: new Map(state.lastComputedThroughYear),
+  };
+}
+
 export function initSimState(input: HouseholdSimInput): SimState {
   const assetBalances = new Map<string, Cents>();
   const basisByAccount = new Map<string, Cents>();
