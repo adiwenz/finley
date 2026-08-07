@@ -4,11 +4,12 @@ Optimising the retirement solver. The issue body lists 7 tasks; I am doing them 
 whole-issue mode, one commit per task. Read the issue for the full task text.
 
 **Done so far:**
-- **Task 1 — survival-only, early-exit sim path.** DONE (this commit).
+- **Task 1 — survival-only, early-exit sim path.** DONE.
+- **Task 2 — skip reporting-only work during the search.** DONE (this commit).
 
-**Remaining:** tasks 2–7 (2 = skip reporting-only work; 3 = resumable core + prefix checkpoints;
-4 = hoist boundary-independent compilation; 5 = reuse solved run; 6 = memoize solve on committed
-state; 7 = optional seed-from-plannedWorkStopAge).
+**Remaining:** tasks 3–7 (3 = resumable core + prefix checkpoints; 4 = hoist boundary-independent
+compilation; 5 = reuse solved run; 6 = memoize solve on committed state; 7 = optional
+seed-from-plannedWorkStopAge).
 
 ## Live constraints
 - **The load-bearing invariant:** every fast path must be a pure read off the SAME survival
@@ -21,8 +22,17 @@ state; 7 = optional seed-from-plannedWorkStopAge).
   "blocked"` in both modes. This equivalence is why `earliestFullRetirementAge`'s binary-search
   predicate now calls `projectFullRetirement(..., { survivalOnly: true })`.
 - **`SimulateOptions` is threaded** through `projectScenarioParts` → `projectScenario` →
-  `projectFullRetirement` (4th optional arg each). Task 2 should add its flag to the SAME
-  `SimulateOptions` interface so the search passes `{ survivalOnly: true, <task2 flag> }`.
+  `projectFullRetirement` (4th optional arg each). Add future trim flags to the SAME interface.
+- **Task 2 folded into `survivalOnly`, not a separate flag.** The only `survivalOnly` caller is
+  the search, which reads neither flows nor payment records — so the reporting assembly
+  (`buildFlows`, `resolveFundingAttribution`, `resolvedFunding`, `buildLiabilityPaymentRecords`,
+  per-source tax/payroll splits) is now inside a single `if (!survivalOnly)` block in the month
+  loop, placed AFTER the state mutations. survivalOnly months therefore carry `flows: undefined`
+  and empty `liabilityPaymentRecords`. The attribution block was MOVED below the state mutations
+  (`applyAssetTransfers`/`compoundAssets`/`advanceLiabilities`/`advanceProperties`); its inputs
+  are captured locals those mutations don't touch, so full-path flow values are byte-identical
+  (all flow/report tests still green). `appliedLiabilityPayments` (the funded total that moves
+  state) stays OUTSIDE the guard — do not move it in.
 - **`evaluateFullRetirementAtAge` still runs the FULL projection** (not survival-only) on purpose:
   it reports `blocked`/`onTrackFraction`, which diverge from the fast path in the rare
   "insolvent-at-k then blocked-at-j>k" case. Only `.feasible` is fast-path-safe. Do not switch

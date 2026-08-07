@@ -246,5 +246,32 @@ describe("simulateHousehold", () => {
       expect(lean.months.length).toBe(firstInsolvent + 1);
       expect(lean.months[lean.months.length - 1].isInsolvent).toBe(true);
     });
+
+    it("skips the reporting assembly the search never reads (no flows, no payment records)", () => {
+      // The survival check reads only `isInsolvent`/net worth, so the per-month flow record,
+      // funding attribution, and liability payment records are pure waste here. The full sim
+      // builds them on every month; survivalOnly must leave them out while the balances the
+      // survival signal derives from stay intact.
+      const acc = makeInvestmentAccount(dollarsToCents(50_000), 0);
+      const input = {
+        horizonMonths: 12,
+        annualInflationRate: 0,
+        persons: [makePerson()],
+        accounts: [acc],
+        incomeSeries: [{ series: monthlyIncome(dollarsToCents(4_000)), ownerId: "p1" }],
+        expenseSeries: [{ series: monthlyExpense(dollarsToCents(3_000)), ownerId: "p1" }],
+      };
+      const full = simulateHousehold(input, nullJurisdiction);
+      const lean = simulateHousehold(input, nullJurisdiction, { survivalOnly: true });
+      // The full sim carries a flow record on every processed month; survivalOnly carries none.
+      expect(full.months.every((m) => m.flows !== undefined)).toBe(true);
+      expect(lean.months.every((m) => m.flows === undefined)).toBe(true);
+      expect(lean.months.every((m) => Object.keys(m.liabilityPaymentRecords).length === 0)).toBe(true);
+      // Skipping reporting must not disturb the load-bearing balances: net worth still matches
+      // the full sim month for month.
+      for (let i = 0; i < lean.months.length; i++) {
+        expect(lean.months[i].netWorthNominalCents).toBe(full.months[i].netWorthNominalCents);
+      }
+    });
   });
 });
