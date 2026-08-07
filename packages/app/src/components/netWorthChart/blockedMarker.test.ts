@@ -107,9 +107,11 @@ describe("net-worth chart — the terminal blocked marker", () => {
       expect(data.blocked?.x).toBe(toAxisX(BLOCK_MONTH));
     });
 
-    it("shades everything from the block to the end of the axis", () => {
+    it("hatches from the month AFTER the block, leaving the blocked month itself solid", () => {
       const data = buildNetWorthChartData(blockedSeries(), HORIZON_MONTHS);
-      expect(data.stopped).toEqual({ fromX: toAxisX(BLOCK_MONTH), toX: data.xMax });
+      // The blocked month ran its full pipeline — its net worth is a real end-of-month figure, so
+      // it stays on the solid curve. Only the never-simulated tail, starting the month after, hatches.
+      expect(data.stopped).toEqual({ fromX: toAxisX(BLOCK_MONTH + 1), toX: data.xMax });
     });
 
     it("shades nothing for a plan that ran to the horizon", () => {

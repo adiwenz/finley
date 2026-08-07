@@ -14,7 +14,7 @@
  * absent in jsdom).
  */
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import {
   Area,
   CartesianGrid,
@@ -200,6 +200,11 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
   const colors = useMemo(() => colorsForBands(data.bands), [data.bands]);
   const visibleBands = bandsForMode(data.bands, activeMode);
 
+  // Unique per render so two charts on a page can't collide on this document-wide pattern id; the
+  // colons `useId` emits are illegal in a `url(#…)` reference, so they go. Same hatch as the total
+  // chart above — the pair is read as one picture.
+  const hatchId = `nwb-not-simulated-${useId().replace(/:/g, "")}`;
+
   // One point per month on the shared months-from-now axis: each visible band's value keyed by
   // id, liabilities negated in the net-worth view so debt stacks below zero and the stack's
   // total is true net worth. This is a balance sheet, so `opening` gets a real column at the
@@ -265,6 +270,25 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
       {data.bands.length === 0 ? null : (
         <ResponsiveContainer width="100%" height={220}>
           <ComposedChart data={rows} margin={{ top: 12, right: 16, bottom: 8, left: 16 }}>
+            <defs>
+              <pattern
+                id={hatchId}
+                width={6}
+                height={6}
+                patternUnits="userSpaceOnUse"
+                patternTransform="rotate(45)"
+              >
+                <line
+                  x1={0}
+                  y1={0}
+                  x2={0}
+                  y2={6}
+                  stroke={STOPPED}
+                  strokeWidth={1.5}
+                  strokeOpacity={0.28}
+                />
+              </pattern>
+            </defs>
             <CartesianGrid stroke={GRID} vertical={false} />
             <XAxis
               dataKey="month"
@@ -298,14 +322,14 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
               )}
             />
             <Legend wrapperStyle={{ fontSize: 12 }} />
-            {/* The stretch the projection never simulated, shaded exactly as on the chart above.
-                Declared before the bands so they paint on top of it. */}
+            {/* The stretch the projection never simulated, hatched exactly as on the chart above —
+                from the month after the block, never the blocked month itself. Declared before the
+                bands so they paint on top of it. */}
             {data.stopped !== null && (
               <ReferenceArea
                 x1={data.stopped.fromX}
                 x2={data.stopped.toX}
-                fill={STOPPED}
-                fillOpacity={0.05}
+                fill={`url(#${hatchId})`}
                 stroke="none"
               />
             )}

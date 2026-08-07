@@ -1,4 +1,5 @@
 import type { ProjectionSeries } from "@finley/engine";
+import { useId } from "react";
 import {
   Area,
   CartesianGrid,
@@ -146,6 +147,11 @@ export function NetWorthChart({
     horizonMonths,
   );
 
+  // An SVG `<pattern>` is addressed by a document-wide id, so two charts on one page sharing a
+  // literal id would have the second silently redefine the first. `useId` keeps it unique; the
+  // colons it emits are legal in an id but not in a `url(#…)` reference, so they go.
+  const hatchId = `nw-not-simulated-${useId().replace(/:/g, "")}`;
+
   return (
     <div
       role="img"
@@ -156,6 +162,19 @@ export function NetWorthChart({
           data={[...points]}
           margin={{ top: 16, right: 16, bottom: 8, left: 16 }}
         >
+          <defs>
+            {/* Diagonal hatch for the never-simulated tail: reads as "no data here" where a flat
+                fill could be mistaken for a plotted band. Faint failure-red, matching the marker. */}
+            <pattern
+              id={hatchId}
+              width={6}
+              height={6}
+              patternUnits="userSpaceOnUse"
+              patternTransform="rotate(45)"
+            >
+              <line x1={0} y1={0} x2={0} y2={6} stroke={RED} strokeWidth={1.5} strokeOpacity={0.28} />
+            </pattern>
+          </defs>
           <CartesianGrid stroke={GRID} vertical={false} />
           <XAxis
             dataKey="x"
@@ -174,16 +193,16 @@ export function NetWorthChart({
             stroke={GRID}
           />
           <ReferenceLine y={0} stroke="#c9bfa5" />
-          {/* The stretch the projection never simulated. Declared after the axes it is measured
-              against and before every series, so the curve and the markers paint on top of it, and
-              kept deliberately faint: it carries no figure and makes no claim about what would
-              have happened — only that the plan was not answered past here. */}
+          {/* The stretch the projection never simulated — hatched from the month AFTER the block,
+              so the blocked month stays solid. Declared after the axes it is measured against and
+              before every series, so the curve and the markers paint on top of it. It carries no
+              figure and makes no claim about what would have happened, only that the plan was not
+              answered past here. */}
           {stopped !== null && (
             <ReferenceArea
               x1={stopped.fromX}
               x2={stopped.toX}
-              fill={RED}
-              fillOpacity={0.05}
+              fill={`url(#${hatchId})`}
               stroke="none"
               label={{ value: "not simulated", position: "insideTop", fill: AXIS, fontSize: 11 }}
             />
