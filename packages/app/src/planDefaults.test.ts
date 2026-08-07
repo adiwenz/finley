@@ -18,11 +18,11 @@ describe("PLAN_DEFAULTS — engine-minted identity", () => {
     // The default plan is authored ID-free and built through `Projection.fromInput`, so the
     // one authority for identity is the engine's counter — not the `job-1`/`emergency`/`home`
     // strings the plan used to hardcode.
-    expect(PLAN_DEFAULTS.jobs.map((j) => j.id)).not.toContain("job-1");
+    expect(PLAN_DEFAULTS.primary.jobs.map((j) => j.id)).not.toContain("job-1");
     expect(PLAN_DEFAULTS.goals.map((g) => g.id)).not.toContain("emergency");
     expect(PLAN_DEFAULTS.goals.map((g) => g.id)).not.toContain("home");
     // Every id matches the `${kind}-N` shape the counter issues.
-    expect(PLAN_DEFAULTS.jobs[0]!.id).toMatch(/^job-\d+$/);
+    expect(PLAN_DEFAULTS.primary.jobs[0]!.id).toMatch(/^job-\d+$/);
     for (const goal of PLAN_DEFAULTS.goals) expect(goal.id).toMatch(/^goal-\d+$/);
   });
 });

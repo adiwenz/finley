@@ -16,6 +16,7 @@ import {
   AGE_LIMITS,
   MAX_AGE,
   MAX_LIVED_AGE,
+  minLifeExpectancyFor,
   dollarsToCents,
   type SharedContributionScheme,
   type SurplusCashDestination,
@@ -23,6 +24,7 @@ import {
 import type { Plan, PlanPatch } from "@finley/engine";
 import type { Transact } from "../../hooks/useProjection";
 import { NumInput } from "../numInput/numInput";
+import { START_YEAR } from "../../config";
 
 interface BudgetEditorProps {
   budget: Plan;
@@ -45,12 +47,12 @@ export function BudgetEditor({ budget, transact }: BudgetEditorProps) {
 
       {/* One section per household member — a single member today, but partitioned so
           partners drop in as their own sections. */}
-      <section className="budget-member" aria-label={`${budget.name || "You"}’s budget`}>
+      <section className="budget-member" aria-label={`${budget.primary.name || "You"}’s budget`}>
         <label className="field name-field">
           <span className="field-label">Name</span>
           <input
             type="text"
-            value={budget.name}
+            value={budget.primary.name}
             onChange={(e) => updateBudget({ name: e.target.value })}
           />
         </label>
@@ -79,25 +81,40 @@ export function BudgetEditor({ budget, transact }: BudgetEditorProps) {
             solved and reported in the Retirement panel rather than authored here. A field that
             also ended jobs could only ever contradict one of them.
 
+            The engine stores a fixed `birthYear` (like a partner's), not a floating "current
+            age" — re-projecting the same plan against a later "now" no longer ages the primary
+            forward on its own. This field is the ergonomic exception: it still asks for an age
+            and converts it to a birth year against the app's own frozen `START_YEAR`, once, on
+            each edit — the same "now" every other surface in this app already treats as fixed.
+
             Every age names the engine's ceiling for that field rather than restating a number: a
             form that disagreed with `AGE_LIMITS` by a digit would author a plan the engine then
             refuses. Life expectancy reaches the ceiling itself (120); current age stops one short
             of it (`MAX_LIVED_AGE`, 119), since a person who is already 120 has no plan left to
             project; the claiming age stops at 70, the top of the legal window. The bounds chain
-            directly now, across the one pair that is left; fields clamp on blur. */}
+            directly now, across the one pair that is left; fields clamp on blur.
+
+            The pair chains with a GAP of one year, not head to head: an expectancy equal to the
+            age you already are means you are already dead, which closes your active window at
+            month 0 — no job pays a month, no benefit is ever claimed, and the plan has no months
+            in it. The engine refuses that outright, so a form that let the two meet would clamp
+            to a value the very next write rejected. */}
         <NumInput
           label="Current age"
-          value={budget.currentAge}
-          onChange={(currentAge) => updateBudget({ currentAge })}
+          value={START_YEAR - budget.primary.birthYear}
+          onChange={(currentAge) => updateBudget({ birthYear: START_YEAR - currentAge })}
           min={18}
-          max={Math.min(MAX_LIVED_AGE, budget.lifeExpectancy)}
+          max={Math.min(MAX_LIVED_AGE, budget.primary.lifeExpectancy - 1)}
           step={1}
         />
         <NumInput
           label="Life expectancy"
-          value={budget.lifeExpectancy}
+          value={budget.primary.lifeExpectancy}
           onChange={(lifeExpectancy) => updateBudget({ lifeExpectancy })}
-          min={Math.max(60, budget.currentAge)}
+          // The gap of one, from the engine's own definition of it. A `Math.max(60, …)` used to
+          // sit under this: a 35-year-old's expectancy could not be set below 60, which is not a
+          // rule the engine has and not a number they typed.
+          min={minLifeExpectancyFor(START_YEAR - budget.primary.birthYear)}
           max={MAX_AGE}
           step={1}
         />
@@ -106,7 +123,7 @@ export function BudgetEditor({ budget, transact }: BudgetEditorProps) {
             delaying raises the monthly benefit but pushes it later. Estimate, not advice. */}
         <NumInput
           label="Social Security claiming age"
-          value={budget.benefitClaimingAge}
+          value={budget.primary.benefitClaimingAge}
           onChange={(benefitClaimingAge) => updateBudget({ benefitClaimingAge })}
           min={62}
           max={AGE_LIMITS.benefitClaimingAge}

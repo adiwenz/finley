@@ -26,7 +26,7 @@ afterEach(cleanup);
 // (and, for the drain tests, decumulates). Two variants, because no single salary does both: a
 // plan rich enough to build a working-year pool never fully spends down in retirement. Every
 // balance asserted below is read straight off the projection, never invented.
-const JOB_ID = PLAN_DEFAULTS.jobs[0].id;
+const JOB_ID = PLAN_DEFAULTS.primary.jobs[0].id;
 
 /** The form for `plan` at `month`, wired to the engine exactly as the app wires it. */
 function renderForm(plan: Plan, month: number) {

@@ -24,6 +24,7 @@ import { useProjection } from "./hooks/useProjection";
 import { DEFAULT_SCRUB_MONTH } from "./planDefaults";
 import { PRESETS, presetById, presetState, type Preset } from "./presets";
 import { StartingPositionPanel } from "./components/startingPositionPanel/startingPositionPanel";
+import { START_YEAR } from "./config";
 import "./assets/styles/tokens.css";
 import "./assets/styles/globals.css";
 
@@ -127,7 +128,7 @@ export function App() {
   const chartSeries = previewResult ? previewResult.series : series;
 
   // Chart, timeline, and event picker all span "now" → life expectancy.
-  const horizonMonths = planHorizonMonths(budget);
+  const horizonMonths = planHorizonMonths(budget, START_YEAR);
 
   // The net-worth *breakdown* chart's data. Names/order come through supported engine seams
   // — account descriptors and the household's liabilities, labelled by kind — never the
@@ -154,7 +155,7 @@ export function App() {
     <>
       <h1>Your financial life</h1>
       <p className="sub">
-        {budget.name || "You"} · outlook to age {budget.lifeExpectancy} · jurisdiction:{" "}
+        {budget.primary.name || "You"} · outlook to age {budget.primary.lifeExpectancy} · jurisdiction:{" "}
         {usJurisdiction.id}
       </p>
 

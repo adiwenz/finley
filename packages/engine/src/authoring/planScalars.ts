@@ -15,10 +15,16 @@ import { withStatePlan } from "./state";
  * health-cost fields, the ages, the household levers, the name. The collections are NOT reachable
  * from here, in the type or at runtime (see {@link withPlanPatch}): every goal / job /
  * budget-line edit goes through the module that mints its id and enforces its rules.
+ *
+ * A patch that moves the primary's `birthYear` or `lifeExpectancy` moves the month they die, which
+ * everything the primary takes part in is dated against — every marriage and separation in the
+ * timeline, every loan and home they own, every job they start. {@link withStatePlan} checks the
+ * prospective state for exactly that, so an edit that would strand one of them past somebody's
+ * death is refused here rather than quietly leaving an event nobody lives to see.
  */
 export function updateProjectionPlan(
   state: ProjectionState,
   patch: PlanPatch,
 ): ProjectionState {
-  return withStatePlan(state, withPlanPatch(state.scenario.plan, patch));
+  return withStatePlan(state, withPlanPatch(state.scenario.plan, patch, state.startYear));
 }

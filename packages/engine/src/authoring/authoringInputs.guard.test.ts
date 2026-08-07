@@ -108,7 +108,7 @@ describe("the authoring API accepts no caller-supplied id — type level", () =>
     const base = {
       name: "T", startYear: 2026, openingBalanceCents: 0, savingsReturnPct: 1,
       retirementReturnPct: 5, brokerageReturnPct: 5, sharedScheme: "proportional" as const,
-      inflationPct: 2, currentAge: 30, 
+      inflationPct: 2, birthYear: 2026 - 30,
       lifeExpectancy: 90, benefitClaimingAge: 67,
     };
 
@@ -151,7 +151,7 @@ describe("the authoring API accepts no caller-supplied id — type level", () =>
     const base = {
       name: "T", startYear: 2026, openingBalanceCents: 0, savingsReturnPct: 1,
       retirementReturnPct: 5, brokerageReturnPct: 5, sharedScheme: "proportional" as const,
-      inflationPct: 2, currentAge: 30, 
+      inflationPct: 2, birthYear: 2026 - 30,
       lifeExpectancy: 90, benefitClaimingAge: 67,
     };
 
@@ -198,7 +198,7 @@ describe("the authoring API accepts no caller-supplied id — type level", () =>
       ...base,
       events: [
         {
-          type: "marry", month: 12, name: "Sam", birthYear: 1994,
+          type: "marry", month: 12, name: "Sam", birthYear: 1994, lifeExpectancy: base.lifeExpectancy,
           jobs: [{ ...longRunningJob, ref: ref("samJob"), deferral: { deferralFraction: 0.05 } }],
         },
       ],

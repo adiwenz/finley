@@ -53,7 +53,7 @@ function Harness({ initial, ledger: initialLedger = NO_EVENTS }: { initial: Plan
   const projection = Projection.fromState(state, usJurisdiction);
   const { series, household } = projection.run(usJurisdiction);
   const personNames = new Map<string, string>([
-    [PRIMARY_PERSON_ID, plan.name],
+    [PRIMARY_PERSON_ID, plan.primary.name],
     ...ledger.events.flatMap((e) =>
       e.type === "RelationshipEvent" ? ([[e.person.id, e.person.name]] as [string, string][]) : [],
     ),
@@ -70,7 +70,7 @@ function Harness({ initial, ledger: initialLedger = NO_EVENTS }: { initial: Plan
         projection={projection}
         plannedWorkStopAge={65}
       />
-      <output data-testid="primary-jobs">{JSON.stringify(plan.jobs)}</output>
+      <output data-testid="primary-jobs">{JSON.stringify(plan.primary.jobs)}</output>
       <output data-testid="partner-jobs">{JSON.stringify(partnerJobsOf(ledger))}</output>
     </>
   );
@@ -98,6 +98,7 @@ const partnerWithJobLedger = (monthlyDollars: number): Ledger => ({
         id: "p-1",
         name: "Sam",
         birthYear: START_YEAR - 40,
+        lifeExpectancy: 85,
         benefitClaimingAge: 67,
         jobs: [
           {
@@ -169,7 +170,8 @@ describe("BaseAdjustmentsPanel — Base", () => {
 
   it("shows income stopping at retirement and the benefit picking up at the claiming age", () => {
     renderPanel(PLAN_DEFAULTS);
-    const monthAtAge = (age: number) => (age - PLAN_DEFAULTS.currentAge) * 12;
+    const monthAtAge = (age: number) =>
+      (age - (START_YEAR - PLAN_DEFAULTS.primary.birthYear)) * 12;
 
     selectMonth(monthAtAge(60)); // still working
     const working = incomeReadonlyDollars();
@@ -836,7 +838,10 @@ describe("PayChangeEditor — draft state (single nullable draft)", () => {
   it("defaults to the first job with several jobs, unless another is picked", () => {
     const twoJobs: Plan = {
       ...PLAN_DEFAULTS,
-      jobs: [...PLAN_DEFAULTS.jobs, { ...PLAN_DEFAULTS.jobs[0], id: "job-2" }],
+      primary: {
+        ...PLAN_DEFAULTS.primary,
+        jobs: [...PLAN_DEFAULTS.primary.jobs, { ...PLAN_DEFAULTS.primary.jobs[0], id: "job-2" }],
+      },
     };
     renderPanel(twoJobs);
     selectMonth(6);
@@ -1032,7 +1037,7 @@ describe("BaseAdjustmentsPanel — Funded by", () => {
     // the gap, so month 0's "Funded by" section names an "account" source: `savings`, whose
     // authored label is "Cash savings" (see `SAVINGS_ID`/`SAVINGS_LABEL` in `projectionBase.ts`).
     const cashFundedPlan: Plan = {
-      ...setJobMonthlyIncome(PLAN_DEFAULTS, PLAN_DEFAULTS.jobs[0]!.id, dollarsToCents(1_500)),
+      ...setJobMonthlyIncome(PLAN_DEFAULTS, PLAN_DEFAULTS.primary.jobs[0]!.id, dollarsToCents(1_500)),
       openingBalanceCents: dollarsToCents(50_000),
       goals: [],
     };
@@ -1060,7 +1065,7 @@ describe("BaseAdjustmentsPanel — long-horizon points", () => {
 describe("BaseAdjustmentsPanel — per-line graph", () => {
   const brokePlan: Plan = {
     // $1,500/mo income, far below the ~$3,000 template budget.
-    ...setJobMonthlyIncome(PLAN_DEFAULTS, PLAN_DEFAULTS.jobs[0]!.id, dollarsToCents(1_500)),
+    ...setJobMonthlyIncome(PLAN_DEFAULTS, PLAN_DEFAULTS.primary.jobs[0]!.id, dollarsToCents(1_500)),
     openingBalanceCents: 0,
     goals: [],
   };
@@ -1082,9 +1087,14 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
   });
 
   it("reports a comfortable budget as financed throughout", () => {
+    const withIncome = setJobMonthlyIncome(
+      PLAN_DEFAULTS,
+      PLAN_DEFAULTS.primary.jobs[0]!.id,
+      dollarsToCents(8_000),
+    );
     const richPlan: Plan = {
-      ...setJobMonthlyIncome(PLAN_DEFAULTS, PLAN_DEFAULTS.jobs[0]!.id, dollarsToCents(8_000)),
-      lifeExpectancy: 40,
+      ...withIncome,
+      primary: { ...withIncome.primary, lifeExpectancy: 40 },
       goals: [],
     };
     renderPanel(richPlan);

@@ -464,7 +464,7 @@ describe("government-benefit accumulation + benefit seam", () => {
   });
 });
 
-describe("a benefit is as membership-bound as a wage", () => {
+describe("a benefit is bounded by the active window, exactly as a wage is", () => {
   const flatBenefit: Jurisdiction = {
     id: "stub",
     computeTaxCents: () => 0,
@@ -473,12 +473,12 @@ describe("a benefit is as membership-bound as a wage", () => {
   };
 
   /** Claiming from month 0, so every simulated month is a month they COULD be paid. */
-  const claimingNow = (membership?: SimPerson["membership"]): SimPerson => ({
+  const claimingNow = (activeWindow?: SimPerson["activeWindow"]): SimPerson => ({
     id: "p1",
     name: "You",
     birthYear: 1959,
     benefitClaimingAge: 67,
-    ...(membership !== undefined ? { membership } : {}),
+    ...(activeWindow !== undefined ? { activeWindow } : {}),
   });
 
   /** What this month deposited — the benefit is the only inflow, so it is the whole delta. */
@@ -514,10 +514,39 @@ describe("a benefit is as membership-bound as a wage", () => {
     for (const m of [6, 11] as const) expect(paidIn(series, m)).toBe(dollarsToCents(1_000));
   });
 
-  it("pays throughout for a person with no membership window at all", () => {
+  it("pays throughout for a person with no active window at all", () => {
     // Absent means unbounded, and that default is load-bearing: every single-earner plan states
     // no membership, so a window read as "not a member" would silence the primary's own benefit.
     const series = simulateHousehold(baseInput(claimingNow(), { horizonMonths: 12 }), flatBenefit);
     expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(1_000) * 12);
+  });
+
+  it("stops paying a member at their own life expectancy, even while still a member", () => {
+    // Death is not separation, but it closes the same window: the member never leaves, and their
+    // benefit ends at their expectancy all the same — a dead member draws nothing. Here the
+    // window's exclusive end IS the death month, 6, so months 0–5 pay and 6 onward do not, with
+    // nothing clawed back. Upstream (`personActiveWindow`) that end is `min(separation, death)`;
+    // the simulator only ever sees the one number.
+    const series = simulateHousehold(
+      baseInput(claimingNow({ startMonth: 0, endMonthExclusive: 6 }), { horizonMonths: 12 }),
+      flatBenefit,
+    );
+    expect(paidIn(series, 5)).toBe(dollarsToCents(1_000));
+    for (const m of [6, 7, 11]) expect(paidIn(series, m)).toBe(0);
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(1_000) * 6);
+  });
+
+  it("bounds by whichever ends first — separation before expectancy, or the reverse", () => {
+    // A member who leaves at 4 and would die at 8 stops at 4. The min is taken upstream, by
+    // `personActiveWindow`, which is the whole point of there being one window: the simulator is
+    // never handed two bounds to reconcile, and so can never reconcile them differently here
+    // than a chart does elsewhere. This pins the composed answer, 4.
+    const series = simulateHousehold(
+      baseInput(claimingNow({ startMonth: 0, endMonthExclusive: 4 }), { horizonMonths: 12 }),
+      flatBenefit,
+    );
+    expect(paidIn(series, 3)).toBe(dollarsToCents(1_000));
+    for (const m of [4, 5, 8, 11]) expect(paidIn(series, m)).toBe(0);
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(1_000) * 4);
   });
 });

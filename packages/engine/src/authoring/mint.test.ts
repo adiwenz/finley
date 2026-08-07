@@ -30,7 +30,11 @@ function jobNamed(id: string): Job {
 }
 
 function stateHolding(...jobIds: string[]): ProjectionState {
-  return stateOf({ ...samplePlan, budgetLines: [], jobs: jobIds.map(jobNamed) });
+  return stateOf({
+    ...samplePlan,
+    budgetLines: [],
+    primary: { ...samplePlan.primary, jobs: jobIds.map(jobNamed) },
+  });
 }
 
 describe("the id counter's floor", () => {
@@ -90,13 +94,20 @@ describe("the floor reads adjustment ids too", () => {
     const state = stateOf({
       ...samplePlan,
       budgetLines: [],
-      jobs: [jobWithAdjustments("job-2", "adjustment-9", "adjustment-14")],
+      primary: {
+        ...samplePlan.primary,
+        jobs: [jobWithAdjustments("job-2", "adjustment-9", "adjustment-14")],
+      },
     });
     expect(seqFloor(state.scenario, state.nextSeq)).toBe(15);
   });
 
   it("reads adjustments on a partner's job as well, off the event carrying it", () => {
-    const state = stateOf({ ...samplePlan, budgetLines: [], jobs: [] });
+    const state = stateOf({
+      ...samplePlan,
+      budgetLines: [],
+      primary: { ...samplePlan.primary, jobs: [] },
+    });
     const withPartner: ProjectionState = {
       ...state,
       scenario: {
@@ -113,6 +124,7 @@ describe("the floor reads adjustment ids too", () => {
                 id: "person-3" as PersonId,
                 name: "Sam",
                 birthYear: 1980,
+                lifeExpectancy: samplePlan.primary.lifeExpectancy,
                 benefitClaimingAge: 67,
                 jobs: [jobWithAdjustments("job-4", "adjustment-21")],
               },
@@ -128,10 +140,13 @@ describe("the floor reads adjustment ids too", () => {
     const state = stateOf({
       ...samplePlan,
       budgetLines: [],
-      jobs: [jobWithAdjustments("job-2", "adjustment-9", "adjustment-14")],
+      primary: {
+        ...samplePlan.primary,
+        jobs: [jobWithAdjustments("job-2", "adjustment-9", "adjustment-14")],
+      },
     });
     const restored = withNormalizedCounters(state);
-    const job = restored.scenario.plan.jobs[0]!;
+    const job = restored.scenario.plan.primary.jobs[0]!;
     expect(job.payChanges?.map((c) => c.id)).toEqual(["adjustment-9"]);
     expect(job.incomeOverrides?.map((o) => o.id)).toEqual(["adjustment-14"]);
   });

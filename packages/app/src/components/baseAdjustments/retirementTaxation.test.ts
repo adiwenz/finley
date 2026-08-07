@@ -15,13 +15,16 @@ import { PLAN_DEFAULTS } from "../../planDefaults";
 // of Social Security: a higher salary plus a 15% deferral build the pre-tax balance.
 const DEMO_PLAN: Plan = {
   ...PLAN_DEFAULTS,
-  jobs: [
-    {
-      ...PLAN_DEFAULTS.jobs[0]!,
-      salary: { startingSalaryCents: dollarsToCents(12_000) * 12, currentSalaryCents: dollarsToCents(12_000) * 12, realGrowthPct: 0 },
-      deferral: { deferralFraction: 0.15, fundAccountId: RETIREMENT_ID },
-    },
-  ],
+  primary: {
+    ...PLAN_DEFAULTS.primary,
+    jobs: [
+      {
+        ...PLAN_DEFAULTS.primary.jobs[0]!,
+        salary: { startingSalaryCents: dollarsToCents(12_000) * 12, currentSalaryCents: dollarsToCents(12_000) * 12, realGrowthPct: 0 },
+        deferral: { deferralFraction: 0.15, fundAccountId: RETIREMENT_ID },
+      },
+    ],
+  },
 };
 
 it("taxes Social Security when 401(k) withdrawals accompany it, keyed to the benefit source", () => {

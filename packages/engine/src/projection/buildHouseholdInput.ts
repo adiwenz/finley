@@ -22,7 +22,13 @@ import type { Household } from "../ledger/household";
 import { interpretLedger } from "../ledger/interpret";
 import type { Ledger } from "../ledger/ledger";
 import { compilePerson } from "../compile/compilePerson";
-import { membershipWindow, type JobResolutionScope } from "../job/householdJob";
+import type { JobResolutionScope } from "../job/householdJob";
+import {
+  lifeExpectancyEndMonthExclusive,
+  memberHorizonReach,
+  personActiveWindow,
+} from "../job/personActiveWindow";
+import { PRIMARY_PERSON_ID } from "../compile/projectionBase";
 
 export function buildHouseholdSimInput(
   household: Household,
@@ -120,15 +126,45 @@ export function buildHouseholdSimInput(
     base.stopWorking === undefined
       ? { kind: "authored" }
       : { kind: "hypothetical", stopWorking: base.stopWorking };
-  // The membership window rides along: the income series were clipped to it up here, but a
-  // government benefit is derived inside the sim and would otherwise be paid to a household the
-  // person has left.
-  const persons: SimPerson[] = household.memberships.map((m) =>
-    compilePerson(m.person, nowYear, scope, membershipWindow(m)),
+  // Each member resolved once, against `base.startYear` rather than the `nowYear` fallback: a
+  // life-end is a birth year plus an age placed on the calendar, and a base without `startYear`
+  // has no calendar (only a hand-built test base is ever in that state). `undefined` there means
+  // unbounded — nobody's death bounds anything when there is nowhere to place it.
+  //
+  // The ACTIVE WINDOW rides across the sim boundary: the compiled income series were clipped to
+  // it up here, but a government benefit is derived inside the sim and would otherwise be paid
+  // to a household its owner has left or died out of. The separation and the life-end are also
+  // kept apart, because the horizon rule below needs them apart.
+  const resolvedMembers = household.memberships.map((m) => ({
+    activeWindow: personActiveWindow(m, base.startYear),
+    lifeEnd: lifeExpectancyEndMonthExclusive(m.person, base.startYear),
+    separationMonth: m.endMonth,
+    person: m.person,
+  }));
+  // The other half of "while both are alive" — see {@link memberHorizonReach}. Absent only for a
+  // hand-built base holding no primary, where nothing is reckonable anyway.
+  const primaryLifeEnd =
+    resolvedMembers.find((r) => r.person.id === PRIMARY_PERSON_ID)?.lifeEnd ??
+    Number.POSITIVE_INFINITY;
+
+  const persons: SimPerson[] = resolvedMembers.map((r) =>
+    compilePerson(r.person, nowYear, scope, r.activeWindow),
   );
 
+  // The horizon is the longest-lived member's reach, not the primary's: a member present to their
+  // death contributes their expectancy month, covering their tail. Whether a separation takes that
+  // claim away is {@link memberHorizonReach}'s single answer, shared with `horizonAnchorOf` so the
+  // run and the sentence the panel prints about it cannot diverge.
+  //
+  // `base.horizonMonths` (the primary's) is the floor, so a shorter-lived member can only fail to
+  // raise it, never shorten the run.
+  const horizonMonths = resolvedMembers.reduce((reach, r) => {
+    const memberReach = memberHorizonReach(r.lifeEnd, r.separationMonth, primaryLifeEnd);
+    return memberReach === null ? reach : Math.max(reach, memberReach);
+  }, base.horizonMonths);
+
   return {
-    horizonMonths: base.horizonMonths,
+    horizonMonths,
     annualInflationRate: base.annualInflationRate,
     benefitColaRate: base.benefitColaRate,
     startYear: base.startYear,

@@ -34,7 +34,7 @@ describe("Projection root — the remaining ledger transactions", () => {
 
   it("separate() ends a partnership authored by marry()", () => {
     const p = freshProjection();
-    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988 });
+    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy });
     const separationId = p.separate({
       month: 60,
       partnerPersonId: partnerId,
@@ -56,7 +56,7 @@ describe("Projection root — the remaining ledger transactions", () => {
 
   it("separate() is refused before the partnering it would end", () => {
     const p = freshProjection();
-    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988 });
+    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy });
     const before = p.state;
     expect(() => p.separate({ month: 12, partnerPersonId: partnerId })).toThrow(
       /cannot apply transaction — .*before partnering at month 24/,
@@ -104,7 +104,7 @@ describe("Projection root — the remaining ledger transactions", () => {
 describe("Projection root — a transaction can be removed, revised, or swapped wholesale", () => {
   function marriedProjection(): { p: Projection; partnerId: string } {
     const p = freshProjection();
-    return { p, partnerId: p.marry({ month: 24, name: "Partner", birthYear: 1988 }) };
+    return { p, partnerId: p.marry({ month: 24, name: "Partner", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy }) };
   }
 
   it("removes a transaction by id, not by position", () => {
@@ -201,12 +201,12 @@ describe("Projection root — a transaction can be removed, revised, or swapped 
 describe("Projection root — a revision cannot replace an identity", () => {
   const marriedProjection = (): { p: Projection; partnerId: string } => {
     const p = freshProjection();
-    return { p, partnerId: p.marry({ month: 24, name: "Partner", birthYear: 1988 }) };
+    return { p, partnerId: p.marry({ month: 24, name: "Partner", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy }) };
   };
 
   it("keeps the event id, the person id and every nested job id across a marry revision", () => {
     const p = freshProjection();
-    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988 });
+    const partnerId = p.marry({ month: 24, name: "Partner", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy });
     const jobId = p.addPartnerJob(partnerId, plainJob);
     const before = partnerEvent(p);
 
@@ -215,6 +215,7 @@ describe("Projection root — a revision cannot replace an identity", () => {
       month: 30,
       name: "Renamed",
       birthYear: 1990,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
       benefitClaimingAge: 70,
     });
 
@@ -228,7 +229,12 @@ describe("Projection root — a revision cannot replace an identity", () => {
     expect(after.id).toBe(before.id);
     expect(after.person.id).toBe(partnerId);
     expect(after.person.jobs.map((j) => j.id)).toEqual([jobId]);
-    expect(after.person.jobs).toEqual(before.person.jobs);
+    // The jobs are the same jobs, moved: a corrected birth year carries the employment it dates
+    // (1988 → 1990, so +2 years, ages unchanged). Identity is what a revision cannot touch; the
+    // calendar is not identity. The rule itself is pinned in `projectionFacade.run.test.ts`.
+    expect(after.person.jobs).toEqual(
+      before.person.jobs.map((j) => ({ ...j, startYear: j.startYear + 2, endYear: j.endYear + 2 })),
+    );
   });
 
   it("keeps the child id across a haveChild revision", () => {
@@ -481,7 +487,13 @@ describe("ProjectionResult.assessHomePurchase — the guideline read", () => {
   };
 
   const ranWith = (monthlyIncomeCents: number) =>
-    Projection.fromState(stateOf({ ...samplePlan, jobs: [salariedJob(monthlyIncomeCents)] }), nullJurisdiction).run(nullJurisdiction);
+    Projection.fromState(
+      stateOf({
+        ...samplePlan,
+        primary: { ...samplePlan.primary, jobs: [salariedJob(monthlyIncomeCents)] },
+      }),
+      nullJurisdiction,
+    ).run(nullJurisdiction);
 
   it("flags a purchase that pushes housing past the front-end guideline", () => {
     // ~$1,517/mo of mortgage against $5,000/mo gross is over 28%.
@@ -506,7 +518,10 @@ describe("ProjectionResult.assessHomePurchase — the guideline read", () => {
   });
 
   it("flags nothing at zero gross income rather than dividing by it", () => {
-    const dti = Projection.fromState(stateOf({ ...samplePlan, jobs: [] }), nullJurisdiction)
+    const dti = Projection.fromState(
+      stateOf({ ...samplePlan, primary: { ...samplePlan.primary, jobs: [] } }),
+      nullJurisdiction,
+    )
       .run(nullJurisdiction)
       .assessHomePurchase(purchase);
     expect(dti.monthlyGrossCents).toBe(0);
@@ -515,7 +530,13 @@ describe("ProjectionResult.assessHomePurchase — the guideline read", () => {
   });
 
   it("counts debt already being serviced toward the back-end ratio", () => {
-    const p = Projection.fromState(stateOf({ ...samplePlan, jobs: [salariedJob(dollarsToCents(12000))] }), nullJurisdiction);
+    const p = Projection.fromState(
+      stateOf({
+        ...samplePlan,
+        primary: { ...samplePlan.primary, jobs: [salariedJob(dollarsToCents(12000))] },
+      }),
+      nullJurisdiction,
+    );
     // Read a year in, where the loan taken at month 0 is being serviced.
     const later = { ...purchase, month: 12 };
     const clean = p.run(nullJurisdiction).assessHomePurchase(later);

@@ -73,7 +73,7 @@ function Harness({ onReady }: { onReady: (hook: UseProjection) => void }) {
     <>
       <output data-testid="goal-ids">{plan.goals.map((g) => g.id).join(",")}</output>
       <output data-testid="line-count">{plan.budgetLines.length}</output>
-      <output data-testid="life-expectancy">{plan.lifeExpectancy}</output>
+      <output data-testid="life-expectancy">{plan.primary.lifeExpectancy}</output>
       <output data-testid="conflict">{hook.conflict ?? ""}</output>
     </>
   );
@@ -209,7 +209,9 @@ describe("useProjection — a refused write", () => {
     });
 
     expect(lineCount()).toBe(linesBefore);
-    expect(screen.getByTestId("life-expectancy").textContent).toBe(String(PLAN_DEFAULTS.lifeExpectancy));
+    expect(screen.getByTestId("life-expectancy").textContent).toBe(
+      String(PLAN_DEFAULTS.primary.lifeExpectancy),
+    );
   });
 
   it("clears on the next write that succeeds, and not before", () => {

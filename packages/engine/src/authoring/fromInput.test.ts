@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AGE_LIMITS, MAX_AGE, MAX_LIVED_AGE, Projection } from "../index";
+import { AGE_LIMITS, MAX_AGE, MAX_LIVED_AGE, minLifeExpectancyFor, Projection } from "../index";
 import { nullJurisdiction } from "../jurisdiction/jurisdiction";
 import { PRIMARY_PERSON_ID, goalFundAccountId } from "../compile/projectionBase";
 import { RETIREMENT_ID } from "../plan/ids";
@@ -23,7 +23,7 @@ const base: ScenarioInput = {
   brokerageReturnPct: 5,
   sharedScheme: "proportional",
   inflationPct: 2,
-  currentAge: 30,
+  birthYear: 2026 - 30,
   lifeExpectancy: 90,
   benefitClaimingAge: 67,
 };
@@ -38,7 +38,7 @@ function built(input: ScenarioInput): Projection {
 describe("Projection.init — the imperative half of authoring", () => {
   it("opens empty, with the counter at its start", () => {
     const p = Projection.init(base, nullJurisdiction);
-    expect(p.plan.jobs).toEqual([]);
+    expect(p.plan.primary.jobs).toEqual([]);
     expect(p.plan.goals).toEqual([]);
     expect(p.plan.budgetLines).toEqual([]);
     expect(p.ledger.events).toEqual([]);
@@ -47,9 +47,9 @@ describe("Projection.init — the imperative half of authoring", () => {
   });
 
   it("keeps the scalars it was given, and projects", () => {
-    const p = Projection.init({ ...base, currentAge: 41, lifeExpectancy: 85 }, nullJurisdiction);
-    expect(p.plan.currentAge).toBe(41);
-    expect(p.plan.lifeExpectancy).toBe(85);
+    const p = Projection.init({ ...base, birthYear: 2026 - 41, lifeExpectancy: 85 }, nullJurisdiction);
+    expect(2026 - p.plan.primary.birthYear).toBe(41);
+    expect(p.plan.primary.lifeExpectancy).toBe(85);
     // A plan with no jobs and no budget still runs — it is a scenario, just an empty one.
     expect(p.run(nullJurisdiction).series.months.length).toBeGreaterThan(0);
   });
@@ -69,7 +69,7 @@ describe("Projection.init — the imperative half of authoring", () => {
       label: "Rent", category: "needs", target: { kind: "expense" },
       amountSource: { kind: "literal", monthlyCents: 150_000 },
     });
-    const partnerId = p.marry({ month: 12, name: "Sam", birthYear: 1994 });
+    const partnerId = p.marry({ month: 12, name: "Sam", birthYear: 1994, lifeExpectancy: base.lifeExpectancy });
 
     // Every id off the one counter, in the shape `mint` issues, all distinct.
     const ids = [jobId, goalId, lineId, partnerId];
@@ -100,19 +100,21 @@ describe("Projection.init — the imperative half of authoring", () => {
     );
     // Every age-valued scalar is bounded, each at ITS OWN ceiling rather than one shared number.
     // An age already lived stops a year below the ceiling: 120 leaves no month to project.
-    expect(() => Projection.init({ ...base, currentAge: MAX_AGE }, nullJurisdiction)).toThrow(/119/);
+    expect(() =>
+      Projection.init({ ...base, birthYear: 2026 - MAX_AGE }, nullJurisdiction),
+    ).toThrow(/119/);
     // And the claiming age stops at the top of the legal window, well below either.
     expect(() => Projection.init({ ...base, benefitClaimingAge: 71 }, nullJurisdiction)).toThrow(/70/);
   });
 
   it("accepts each ceiling itself — the bound refuses what is PAST it, not what reaches it", () => {
     const p = Projection.init(
-      { ...base, currentAge: MAX_LIVED_AGE, lifeExpectancy: MAX_AGE,
+      { ...base, birthYear: 2026 - MAX_LIVED_AGE, lifeExpectancy: MAX_AGE,
         benefitClaimingAge: AGE_LIMITS.benefitClaimingAge },
       nullJurisdiction,
     );
-    expect(p.plan.lifeExpectancy).toBe(120);
-    expect(p.plan.currentAge).toBe(119);
+    expect(p.plan.primary.lifeExpectancy).toBe(120);
+    expect(2026 - p.plan.primary.birthYear).toBe(119);
     // One year of plan left — the reason a lived age stops one short of the ceiling.
     expect(p.run(nullJurisdiction).series.months.length).toBe(12);
   });
@@ -120,7 +122,58 @@ describe("Projection.init — the imperative half of authoring", () => {
   it("refuses an over-large age on a later edit too, leaving the projection as it was", () => {
     const p = Projection.init(base, nullJurisdiction);
     expect(() => p.updatePlan({ lifeExpectancy: 950 })).toThrow(/950/);
-    expect(p.plan.lifeExpectancy).toBe(90);
+    expect(p.plan.primary.lifeExpectancy).toBe(90);
+  });
+
+  // The FLOOR under a life expectancy, which the ceiling above has no opinion about. An
+  // expectancy at or below the age the person already is says they are already dead: their
+  // active window closes at month 0, so every job of theirs ends before it starts, no benefit
+  // is ever claimed, and the projection has no months in it. Well-defined, and useless — and it
+  // arrives from a slider the user can drag, not from a typo with an extra digit.
+  describe("a life expectancy must be past the age the person already is", () => {
+    it("refuses one already behind them at plan-open, naming the age they are", () => {
+      // Born 30 years ago, so 30 is the age they already are and 29 is behind it.
+      expect(() => Projection.init({ ...base, lifeExpectancy: 29 }, nullJurisdiction)).toThrow(
+        /lifeExpectancy 29 — it must be past the age they already are \(30\)/,
+      );
+    });
+
+    it("refuses one EQUAL to their current age — a plan with no months in it is not a plan", () => {
+      expect(() => Projection.init({ ...base, lifeExpectancy: 30 }, nullJurisdiction)).toThrow(
+        /must be past the age they already are/,
+      );
+    });
+
+    it("accepts one year past it — the bound refuses what reaches the floor, not what clears it", () => {
+      const p = Projection.init({ ...base, lifeExpectancy: 31 }, nullJurisdiction);
+      expect(p.run(nullJurisdiction).series.months.length).toBe(12);
+    });
+
+    it("refuses it on a later edit too, leaving the projection as it was", () => {
+      const p = Projection.init(base, nullJurisdiction);
+      expect(() => p.updatePlan({ lifeExpectancy: 30 })).toThrow(
+        /must be past the age they already are/,
+      );
+      expect(p.plan.primary.lifeExpectancy).toBe(90);
+    });
+
+    it("publishes that floor as a number a form can bound a field with", () => {
+      // The forms need the bound BEFORE the write, or a field either rewrites what the user
+      // typed or commits a value the write refuses — both were live, as a `Math.max(60, …)`
+      // that snapped a 40-year-old's expectancy to 60. One definition, so the bound a field
+      // draws and the bound this rule enforces cannot drift: 31 is accepted above, 30 refused.
+      expect(minLifeExpectancyFor(30)).toBe(31);
+      expect(minLifeExpectancyFor(40)).toBe(41);
+      // No floor under it beyond the person's own age — a young person may state a short life.
+      expect(minLifeExpectancyFor(18)).toBe(19);
+    });
+
+    it("reports it as a reason rather than throwing, on the document path", () => {
+      const result = Projection.fromInput({ ...base, lifeExpectancy: 29 }, nullJurisdiction);
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error("expected refusal");
+      expect(result.error.reason).toMatch(/lifeExpectancy 29 must be past the age they already are/);
+    });
   });
 });
 
@@ -144,7 +197,7 @@ describe("Projection.fromInput", () => {
       ],
     });
 
-    const [job] = p.plan.jobs;
+    const [job] = p.plan.primary.jobs;
     expect(job.id).toMatch(/^job-\d+$/);
     expect(job.ownerId).toBe(PRIMARY_PERSON_ID);
     // The account ref resolved to a real, well-known account id — no ref survived the build.
@@ -198,7 +251,7 @@ describe("Projection.fromInput", () => {
     const p = built({
       ...base,
       events: [
-        { type: "marry", ref: ref("sam"), month: 12, name: "Sam", birthYear: 1994,
+        { type: "marry", ref: ref("sam"), month: 12, name: "Sam", birthYear: 1994, lifeExpectancy: base.lifeExpectancy,
           jobs: [
             { startYear: 2027, endYear: 2060,
               salary: { startingSalaryCents: 6_000_000, currentSalaryCents: 6_000_000, realGrowthPct: 1 },
@@ -226,7 +279,7 @@ describe("Projection.fromInput", () => {
       {
         ...base,
         events: [
-          { type: "marry", ref: ref("sam"), month: 12, name: "Sam", birthYear: 1994 },
+          { type: "marry", ref: ref("sam"), month: 12, name: "Sam", birthYear: 1994, lifeExpectancy: base.lifeExpectancy },
           { type: "separate", month: 24, partnerRef: ref("sam") },
           { type: "separate", month: 36, partnerRef: ref("sam") },
         ],
@@ -273,7 +326,7 @@ describe("Projection.fromInput", () => {
   it("refuses a partner older than the maximum — a partner is a person, held to the same bound", () => {
     // Authored as a birth YEAR, so the age is read against the plan's frozen "now" (2026).
     const result = Projection.fromInput(
-      { ...base, events: [{ type: "marry", month: 12, name: "Sam", birthYear: 1850 }] },
+      { ...base, events: [{ type: "marry", month: 12, name: "Sam", birthYear: 1850, lifeExpectancy: base.lifeExpectancy }] },
       nullJurisdiction,
     );
     expect(result.ok).toBe(false);
@@ -285,7 +338,7 @@ describe("Projection.fromInput", () => {
   it("holds a partner's claiming age to its ceiling — the only target age they carry", () => {
     const marryWith = (extra: Record<string, number>) =>
       Projection.fromInput(
-        { ...base, events: [{ type: "marry", month: 12, name: "Sam", birthYear: 1994, ...extra }] },
+        { ...base, events: [{ type: "marry", month: 12, name: "Sam", birthYear: 1994, lifeExpectancy: base.lifeExpectancy, ...extra }] },
         nullJurisdiction,
       );
     expect(marryWith({ benefitClaimingAge: 71 }).ok).toBe(false);
@@ -310,18 +363,157 @@ describe("Projection.fromInput", () => {
       );
     expect(withJob(1996 + 200, 1996 + 201).ok).toBe(false); // starts at 200
     expect(withJob(2026, 1996 + 200).ok).toBe(false); // ends at 200
-    // The ceiling itself is fine.
-    expect(withJob(2026, 1996 + MAX_LIVED_AGE).ok).toBe(true);
+    // `MAX_LIVED_AGE` is the ceiling on the age itself, and it is not the only bound: a job also
+    // has to end inside its owner's own life, which for this document is expectancy 90. An end
+    // AT the ceiling is refused now — by containment, not by the age bound.
+    expect(withJob(2026, 1996 + MAX_LIVED_AGE).ok).toBe(false);
+    expect(withJob(2026, 1996 + base.lifeExpectancy).ok).toBe(true);
   });
 
   it("takes a partner within the bound, ages and all", () => {
     const p = built({
       ...base,
       events: [
-        { type: "marry", month: 12, name: "Sam", birthYear: 1994, benefitClaimingAge: 70 },
+        { type: "marry", month: 12, name: "Sam", birthYear: 1994, lifeExpectancy: base.lifeExpectancy, benefitClaimingAge: 70 },
       ],
     });
     expect(p.ledger.events).toHaveLength(1);
+  });
+});
+
+/**
+ * Every person's life expectancy is required, the primary's included: `Person.lifeExpectancy` is a
+ * `number`, and the horizon is computed from it. `marry` still ACCEPTS none and resolves it to the
+ * primary's, so the authoring convenience survives — but it is applied once, at the door.
+ *
+ * The type says so, and these pin that the type is not the only thing saying so: `@finley/engine`
+ * is published, so a JavaScript caller can omit the field, and an unstated expectancy now reaches
+ * arithmetic that would answer `NaN` months rather than the 0 it used to.
+ */
+describe("Projection — the primary's life expectancy is required, not defaulted", () => {
+  /** `base` minus the one field under test. */
+  const withoutLifeExpectancy = () => {
+    const { lifeExpectancy: _drop, ...rest } = base;
+    return rest as ScenarioInput;
+  };
+
+  it("refuses a DOCUMENT that omits it, with a reason rather than a throw", () => {
+    const result = Projection.fromInput(withoutLifeExpectancy(), nullJurisdiction);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected refusal");
+    expect(result.error.reason).toMatch(/lifeExpectancy is required/);
+  });
+
+  it("throws for a caller holding a handle — the same split every other bad age uses", () => {
+    expect(() => Projection.init(withoutLifeExpectancy(), nullJurisdiction)).toThrow(
+      /without the primary's lifeExpectancy/,
+    );
+  });
+
+  it("never lets a plan patch CLEAR it — an explicit undefined is not a write", () => {
+    // A patch is `Partial`, so `{ lifeExpectancy: undefined }` type-checks; spreading it would
+    // erase the household's fallback and take the horizon with it.
+    const p = built(base);
+    p.updatePlan({ lifeExpectancy: undefined });
+    expect(p.plan.primary.lifeExpectancy).toBe(90);
+    expect(p.run(nullJurisdiction).series.months.length).toBe((90 - 30) * 12);
+    // A real value still lands, so skipping `undefined` has not made the field unpatchable.
+    p.updatePlan({ lifeExpectancy: 100 });
+    expect(p.plan.primary.lifeExpectancy).toBe(100);
+    expect(p.run(nullJurisdiction).series.months.length).toBe((100 - 30) * 12);
+  });
+});
+
+/**
+ * A partner's life expectancy is authorable from a DOCUMENT, not only from the imperative
+ * `marry()`/`startPartnered()` calls — and is REQUIRED on both entries, never defaulted from the
+ * primary. How long a partner lives is a fact about them; inheriting the primary's would put a
+ * number nobody chose behind the projection horizon, since a partner younger than the primary
+ * reaches the same age in a later calendar year and silently extends the run.
+ *
+ * Observed through the run's month count, which IS the horizon: `base` puts the primary at age 30
+ * in 2026 with an expectancy of 90, so alone they reach 2086 — 720 months. A partner born 2006
+ * reaches whatever age they state, twenty years later than the primary reaches the same one.
+ */
+describe("Projection.fromInput — a partner's life expectancy, and the horizon it sets", () => {
+  const PRIMARY_HORIZON = (90 - 30) * 12;
+  const monthsOf = (input: ScenarioInput) => built(input).run(nullJurisdiction).series.months.length;
+  /**
+   * The partner entry under test, as both an event and an anchor — the two ways one is authored.
+   *
+   * Cast through `unknown` because one case here is deliberately an INVALID document: a partner
+   * stating no expectancy no longer type-checks, and the refusal it earns is exactly what the
+   * published-JavaScript path has to give.
+   */
+  const withPartner = (partner: Record<string, unknown>): readonly ScenarioInput[] => [
+    { ...base, events: [{ type: "marry", month: 12, name: "Sam", birthYear: 2006, ...partner }] },
+    {
+      ...base,
+      events: [
+        { type: "startPartnered", partneredForMonths: 24, name: "Sam", birthYear: 2006, ...partner },
+      ],
+    },
+  ] as unknown as readonly ScenarioInput[];
+
+  it("carries a stated expectancy onto the partner's own Person record", () => {
+    const p = built(withPartner({ lifeExpectancy: 100 })[0]!);
+    const event = p.ledger.events[0];
+    if (event?.type !== "RelationshipEvent") throw new Error("expected a RelationshipEvent");
+    expect(event.person.lifeExpectancy).toBe(100);
+  });
+
+  it.each(withPartner({}))(
+    "REFUSES a partner stating none — nothing is inherited from the primary",
+    (input) => {
+      // The type requires it; this is the published-JavaScript path, and the refusal it must give
+      // rather than quietly reaching for the primary's 90.
+      const result = Projection.fromInput(input, nullJurisdiction);
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error("expected refusal");
+      expect(result.error.reason).toMatch(/without a lifeExpectancy/);
+    },
+  );
+
+  it("keeps the partner's expectancy independent of the primary's, before and after an edit", () => {
+    // Two people, two facts. Sam states 90 and the primary states 90, but they are not the same
+    // number: moving the primary to 100 moves the primary's reach and leaves Sam's alone.
+    const p = built(withPartner({ lifeExpectancy: 90 })[0]!);
+    expect(p.run(nullJurisdiction).series.months.length).toBe((2006 + 90 - 2026) * 12);
+    p.updatePlan({ lifeExpectancy: 100 });
+    const event = p.ledger.events[0];
+    if (event?.type !== "RelationshipEvent") throw new Error("expected a RelationshipEvent");
+    expect(event.person.lifeExpectancy).toBe(90);
+    // Sam still outlives the primary (2096 vs 2096 — a tie the primary loses on birth year), so
+    // the horizon is unchanged by the primary's longer life.
+    expect(p.run(nullJurisdiction).series.months.length).toBe((2006 + 90 - 2026) * 12);
+  });
+
+  it.each(withPartner({ lifeExpectancy: 100 }))(
+    "runs to a partner's DISTINCT stated expectancy — the longest-lived member sets the horizon",
+    (input) => {
+      // Sam states 100 and is born 2006, reaching it in 2106: (2106 - 2026) * 12 = 960 months,
+      // well past the primary's 720.
+      expect(monthsOf(input)).toBe((2006 + 100 - 2026) * 12);
+    },
+  );
+
+  it.each(withPartner({ lifeExpectancy: 70 }))(
+    "does not SHRINK the horizon below the primary's when the partner dies first",
+    (input) => {
+      // Sam states 70 and reaches it in 2076 — a decade before the primary's 2086. The horizon is
+      // the max across members, so the primary still sets it.
+      expect(monthsOf(input)).toBe(PRIMARY_HORIZON);
+    },
+  );
+
+  it("agrees with the same household authored imperatively", () => {
+    // The point of the whole change: a document and the authoring calls it routes through must
+    // produce one horizon, or a saved scenario means something different from the one authored.
+    const imperative = Projection.init(base, nullJurisdiction);
+    imperative.marry({ month: 12, name: "Sam", birthYear: 2006, lifeExpectancy: 100 });
+    expect(monthsOf(withPartner({ lifeExpectancy: 100 })[0]!)).toBe(
+      imperative.run(nullJurisdiction).series.months.length,
+    );
   });
 });
 
@@ -366,7 +558,7 @@ describe("Projection.fromInput — the engine allocates every id", () => {
     events: [
       { type: "takeLoan", ref: ref("REF-student"), month: 0, ownerRef: PRIMARY_PERSON_REF,
         openingBalanceCents: 3_000_000, apr: 0.05, kind: "studentLoan", termMonths: 120 },
-      { type: "marry", ref: ref("REF-sam"), month: 12, name: "Sam", birthYear: 1994,
+      { type: "marry", ref: ref("REF-sam"), month: 12, name: "Sam", birthYear: 1994, lifeExpectancy: base.lifeExpectancy,
         jobs: [{ startYear: 2027, endYear: 2060,
           salary: { startingSalaryCents: 5_000_000, currentSalaryCents: 5_000_000, realGrowthPct: 0 } }] },
       { type: "haveChild", month: 24, name: "Kid", annualCostCents: 1_200_000 },
@@ -389,7 +581,7 @@ describe("Projection.fromInput — the engine allocates every id", () => {
    */
   function allIds(p: Projection): string[] {
     const ids = [
-      ...p.plan.jobs.map((j) => j.id),
+      ...p.plan.primary.jobs.map((j) => j.id),
       ...p.plan.goals.map((g) => g.id),
       ...p.plan.budgetLines.map((l) => l.id),
     ];
@@ -476,12 +668,16 @@ describe("Projection.fromInput — the engine allocates every id", () => {
         salary: { startingSalaryCents: 1, currentSalaryCents: 1, realGrowthPct: 0 } },
     ];
     const p = built({ ...base, jobs: twoJobs, continuationJobRef: ref("early") });
-    expect(p.plan.continuationJobId).toBe(p.plan.jobs[0].id);
+    expect(p.plan.primary.continuationJobId).toBe(p.plan.primary.jobs[0].id);
 
     // `null` states None outright; omitting it leaves the choice unmade, which the engine
     // resolves on read. The two must not collapse into each other.
-    expect(built({ ...base, jobs: twoJobs, continuationJobRef: null }).plan.continuationJobId).toBeNull();
-    expect(built({ ...base, jobs: twoJobs }).plan.continuationJobId).toBeUndefined();
+    expect(
+      built({ ...base, jobs: twoJobs, continuationJobRef: null }).plan.primary.continuationJobId,
+    ).toBeNull();
+    expect(
+      built({ ...base, jobs: twoJobs }).plan.primary.continuationJobId,
+    ).toBeUndefined();
   });
 
   it("refuses a continuation job naming a ref no job declares", () => {

@@ -282,7 +282,7 @@ export function BaseAdjustmentsPanel({
   const retirementMonth =
     plannedWorkStopAge === null
       ? undefined
-      : Math.max(0, (plannedWorkStopAge - plan.currentAge) * 12);
+      : Math.max(0, (plannedWorkStopAge - (START_YEAR - plan.primary.birthYear)) * 12);
 
   const applyQuickstart = useCallback((): void => {
     // Non-destructive: rebalance existing lines to 50/30/20, keeping their names. Off the
@@ -328,7 +328,7 @@ export function BaseAdjustmentsPanel({
         incomeData={incomeChartData}
         spendingData={spendingChartData}
         taxData={taxChartData}
-        currentAge={plan.currentAge}
+        currentAge={(START_YEAR - plan.primary.birthYear)}
         personNames={personNames}
         selectedMonth={selectedMonth}
         onSelectMonth={selectMonth}
@@ -338,7 +338,7 @@ export function BaseAdjustmentsPanel({
       {/* The point being edited. */}
       <div>
         <div className="row-between">
-          <h3 data-testid="selected-month">Editing {describeMonth(selectedMonth, plan.currentAge)}</h3>
+          <h3 data-testid="selected-month">Editing {describeMonth(selectedMonth, (START_YEAR - plan.primary.birthYear))}</h3>
           {/* Keyboard/assistive path to the same selection. */}
           <NumInput
             label="Month"

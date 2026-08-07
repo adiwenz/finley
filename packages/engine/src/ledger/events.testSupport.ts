@@ -15,6 +15,7 @@ export const personLit = (id: string, name: string): Person => ({
   id,
   name,
   birthYear: 1990,
+  lifeExpectancy: 85,
   benefitClaimingAge: 67,
   jobs: [],
 });

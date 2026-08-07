@@ -22,17 +22,23 @@ import type {
 } from "@finley/engine";
 
 const baseBudget: Plan = {
-  name: "Alex",
-  // Income is a single real-flat job — $5,000/mo, the surplus source below.
-  jobs: [
-    {
-      id: "job-1",
-      ownerId: "p1",
-      startYear: START_YEAR - 35 + 18,
-      endYear: START_YEAR - 35 + 65,
-      salary: { startingSalaryCents: dollarsToCents(5000) * 12, currentSalaryCents: dollarsToCents(5000) * 12, realGrowthPct: 0 },
-    },
-  ],
+  primary: {
+    id: "p1",
+    name: "Alex",
+    // Income is a single real-flat job — $5,000/mo, the surplus source below.
+    jobs: [
+      {
+        id: "job-1",
+        ownerId: "p1",
+        startYear: START_YEAR - 35 + 18,
+        endYear: START_YEAR - 35 + 65,
+        salary: { startingSalaryCents: dollarsToCents(5000) * 12, currentSalaryCents: dollarsToCents(5000) * 12, realGrowthPct: 0 },
+      },
+    ],
+    birthYear: START_YEAR - 35,
+    lifeExpectancy: 90,
+    benefitClaimingAge: 67,
+  },
   budgetLines: [
     {
       id: "spend",
@@ -51,9 +57,6 @@ const baseBudget: Plan = {
   // No health line: these tests pin the $1,500/mo surplus ($5,000 − $3,500) goal funding
   // draws from, and health is a separate additive expense.
   inflationPct: 3,
-  currentAge: 35,
-  lifeExpectancy: 90,
-  benefitClaimingAge: 67,
 };
 
 /** Two goals that together outstrip the $1,500/mo surplus, so priority decides. */

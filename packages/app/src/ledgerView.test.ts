@@ -86,7 +86,7 @@ describe("timelineMarkers", () => {
     // Authored out of month order: the month-24 child before the month-12 marriage.
     const ledger = authored((p) => {
       p.haveChild({ month: 24, name: "Robin", annualCostCents: 0 });
-      p.marry({ month: 12, name: "Sam", birthYear: 1990 });
+      p.marry({ month: 12, name: "Sam", birthYear: 1990, lifeExpectancy: PLAN_DEFAULTS.primary.lifeExpectancy });
     });
     const markers = timelineMarkers(ledger);
     expect(markers.map((m) => m.month)).toEqual([12, 24]);

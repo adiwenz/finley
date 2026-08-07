@@ -236,9 +236,6 @@ of `partialRetirementAge: number | null` learns a third case.
 The panel reports *"can't compute a retirement age — your projection is blocked at age 40 by
 Home purchase."*
 
-**`computeOnTrackFraction` breaks too**: its horizon is `series.months.length - 1`, which
-collapses from ~660 to the blocked month.
-
 ## 9. Authoring pipeline
 
 Both mutation planes unify onto `Projection` as the single authoring root — see §12 for the

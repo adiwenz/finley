@@ -109,9 +109,9 @@ function Configuration({
       <ConfigGroup
         title="Identity & horizon"
         rows={[
-          ["Name", budget.name || "You"],
-          ["Current age", budget.currentAge],
-          ["Life expectancy", budget.lifeExpectancy],
+          ["Name", budget.primary.name || "You"],
+          ["Current age", inputs.startYear - budget.primary.birthYear],
+          ["Life expectancy", budget.primary.lifeExpectancy],
           ["Jurisdiction", jurisdictionId],
           ["Horizon", `${inputs.horizonYears} yr (${inputs.horizonMonths} mo)`],
           ["Years", `${inputs.startYear}–${inputs.endYear}`],
@@ -140,7 +140,7 @@ function Configuration({
       />
       <ConfigGroup
         title="Retirement & Social Security"
-        rows={[["SS claiming age", budget.benefitClaimingAge]]}
+        rows={[["SS claiming age", budget.primary.benefitClaimingAge]]}
       />
       {/* No "Health care" group: the plan holds no health scalars. Health is a
           `healthcare`-category budget line, listed with every other line below. */}
