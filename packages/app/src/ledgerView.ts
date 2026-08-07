@@ -5,7 +5,7 @@
  * engine's job, see `snapshotAt` in @finley/engine.
  */
 
-import type { Ledger, LifeEvent, ProjectionSeries, SnapshotSeries } from "@finley/engine";
+import type { Cents, Ledger, LifeEvent, ProjectionSeries, SnapshotSeries } from "@finley/engine";
 import { formatDollars } from "./format";
 
 export interface EventSummary {
@@ -156,6 +156,48 @@ export function timelineMarkers(ledger: Ledger, series?: OutcomeSource): Timelin
       outcome: outcomes.get(e.id) ?? "executed",
       ...summarizeEvent(e),
     }));
+}
+
+/** The soft-warning's content: the event that stopped the projection, when, and by how much. */
+export interface BlockedWarningView {
+  /** The blocking event in the household's own words ("Bought a home"), not the obligation's id. */
+  readonly eventLabel: string;
+  /** The month it was scheduled for — {@link ProjectionSeries.blockedAtMonth}. */
+  readonly month: number;
+  /** The funding gap, net of the capital-gains tax liquidating the named sources owes. */
+  readonly shortfallCents: Cents;
+}
+
+/** The projection fields the warning reads — just the block, never a balance or a later month. */
+type WarningSource = Pick<ProjectionSeries, "status" | "blockingObligation">;
+
+/**
+ * The soft warning shown while a projection is blocked, or `null` when nothing stopped. Named from
+ * the AUTHORING event via `sourceEventId`, not the blocking obligation's own `label` — that is an
+ * engine-internal band namespace ("downpayment"), whereas the household authored "Bought a home".
+ * Same event→outcome join the timeline's indicators use; here it recovers one plain-language name.
+ *
+ * The month and shortfall come straight off `blockingObligation` — the gap is the engine's bare,
+ * already-post-tax figure, never recomputed here (classifying it is a later slice). Falls back to
+ * the obligation's own label only if the authoring event cannot be found, so the warning still
+ * names something rather than rendering blank.
+ */
+export function blockedWarning(
+  ledger: Ledger,
+  series: WarningSource | undefined,
+): BlockedWarningView | null {
+  if (series === undefined || series.status !== "blocked") return null;
+  const blocking = series.blockingObligation;
+  if (blocking === undefined) return null;
+  const event =
+    blocking.sourceEventId === undefined
+      ? undefined
+      : ledger.events.find((e) => e.id === blocking.sourceEventId);
+  return {
+    eventLabel: event !== undefined ? summarizeEvent(event).label : blocking.label,
+    month: blocking.month,
+    shortfallCents: blocking.shortfallCents,
+  };
 }
 
 /**

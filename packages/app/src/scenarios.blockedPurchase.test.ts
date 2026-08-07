@@ -24,6 +24,7 @@ import { Projection, PRIMARY_PERSON_ID, dollarsToCents } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { DEFAULT_INPUT } from "./planDefaults";
 import { retirementView } from "./retirementView";
+import { blockedWarning, timelineMarkers } from "./ledgerView";
 import { buildNetWorthChartData } from "./components/netWorthChart/netWorthChartData";
 import { toAxisX } from "./components/monthAxis";
 
@@ -150,5 +151,35 @@ describe("a purchase stranded by a later edit — what the projection does with 
     expect(chart.blocked?.netWorthCents).toBe(series.blockingObligation!.markerNetWorthCents);
     // Nothing is plotted past the block.
     expect(Math.max(...chart.points.map((pt) => pt.x))).toBe(toAxisX(BUY_MONTH));
+  });
+
+  it("warns naming the stranded purchase and its month, and marks every later event not-reached", () => {
+    const p = household(OPENING_WHEN_AUTHORED);
+    const stranded = buyHome(p, 500_000, 200_000);
+    // A second purchase authored strictly AFTER the block — the simulation stops before reaching it.
+    const later = p.buyHome({
+      month: 60,
+      ownerId: PRIMARY_PERSON_ID,
+      purchasePriceCents: dollarsToCents(300_000),
+      downPaymentCents: dollarsToCents(60_000),
+      downPaymentSourceIds: ["savings"],
+      mortgageApr: 0.06,
+      mortgageTermMonths: 360,
+    });
+    p.updatePlan({ openingBalanceCents: OPENING_AFTER_EDIT });
+    const series = p.run(usJurisdiction).series;
+
+    // The warning the household actually reads: the purchase in plain language, the month it was
+    // scheduled for, and the engine's bare (already post-tax) shortfall — a stop, not advice.
+    const warning = blockedWarning(p.ledger, series);
+    expect(warning?.eventLabel).toBe("Bought a home");
+    expect(warning?.month).toBe(BUY_MONTH);
+    expect(warning?.shortfallCents).toBe(series.blockingObligation!.shortfallCents);
+
+    // The timeline reads the same stop: the blocker is blocked, and the purchase after it — which
+    // the stopped simulation never tested — is not-reached.
+    const outcome = new Map(timelineMarkers(p.ledger, series).map((m) => [m.id, m.outcome]));
+    expect(outcome.get(stranded)).toBe("blocked");
+    expect(outcome.get(later)).toBe("not-reached");
   });
 });

@@ -4,7 +4,7 @@ import type { Ledger, SnapshotSeries } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { stateOf } from "./testing/projectionHarness";
 import { DEFAULT_INPUT, PLAN_DEFAULTS } from "./planDefaults";
-import { summarizeEvent, timelineMarkers, splitMarkers, seriesLabel } from "./ledgerView";
+import { summarizeEvent, timelineMarkers, splitMarkers, seriesLabel, blockedWarning } from "./ledgerView";
 
 /**
  * Author a timeline through the facade and read back the {@link Ledger} the view consumes —
@@ -143,6 +143,51 @@ describe("timelineMarkers — per-event outcomes from a blocked projection", () 
     const ledger = authored((p) => p.marry({ month: 12, name: "Sam", birthYear: 1990 }));
     // No series argument — the timeline shows an indicator only once something has actually stopped.
     expect(timelineMarkers(ledger).every((m) => m.outcome === "executed")).toBe(true);
+  });
+});
+
+describe("blockedWarning — the soft-warning content for a stopped projection", () => {
+  /** One affordable purchase, stranded by a later opening-balance edit — the block lands on it. */
+  function strandedPurchase() {
+    const built = Projection.fromInput(
+      { ...DEFAULT_INPUT, openingBalanceCents: dollarsToCents(400_000) },
+      usJurisdiction,
+    );
+    if (!built.ok) throw new Error(`fixture is not a valid ScenarioInput: ${built.error.reason}`);
+    const p = built.projection;
+    p.buyHome({
+      month: 12,
+      ownerId: PRIMARY_PERSON_ID,
+      purchasePriceCents: dollarsToCents(500_000),
+      downPaymentCents: dollarsToCents(200_000),
+      downPaymentSourceIds: ["savings"],
+      mortgageApr: 0.06,
+      mortgageTermMonths: 360,
+    });
+    p.updatePlan({ openingBalanceCents: dollarsToCents(60_000) });
+    return { ledger: p.ledger, series: p.run(usJurisdiction).series };
+  }
+
+  it("names the blocking event in plain language, its month, and the shortfall net of tax", () => {
+    const { ledger, series } = strandedPurchase();
+    const warning = blockedWarning(ledger, series);
+    // Named from the AUTHORING event, not the obligation's engine-internal "downpayment" label.
+    expect(warning?.eventLabel).toBe("Bought a home");
+    expect(warning?.month).toBe(12);
+    // Read from the engine's bare (already post-tax) shortfall, never recomputed in the app.
+    expect(warning?.shortfallCents).toBe(series.blockingObligation!.shortfallCents);
+  });
+
+  it("is null with no series and on a run that reached the horizon", () => {
+    const ledger = authored((p) => p.marry({ month: 12, name: "Sam", birthYear: 1990 }));
+    // The snapshot panel's use — no series to read a block off of.
+    expect(blockedWarning(ledger, undefined)).toBeNull();
+    // A real, unblocked run has nothing to warn about, so the condition never holds.
+    const built = Projection.fromInput(DEFAULT_INPUT, usJurisdiction);
+    if (!built.ok) throw new Error(`fixture is not a valid ScenarioInput: ${built.error.reason}`);
+    const series = built.projection.run(usJurisdiction).series;
+    expect(series.status).toBe("ran-to-horizon");
+    expect(blockedWarning(built.projection.ledger, series)).toBeNull();
   });
 });
 

@@ -5,7 +5,8 @@ import { usJurisdiction } from "@finley/rules";
 import { NetWorthChart } from "./components/netWorthChart/netWorthChart";
 import { NetWorthBreakdownChart } from "./components/netWorthChart/netWorthBreakdownChart";
 import { buildNetWorthBreakdown } from "./components/netWorthChart/netWorthBreakdown";
-import { timelineMarkers } from "./ledgerView";
+import { timelineMarkers, blockedWarning } from "./ledgerView";
+import { BlockedWarning } from "./components/blockedWarning/blockedWarning";
 import { monthLabel } from "./format";
 import { AddEventForm } from "./components/addEventForm/addEventForm";
 import { EDITABLE_EVENT_TYPES } from "./components/addEventForm/editEventForm";
@@ -92,6 +93,10 @@ export function App() {
   // Markers carry per-event outcomes off the AUTHORED run, not the retirement preview: the timeline
   // is an authoring surface, so a blocked/not-reached indicator must reflect the plan as written.
   const markers = useMemo(() => timelineMarkers(ledger, series), [ledger, series]);
+  // The blocked-projection soft warning, off the AUTHORED run for the same reason the markers are:
+  // it names the plan as written, never the retirement preview. `null` until something stops, so
+  // its mere presence IS the condition holding — persistence and clearing fall out of the render.
+  const blocked = useMemo(() => blockedWarning(ledger, series), [ledger, series]);
   // The event the edit surface is bound to, resolved live. Null when nothing is being edited or
   // when the target was removed out from under an open edit — either way the add form is shown.
   const editingEvent = useMemo(
@@ -209,6 +214,7 @@ export function App() {
                 is exhausted — structural changes required.
               </div>
             )}
+            {blocked ? <BlockedWarning warning={blocked} /> : null}
 
             <p className="disclaimer">
               Estimates include federal income tax for a single filer only — no state
