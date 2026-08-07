@@ -9,11 +9,11 @@ whole-issue mode, one commit per task. Read the issue for the full task text.
 - **Task 4 — hoist boundary-independent compilation out of the per-candidate loop.** DONE (this
   commit). Done out of numeric order (before 3) because it's independent and lower-risk.
 
-- **Task 3 — resumable core + prefix checkpoints.** DONE (this commit wires the search;
-  the prior WIP commit landed the resumable core).
+- **Task 3 — resumable core + prefix checkpoints.** DONE.
+- **Task 5 — reuse the solved run instead of recomputing.** DONE (this commit), engine side.
 
-**Remaining:** tasks 5, 6, 7 (5 = reuse solved run; 6 = memoize solve on committed state; 7 =
-optional seed-from-plannedWorkStopAge).
+**Remaining:** tasks 6, 7 (6 = memoize solve on committed state; 7 = optional
+seed-from-plannedWorkStopAge).
 
 ## Live constraints
 - **The load-bearing invariant:** every fast path must be a pure read off the SAME survival
@@ -68,8 +68,24 @@ optional seed-from-plannedWorkStopAge).
   same age as a brute-force full-projection scan" in retirementSolver.test.ts — keep it green
   through any future change to the sim state or fork.
 
+- **Task 5 (`retirementSolver.ts`):** `solveRetirement` now compiles the authored base ONCE and
+  threads it to every read via `*FromBase` cores (`plannedWorkStopAgeFromBase`,
+  `authoredPlanSurvivesFromBase`, `continuedJobsFromBase`, `earliestFullRetirementAge`'s
+  `sharedAuthoredBase` param). The public wrappers (unchanged signatures, heavily used by app +
+  tests) just compile the base then delegate. `authoredPlanSurvives` now runs survival-only. The
+  block probe deliberately stays a FULL run — a block can follow an insolvency, and survival-only
+  would early-exit before seeing it, misreporting `blocked`. Correctness gate: all existing
+  solveRetirement tests (they pin the whole solution) plus the app presets acceptance test.
+
 ## Dead ends
-- (none yet)
+- **Task 5 app-side reuse NOT done, on purpose.** The issue suggests threading the answer-age
+  full run out to the app's `runAtStopWorkingAge` (charts). But that call is gated on the
+  `previewRetirement` toggle (`main.tsx`), OFF in the common case, while `solveRetirement` runs on
+  every apply. Threading a full flow sim through every solve to save the app one only-when-
+  previewing sim pessimizes the common path — so only the engine-side recompile reuse was taken.
 
 ## Deferred
-- (none yet)
+- **Task 7 (seed the search from `plannedWorkStopAge`).** Explicitly optional and "measure before
+  building" in the issue. After tasks 1–5 the search is already cheap (survival early-exit + no
+  reporting + prefix-checkpoint resume + hoisted compile), so a tighter seed window is unlikely to
+  pay for its added binary-search complexity. Left unbuilt pending a measurement showing it helps.
