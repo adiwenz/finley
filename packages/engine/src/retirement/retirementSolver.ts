@@ -333,14 +333,12 @@ export function earliestFullRetirementAge(
     // pass's already-surviving prefix, so there is no tail to simulate.
     if (k >= horizon) return true;
     const base = rebaseStopWorking(authoredBase, plan, ctx, stopWorkingBoundaryAt(plan, age, ctx.startYear));
-    const household = interpretLedger(scenario.ledger, base);
-    const simInput = buildHouseholdSimInput(household, base);
-    const series = simulateHousehold(simInput, ctx.jurisdiction, {
+    const series = simulateFromBase(base, scenario, ctx, {
       survivalOnly: true,
       // Fork the STORED checkpoint: it is reused across every candidate that stops at this month,
       // so the resumed tail must not mutate it.
       resume: { startMonth: k, seedState: forkSimState(checkpoints[k]!) },
-    });
+    }).series;
     return planSurvives(series);
   });
 }

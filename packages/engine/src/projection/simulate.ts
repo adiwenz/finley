@@ -467,9 +467,11 @@ export function simulateHousehold(
     opening,
     months,
     status: blockedAtMonth !== undefined ? "blocked" : "ran-to-horizon",
-    // The last emitted month's index; equals `blockedAtMonth` when blocked, since the loop breaks
-    // right after pushing that month.
-    simulatedThroughMonth: months.length - 1,
+    // Absolute index of the last emitted month; equals `blockedAtMonth` when blocked, since the
+    // loop breaks right after pushing that month. `+ startMonth` so a resumed tail (which emits
+    // only `[startMonth, …]`) still reports an absolute index; a fresh run has `startMonth` 0, so
+    // this is the usual `months.length - 1`.
+    simulatedThroughMonth: startMonth + months.length - 1,
     ...(blockedAtMonth !== undefined ? { blockedAtMonth } : {}),
     ...(blockingObligation !== undefined ? { blockingObligation } : {}),
     ...(omittedSourceEventIds !== undefined ? { omittedSourceEventIds } : {}),

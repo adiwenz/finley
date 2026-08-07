@@ -345,8 +345,9 @@ export interface ProjectionSeries {
    */
   readonly status: "ran-to-horizon" | "blocked";
   /**
-   * The index of the last emitted month (`months.length - 1`). Equals {@link blockedAtMonth} when
-   * blocked — the blocked month IS emitted — so a consumer never has to special-case truncation.
+   * The absolute index of the last emitted month (`months.length - 1` for a run from month 0).
+   * Equals {@link blockedAtMonth} when blocked — the blocked month IS emitted — so a consumer
+   * never has to special-case truncation.
    */
   readonly simulatedThroughMonth: number;
   /** Present iff `status === "blocked"`: the month the blocking obligation was scheduled for. */
