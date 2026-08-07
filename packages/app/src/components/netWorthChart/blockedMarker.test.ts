@@ -40,6 +40,13 @@ const blocking: BlockedObligation = {
   requiredCents: 8_000_000,
   availableCents: 5_000_000,
   shortfallCents: 3_000_000,
+  fundingFailure: {
+    kind: "no-eligible-source-suffices",
+    requiredCents: 8_000_000,
+    eligibleAvailableCents: 5_000_000,
+    eligibleTaxCents: 0,
+    shortfallCents: 3_000_000,
+  },
   markerNetWorthCents: 2_000_000, // final net worth $50k less the $30k shortfall
 };
 

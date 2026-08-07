@@ -18,6 +18,7 @@ import type { SimState } from "./runState";
 import type { IncomeSourceMonth } from "./waterfall";
 import { attributeExplicitObligation, type ResolvedFunding } from "./resolvedFunding";
 import type { FinancialObligation } from "./financialObligation";
+import { classifyFundingFailure, type FundingFailure, type EligibleAccountState } from "./fundingFailure";
 
 export type TaxableByCategory = Partial<Record<TaxCategory, Cents>>;
 /** The month's taxable base, per owner — the context a gross-up differences tax over. */
@@ -211,6 +212,12 @@ export interface FundingBlock {
   /** What the named sources delivered net of tax — `required − shortfall`. */
   readonly availableCents: Cents;
   readonly shortfallCents: Cents;
+  /**
+   * Why the draw fell short: eligible money sits elsewhere (a funding-configuration mistake) or
+   * nothing eligible suffices. Classified against the household's whole account pool at this
+   * month, priced through the same gross-up as the draw itself — advisory, never a reassignment.
+   */
+  readonly fundingFailure: FundingFailure;
 }
 
 /**
@@ -295,11 +302,36 @@ export function resolveFundingDraws(
     );
     if (shortfallCents > 0) {
       // The block. Omit this draw and everything after it — no state moves, no attribution.
+      // Classify WHY against the whole account pool at this month's balances, priced over the
+      // running taxable base (`working`, before this never-applied draw). The classifier copies
+      // the base per probe, so `working` is not disturbed. Only asset acquisitions reach this
+      // filter, so the treatment is that; a treatment field would be threaded here otherwise.
+      const accountPool: EligibleAccountState[] = state.accounts.map((a) => ({
+        id: a.id,
+        ownerId: a.ownerId,
+        category: a.taxProfile.withdrawalCategory,
+        balanceCents: state.assetBalances.get(a.id) ?? 0,
+        basisCents: Math.max(0, state.basisByAccount.get(a.id) ?? 0),
+        liquid: a.liquid,
+        label: a.label ?? a.id,
+      }));
+      const fundingFailure = classifyFundingFailure({
+        treatment: "asset-acquisition",
+        requiredCents: obligation.amountCents,
+        selectedSourceIds: orderedAccountIds,
+        selectedSourcesAvailableCents: obligation.amountCents - shortfallCents,
+        selectedSourcesTaxCents: perSource.reduce((sum, s) => sum + s.taxCents, 0),
+        accounts: accountPool,
+        jurisdiction,
+        ctx,
+        taxableByOwner: working,
+      });
       block = {
         obligation,
         requiredCents: obligation.amountCents,
         availableCents: obligation.amountCents - shortfallCents,
         shortfallCents,
+        fundingFailure,
       };
       // Every draw from here on is omitted, not just this one: none of their money moves, so none
       // of their events may originate an artifact. Reported as a set separate from `block`, which

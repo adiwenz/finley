@@ -11,6 +11,7 @@ import type { SimGoal } from "../goal/goal";
 import type { BudgetLine } from "../budget/budgetLine";
 import type { FinancialObligation, ObligationId, ObligationSource } from "./financialObligation";
 import type { ResolvedFunding } from "./resolvedFunding";
+import type { FundingFailure } from "./fundingFailure";
 import type {
   PlanDescriptor,
   SharedContributionScheme,
@@ -346,6 +347,12 @@ export interface BlockedObligation {
   readonly availableCents: Cents;
   /** `requiredCents − availableCents`, always > 0. */
   readonly shortfallCents: Cents;
+  /**
+   * Why the draw fell short — a {@link FundingFailure}, telling the household whether eligible
+   * money sits elsewhere (re-point the funding) or nothing eligible suffices (the purchase is out
+   * of eligible reach, which is NOT insolvency). The app's warning copy branches on its `kind`.
+   */
+  readonly fundingFailure: FundingFailure;
   /**
    * Where a presentation-only blocked marker sits: the blocked month's genuine net worth dropped
    * by the shortfall, so the missing capital reads as a visible gap. NOT a net worth and never a

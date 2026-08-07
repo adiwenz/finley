@@ -145,6 +145,11 @@ export type {
   IncomeSourceCategory,
 } from "./projection/simulate.types";
 export type { SharedContributionScheme } from "./projection/waterfall.types";
+// Why a blocked projection fell short, and the engine-owned rule for which accounts may fund a
+// draw — the UI classifies and picks sources through these, never re-implementing eligibility.
+export type { FundingFailure } from "./projection/fundingFailure";
+export { getEligibleFundingSources } from "./projection/fundingEligibility";
+export type { FundingTreatment, EligibilityCandidate } from "./projection/fundingEligibility";
 export type { FinancialObligation, ObligationId } from "./projection/financialObligation";
 export type {
   ResolvedFunding,

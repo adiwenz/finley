@@ -433,7 +433,8 @@ export function simulateHousehold(
     // genuine end-of-month figure. Nothing after it is simulated — a truncated curve the caller can
     // trust beats an extended one it cannot.
     if (fundingDraw.block !== undefined) {
-      const { obligation, requiredCents, availableCents, shortfallCents } = fundingDraw.block;
+      const { obligation, requiredCents, availableCents, shortfallCents, fundingFailure } =
+        fundingDraw.block;
       // The just-pushed blocked month's genuine net worth, dropped by the shortfall for the marker.
       // `null` when the month has no stated net worth (also insolvent) — the offset has no anchor.
       const blockedNetWorth = months[months.length - 1]?.netWorthNominalCents ?? null;
@@ -447,6 +448,7 @@ export function simulateHousehold(
         requiredCents,
         availableCents,
         shortfallCents,
+        fundingFailure,
         markerNetWorthCents: blockedNetWorth === null ? null : blockedNetWorth - shortfallCents,
       };
       // Insertion order from `resolveFundingDraws` is resolution order, so the blocking event leads.
