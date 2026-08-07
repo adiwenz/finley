@@ -123,10 +123,13 @@ export interface SimState {
  *
  * Used by the retirement search to checkpoint the prefix of one full pass and resume each
  * candidate from its stop-working month, simulating only the tail. Correctness rests on copying
- * ALL mutation targets: most Map values are plain `Cents`, but `earningsByPerson` holds an inner
- * `Map` that `addEarnings` mutates IN PLACE, so each accumulator is cloned; the two object-valued
- * Maps are cloned defensively (their values are replaced wholesale today, but a shared reference
- * would silently couple forks if that ever changed).
+ * ALL mutation targets: most Map values are plain `Cents`, but two hold objects mutated IN PLACE,
+ * so a shallow Map copy alone would couple the forks — each value is cloned too. `earningsByPerson`
+ * holds an inner `Map` per person that `addEarnings` mutates, so each accumulator is re-wrapped;
+ * `earnedByPersonYear` holds a per-category record the allocation step folds each month's earnings
+ * into in place, so each is spread (its values are flat `Cents`, so a shallow spread fully isolates
+ * it). `accruedReturnByAccount`'s value is replaced wholesale each month, not mutated, so its clone
+ * is only defensive — cheap insurance against that ever changing.
  */
 export function forkSimState(state: SimState): SimState {
   return {

@@ -314,6 +314,9 @@ describe("simulateHousehold", () => {
       // The tail emits exactly months k..horizon-1, each identical to the full pass.
       expect(resumed.months.map((m) => m.month)).toEqual(full.months.slice(k).map((m) => m.month));
       expect(resumed.months).toEqual(full.months.slice(k));
+      // `simulatedThroughMonth` is the ABSOLUTE last-month index, not the tail's length: a resumed
+      // series reports the same end month as the full run, so it still lines up with `blockedAtMonth`.
+      expect(resumed.simulatedThroughMonth).toBe(full.simulatedThroughMonth);
     });
   });
 });
