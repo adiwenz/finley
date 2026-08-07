@@ -1111,6 +1111,71 @@ describe("every person-scoped stream ends at its own person's death", () => {
     return { p: Projection.fromState(lowered, nullJurisdiction), samId, primaryJob, samJob };
   };
 
+  it("restores such a household rather than refusing it, and clamps rather than trusting it", () => {
+    // The contract restoration keeps: a file this build did not author OPENS. Whatever else is
+    // true of it, the user gets their plan back and a run they can reason about — which is the
+    // whole reason the clamp exists beside the authoring rule rather than instead of it.
+    const { p, primaryJob } = household();
+    expect(p.plan.primary.jobs.map((j) => j.endYear)).toEqual([2081]);
+    expect(() => p.run(nullJurisdiction)).not.toThrow();
+    expect(p.run(nullJurisdiction).jobPayDisplay(primaryJob)?.employmentSpan).toEqual({
+      startMonth: 48,
+      endMonthExclusive: PRIMARY_DEATH,
+    });
+  });
+
+  it("but refuses every further EDIT while it stays out of contract — including the repair", () => {
+    // The cost of validating the whole prospective state rather than only what an edit touches.
+    // An unrelated field first: nothing about the inflation rate strands a job, and it is still
+    // refused, because the state it would produce holds the same contradiction it arrived with.
+    const { p, primaryJob } = household();
+    expect(() => p.updatePlan({ inflationPct: 4 })).toThrow(
+      /would run the 2030 job on to 2081.*live only to 2071/,
+    );
+    expect(p.plan.inflationPct).toBe(samplePlan.inflationPct);
+
+    // And — the part that matters — SHORTENING the primary's job is refused too, because Sam's
+    // job is still past Sam's own death and the check answers about the whole state. With two
+    // violations standing there is no single write that clears both, so nothing repairs this
+    // household: removing a job, raising an expectancy and rewriting either job all fail the
+    // same way. **A known dead end**, pinned here rather than left to be discovered: a file
+    // holding more than ONE stranded artifact can be opened and run, and not edited at all.
+    const job = p.plan.primary.jobs.find((j) => j.id === primaryJob)!;
+    expect(() => p.replaceJob(job.id, { ...job, endYear: 2071 })).toThrow(
+      /would run the 2030 job on to 2090.*Sam is projected to live only to 2086/,
+    );
+    expect(() => p.removeJob(job.id)).toThrow(/must end while its owner is alive/);
+    expect(() => p.updatePlan({ lifeExpectancy: 100 })).toThrow(/must end while its owner is alive/);
+  });
+
+  it("is repairable when it holds only ONE stranded artifact — the boundary of that dead end", () => {
+    // The same restoration with a single violation: unrelated edits are still refused, but
+    // shortening the job to the death clears it in one write and the household is ordinary
+    // again. This is the difference between "refuses edits until you fix it" and "cannot be
+    // fixed", and it is why the case above is worth stating.
+    const authored = freshProjection();
+    authored.updatePlan({ lifeExpectancy: 100 }); // dies 2086
+    const jobId = authored.addJob(P1, { startYear: 2030, endYear: 2081, salary: flatSalary(120_000) });
+
+    const state = JSON.parse(JSON.stringify(authored.toState())) as ProjectionState;
+    const p = Projection.fromState(
+      {
+        ...state,
+        scenario: {
+          ...state.scenario,
+          plan: { ...state.scenario.plan, primary: { ...state.scenario.plan.primary, lifeExpectancy: 85 } },
+        },
+      },
+      nullJurisdiction,
+    );
+
+    expect(() => p.updatePlan({ inflationPct: 4 })).toThrow(/must end while its owner is alive/);
+    const job = p.plan.primary.jobs.find((j) => j.id === jobId)!;
+    expect(() => p.replaceJob(job.id, { ...job, endYear: 2071 })).not.toThrow();
+    expect(() => p.updatePlan({ inflationPct: 4 })).not.toThrow();
+    expect(p.plan.inflationPct).toBe(4);
+  });
+
   /** What one job's income source paid in `month`, or `null` when it booked none at all. */
   const paidBy = (result: ReturnType<Projection["run"]>, jobId: string, month: number) =>
     result.series.months[month]!.flows!.incomeSources.find((s) => s.sourceId === `job:${jobId}`)

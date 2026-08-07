@@ -11,8 +11,9 @@ import { enterNumber } from "../../testing/numberField";
 import { BudgetEditor } from "./budgetEditor";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { useTestProjection } from "../../testing/projectionHarness";
+import { START_YEAR } from "../../config";
 import { AGE_LIMITS, MAX_AGE, MAX_LIVED_AGE } from "@finley/engine";
-import type { Plan } from "@finley/engine";
+import type { Job, Plan } from "@finley/engine";
 
 afterEach(cleanup);
 
@@ -24,6 +25,9 @@ function Harness({ initial = PLAN_DEFAULTS }: { initial?: Plan }) {
     <>
       <BudgetEditor budget={budget} transact={transact} />
       <output data-testid="ss-claiming-age">{budget.primary.benefitClaimingAge}</output>
+      {/* The plan's jobs as this panel left them — a birth-year edit is a job edit too. */}
+      <output data-testid="jobs">{JSON.stringify(budget.primary.jobs)}</output>
+      <output data-testid="expectancy">{budget.primary.lifeExpectancy}</output>
       <output data-testid="surplus-to">{budget.surplusCashTo ?? "savings"}</output>
     </>
   );
@@ -136,6 +140,50 @@ describe("BudgetEditor — no retirement age to author", () => {
   });
 });
 
+/**
+ * The two age fields reach the engine's own rules about jobs, because a job is dated against the
+ * person these fields describe. Both directions are pinned here, at the surface a user actually
+ * moves them from.
+ */
+describe("BudgetEditor — the age fields against the primary's own jobs", () => {
+  /** The plan's lone job, read back off the harness. */
+  const job = () => (JSON.parse(screen.getByTestId("jobs").textContent || "[]") as Job[])[0]!;
+  it("carries the jobs when the CURRENT AGE moves — calendar years shift, ages hold", () => {
+    // The default job runs 2009–2056, ages 18–65. Re-aging Alex to 45 moves the birth year ten
+    // years back, so the employment moves with it and the ages the user authored are untouched.
+    render(<Harness />);
+    expect([job().startYear, job().endYear]).toEqual([2009, 2056]);
+
+    enterNumber(screen.getByLabelText(/Current age/i), "45");
+
+    // Born 1981 now, so the same two ages read back off the moved years.
+    const birthYear = START_YEAR - 45;
+    expect([job().startYear, job().endYear]).toEqual([1999, 2046]);
+    expect([job().startYear - birthYear, job().endYear - birthYear]).toEqual([18, 65]);
+  });
+
+  it("refuses a LIFE EXPECTANCY that lands before the job ends, and the field snaps back", () => {
+    // The job is worked to 65, so an expectancy of 60 would have Alex dead with three years of
+    // employment still authored. The engine refuses it; nothing on the plan moves, and the
+    // controlled field re-renders from the plan rather than keeping a value that never landed.
+    render(<Harness />);
+    const expectancy = screen.getByLabelText(/Life expectancy/i) as HTMLInputElement;
+    enterNumber(expectancy, "60");
+
+    expect(screen.getByTestId("expectancy").textContent).toBe("90");
+    expect(expectancy.value).toBe("90");
+    expect([job().startYear, job().endYear]).toEqual([2009, 2056]);
+  });
+
+  it("accepts an expectancy that reaches exactly the job's end", () => {
+    // Alex dies the year the job ends: the last month worked is the last month lived, which the
+    // containment rule allows. The boundary is where an off-by-one would bite.
+    render(<Harness />);
+    enterNumber(screen.getByLabelText(/Life expectancy/i), "65");
+    expect(screen.getByTestId("expectancy").textContent).toBe("65");
+  });
+});
+
 describe("BudgetEditor — no age can outrun the engine's own ceiling", () => {
   it("clamps life expectancy to MAX_AGE, so the field can never author a plan the engine refuses", () => {
     render(<Harness />);
@@ -157,6 +205,23 @@ describe("BudgetEditor — no age can outrun the engine's own ceiling", () => {
     expect(maxOf(/Current age/i)).toBe(99);
     expect(maxOf(/Life expectancy/i)).toBe(MAX_AGE);
     expect(maxOf(/Social Security claiming age/i)).toBe(AGE_LIMITS.benefitClaimingAge);
+  });
+
+  it("floors life expectancy at the primary's own age plus one, with no fixed minimum under it", () => {
+    // The defaults make Alex 35. A `Math.max(60, …)` used to sit under this field, so a plan
+    // could not state an expectancy below 60 however young the person was — a bound the engine
+    // does not have. The floor is the gap of one and nothing else.
+    render(<Harness />);
+    expect(Number((screen.getByLabelText(/Life expectancy/i) as HTMLInputElement).min)).toBe(36);
+    cleanup();
+
+    // And a value under 60 commits. Authored on a plan with no job, because the default one is
+    // worked to 65 and a job must end while its owner is alive — that refusal is a different
+    // rule, and it would mask this one.
+    render(<Harness initial={{ ...PLAN_DEFAULTS, primary: { ...PLAN_DEFAULTS.primary, jobs: [] } }} />);
+    const expectancy = screen.getByLabelText(/Life expectancy/i) as HTMLInputElement;
+    enterNumber(expectancy, "40");
+    expect(expectancy.value).toBe("40");
   });
 
   it("stops current age one year below the ceiling — a person of 120 has no plan left", () => {

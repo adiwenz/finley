@@ -1,7 +1,14 @@
 /** Partner joins the household — a RelationshipEvent. */
 
 import { useState } from "react";
-import { AGE_LIMITS, isPreExisting, MAX_AGE, MAX_LIVED_AGE, type RelationshipEvent } from "@finley/engine";
+import {
+  AGE_LIMITS,
+  isPreExisting,
+  MAX_AGE,
+  MAX_LIVED_AGE,
+  minLifeExpectancyFor,
+  type RelationshipEvent,
+} from "@finley/engine";
 import {
   elapsedYears,
   monthOfElapsedYears,
@@ -265,7 +272,11 @@ export function RelationshipForm({
           label="Their life expectancy"
           value={draft.lifeExpectancy}
           onChange={(lifeExpectancy) => patch({ lifeExpectancy })}
-          min={Math.max(60, draft.age)}
+          // Their own age, plus one — the engine's floor and nothing else. It used to carry a
+          // `Math.max(60, …)`, which snapped a 40-year-old partner's expectancy to 60 (an age
+          // nobody typed), and `draft.age` unfloored would have committed the one value the
+          // engine refuses outright.
+          min={minLifeExpectancyFor(draft.age)}
           max={MAX_AGE}
           step={1}
         />

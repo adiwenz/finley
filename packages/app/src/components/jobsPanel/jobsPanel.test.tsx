@@ -596,6 +596,25 @@ describe("JobsPanel — every member's jobs", () => {
     expect(partnerJobs()[0].ownerId).toBe("p-1");
   });
 
+  it("re-reads the end-age bound when the owner picker moves to a shorter-lived owner", () => {
+    // The bound is the SELECTED owner's, settled at the moment the picker says whose job it is
+    // — Alex's expectancy is 90 and Sam's is 85. A form that kept the opening owner's bound
+    // would let a partner's job be authored past their death, which the engine then refuses.
+    render(<Harness events={withPartner([])} />);
+    fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
+    expect(Number(spin(/End age/i).max)).toBe(PLAN_DEFAULTS.primary.lifeExpectancy);
+
+    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
+    expect(Number(spin(/End age/i).max)).toBe(85);
+
+    // And it binds on submit: an end typed for Alex, then handed to Sam, lands at Sam's 85.
+    enterNumber(spin(/End age/i), "90");
+    enterNumber(spin(/Monthly salary now/i), "2500");
+    fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
+    const sam = partnerJobs()[0];
+    expect(sam.endYear - (START_YEAR - 40)).toBe(85);
+  });
+
   it("removes a pay change from a partner's job, on their own plane", () => {
     // Base + Adjustments reaches every earner, so Remove must route by owner.
     const raised: Job = {

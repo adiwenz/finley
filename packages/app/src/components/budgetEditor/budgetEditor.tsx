@@ -16,6 +16,7 @@ import {
   AGE_LIMITS,
   MAX_AGE,
   MAX_LIVED_AGE,
+  minLifeExpectancyFor,
   dollarsToCents,
   type SharedContributionScheme,
   type SurplusCashDestination,
@@ -110,7 +111,10 @@ export function BudgetEditor({ budget, transact }: BudgetEditorProps) {
           label="Life expectancy"
           value={budget.primary.lifeExpectancy}
           onChange={(lifeExpectancy) => updateBudget({ lifeExpectancy })}
-          min={Math.max(60, START_YEAR - budget.primary.birthYear + 1)}
+          // The gap of one, from the engine's own definition of it. A `Math.max(60, …)` used to
+          // sit under this: a 35-year-old's expectancy could not be set below 60, which is not a
+          // rule the engine has and not a number they typed.
+          min={minLifeExpectancyFor(START_YEAR - budget.primary.birthYear)}
           max={MAX_AGE}
           step={1}
         />

@@ -143,6 +143,24 @@ export const AGE_LIMITS = {
 export const MAX_LIVED_AGE = 119;
 
 /**
+ * **The lowest life expectancy a person of `currentAge` may be given** — one past the age they
+ * already are, because an expectancy AT it is the month-0 death {@link invalidAge} refuses.
+ *
+ * A floor that depends on the person, which is why it is a function and not another entry in
+ * {@link AGE_LIMITS}: a 40-year-old may be projected to 41 and a 76-year-old may not. Exported
+ * because the authoring FORMS need it — a field bounded any higher silently rewrites a number
+ * the user typed, and one bounded lower commits a value the very next write rejects. Both were
+ * live: three fields carried a `Math.max(60, …)` floor, so a 40-year-old partner's expectancy
+ * snapped to 60, an age nobody entered and the engine never asked for.
+ *
+ * Read by {@link invalidAge} itself, so the bound a form draws and the bound a write enforces
+ * are one number.
+ */
+export function minLifeExpectancyFor(currentAge: number): number {
+  return currentAge + 1;
+}
+
+/**
  * How many months this plan spans: "now" to life expectancy. The projection simulates exactly
  * this many months, so it is also how long every surface drawing the plan reaches — the net-worth
  * charts' x-axis, the timeline, the event year picker.
@@ -221,7 +239,7 @@ export function invalidAge(
   }
   // At, not merely below: an expectancy equal to the current age is the month-0 death, and a
   // projection with no months in it is not a plan.
-  if (person.lifeExpectancy <= currentAge) {
+  if (person.lifeExpectancy < minLifeExpectancyFor(currentAge)) {
     return {
       field: "lifeExpectancy",
       age: person.lifeExpectancy,

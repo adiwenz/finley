@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AGE_LIMITS, MAX_AGE, MAX_LIVED_AGE, Projection } from "../index";
+import { AGE_LIMITS, MAX_AGE, MAX_LIVED_AGE, minLifeExpectancyFor, Projection } from "../index";
 import { nullJurisdiction } from "../jurisdiction/jurisdiction";
 import { PRIMARY_PERSON_ID, goalFundAccountId } from "../compile/projectionBase";
 import { RETIREMENT_ID } from "../plan/ids";
@@ -155,6 +155,17 @@ describe("Projection.init — the imperative half of authoring", () => {
         /must be past the age they already are/,
       );
       expect(p.plan.primary.lifeExpectancy).toBe(90);
+    });
+
+    it("publishes that floor as a number a form can bound a field with", () => {
+      // The forms need the bound BEFORE the write, or a field either rewrites what the user
+      // typed or commits a value the write refuses — both were live, as a `Math.max(60, …)`
+      // that snapped a 40-year-old's expectancy to 60. One definition, so the bound a field
+      // draws and the bound this rule enforces cannot drift: 31 is accepted above, 30 refused.
+      expect(minLifeExpectancyFor(30)).toBe(31);
+      expect(minLifeExpectancyFor(40)).toBe(41);
+      // No floor under it beyond the person's own age — a young person may state a short life.
+      expect(minLifeExpectancyFor(18)).toBe(19);
     });
 
     it("reports it as a reason rather than throwing, on the document path", () => {

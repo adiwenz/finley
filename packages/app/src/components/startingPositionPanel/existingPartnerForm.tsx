@@ -1,7 +1,7 @@
 /** A partner already in the household when the plan starts — a `startPartnered` anchor. */
 
 import { useState } from "react";
-import { MAX_AGE, MAX_LIVED_AGE } from "@finley/engine";
+import { MAX_AGE, MAX_LIVED_AGE, minLifeExpectancyFor } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
 import type { StartingPositionFormProps } from "./startingPositionFormControls";
 
@@ -52,7 +52,9 @@ export function ExistingPartnerForm({ onAdd, onDone }: StartingPositionFormProps
         label="Their life expectancy"
         value={lifeExpectancy}
         onChange={setLifeExpectancy}
-        min={Math.max(60, age)}
+        // The engine's floor for a person of this age, and nothing above it: a partner of 40
+        // may be projected to 41. The `Math.max(60, …)` this replaces snapped that to 60.
+        min={minLifeExpectancyFor(age)}
         max={MAX_AGE}
       />
       <NumInput
