@@ -13,7 +13,7 @@ import type {
   ProjectionMonthFlows,
   ProjectionSeries,
 } from "./simulate.types";
-import { initSimState } from "./runState";
+import { initSimState, forkSimState, type SimState } from "./runState";
 import { snapshotMonth } from "./monthSnapshot";
 import {
   computeLiabilityPayments,
@@ -50,7 +50,17 @@ export type {
 
 const DEFAULT_START_YEAR = 2026;
 
-/** Knobs that trim the sim for callers that read less than the full series. */
+/**
+ * A resumable checkpoint: the mutable state as it stood at the TOP of {@link startMonth}, before
+ * that month was processed. Simulating from here reproduces month {@link startMonth} onward
+ * exactly, provided the input's months `[0, startMonth)` match those that produced the seed.
+ */
+export interface SimResume {
+  readonly startMonth: number;
+  readonly seedState: SimState;
+}
+
+/** Knobs that trim or resume the sim for callers that read less than the full forward pass. */
 export interface SimulateOptions {
   /**
    * Stop the moment the plan's fate is decided rather than running to the horizon. The
@@ -61,6 +71,21 @@ export interface SimulateOptions {
    * either mode. Net worth past the first failure is fiction the search never reads.
    */
   readonly survivalOnly?: boolean;
+  /**
+   * Called at the top of each processed month with the month index and a FORK of the state about
+   * to process it — a checkpoint safe to keep, since it evolves independently of the live run.
+   * Only invoked when supplied, so a normal run pays nothing.
+   */
+  readonly onCheckpoint?: (month: number, checkpoint: SimState) => void;
+  /**
+   * Resume from a seeded state at a later month instead of a fresh state at month 0. The seed is
+   * used AS GIVEN (fork it first if it is a stored checkpoint another candidate will reuse); the
+   * loop runs `[startMonth, horizon)` and the emitted `months` cover only that tail. Survival of
+   * the tail is the plan's survival only when the skipped prefix is known solvent — which is
+   * exactly the invariant the search relies on (checkpoints exist only for a fully-surviving
+   * pass).
+   */
+  readonly resume?: SimResume;
 }
 
 /**
@@ -83,8 +108,11 @@ export function simulateHousehold(
   options?: SimulateOptions,
 ): ProjectionSeries {
   const survivalOnly = options?.survivalOnly ?? false;
+  const onCheckpoint = options?.onCheckpoint;
   const startYear = input.startYear ?? DEFAULT_START_YEAR;
-  const state = initSimState(input);
+  // A resumed run seeds from a checkpoint at `startMonth`; a fresh run builds state at month 0.
+  const state = options?.resume?.seedState ?? initSimState(input);
+  const startMonth = options?.resume?.startMonth ?? 0;
   // "Now", before any flow: the net-worth chart's first point and the baseline every
   // processed month builds on. Captured before the loop mutates state; carries no flows.
   const opening = snapshotMonth(state, {
@@ -111,8 +139,13 @@ export function simulateHousehold(
   let omittedSourceEventIds: ProjectionSeries["omittedSourceEventIds"];
 
   // `< horizonMonths` (not `<=`): the opening snapshot is no longer an array slot, so the
-  // same span now yields exactly `horizonMonths` processed months, `month` 0-based.
-  for (let month = 0; month < input.horizonMonths; month++) {
+  // same span now yields exactly `horizonMonths` processed months, `month` 0-based. A resumed
+  // run starts at `startMonth` and emits only that tail.
+  for (let month = startMonth; month < input.horizonMonths; month++) {
+    // The checkpoint is the state ENTERING this month — before `accumulateEarnings` and every
+    // other mutation below — so resuming here reproduces the month exactly. Forked so a stored
+    // checkpoint is immune to the mutations this iteration is about to make.
+    if (onCheckpoint !== undefined) onCheckpoint(month, forkSimState(state));
     // Calendar year for this month's flows. Month 0 is now processed like any other, so
     // `months[0..11]` accrue a full 12 covered-earnings months in year 0 — a $5k/mo salary
     // contributes the whole $60k, closing the graph-vs-panel benefit gap. A mid-year start
