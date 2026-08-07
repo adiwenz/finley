@@ -237,12 +237,15 @@ export function App() {
               horizonMonths={horizonMonths}
             />
 
-            {/* The charts above are still drawing the previous plan's preview — a real answer,
-                one edit old. Said outright rather than left to look current, since nothing else
-                on screen distinguishes it from a preview of what the user just typed. */}
+            {/* This chart is still drawing the previous plan's preview — a real answer, one edit
+                old. Said outright rather than left to look current, since nothing else on screen
+                distinguishes it from a preview of what the user just typed. Editable surfaces
+                (Base + Adjustments, the breakdown below) do not share this lag — they take
+                `authoringResult` and are never behind the plan under their own controls. */}
             {retirementPending && previewing && (
               <p className="hint" role="status">
-                Recalculating the retirement preview — the charts still show the previous plan.
+                Recalculating the retirement preview — the net-worth chart still shows the
+                previous plan.
               </p>
             )}
 
@@ -356,15 +359,14 @@ export function App() {
       </div>
 
       <div className="card">
-        {/* Charts the same series the net-worth graph draws — plan plus the live timeline —
-            so its spending need counts loan payments and every other event, not just the
-            standing budget. Everything rides on that one series (the engine itemizes the
-            spending), so there is nothing else to pass.
-
-            The AUTHORING one, though: this panel edits the plan it charts, and its rows, jobs
-            and accounts come off the live handles beside it. While the solve is behind, a
-            preview would put the previous plan's obligations and spending under controls that
-            write to the current one. */}
+        {/* Charts `authoringSeries`, not the net-worth graph's `chartSeries` — the two agree
+            once the solve is current, but this panel edits the plan it charts, and its rows,
+            jobs and accounts come off the live handles beside it. `authoringSeries` is exactly
+            that: the current plan's own series, plus the live timeline (so its spending need
+            counts loan payments and every other event, not just the standing budget), never a
+            retained preview. While the solve is behind, a retained preview would put the
+            previous plan's obligations and spending under controls that write to the current
+            one — see `useRetirementSurface` for why the two series diverge during that window. */}
         <BaseAdjustmentsPanel
           plan={budget}
           transact={transact}
