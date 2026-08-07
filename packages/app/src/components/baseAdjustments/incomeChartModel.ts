@@ -79,11 +79,41 @@ function clampBandsForStack(centsBySource: Readonly<Record<string, number>>): Re
 }
 
 /**
- * Which months are worth a screen-reader user's attention, and why: the projection's start,
- * any month a band begins, ends or changes amount, any month the spending need changes, the
- * first savings withdrawal, and insolvency. Walks `view.rows` once, diffing each month's
- * clamped-at-0 band figures (the same figures the stacked chart draws) against the month
- * before, so the moments never quote a value the chart doesn't.
+ * How large a MONTH-OVER-MONTH step has to be to count as something happening rather than the
+ * plan drifting — 5%, which no inflation-driven figure reaches.
+ *
+ * The whole filter turns on this being a step against the previous month rather than a drift
+ * against some earlier baseline. At 3% a year every band and the spending need move about 0.25%
+ * every single month, so the exact `!==` this replaced made a "moment" of 563 of a 660-month
+ * projection's months — a table read out month by month, which is not an alternative to the
+ * chart but the raw series, and 13,500 DOM nodes, 98% of this panel's total.
+ *
+ * The drift itself is deliberately NOT sampled here. This table is the narrative of what happens
+ * to the plan — a job ending, a benefit starting, the money running out. The trajectory between
+ * those points is what the chart draws, and the month-by-month detail is already reachable
+ * without sight through the editor below it, whose Month field resolves any month on demand and
+ * in more detail than a static table could carry.
+ */
+const DISCRETE_STEP_FRACTION = 0.05;
+
+/**
+ * Did this month step, rather than drift? Guarded against a zero baseline, which only arises
+ * where the caller has already classified the month as a band beginning.
+ */
+function steps(before: number, after: number): boolean {
+  return Math.abs(after - before) / Math.max(Math.abs(before), 1) >= DISCRETE_STEP_FRACTION;
+}
+
+/**
+ * Which months are worth a screen-reader user's attention, and why: the projection's start, any
+ * month a band begins or ends, any month a band's amount or the spending need steps
+ * ({@link DISCRETE_STEP_FRACTION}), the first savings withdrawal, insolvency — and the month
+ * before each of those, so a change is heard as a before-and-after. Walks `view.rows` once
+ * against the same clamped-at-0 band figures the stacked chart draws, so the moments never
+ * quote a value the chart doesn't.
+ *
+ * A band beginning or ending is structural and always surfaces, however small the amount: those
+ * are the transitions the chart's shape is made of.
  */
 function buildAccessibleMoments(
   view: { readonly rows: readonly IncomeMonthRow[] },
@@ -101,6 +131,26 @@ function buildAccessibleMoments(
 
   let prevClamped: Record<string, number> | null = null;
   let prevSpendingNeedCents: number | null = null;
+  /**
+   * Months to state purely as the "before" of a discrete change — see {@link addDiscreteReason}.
+   * Collected during the walk and resolved after it, so a context month is never itself treated
+   * as a change and can never pull in a context month of its own.
+   */
+  const contextMonths = new Set<number>();
+  /**
+   * A change that happens AT a month rather than drifting towards it. Each also marks the
+   * preceding month for inclusion.
+   *
+   * Without that, the row group announcing a change is the first month of the NEW value and the
+   * old one is whatever the listener last heard, which may be many months back. Social Security
+   * beginning at month 384 was heard against a reading from month 372: not a before-and-after so
+   * much as two unrelated facts. A discrete change is exactly where the adjacent pair carries the
+   * meaning, so it is worth the extra row group to guarantee it.
+   */
+  const addDiscreteReason = (month: number, reason: string) => {
+    addReason(month, reason);
+    contextMonths.add(month - 1);
+  };
   for (const [i, r] of view.rows.entries()) {
     const clamped = clampBandsForStack(r.centsBySource);
     if (i === 0) addReason(r.month, "Projection starts");
@@ -109,23 +159,36 @@ function buildAccessibleMoments(
         const before = prevClamped[b.id] ?? 0;
         const after = clamped[b.id] ?? 0;
         if (before === after) continue;
-        if (before === 0) addReason(r.month, `${b.label} begins`);
-        else if (after === 0) addReason(r.month, `${b.label} ends`);
-        else addReason(r.month, `${b.label} changes`);
+        if (before === 0) addDiscreteReason(r.month, `${b.label} begins`);
+        else if (after === 0) addDiscreteReason(r.month, `${b.label} ends`);
+        // A raise, not the annual indexation: only a step against the month before survives.
+        else if (steps(before, after)) addDiscreteReason(r.month, `${b.label} changes`);
       }
     }
-    if (prevSpendingNeedCents !== null && prevSpendingNeedCents !== r.spendingNeedCents) {
-      addReason(r.month, "Spending need changes");
+    // The spending need is one figure rather than a set of bands, so it has no beginning or
+    // ending to be structural about — a new obligation shows up here as a step and nowhere else.
+    if (prevSpendingNeedCents !== null && steps(prevSpendingNeedCents, r.spendingNeedCents)) {
+      addDiscreteReason(r.month, "Spending need changes");
     }
     prevClamped = clamped;
     prevSpendingNeedCents = r.spendingNeedCents;
   }
   // Named explicitly even when a band-begins reason already covers the same month, so the
   // reason a screen-reader user hears never depends on which mode collapsed which band.
-  if (firstSavingsDrawdownMonth !== null) addReason(firstSavingsDrawdownMonth, "First savings withdrawal");
-  if (firstInsolventMonth !== null) addReason(firstInsolventMonth, "Plan becomes insolvent");
+  if (firstSavingsDrawdownMonth !== null) {
+    addDiscreteReason(firstSavingsDrawdownMonth, "First savings withdrawal");
+  }
+  if (firstInsolventMonth !== null) addDiscreteReason(firstInsolventMonth, "Plan becomes insolvent");
 
   const rowByMonth = new Map(view.rows.map((r) => [r.month, r]));
+  // Resolved last, and only where the month is real and says nothing already: a context row
+  // exists to be the "before" of the row group after it, so one that displaced a reason of its
+  // own, or that named a month the projection never ran, would be worse than none.
+  for (const month of contextMonths) {
+    if (rowByMonth.has(month) && !reasonsByMonth.has(month)) {
+      addReason(month, "Last reading before the change");
+    }
+  }
   return [...reasonsByMonth.keys()]
     .sort((a, b) => a - b)
     .map((month) => {
@@ -156,10 +219,15 @@ export interface IncomeChartAccessibleRow {
 
 /**
  * One point in time worth reading out: the projection's start, a band beginning, ending or
- * changing, a spending-need change, the first savings withdrawal, or insolvency. `label`
- * identifies *when* (age and month, so it stands alone without the moments around it); `reason`
- * says *why* this moment was picked, so a screen-reader user isn't left to infer it from the
- * numbers.
+ * stepping, a spending-need step, the first savings withdrawal, insolvency — or the month before
+ * any of those, which is there to be its "before". `label` identifies *when* (age and month, so
+ * it stands alone without the moments around it); `reason` says *why* this moment was picked, so
+ * a screen-reader user isn't left to infer it from the numbers.
+ *
+ * A narrative of what HAPPENS to the plan, deliberately not a sampling of it. The drift between
+ * those points is the chart's to draw, and any individual month is reachable without sight
+ * through the editor below, whose Month field resolves one on demand in more detail than this
+ * carries.
  */
 export interface IncomeChartAccessibleMoment {
   readonly label: string;
