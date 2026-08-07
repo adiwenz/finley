@@ -83,6 +83,27 @@ describe("retirementSolver — survival off the real projection", () => {
     }
   });
 
+  it("checkpoint-resumed search finds the same age as a brute-force full-projection scan", () => {
+    // The strongest gate on the prefix-checkpoint machinery: resuming each candidate from a
+    // shared checkpoint of one life-expectancy pass must land on exactly the age a naive scan of
+    // independent FULL projections finds. Fixtures that survive, that must work past the authored
+    // ends, and that never survive are all covered.
+    const bruteForceEarliest = (plan: Plan): number | null => {
+      for (let age = plan.currentAge; age <= plan.lifeExpectancy; age++) {
+        if (survivesAt(plan, age)) return age;
+      }
+      return null;
+    };
+    for (const plan of [
+      samplePlan,
+      { ...samplePlan, openingBalanceCents: 0 },
+      baristaPlan,
+      { ...samplePlan, openingBalanceCents: 0, jobs: [] },
+    ]) {
+      expect(earliestFullRetirementAge(scenarioOf(plan), CTX)).toBe(bruteForceEarliest(plan));
+    }
+  });
+
   it("the binary search returns exactly the threshold age", () => {
     const age = earliestFullRetirementAge(scenarioOf(samplePlan), CTX);
     expect(age).not.toBeNull();

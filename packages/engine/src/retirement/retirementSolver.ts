@@ -24,6 +24,8 @@
 import { interpretLedger } from "../ledger/interpret";
 import { buildHouseholdSimInput } from "../projection/buildHouseholdInput";
 import { simulateHousehold, type SimulateOptions } from "../projection/simulate";
+import { forkSimState, type SimState } from "../projection/runState";
+import { planHorizonMonths } from "../plan/plan";
 import { createProjectionBase, rebaseStopWorking } from "../compile/projectionBase";
 import type { LedgerBaseConfig } from "../ledger/ledgerBase";
 import { jobDisplayNames } from "../compile/compilePerson";
@@ -288,24 +290,51 @@ export function evaluateFullRetirementAtAge(
  * job that stops separately from the rest, and "when could we stop working" has one answer.
  */
 export function earliestFullRetirementAge(scenario: Scenario, ctx: ProjectionContext): number | null {
-  // Two levers, both off the per-candidate loop. (1) The boundary-independent compilation —
-  // accounts, expenses, goals, roster — is identical for every candidate, so compile the
-  // authored base ONCE and derive each candidate's base by re-deriving only the income-series
-  // tail (`rebaseStopWorking`). (2) The search reads only feasibility, so each candidate runs the
-  // survival-only sim: it stops at the first insolvent month rather than nulling net worth to the
-  // horizon. `planSurvives` on that truncated series is the SAME verdict
-  // `evaluateFullRetirementAtAge(...).feasible` gives — both are "no month fails, and not
-  // blocked" — so the threshold is identical; the reported evaluation for the answer age still
-  // runs the full projection elsewhere.
-  const authoredBase = createProjectionBase(scenario.plan, ctx);
-  return earliestSurvivingAge(scenario.plan, (age) => {
-    const base = rebaseStopWorking(
-      authoredBase,
-      scenario.plan,
-      ctx,
-      stopWorkingBoundaryAt(scenario.plan, age, ctx.startYear),
-    );
-    return planSurvives(simulateFromBase(base, scenario, ctx, { survivalOnly: true }).series);
+  const plan = scenario.plan;
+  const horizon = planHorizonMonths(plan);
+  // The boundary-independent compilation (accounts, expenses, goals, roster) is identical for
+  // every candidate, so compile the authored base ONCE and re-derive only the income-series tail
+  // per candidate via `rebaseStopWorking`.
+  const authoredBase = createProjectionBase(plan, ctx);
+
+  // ONE best-funded pass — everybody works to life expectancy, capping no normal job — run
+  // survival-only while capturing a checkpoint of the state ENTERING each month. Because a
+  // candidate at age A only caps income from its stop-working month `k = retirementMonth(A)`
+  // onward, and this pass carries even a continuation job through year(lifeExpectancy) ≥ every
+  // pre-`k` month, the months `[0, k)` are byte-identical income to every candidate — so the
+  // checkpoint entering month `k` seeds that candidate's tail exactly.
+  const checkpoints: SimState[] = [];
+  const hiBoundary = stopWorkingBoundaryAt(plan, plan.lifeExpectancy, ctx.startYear);
+  const hiSeries = simulateFromBase(rebaseStopWorking(authoredBase, plan, ctx, hiBoundary), scenario, ctx, {
+    survivalOnly: true,
+    onCheckpoint: (month, checkpoint) => {
+      checkpoints[month] = checkpoint;
+    },
+  }).series;
+  // If even this best-funded case fails, no age works — and no checkpoints were completed, so the
+  // resume path below would have nothing to seed from. (A surviving pass runs the full horizon:
+  // survival-only only truncates on failure, so every `checkpoints[0..horizon)` is present.)
+  if (!planSurvives(hiSeries)) return null;
+
+  // Survival is monotonic in the age (holding jobs longer never hurts), so binary-search the
+  // threshold, resuming each candidate from its stop-working checkpoint and simulating only the
+  // tail. `planSurvives(tail)` is the candidate's feasibility because the skipped prefix is known
+  // solvent — the hi pass above survived it.
+  return earliestSurvivingAge(plan, (age) => {
+    const k = retirementMonth(plan, age);
+    // A stop at/after life expectancy caps nothing before the horizon: the whole run IS the hi
+    // pass's already-surviving prefix, so there is no tail to simulate.
+    if (k >= horizon) return true;
+    const base = rebaseStopWorking(authoredBase, plan, ctx, stopWorkingBoundaryAt(plan, age, ctx.startYear));
+    const household = interpretLedger(scenario.ledger, base);
+    const simInput = buildHouseholdSimInput(household, base);
+    const series = simulateHousehold(simInput, ctx.jurisdiction, {
+      survivalOnly: true,
+      // Fork the STORED checkpoint: it is reused across every candidate that stops at this month,
+      // so the resumed tail must not mutate it.
+      resume: { startMonth: k, seedState: forkSimState(checkpoints[k]!) },
+    });
+    return planSurvives(series);
   });
 }
 

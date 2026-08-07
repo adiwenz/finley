@@ -9,12 +9,11 @@ whole-issue mode, one commit per task. Read the issue for the full task text.
 - **Task 4 — hoist boundary-independent compilation out of the per-candidate loop.** DONE (this
   commit). Done out of numeric order (before 3) because it's independent and lower-risk.
 
-- **Task 3 — resumable core + prefix checkpoints.** IN PROGRESS. Resumable core + `forkSimState`
-  landed and green (this WIP commit); the search-side wiring (checkpoint a hi-run, resume each
-  candidate from its stop-working month) is NOT yet done.
+- **Task 3 — resumable core + prefix checkpoints.** DONE (this commit wires the search;
+  the prior WIP commit landed the resumable core).
 
-**Remaining:** finish task 3 wiring, then tasks 5, 6, 7 (5 = reuse solved run; 6 = memoize solve
-on committed state; 7 = optional seed-from-plannedWorkStopAge).
+**Remaining:** tasks 5, 6, 7 (5 = reuse solved run; 6 = memoize solve on committed state; 7 =
+optional seed-from-plannedWorkStopAge).
 
 ## Live constraints
 - **The load-bearing invariant:** every fast path must be a pure read off the SAME survival
@@ -59,17 +58,15 @@ on committed state; 7 = optional seed-from-plannedWorkStopAge).
   entering state). `forkSimState` (runState.ts) shares the immutable arrays and copies every
   mutable Map — `earningsByPerson`'s inner Maps are cloned (mutated in place by `addEarnings`).
   Proven byte-identical by the "resume from a mid-run checkpoint" test in simulate.test.ts.
-  Remaining wiring for `earliestFullRetirementAge`: (1) run one `hi = lifeExpectancy`
-  survival-only pass WITH `onCheckpoint` capturing forks into `checkpoints[month]`; that pass caps
-  no normal job and carries a continuation job through year(hi) ≥ every pre-A month, so the prefix
-  `[0, k)` income is identical for every candidate A with `k = retirementMonth(A)`. (2) If that hi
-  pass does NOT survive → return null (no age works), no checkpoints needed. (3) Else binary-search
-  candidates: for age A, `k = retirementMonth(plan, A)`; if `k >= horizon` → survives; else resume
-  with `seedState: forkSimState(checkpoints[k])` (fork again — the stored checkpoint is reused
-  across candidates), `startMonth: k`, and the CANDIDATE's simInput (capped income, via
-  rebaseStopWorking at A). `planSurvives(tail)` is the candidate's feasibility because the skipped
-  prefix is known solvent (hi survived it). Correctness gate: the existing "survival-only fast path
-  agrees with the full sim at every age" test must stay green with this path.
+  `earliestFullRetirementAge` now uses it: (1) one `hi = lifeExpectancy` survival-only pass with
+  `onCheckpoint` capturing forks into `checkpoints[month]`; that pass caps no normal job and
+  carries a continuation job through year(hi) ≥ every pre-`k` month, so the prefix `[0, k)` income
+  is identical for every candidate A with `k = retirementMonth(A)`. (2) If the hi pass fails →
+  return null. (3) Else the binary-search predicate resumes each age A from
+  `forkSimState(checkpoints[k])` at `startMonth = k` with the candidate's own simInput (`k >=
+  horizon` short-circuits to survives). Correctness gate: "checkpoint-resumed search finds the
+  same age as a brute-force full-projection scan" in retirementSolver.test.ts — keep it green
+  through any future change to the sim state or fork.
 
 ## Dead ends
 - (none yet)
