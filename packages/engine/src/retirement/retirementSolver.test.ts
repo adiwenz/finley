@@ -5,7 +5,7 @@
  * (panel age == first surviving projection age on the default plan under
  * `usJurisdiction`); these pin the solver's own behaviour.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   projectScenario,
   projectFullRetirement,
@@ -23,6 +23,8 @@ import { addEvent } from "../ledger/addEvent";
 import { emptyLedger } from "../ledger/ledger";
 import { dollarsToCents } from "../money/cashFlowSeries";
 import { createProjectionBase, SAVINGS_ID } from "../compile/projectionBase";
+import * as projectionBaseModule from "../compile/projectionBase";
+import * as simulateModule from "../projection/simulate";
 import { RETIREMENT_ID } from "../plan/ids";
 import type { ProjectionMonth } from "../projection/simulate";
 import type { ProjectionContext } from "../compile/projectionBase";
@@ -55,6 +57,82 @@ const CTX: ProjectionContext = { jurisdiction: mockJurisdiction(), startYear: ST
 function survivesAt(budget: Plan, age: number): boolean {
   return planSurvives(projectFullRetirement(scenarioOf(budget), age, CTX));
 }
+
+/**
+ * The optimization's own contract, proven from OUTSIDE: nothing here calls `rebaseStopWorking` or
+ * `forkSimState` directly — both stay engine-internal — so these tests spy on the seams the search
+ * is documented to use ({@link createProjectionBase}, {@link simulateHousehold}) and read what the
+ * search actually did with them. A behavioral test alone cannot fail if the search silently fell
+ * back to a full recompile-and-resimulate per candidate; these can.
+ */
+describe("retirementSolver — the optimization is actually wired in", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("compiles the authored base exactly once for the whole binary search", () => {
+    const compileSpy = vi.spyOn(projectionBaseModule, "createProjectionBase");
+    earliestFullRetirementAge(scenarioOf(samplePlan), CTX);
+    expect(compileSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not recompile when a caller hands it an already-compiled authored base", () => {
+    const authoredBase = createProjectionBase(samplePlan, CTX);
+    const compileSpy = vi.spyOn(projectionBaseModule, "createProjectionBase");
+    earliestFullRetirementAge(scenarioOf(samplePlan), CTX, authoredBase);
+    expect(compileSpy).not.toHaveBeenCalled();
+  });
+
+  it("solveRetirement compiles just once and shares it across every read it makes", () => {
+    // The search, the planned work-stop read, the authored-survival run, and the continued-jobs
+    // disclosure all need an authored base — this fails the moment any of them reaches back for
+    // its own compile instead of the one `solveRetirement` hoisted.
+    const compileSpy = vi.spyOn(projectionBaseModule, "createProjectionBase");
+    solveRetirement(scenarioOf(baristaPlan), CTX);
+    expect(compileSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("resumes every candidate from a checkpoint, survival-only, instead of a fresh full pass", () => {
+    const simSpy = vi.spyOn(simulateModule, "simulateHousehold");
+    earliestFullRetirementAge(scenarioOf(samplePlan), CTX);
+
+    const calls = simSpy.mock.calls;
+    // The hi (life-expectancy) pass, plus at least one candidate the binary search actually ran.
+    expect(calls.length).toBeGreaterThan(1);
+
+    // The hi pass: survival-only, capturing checkpoints, seeded fresh (no resume yet to resume from).
+    const [, , hiOptions] = calls[0]!;
+    expect(hiOptions?.survivalOnly).toBe(true);
+    expect(typeof hiOptions?.onCheckpoint).toBe("function");
+    expect(hiOptions?.resume).toBeUndefined();
+
+    // Every candidate after it: survival-only, and resuming from a stored checkpoint rather than
+    // reprocessing the prefix — the whole point of the machinery under test.
+    for (const [, , candidateOptions] of calls.slice(1)) {
+      expect(candidateOptions?.survivalOnly).toBe(true);
+      expect(candidateOptions?.resume).toBeDefined();
+      expect(candidateOptions?.resume?.startMonth).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("runs the authored-survival check survival-only, off the shared base", () => {
+    const compileSpy = vi.spyOn(projectionBaseModule, "createProjectionBase");
+    const simSpy = vi.spyOn(simulateModule, "simulateHousehold");
+    const solution = solveRetirement(scenarioOf(samplePlan), CTX);
+
+    expect(compileSpy).toHaveBeenCalledTimes(1);
+    // Every simulateHousehold call is survival-only here: the search's hi/candidate calls AND
+    // the authored-plan check, which is the one call among them with neither `onCheckpoint`
+    // (that's the hi pass) nor `resume` (that's every other candidate).
+    const authoredCheckCalls = simSpy.mock.calls.filter(
+      ([, , options]) => options?.resume === undefined && options?.onCheckpoint === undefined,
+    );
+    expect(authoredCheckCalls).toHaveLength(1);
+    expect(authoredCheckCalls[0]![2]?.survivalOnly).toBe(true);
+    for (const [, , options] of simSpy.mock.calls) expect(options?.survivalOnly).toBe(true);
+    expect(solution.authoredPlanSurvives).toBe(true);
+  });
+});
 
 describe("retirementSolver — survival off the real projection", () => {
   it("survival is monotonic in the retirement age (later never hurts)", () => {
