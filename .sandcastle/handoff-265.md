@@ -5,11 +5,12 @@ whole-issue mode, one commit per task. Read the issue for the full task text.
 
 **Done so far:**
 - **Task 1 — survival-only, early-exit sim path.** DONE.
-- **Task 2 — skip reporting-only work during the search.** DONE (this commit).
+- **Task 2 — skip reporting-only work during the search.** DONE.
+- **Task 4 — hoist boundary-independent compilation out of the per-candidate loop.** DONE (this
+  commit). Done out of numeric order (before 3) because it's independent and lower-risk.
 
-**Remaining:** tasks 3–7 (3 = resumable core + prefix checkpoints; 4 = hoist boundary-independent
-compilation; 5 = reuse solved run; 6 = memoize solve on committed state; 7 = optional
-seed-from-plannedWorkStopAge).
+**Remaining:** tasks 3, 5, 6, 7 (3 = resumable core + prefix checkpoints; 5 = reuse solved run;
+6 = memoize solve on committed state; 7 = optional seed-from-plannedWorkStopAge).
 
 ## Live constraints
 - **The load-bearing invariant:** every fast path must be a pure read off the SAME survival
@@ -37,6 +38,20 @@ seed-from-plannedWorkStopAge).
   it reports `blocked`/`onTrackFraction`, which diverge from the fast path in the rare
   "insolvent-at-k then blocked-at-j>k" case. Only `.feasible` is fast-path-safe. Do not switch
   the reported evaluation to survivalOnly without handling that divergence.
+
+- **Task 4 compilation hoist (`projectionBase.ts` + `retirementSolver.ts`):** only
+  `initialIncomeSeries` and the carried `stopWorking` field depend on the boundary; everything
+  else in `LedgerBaseConfig` is boundary-independent. `rebaseStopWorking(base, budget, ctx,
+  stopWorking)` re-derives just the income series and must stay byte-identical to
+  `createProjectionBase(budget, ctx, stopWorking)` — pinned by the `rebaseStopWorking` test in
+  `projectionBase.test.ts`. `earliestFullRetirementAge` compiles the authored base once and calls
+  `rebaseStopWorking` per candidate, then `simulateFromBase` (extracted from
+  `projectScenarioParts`) runs interpret + buildHouseholdSimInput + survival-only sim. If a future
+  field on the base becomes boundary-dependent, `rebaseStopWorking` must be updated or the test
+  will (correctly) fail.
+- **Task 3 note:** it refactors `simulateHousehold`'s month loop into a resumable core. Keep the
+  `if (!survivalOnly)` reporting guard AND the survival-only early-exit break intact through that
+  refactor. The checkpoint run should be a `hi = lifeExpectancy` survival-only pass.
 
 ## Dead ends
 - (none yet)
