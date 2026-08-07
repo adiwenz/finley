@@ -24,7 +24,8 @@
 import { interpretLedger } from "../ledger/interpret";
 import { buildHouseholdSimInput } from "../projection/buildHouseholdInput";
 import { simulateHousehold, type SimulateOptions } from "../projection/simulate";
-import { createProjectionBase } from "../compile/projectionBase";
+import { createProjectionBase, rebaseStopWorking } from "../compile/projectionBase";
+import type { LedgerBaseConfig } from "../ledger/ledgerBase";
 import { jobDisplayNames } from "../compile/compilePerson";
 import type { ProjectionContext } from "../compile/projectionBase";
 import {
@@ -74,7 +75,21 @@ export function projectScenarioParts(
   stopWorking?: StopWorkingBoundary,
   options?: SimulateOptions,
 ): ScenarioProjection {
-  const base = createProjectionBase(scenario.plan, ctx, stopWorking);
+  return simulateFromBase(createProjectionBase(scenario.plan, ctx, stopWorking), scenario, ctx, options);
+}
+
+/**
+ * Run a scenario's ledger + sim off an ALREADY-compiled base. Split out so the retirement search
+ * can compile the boundary-independent base once ({@link earliestFullRetirementAge}) and feed a
+ * per-candidate base derived by {@link rebaseStopWorking} — the income series is all that changes
+ * across candidates, so accounts/expenses/goals/roster are compiled a single time.
+ */
+function simulateFromBase(
+  base: LedgerBaseConfig,
+  scenario: Scenario,
+  ctx: ProjectionContext,
+  options?: SimulateOptions,
+): ScenarioProjection {
   const household = interpretLedger(scenario.ledger, base);
   const simInput = buildHouseholdSimInput(household, base);
   const series = simulateHousehold(simInput, ctx.jurisdiction, options);
@@ -273,15 +288,25 @@ export function evaluateFullRetirementAtAge(
  * job that stops separately from the rest, and "when could we stop working" has one answer.
  */
 export function earliestFullRetirementAge(scenario: Scenario, ctx: ProjectionContext): number | null {
-  // The search reads only feasibility, so it runs the survival-only sim: it stops at the first
-  // insolvent month instead of nulling net worth to the horizon, which makes every infeasible
-  // low-age probe cheap. `planSurvives` on the truncated series is the SAME verdict
+  // Two levers, both off the per-candidate loop. (1) The boundary-independent compilation —
+  // accounts, expenses, goals, roster — is identical for every candidate, so compile the
+  // authored base ONCE and derive each candidate's base by re-deriving only the income-series
+  // tail (`rebaseStopWorking`). (2) The search reads only feasibility, so each candidate runs the
+  // survival-only sim: it stops at the first insolvent month rather than nulling net worth to the
+  // horizon. `planSurvives` on that truncated series is the SAME verdict
   // `evaluateFullRetirementAtAge(...).feasible` gives — both are "no month fails, and not
-  // blocked" — so the threshold the search returns is identical. The reported evaluation for the
-  // answer age still runs the full projection elsewhere.
-  return earliestSurvivingAge(scenario.plan, (age) =>
-    planSurvives(projectFullRetirement(scenario, age, ctx, { survivalOnly: true })),
-  );
+  // blocked" — so the threshold is identical; the reported evaluation for the answer age still
+  // runs the full projection elsewhere.
+  const authoredBase = createProjectionBase(scenario.plan, ctx);
+  return earliestSurvivingAge(scenario.plan, (age) => {
+    const base = rebaseStopWorking(
+      authoredBase,
+      scenario.plan,
+      ctx,
+      stopWorkingBoundaryAt(scenario.plan, age, ctx.startYear),
+    );
+    return planSurvives(simulateFromBase(base, scenario, ctx, { survivalOnly: true }).series);
+  });
 }
 
 /**

@@ -207,6 +207,84 @@ export function buildPlanGoals(budget: Plan): SimGoal[] {
 }
 
 /**
+ * The primary household member as the compiler consumes them — jobs and benefit basis. Nothing
+ * about a retirement age reaches this person: a candidate stop travels as a
+ * {@link StopWorkingBoundary}, never as a field here, so this is boundary-INDEPENDENT and
+ * identical across every candidate the search tries.
+ */
+function buildStandingPerson(budget: Plan, startYear: number): Person {
+  return {
+    id: PRIMARY_PERSON_ID,
+    name: budget.name,
+    birthYear: startYear - budget.currentAge,
+    benefitClaimingAge: budget.benefitClaimingAge,
+    jobs: budget.jobs,
+    // The one plan field that is a reference into `jobs` rather than a figure. Copied verbatim,
+    // `undefined` included: "not chosen yet" is a state `continuationJobIdOf` resolves on read,
+    // so defaulting it here would freeze an answer the plan never gave.
+    continuationJobId: budget.continuationJobId,
+  };
+}
+
+/**
+ * One forward income series per job, under a candidate `stopWorking` boundary (or authored when
+ * absent). This is the ONLY part of the base a boundary changes, which is what
+ * {@link rebaseStopWorking} exploits.
+ *
+ * The primary's membership runs the whole projection — they are the household from month
+ * `-Infinity` and never separate from it — so it clips nothing; it is passed anyway so the
+ * primary's jobs take exactly the path a partner's do, with no primary-only branch anywhere in
+ * job resolution or compilation.
+ */
+function compileInitialIncomeSeries(
+  budget: Plan,
+  startYear: number,
+  inflationRate: number,
+  stopWorking?: StopWorkingBoundary,
+): readonly SimOwnedSeries[] {
+  return compileHouseholdJobSeries(
+    resolveHouseholdJobs(
+      personJobContexts({
+        person: buildStandingPerson(budget, startYear),
+        startMonth: -Infinity,
+        endMonth: null,
+      }),
+      startYear,
+      stopWorking === undefined ? { kind: "authored" } : { kind: "hypothetical", stopWorking },
+    ),
+    startYear,
+    inflationRate,
+  );
+}
+
+/**
+ * Derive a candidate base from an already-compiled AUTHORED base by re-deriving only the
+ * income-series tail and carrying the boundary through — every other field
+ * (accounts/expenses/goals/roster/horizon) is boundary-independent, so it is shared verbatim.
+ * The retirement search compiles the authored base once and calls this per candidate, hoisting
+ * that boundary-independent compilation out of the per-age loop. The result is byte-identical to
+ * `createProjectionBase(budget, ctx, stopWorking)` — pinned by the projectionBase test — which
+ * is what keeps the shortcut a pure read of the same compilation.
+ */
+export function rebaseStopWorking(
+  base: LedgerBaseConfig,
+  budget: Plan,
+  ctx: ProjectionContext,
+  stopWorking: StopWorkingBoundary,
+): LedgerBaseConfig {
+  return {
+    ...base,
+    initialIncomeSeries: compileInitialIncomeSeries(
+      budget,
+      ctx.startYear,
+      budget.inflationPct / 100,
+      stopWorking,
+    ),
+    stopWorking,
+  };
+}
+
+/**
  * Compile a {@link Plan} into the ledger base. `stopWorking` is the retirement solver's candidate
  * boundary — supplied only when the question is a hypothesis, and threaded to every
  * job-compilation path so all earners move together; absent, every job ends where it was
@@ -219,28 +297,12 @@ export function createProjectionBase(
 ): LedgerBaseConfig {
   const { startYear } = ctx;
   const inflationRate = budget.inflationPct / 100;
-  const birthYear = startYear - budget.currentAge;
 
-  // Jobs are the sole source of earned income: the pre-"now" covered-earnings record and
-  // the forward income series both fall out of job spans and salaries, never a scalar lever.
-  //
-  // Nothing about a retirement AGE reaches this person. The plan used to pin one and hand it
-  // down here as a per-person figure the compiler read as an employment end — and mid-solve that
-  // field was quietly swapped for the candidate age, since it was the only way a search could
-  // explore past what the plan already said. Both are gone: a job ends where it was authored to,
-  // and a candidate travels as a {@link StopWorkingBoundary} that says plainly it is a
-  // hypothesis.
-  const standingPerson: Person = {
-    id: PRIMARY_PERSON_ID,
-    name: budget.name,
-    birthYear,
-    benefitClaimingAge: budget.benefitClaimingAge,
-    jobs: budget.jobs,
-    // The one plan field that is a reference into `jobs` rather than a figure. Copied verbatim,
-    // `undefined` included: "not chosen yet" is a state `continuationJobIdOf` resolves on read,
-    // so defaulting it here would freeze an answer the plan never gave.
-    continuationJobId: budget.continuationJobId,
-  };
+  // Jobs are the sole source of earned income: the pre-"now" covered-earnings record and the
+  // forward income series both fall out of job spans and salaries, never a scalar lever. A
+  // retirement age reaches none of this — a candidate travels as a {@link StopWorkingBoundary}
+  // — so the roster is boundary-independent and only {@link initialIncomeSeries} moves with it.
+  const standingPerson = buildStandingPerson(budget, startYear);
 
   // Expenses are authored solely as budget lines — there is no separate general-expense
   // lever, and none for health either: a `healthcare`-category line is compiled by exactly
@@ -266,24 +328,9 @@ export function createProjectionBase(
    */
   const horizonMonths = planHorizonMonths(budget);
 
-  // One forward income series per job; pre-tax 401(k) deferral and employer match ride
-  // on the job.
-  //
-  // The primary's membership runs the whole projection — they are the household from month
-  // `-Infinity` and never separate from it — so it clips nothing; it is passed anyway so the
-  // primary's jobs take exactly the path a partner's do, with no primary-only branch anywhere
-  // in job resolution or compilation.
-  const initialIncomeSeries: readonly SimOwnedSeries[] = compileHouseholdJobSeries(
-    resolveHouseholdJobs(
-      personJobContexts({ person: standingPerson, startMonth: -Infinity, endMonth: null }),
-      startYear,
-      stopWorking === undefined
-        ? { kind: "authored" }
-        : { kind: "hypothetical", stopWorking },
-    ),
-    startYear,
-    inflationRate,
-  );
+  // Pre-tax 401(k) deferral and employer match ride on the job. The only boundary-dependent part
+  // of the base — {@link rebaseStopWorking} re-derives exactly this per candidate.
+  const initialIncomeSeries = compileInitialIncomeSeries(budget, startYear, inflationRate, stopWorking);
 
   // Leftover cash idles in the liquid account unless `surplusCashTo` sweeps it into the
   // taxable brokerage. The concrete account id stays here — the plan carries only the
