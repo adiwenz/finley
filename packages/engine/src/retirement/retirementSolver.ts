@@ -24,7 +24,7 @@
 import { interpretLedger } from "../ledger/interpret";
 import { buildHouseholdSimInput } from "../projection/buildHouseholdInput";
 import { simulateHousehold } from "../projection/simulate";
-import { createProjectionBase } from "../compile/projectionBase";
+import { createProjectionBase, PRIMARY_PERSON_ID } from "../compile/projectionBase";
 import { jobDisplayNames } from "../compile/compilePerson";
 import type { ProjectionContext } from "../compile/projectionBase";
 import {
@@ -37,8 +37,14 @@ import {
   resolveHouseholdJobs,
   type StopWorkingBoundary,
 } from "../job/householdJob";
+import { lifeExpectancyEndMonthExclusive, memberHorizonReach } from "../job/personActiveWindow";
 import type { ProjectionSeries, HouseholdSimInput } from "../projection/simulate";
-import type { ContinuedJob, RetirementEvaluation, RetirementSolution } from "./retirementTypes";
+import type {
+  ContinuedJob,
+  HorizonAnchor,
+  RetirementEvaluation,
+  RetirementSolution,
+} from "./retirementTypes";
 import type { Scenario } from "../plan/scenario";
 import type { Job } from "../job/job";
 import type { Plan } from "../plan/plan";
@@ -131,13 +137,9 @@ export function planSurvives(series: ProjectionSeries): boolean {
   return planOutcome(series) === "survives";
 }
 
-function retirementMonth(budget: Plan, age: number): number {
-  return Math.max(0, (age - budget.currentAge) * 12);
-}
-
 /** The calendar year the primary turns `age` — the boundary a stop at `age` applies to every earner. */
-function stopWorkingBoundaryYear(budget: Plan, age: number, startYear: number): number {
-  return startYear - budget.currentAge + age;
+function stopWorkingBoundaryYear(budget: Plan, age: number): number {
+  return budget.primary.birthYear + age;
 }
 
 /**
@@ -156,57 +158,26 @@ function stopWorkingBoundaryYear(budget: Plan, age: number, startYear: number): 
 export function stopWorkingBoundaryAt(
   budget: Plan,
   age: number,
-  startYear: number,
+  // Kept for callers that hand it a `ProjectionContext.startYear`, though the boundary itself no
+  // longer needs "now": the primary's `birthYear` is frozen, so the year they turn `age` is fixed.
+  _startYear: number,
 ): StopWorkingBoundary {
-  return { boundaryYearExclusive: stopWorkingBoundaryYear(budget, age, startYear) };
+  return { boundaryYearExclusive: stopWorkingBoundaryYear(budget, age) };
 }
 
 /**
- * On-track fraction for a plan that does NOT survive: the fraction of the
- * retirement-to-life-expectancy window it stays solvent. Read from WHEN it first fails, not
- * from how far net worth dipped — insolvency nulls the curve rather than driving it negative,
- * so the deepest value seen could be positive → a meaningless 1.0. The denominator counts the
- * window inclusively, so an infeasible plan is never 100%.
+ * Fold a projection at `age` into the evaluation fields both modes share: the verdict and, when
+ * the projection truncated, the month it stopped. Nothing is scored beside them — see
+ * {@link RetirementEvaluation} for why a "how close was it" percentage is not an answer.
  */
-function computeOnTrackFraction(
-  budget: Plan,
-  age: number,
-  series: ProjectionSeries,
-): number {
-  // Horizon is derived from the plan (months to life expectancy), NOT `series.months.length - 1`:
-  // once a projection can truncate, the series length collapses to the blocked month and would
-  // make the retirement window meaningless. This matches `createProjectionBase`'s `horizonMonths`
-  // for an untruncated run, so the fraction is unchanged wherever it already worked.
-  const horizon = Math.max(0, (budget.lifeExpectancy - budget.currentAge) * 12) - 1;
-  const boundary = Math.min(retirementMonth(budget, age), horizon);
-  // Inclusive, so ≥ 1 after the clamp: a safe denominator.
-  const retirementWindow = horizon - boundary + 1;
-  // -1 is defensive; callers gate on `!feasible`.
-  const firstFailureMonth = series.months.findIndex((m) => !monthSurvives(m));
-  if (firstFailureMonth < 0) return 1;
-  const solventInRetirement = Math.max(0, firstFailureMonth - boundary);
-  return Math.min(1, solventInRetirement / retirementWindow);
-}
-
-/**
- * Fold a projection at `age` into the evaluation fields both modes share. A blocked projection is
- * neither feasible nor on-track — its survival is unknowable — so it carries `blocked` and the
- * month it stopped rather than a fraction read off a truncated curve.
- */
-function evaluateSeries(
-  budget: Plan,
-  age: number,
-  series: ProjectionSeries,
-): RetirementEvaluation {
+function evaluateSeries(age: number, series: ProjectionSeries): RetirementEvaluation {
   const outcome = planOutcome(series);
-  const feasible = outcome === "survives";
   const blocked = outcome === "blocked";
   return {
     retirementAge: age,
-    feasible,
+    feasible: outcome === "survives",
     blocked,
     ...(blocked ? { blockedAtMonth: series.blockedAtMonth } : {}),
-    onTrackFraction: feasible ? 1 : blocked ? 0 : computeOnTrackFraction(budget, age, series),
   };
 }
 
@@ -217,10 +188,11 @@ function evaluateSeries(
  */
 function earliestSurvivingAge(
   budget: Plan,
+  startYear: number,
   survives: (age: number) => boolean,
 ): number | null {
-  const lo = budget.currentAge;
-  const hi = budget.lifeExpectancy;
+  const lo = startYear - budget.primary.birthYear;
+  const hi = budget.primary.lifeExpectancy;
   if (lo > hi) return null;
   if (!survives(hi)) return null;
   let a = lo;
@@ -253,8 +225,7 @@ export function evaluateFullRetirementAtAge(
   age: number,
   ctx: ProjectionContext,
 ): RetirementEvaluation {
-  const series = projectFullRetirement(scenario, age, ctx);
-  return evaluateSeries(scenario.plan, age, series);
+  return evaluateSeries(age, projectFullRetirement(scenario, age, ctx));
 }
 
 /**
@@ -265,7 +236,9 @@ export function evaluateFullRetirementAtAge(
  * job that stops separately from the rest, and "when could we stop working" has one answer.
  */
 export function earliestFullRetirementAge(scenario: Scenario, ctx: ProjectionContext): number | null {
-  return earliestSurvivingAge(scenario.plan, (age) => evaluateFullRetirementAtAge(scenario, age, ctx).feasible);
+  return earliestSurvivingAge(scenario.plan, ctx.startYear, (age) =>
+    evaluateFullRetirementAtAge(scenario, age, ctx).feasible,
+  );
 }
 
 /**
@@ -308,8 +281,7 @@ function plannedWorkStopYear(scenario: Scenario, ctx: ProjectionContext): number
 export function plannedWorkStopAge(scenario: Scenario, ctx: ProjectionContext): number | null {
   const year = plannedWorkStopYear(scenario, ctx);
   if (year === null) return null;
-  const primaryBirthYear = ctx.startYear - scenario.plan.currentAge;
-  return year - primaryBirthYear;
+  return year - scenario.plan.primary.birthYear;
 }
 
 /**
@@ -423,6 +395,44 @@ export function authoredPlanSurvives(scenario: Scenario, ctx: ProjectionContext)
 }
 
 /**
+ * Whose expectancy the horizon rests on — the member whose death the run has to reach, and the age
+ * they reach. The panel prints this as "Sam's life expectancy (age 85)", so it must name the member
+ * the SIM actually ran to.
+ *
+ * Which members have a claim on the horizon is not decided here: it is
+ * {@link memberHorizonReach}, the same call `buildHouseholdInput` makes, so the sentence and the
+ * run cannot tell different stories. In particular a separation only counts while both people are
+ * alive — a partner who dies before a booked separation never leaves, and is named here exactly as
+ * the run covers them.
+ *
+ * Every member states their own expectancy, so there is nothing to resolve. Ties fall to the
+ * primary, so an all-same-age household names the reader.
+ *
+ * No simulation: the household is interpreted and read, the way `plannedWorkStopAge` is.
+ */
+export function horizonAnchorOf(scenario: Scenario, ctx: ProjectionContext): HorizonAnchor {
+  const base = createProjectionBase(scenario.plan, ctx);
+  const household = interpretLedger(scenario.ledger, base);
+  const lifeEnd = (person: { birthYear: number; lifeExpectancy: number }) =>
+    lifeExpectancyEndMonthExclusive(person, ctx.startYear);
+  const primaryLifeEnd = lifeEnd(scenario.plan.primary);
+  let best: { age: number; deathYear: number; isPrimary: boolean; name: string } | null = null;
+  for (const m of household.memberships) {
+    // The one rule, shared with the sim: a member who leaves while both are alive has no claim.
+    if (memberHorizonReach(lifeEnd(m.person), m.endMonth, primaryLifeEnd) === null) continue;
+    const isPrimary = m.person.id === PRIMARY_PERSON_ID;
+    const age = m.person.lifeExpectancy;
+    const deathYear = m.person.birthYear + age;
+    const wins =
+      best === null || deathYear > best.deathYear || (deathYear === best.deathYear && isPrimary);
+    if (wins) best = { age, deathYear, isPrimary, name: m.person.name };
+  }
+  // The primary is always a member, so `best` is set; the fallback only keeps the type total.
+  if (best === null) return { age: scenario.plan.primary.lifeExpectancy, memberName: null };
+  return { age: best.age, memberName: best.isPrimary ? null : best.name };
+}
+
+/**
  * The default retirement result off one {@link Scenario}: the retirement search
  * ({@link RetirementSolution.fullRetirementAge} — solved, "can we afford to stop"), the planned
  * work-stop age ({@link plannedWorkStopAge} — read, "when does the authored plan stop on its
@@ -437,7 +447,7 @@ export function solveRetirement(scenario: Scenario, ctx: ProjectionContext): Ret
   // age un-blocks the stranded obligation.
   const blockProbe =
     fullRetirementAge === null
-      ? projectFullRetirement(scenario, scenario.plan.lifeExpectancy, ctx)
+      ? projectFullRetirement(scenario, scenario.plan.primary.lifeExpectancy, ctx)
       : undefined;
   const blocked = blockProbe?.status === "blocked";
   return {
@@ -450,5 +460,6 @@ export function solveRetirement(scenario: Scenario, ctx: ProjectionContext): Ret
     // describe, so there is nothing to disclose either.
     continuedJobs:
       fullRetirementAge === null ? [] : continuedJobsAt(scenario, fullRetirementAge, ctx),
+    horizonAnchor: horizonAnchorOf(scenario, ctx),
   };
 }

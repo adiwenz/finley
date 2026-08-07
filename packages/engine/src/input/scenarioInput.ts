@@ -29,6 +29,7 @@
 
 import { PRE_NOW_MONTH } from "../projection/nowMarker";
 import type { Plan, GoalPlan } from "../plan/plan";
+import type { Person } from "../plan/person";
 import type { Job, JobDeferral } from "../job/job";
 import type { BudgetLine, TaxTreatment } from "../budget/budgetLine";
 import type { LiabilityKind } from "../liability/liability";
@@ -66,11 +67,15 @@ export function ref(name: string): Ref {
 }
 
 /**
- * Every {@link Plan} field except the three id-bearing collections, which become entries — and
- * except {@link Plan.continuationJobId}, which is an id INTO one of them and so becomes
- * {@link ScenarioInput.continuationJobRef}. A document has no ids to point with.
+ * Every {@link Plan} field except `goals`/`budgetLines`, which become entries, and `primary`
+ * itself — the primary's own scalars (`name`, `birthYear`, `lifeExpectancy`,
+ * `benefitClaimingAge`) are flattened back in below, minus `id` (the engine's to mint — always
+ * {@link import("../compile/projectionBase").PRIMARY_PERSON_ID}), `jobs` (its own entry plane,
+ * {@link ScenarioInput.jobs}) and `continuationJobId` (an id INTO that plane, so it becomes
+ * {@link ScenarioInput.continuationJobRef}). A document has no ids to point with.
  */
-type PlanScalars = Omit<Plan, "jobs" | "goals" | "budgetLines" | "continuationJobId">;
+type PlanScalars = Omit<Plan, "goals" | "budgetLines" | "primary"> &
+  Omit<Person, "id" | "jobs" | "continuationJobId">;
 
 /**
  * The `"account"` arm of a {@link import("../budget/budgetLine").BudgetTarget}, but pointing at an
@@ -145,6 +150,11 @@ export interface MarryEntry extends EventEntryCommon {
   readonly name: string;
   readonly birthYear: number;
   readonly benefitClaimingAge?: number;
+  /**
+   * See {@link import("../authoring/relationships").MarryInput.lifeExpectancy} — required, and
+   * never defaulted from the primary's.
+   */
+  readonly lifeExpectancy: number;
   readonly jobs?: readonly PartnerJobEntry[];
 }
 
@@ -170,6 +180,11 @@ export interface StartPartneredEntry extends Omit<EventEntryCommon, "month"> {
   readonly name: string;
   readonly birthYear: number;
   readonly benefitClaimingAge?: number;
+  /**
+   * See {@link import("../authoring/relationships").MarryInput.lifeExpectancy} — required, and
+   * never defaulted from the primary's.
+   */
+  readonly lifeExpectancy: number;
   readonly jobs?: readonly PartnerJobEntry[];
 }
 

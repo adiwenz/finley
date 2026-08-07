@@ -24,7 +24,12 @@ import { readerOf } from "./testing/projectionHarness";
  * A handle holding just this job. {@link jobToDraftFor} reads pay and deferral through the
  * facade, so the form opens on exactly what a write-back would set.
  */
-const draftOf = (j: Job) => jobToDraftFor(readerOf({ ...PLAN_DEFAULTS, jobs: [j] }), BIRTH_YEAR, j);
+const draftOf = (j: Job) =>
+  jobToDraftFor(
+    readerOf({ ...PLAN_DEFAULTS, primary: { ...PLAN_DEFAULTS.primary, jobs: [j] } }),
+    BIRTH_YEAR,
+    j,
+  );
 
 const BIRTH_YEAR = 1991;
 

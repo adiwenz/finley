@@ -30,7 +30,7 @@ const base = {
   brokerageReturnPct: 0,
   sharedScheme: "proportional" as const,
   inflationPct: 0,
-  currentAge: 30,
+  birthYear: 2026 - 30,
   lifeExpectancy: 90,
   benefitClaimingAge: 67,
 };
@@ -85,10 +85,13 @@ describe("haveExistingChild — a child already born", () => {
   });
 });
 
-/** A partner carrying one long-running $2,000/mo ($24,000/yr) job that pays from "now". */
+/**
+ * A partner carrying one long-running $2,000/mo ($24,000/yr) job that pays from "now" — and
+ * ends inside their life: Sam is born 1990 at expectancy 90, so it runs to their last year.
+ */
 const partnerJob = {
   startYear: base.startYear,
-  endYear: 2090,
+  endYear: 2080,
   // Starts at "now", so both anchors are the one stated salary — a flat history.
   salary: { startingSalaryCents: 2_400_000, currentSalaryCents: 2_400_000, realGrowthPct: 0 },
 } as const;
@@ -100,6 +103,7 @@ describe("startPartnered — a partner already in the household", () => {
       partneredForMonths: 120,
       name: "Sam",
       birthYear: 1990,
+      lifeExpectancy: base.lifeExpectancy,
       jobs: [partnerJob],
     });
     expect(partnerId).toMatch(/^person-\d+$/);
@@ -119,6 +123,7 @@ describe("startPartnered — a partner already in the household", () => {
       partneredForMonths: 120,
       name: "Sam",
       birthYear: 1990,
+      lifeExpectancy: base.lifeExpectancy,
       jobs: [partnerJob],
     }) as PersonId;
     // Separated two years ago, with 36 months of alimony ORIGINALLY ordered — 24 already elapsed.
@@ -139,7 +144,7 @@ describe("startPartnered — a partner already in the household", () => {
 
   it("refuses a partnering of 0 months — that is a wedding now, not an existing partner", () => {
     const p = Projection.init(base, nullJurisdiction);
-    expect(() => p.startPartnered({ partneredForMonths: 0, name: "Sam", birthYear: 1990 })).toThrow(
+    expect(() => p.startPartnered({ partneredForMonths: 0, name: "Sam", birthYear: 1990, lifeExpectancy: base.lifeExpectancy })).toThrow(
       /partneredForMonths must be a positive integer/,
     );
   });
@@ -228,7 +233,7 @@ describe("ScenarioInput — the declarative surface for anchors and holdings", (
     const p = built({
       ...base,
       events: [
-        { type: "startPartnered", ref: ref("sam"), partneredForMonths: 120, name: "Sam", birthYear: 1990 },
+        { type: "startPartnered", ref: ref("sam"), partneredForMonths: 120, name: "Sam", birthYear: 1990, lifeExpectancy: base.lifeExpectancy },
         { type: "haveExistingChild", ageMonths: 12, name: "Robin", annualCostCents: 1_200_000 },
         { type: "carryLoan", ownerRef: PRIMARY_PERSON_REF, kind: "auto", balanceCents: 2_400_000, apr: 0, remainingTermMonths: 24 },
       ],
@@ -272,7 +277,7 @@ describe("ScenarioInput — the declarative surface for anchors and holdings", (
     const p = built({
       ...base,
       events: [
-        { type: "startPartnered", ref: ref("sam"), partneredForMonths: 120, name: "Sam", birthYear: 1990 },
+        { type: "startPartnered", ref: ref("sam"), partneredForMonths: 120, name: "Sam", birthYear: 1990, lifeExpectancy: base.lifeExpectancy },
         { type: "separate", month: -24, partnerRef: ref("sam"), alimonyMonthlyCents: 100_000, alimonyDurationMonths: 36 },
       ],
     });

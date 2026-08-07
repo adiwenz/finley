@@ -27,6 +27,21 @@ import { RETIREMENT_ID } from "../plan/ids";
 import type { ProjectionMonth } from "../projection/simulate";
 import type { ProjectionContext } from "../compile/projectionBase";
 import { mockJurisdiction } from "../testing/mockJurisdiction";
+
+/**
+ * What a partner fixture may vary. An explicit list, NOT `Partial<Person>`: a partial of a type
+ * whose fields are required says every one of them may be absent, which is the opposite of what
+ * `Person` means — and it silently re-admits `undefined` for `lifeExpectancy`, the field the
+ * horizon is computed from, so a builder spreading it had to patch the value back afterwards.
+ * Naming the four things these fixtures actually change makes the builders total by construction.
+ */
+interface PartnerOverrides {
+  readonly id?: PersonId;
+  readonly birthYear?: number;
+  /** Theirs, never the primary's — the engine requires one and infers nothing. */
+  readonly lifeExpectancy?: number;
+  readonly continuationJobId?: JobId | null;
+}
 import {
   samplePlan,
   baristaPlan,
@@ -40,12 +55,17 @@ import {
 import { Projection } from "../facade/projectionFacade";
 import type { Plan } from "../plan/plan";
 import type { Person } from "../plan/person";
-import type { Job } from "../job/job";
+import type { Job, JobId, PersonId } from "../job/job";
 import type { Scenario } from "../plan/scenario";
 import type { ProjectionSeries } from "../projection/simulate";
 
 const START_YEAR = SAMPLE_START_YEAR;
 const CTX: ProjectionContext = { jurisdiction: mockJurisdiction(), startYear: START_YEAR };
+
+/** `samplePlan.primary`'s current age, derived from its frozen `birthYear` — `Plan.currentAge` no longer exists. */
+const CURRENT_AGE = SAMPLE_START_YEAR - samplePlan.primary.birthYear;
+/** `baristaPlan.primary`'s current age, derived the same way. */
+const BARISTA_CURRENT_AGE = SAMPLE_START_YEAR - baristaPlan.primary.birthYear;
 
 /**
  * Does the plan survive if the household stops working at `age`? A HYPOTHESIS, so it runs the
@@ -61,7 +81,7 @@ describe("retirementSolver — survival off the real projection", () => {
     // Once an age survives, every later age must too — the property the binary search
     // relies on. Walk the range and assert survival never flips true→false.
     let seenSurviving = false;
-    for (let age = samplePlan.currentAge; age <= samplePlan.lifeExpectancy; age++) {
+    for (let age = CURRENT_AGE; age <= samplePlan.primary.lifeExpectancy; age++) {
       const ok = survivesAt(samplePlan, age);
       if (seenSurviving) expect(ok).toBe(true);
       if (ok) seenSurviving = true;
@@ -89,11 +109,15 @@ describe("retirementSolver — survival off the real projection", () => {
     expect(survivesAt(tight, age as number)).toBe(true);
     expect(survivesAt(tight, (age as number) - 1)).toBe(false);
     // The authored plan never moved.
-    expect(tight.jobs[0]!.endYear).toBe(SAMPLE_START_YEAR - tight.currentAge + 60);
+    expect(tight.primary.jobs[0]!.endYear).toBe(SAMPLE_START_YEAR - CURRENT_AGE + 60);
   });
 
   it("returns null when even working to life expectancy fails", () => {
-    const broke: Plan = { ...samplePlan, openingBalanceCents: 0, jobs: [] };
+    const broke: Plan = {
+      ...samplePlan,
+      openingBalanceCents: 0,
+      primary: { ...samplePlan.primary, jobs: [] },
+    };
     expect(earliestFullRetirementAge(scenarioOf(broke), CTX)).toBeNull();
   });
 
@@ -107,7 +131,15 @@ describe("retirementSolver — survival off the real projection", () => {
     // working.
     const funded: Plan = {
       ...samplePlan,
-      jobs: [salariedJob(dollarsToCents(8000), { deferralFraction: 0.1, endAge: samplePlan.lifeExpectancy })],
+      primary: {
+        ...samplePlan.primary,
+        jobs: [
+          salariedJob(dollarsToCents(8000), {
+            deferralFraction: 0.1,
+            endAge: samplePlan.primary.lifeExpectancy,
+          }),
+        ],
+      },
     };
     const withLoan = addEvent(emptyLedger, createProjectionBase(funded, CTX), {
       id: "loan-1",
@@ -132,7 +164,11 @@ describe("retirementSolver — survival off the real projection", () => {
   it("counts a plan that goes insolvent (null net worth) as NOT surviving", () => {
     // Once insolvent, net worth is null — and `null >= 0` is `true` in JS, so a naive
     // survival check would pass those months. This pins the guard.
-    const broke: Plan = { ...samplePlan, openingBalanceCents: 0, jobs: [] };
+    const broke: Plan = {
+      ...samplePlan,
+      openingBalanceCents: 0,
+      primary: { ...samplePlan.primary, jobs: [] },
+    };
     const series = projectScenario(scenarioOf(broke), CTX);
     // Precondition: the plan really does produce null net-worth months.
     expect(series.months.some((m) => m.netWorthRealCents === null)).toBe(true);
@@ -147,7 +183,7 @@ describe("retirementSolver — a blocked projection is a third state", () => {
   function strandedScenario(): Scenario {
     const strandPlan: Plan = {
       ...samplePlan,
-      jobs: [],
+      primary: { ...samplePlan.primary, jobs: [] },
       goals: [],
       openingBalanceCents: dollarsToCents(40_000),
       budgetLines: [spendLine(dollarsToCents(4000)), healthLine(dollarsToCents(600))],
@@ -214,7 +250,9 @@ describe("retirementSolver — a blocked projection is a third state", () => {
   it("reports blocked from solveRetirement — distinct from null", () => {
     const scenario = strandedScenario();
     // Precondition: projecting even at life expectancy (the most-funded case) is blocked.
-    expect(projectFullRetirement(scenario, scenario.plan.lifeExpectancy, CTX).status).toBe("blocked");
+    expect(projectFullRetirement(scenario, scenario.plan.primary.lifeExpectancy!, CTX).status).toBe(
+      "blocked",
+    );
 
     const solution = solveRetirement(scenario, CTX);
     expect(solution.blocked).toBe(true);
@@ -224,7 +262,11 @@ describe("retirementSolver — a blocked projection is a third state", () => {
 
   it("keeps a genuinely-infeasible plan as null, NOT blocked", () => {
     // Insolvency without a block: no age works, and nothing is blocked.
-    const broke: Plan = { ...samplePlan, openingBalanceCents: 0, jobs: [] };
+    const broke: Plan = {
+      ...samplePlan,
+      openingBalanceCents: 0,
+      primary: { ...samplePlan.primary, jobs: [] },
+    };
     const solution = solveRetirement(scenarioOf(broke), CTX);
     expect(solution.fullRetirementAge).toBeNull();
     expect(solution.blocked).toBe(false);
@@ -232,29 +274,39 @@ describe("retirementSolver — a blocked projection is a third state", () => {
 
   it("marks the evaluation blocked and names the month it stopped", () => {
     const scenario = strandedScenario();
-    const evaluation = evaluateFullRetirementAtAge(scenario, scenario.plan.currentAge, CTX);
+    const evaluation = evaluateFullRetirementAtAge(
+      scenario,
+      START_YEAR - scenario.plan.primary.birthYear,
+      CTX,
+    );
     expect(evaluation.blocked).toBe(true);
     expect(evaluation.feasible).toBe(false);
     expect(evaluation.blockedAtMonth).toBe(2);
   });
 });
 
-describe("retirementSolver — target mode", () => {
-  // evaluateFullRetirementAtAge reports only at-that-age facts (feasible + on-track);
-  // nearestFeasibleAge is composed by retirementView from the headline, covered there.
-  it("is 100% and feasible at a comfortably-fundable pinned age", () => {
-    // Life expectancy is the safest possible pin: feasible if any age is.
-    const evaluation = evaluateFullRetirementAtAge(scenarioOf(samplePlan), samplePlan.lifeExpectancy, CTX);
-    expect(evaluation.feasible).toBe(true);
-    expect(evaluation.onTrackFraction).toBe(1);
+describe("retirementSolver — evaluating one age", () => {
+  // evaluateFullRetirementAtAge reports only at-that-age facts — the verdict, and the block
+  // month when it truncated. There is no score beside them: elapsed simulation time is not a
+  // measure of success, and a plan that fails in its final year is infeasible, not 97% feasible.
+  it("is feasible at a comfortably-fundable age, and reports the verdict alone", () => {
+    // Life expectancy is the safest possible age to evaluate: feasible if any age is.
+    const evaluation = evaluateFullRetirementAtAge(
+      scenarioOf(samplePlan),
+      samplePlan.primary.lifeExpectancy,
+      CTX,
+    );
+    expect(evaluation).toEqual({
+      retirementAge: samplePlan.primary.lifeExpectancy,
+      feasible: true,
+      blocked: false,
+    });
   });
 
-  it("is a fraction in (0,1) short of a barely-infeasible pinned age", () => {
+  it("is plainly infeasible one year short of the threshold — no partial credit", () => {
     const floor = earliestFullRetirementAge(scenarioOf(samplePlan), CTX) as number;
     const evaluation = evaluateFullRetirementAtAge(scenarioOf(samplePlan), floor - 1, CTX);
-    expect(evaluation.feasible).toBe(false);
-    expect(evaluation.onTrackFraction).toBeGreaterThan(0);
-    expect(evaluation.onTrackFraction).toBeLessThan(1);
+    expect(evaluation).toEqual({ retirementAge: floor - 1, feasible: false, blocked: false });
   });
 });
 
@@ -265,7 +317,7 @@ describe("retirementSolver — one retirement search", () => {
   // end now, so there is nothing to tell apart.
   it("full-retirement survival is monotonic in the cease-all-work age (later never hurts)", () => {
     let seenSurviving = false;
-    for (let age = baristaPlan.currentAge; age <= baristaPlan.lifeExpectancy; age++) {
+    for (let age = BARISTA_CURRENT_AGE; age <= baristaPlan.primary.lifeExpectancy; age++) {
       const ok = evaluateFullRetirementAtAge(scenarioOf(baristaPlan), age, CTX).feasible;
       if (seenSurviving) expect(ok).toBe(true);
       if (ok) seenSurviving = true;
@@ -288,7 +340,7 @@ describe("retirementSolver — one retirement search", () => {
     const scenario = scenarioOf(baristaPlan);
     const age = earliestFullRetirementAge(scenario, CTX) as number;
     expect(age).not.toBeNull();
-    for (let later = age; later <= baristaPlan.lifeExpectancy; later++) {
+    for (let later = age; later <= baristaPlan.primary.lifeExpectancy; later++) {
       expect(evaluateFullRetirementAtAge(scenario, later, CTX).feasible).toBe(true);
     }
   });
@@ -300,8 +352,8 @@ describe("retirementSolver — one retirement search", () => {
   });
 });
 
-/** Primary's birth year in every solver test below: SAMPLE_START_YEAR − samplePlan.currentAge. */
-const PRIMARY_BIRTH_YEAR = START_YEAR - samplePlan.currentAge;
+/** Primary's birth year in every solver test below: SAMPLE_START_YEAR − CURRENT_AGE. */
+const PRIMARY_BIRTH_YEAR = START_YEAR - CURRENT_AGE;
 
 describe("retirementSolver — the stop-working boundary reaches every earner", () => {
   // A partner's jobs live on the RelationshipEvent, not on the plan, so a solve that rewrote
@@ -323,11 +375,12 @@ describe("retirementSolver — the stop-working boundary reaches every earner", 
     };
   }
 
-  function partnerWith(overrides: Partial<Person> & { jobs: Job[] }): Person {
+  function partnerWith(overrides: PartnerOverrides & { jobs: readonly Job[] }): Person {
     return {
       id: "p2",
       name: "Partner",
       birthYear: PRIMARY_BIRTH_YEAR,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
       benefitClaimingAge: 67,
       ...overrides,
     };
@@ -537,11 +590,12 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
     };
   }
 
-  function partnerWith(overrides: Partial<Person> & { jobs: Job[] }): Person {
+  function partnerWith(overrides: PartnerOverrides & { jobs: readonly Job[] }): Person {
     return {
       id: "p2",
       name: "Partner",
       birthYear: PRIMARY_BIRTH_YEAR,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
       benefitClaimingAge: 67,
       ...overrides,
     };
@@ -572,8 +626,12 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
     // i.e. 80 years past the PRIMARY's own birth year, not 90 (which would be the partner's own
     // age at that year, and reporting that would misattribute the partner's stop as if it were
     // the primary's age).
+    //
+    // Expectancy 95 so they LIVE to work those years: a job ends at `min(authored end, death)`,
+    // and this test is about the birth-year conversion rather than the death cap — pinned on its
+    // own below.
     const scenario = twoEarnerScenario(
-      partnerWith({ birthYear: PRIMARY_BIRTH_YEAR - 10, jobs: [partnerJob()] }),
+      partnerWith({ birthYear: PRIMARY_BIRTH_YEAR - 10, lifeExpectancy: 95, jobs: [partnerJob()] }),
     );
     expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(80);
   });
@@ -581,9 +639,27 @@ describe("solveRetirement — plannedWorkStopAge is household-wide", () => {
   it("a partner job is read via its authored endYear, and nothing else", () => {
     const explicitEndYear = PRIMARY_BIRTH_YEAR + 95; // later than every other job here
     const scenario = twoEarnerScenario(
-      partnerWith({ jobs: [partnerJob({ endYear: explicitEndYear })] }),
+      // Again long-lived enough for the authored end to be the binding one.
+      partnerWith({ lifeExpectancy: 100, jobs: [partnerJob({ endYear: explicitEndYear })] }),
     );
     expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(95);
+  });
+
+  it("a partner job authored past their own death stops at the death instead", () => {
+    // The same job as above, now held by someone who does not live to finish it: authored to
+    // PRIMARY_BIRTH_YEAR + 95, expectancy 85, same birth year — so the employment ends at
+    // PRIMARY_BIRTH_YEAR + 85 and the household-wide stop is age 85, not 95.
+    //
+    // This used to report 95. `plannedWorkStopAge` reads resolved employment ends, and the
+    // resolution had no opinion about death — so the panel told a household it would be working
+    // ten years after the earner it belonged to had died.
+    const scenario = twoEarnerScenario(
+      partnerWith({
+        lifeExpectancy: 85,
+        jobs: [partnerJob({ endYear: PRIMARY_BIRTH_YEAR + 95 })],
+      }),
+    );
+    expect(solveRetirement(scenario, CTX).plannedWorkStopAge).toBe(85);
   });
 
   /** Marry `partner` at month 0, then separate at `separationMonth`. */
@@ -698,7 +774,7 @@ describe("retirementSolver — which job a later candidate age continues", () =>
   const BIRTH_YEAR = PRIMARY_BIRTH_YEAR;
   const at = (age: number) => BIRTH_YEAR + age;
   /** Months from "now" to the primary's `age` — the fixture's current age is `samplePlan`'s. */
-  const monthAt = (age: number) => (age - samplePlan.currentAge) * 12;
+  const monthAt = (age: number) => (age - CURRENT_AGE) * 12;
 
   function job(id: string, startAge: number, endAge: number, annualDollars = 90_000): Job {
     return {
@@ -721,8 +797,11 @@ describe("retirementSolver — which job a later candidate age continues", () =>
    */
   const planWithJobs = (jobs: readonly Job[], continuationJobId?: string | null): Plan => ({
     ...samplePlan,
-    jobs,
-    ...(continuationJobId !== undefined ? { continuationJobId } : {}),
+    primary: {
+      ...samplePlan.primary,
+      jobs,
+      ...(continuationJobId !== undefined ? { continuationJobId } : {}),
+    },
   });
 
   /** What `job:<id>` paid the household in `month`, or 0 when it paid nothing at all. */
@@ -743,7 +822,7 @@ describe("retirementSolver — which job a later candidate age continues", () =>
    * `currentAge` differs from `samplePlan`'s.
    */
   const baristaJobs: readonly Job[] = (() => {
-    const birthYear = START_YEAR - baristaPlan.currentAge;
+    const birthYear = START_YEAR - BARISTA_CURRENT_AGE;
     const atBarista = (age: number) => birthYear + age;
     const shift = (j: Job, startAge: number, endAge: number): Job => ({
       ...j,
@@ -793,7 +872,10 @@ describe("retirementSolver — which job a later candidate age continues", () =>
     // jobs the date-based rule would have chosen the LAST of every time.
     const onChoice = (chosen: string | null) =>
       earliestFullRetirementAge(
-        scenarioOf({ ...baristaPlan, jobs: baristaJobs, continuationJobId: chosen }),
+        scenarioOf({
+        ...baristaPlan,
+        primary: { ...baristaPlan.primary, jobs: baristaJobs, continuationJobId: chosen },
+      }),
         CTX,
       );
 
@@ -893,8 +975,7 @@ describe("retirementSolver — which job a later candidate age continues", () =>
       earliestFullRetirementAge(
         scenarioOf({
           ...baristaPlan,
-          jobs: baristaJobs,
-          continuationJobId: "career",
+          primary: { ...baristaPlan.primary, jobs: baristaJobs, continuationJobId: "career" },
           openingBalanceCents: dollarsToCents(openingDollars),
         }),
         CTX,
@@ -969,18 +1050,18 @@ describe("retirementSolver — which job a later candidate age continues", () =>
     expect(continued.overlaps).toEqual([
       {
         jobId: "contract",
-        jobLabel: `${samplePlan.name}'s job 2`,
+        jobLabel: `${samplePlan.primary.name}'s job 2`,
         jobName: null,
         fromAge: 65,
         toAge: 70,
-        fromYear: SAMPLE_START_YEAR - samplePlan.currentAge + 65,
-        toYear: SAMPLE_START_YEAR - samplePlan.currentAge + 70,
+        fromYear: SAMPLE_START_YEAR - CURRENT_AGE + 65,
+        toYear: SAMPLE_START_YEAR - CURRENT_AGE + 70,
       },
     ]);
     // The continuation's own terminus, likewise the owner's — here the primary, so it matches
     // the boundary age the search was asked about.
     expect(continued.throughAge).toBe(71);
-    expect(continued.throughYear).toBe(SAMPLE_START_YEAR - samplePlan.currentAge + 71);
+    expect(continued.throughYear).toBe(SAMPLE_START_YEAR - CURRENT_AGE + 71);
   });
 
   it("reports an overlap only from NOW, never from a year the projection does not pay", () => {
@@ -994,12 +1075,12 @@ describe("retirementSolver — which job a later candidate age continues", () =>
     expect(continued.overlaps).toEqual([
       {
         jobId: "current",
-        jobLabel: `${samplePlan.name}'s job 2`,
+        jobLabel: `${samplePlan.primary.name}'s job 2`,
         jobName: null,
-        fromAge: samplePlan.currentAge,
+        fromAge: CURRENT_AGE,
         toAge: 65,
         fromYear: SAMPLE_START_YEAR,
-        toYear: SAMPLE_START_YEAR - samplePlan.currentAge + 65,
+        toYear: SAMPLE_START_YEAR - CURRENT_AGE + 65,
       },
     ]);
   });
@@ -1026,6 +1107,7 @@ describe("retirementSolver — which job a later candidate age continues", () =>
       id: "p2",
       name: "Partner",
       birthYear: partnerBirthYear,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
       benefitClaimingAge: 67,
       continuationJobId: "nursing",
       jobs: [
@@ -1042,7 +1124,7 @@ describe("retirementSolver — which job a later candidate age continues", () =>
     if (!added.ok) throw new Error(`fixture rejected: ${added.conflict}`);
     // The primary names no continuation, so only the partner's job is extended and the answer
     // is unambiguously about them.
-    const scenario = withLedger(scenarioOf(planWithJobs(samplePlan.jobs, null)), added.ledger);
+    const scenario = withLedger(scenarioOf(planWithJobs(samplePlan.primary.jobs, null)), added.ledger);
 
     // A boundary at the primary's 71 is the calendar year the PARTNER turns 76.
     const [continued] = continuedJobsAt(scenario, 71, CTX);
@@ -1086,8 +1168,9 @@ describe("retirementSolver — which job a later candidate age continues", () =>
     const jobs = [job("bar", 20, 30, 20_000), job("current", 35, 65)];
     const person = (continuationJobId: string | null): Person => ({
       id: "p1",
-      name: samplePlan.name,
+      name: samplePlan.primary.name,
       birthYear: BIRTH_YEAR,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
       benefitClaimingAge: 67,
       jobs,
       continuationJobId,
@@ -1126,8 +1209,9 @@ describe("retirementSolver — which job a later candidate age continues", () =>
     const jobs = [job("bar", 20, 30, 20_000), job("current", 35, 65)];
     const person = (continuationJobId: string | null): Person => ({
       id: "p1",
-      name: samplePlan.name,
+      name: samplePlan.primary.name,
       birthYear: BIRTH_YEAR,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
       benefitClaimingAge: 67,
       jobs,
       continuationJobId,
@@ -1184,7 +1268,10 @@ describe("retirementSolver — which job a later candidate age continues", () =>
     // performed, so it names a job exactly when the projection really did pay it for years the
     // plan does not contain.
     const solved = solveRetirement(
-      scenarioOf({ ...baristaPlan, jobs: baristaJobs, continuationJobId: "career" }),
+      scenarioOf({
+        ...baristaPlan,
+        primary: { ...baristaPlan.primary, jobs: baristaJobs, continuationJobId: "career" },
+      }),
       CTX,
     );
     expect(solved.fullRetirementAge).toBe(74);
@@ -1193,25 +1280,25 @@ describe("retirementSolver — which job a later candidate age continues", () =>
     expect(solved.continuedJobs).toEqual([
       {
         jobId: "career",
-        jobLabel: `${baristaPlan.name}'s job 1`,
+        jobLabel: `${baristaPlan.primary.name}'s job 1`,
         jobName: null,
         ownerId: "p1",
-        ownerName: baristaPlan.name,
+        ownerName: baristaPlan.primary.name,
         // The owner here IS the primary, so their age and the solved age coincide — the case
         // that hid the partner bug for as long as it did.
         throughAge: 74,
-        throughYear: SAMPLE_START_YEAR - baristaPlan.currentAge + 74,
+        throughYear: SAMPLE_START_YEAR - BARISTA_CURRENT_AGE + 74,
         // The token job starts exactly where the career was authored to end, so continuing the
         // career runs straight through it.
         overlaps: [
           {
             jobId: "token",
-            jobLabel: `${baristaPlan.name}'s job 2`,
+            jobLabel: `${baristaPlan.primary.name}'s job 2`,
             jobName: null,
             fromAge: 65,
             toAge: 70,
-            fromYear: SAMPLE_START_YEAR - baristaPlan.currentAge + 65,
-            toYear: SAMPLE_START_YEAR - baristaPlan.currentAge + 70,
+            fromYear: SAMPLE_START_YEAR - BARISTA_CURRENT_AGE + 65,
+            toYear: SAMPLE_START_YEAR - BARISTA_CURRENT_AGE + 70,
           },
         ],
       },
@@ -1241,7 +1328,10 @@ describe("retirementSolver — which job a later candidate age continues", () =>
     // And it really does read the plan rather than always agreeing: the tight fixture's authored
     // jobs do not carry it to life expectancy.
     const tight = solveRetirement(
-      scenarioOf({ ...baristaPlan, jobs: baristaJobs, continuationJobId: "career" }),
+      scenarioOf({
+        ...baristaPlan,
+        primary: { ...baristaPlan.primary, jobs: baristaJobs, continuationJobId: "career" },
+      }),
       CTX,
     );
     expect(tight.authoredPlanSurvives).toBe(false);
@@ -1280,14 +1370,14 @@ describe("retirementSolver — which job a later candidate age continues", () =>
       );
 
     const onContract = reload(planWithJobs(jobs, "contract"));
-    expect(onContract.plan.continuationJobId).toBe("contract");
+    expect(onContract.plan.primary.continuationJobId).toBe("contract");
     const previewed = onContract.runAtStopWorkingAge(mockJurisdiction(), 71).series;
     expect(wageAt(previewed, "contract", monthAt(70))).toBeGreaterThan(0);
     expect(wageAt(previewed, "career", monthAt(70))).toBe(0);
 
     // `null` and "never chosen" are different states, and neither may decay into the other.
-    expect(reload(planWithJobs(jobs, null)).plan.continuationJobId).toBeNull();
-    expect(reload(planWithJobs(jobs)).plan.continuationJobId).toBeUndefined();
+    expect(reload(planWithJobs(jobs, null)).plan.primary.continuationJobId).toBeNull();
+    expect(reload(planWithJobs(jobs)).plan.primary.continuationJobId).toBeUndefined();
   });
 
   it("records no continuation at a candidate that is exactly the selected job's own end", () => {
@@ -1382,7 +1472,7 @@ describe("retirementSolver — which job a later candidate age continues", () =>
 
     // Order is not information: the same jobs listed the other way round still answer None.
     const reversed = planWithJobs([...jobs].reverse(), null);
-    expect(continuationJobIdOf({ ...reversed, id: "p1", birthYear: BIRTH_YEAR }, START_YEAR)).toBeNull();
+    expect(continuationJobIdOf(reversed.primary, START_YEAR)).toBeNull();
 
     // And the answer is invented nowhere downstream: neither solver nor preview pays a month the
     // plan does not contain. Every job left is authored to end by 72, so past that a preview at
@@ -1403,7 +1493,7 @@ describe("retirementSolver — which job a later candidate age continues", () =>
     const p = Projection.fromState(stateOf(planWithJobs(jobs, "contract")), mockJurisdiction());
     p.removeJob("contract");
 
-    expect(p.plan.continuationJobId).toBeNull();
+    expect(p.plan.primary.continuationJobId).toBeNull();
     expect(p.continuationJobOf("p1")).toBeNull();
     expect(JSON.stringify(p.toState())).not.toContain("contract");
 
@@ -1419,13 +1509,12 @@ describe("retirementSolver — which job a later candidate age continues", () =>
     // which is a different answer from stopping today and must not be reported as one.
     const jobless = (openingDollars: number): Plan => ({
       ...samplePlan,
-      jobs: [],
-      continuationJobId: null,
+      primary: { ...samplePlan.primary, jobs: [], continuationJobId: null },
       openingBalanceCents: dollarsToCents(openingDollars),
     });
 
     const funded = solveRetirement(scenarioOf(jobless(3_000_000)), CTX);
-    expect(funded.fullRetirementAge).toBe(samplePlan.currentAge);
+    expect(funded.fullRetirementAge).toBe(CURRENT_AGE);
     expect(funded.continuedJobs).toEqual([]);
     // No jobs is no planned stop either — a household with no wages never stops receiving them.
     expect(funded.plannedWorkStopAge).toBeNull();
@@ -1466,7 +1555,7 @@ describe("retirementSolver — which job a later candidate age continues", () =>
     expect(continued?.overlaps).toEqual([
       {
         jobId: "first",
-        jobLabel: `${samplePlan.name}'s job 2`,
+        jobLabel: `${samplePlan.primary.name}'s job 2`,
         jobName: null,
         fromAge: 65,
         toAge: 70,
@@ -1475,7 +1564,7 @@ describe("retirementSolver — which job a later candidate age continues", () =>
       },
       {
         jobId: "second",
-        jobLabel: `${samplePlan.name}'s job 3`,
+        jobLabel: `${samplePlan.primary.name}'s job 3`,
         jobName: null,
         fromAge: 68,
         toAge: 72,
@@ -1528,6 +1617,7 @@ describe("retirementSolver — which job a later candidate age continues", () =>
       id: PARTNER_ID,
       name: "Partner",
       birthYear: opts.birthYear ?? BIRTH_YEAR,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
       benefitClaimingAge: 67,
       jobs: opts.jobs,
       continuationJobId: opts.continuationJobId,
@@ -1542,7 +1632,7 @@ describe("retirementSolver — which job a later candidate age continues", () =>
       partner: Person,
       opts: { joinMonth?: number; separationMonth?: number } = {},
     ): Scenario {
-      const plan = planWithJobs(samplePlan.jobs, null);
+      const plan = planWithJobs(samplePlan.primary.jobs, null);
       const base = createProjectionBase(plan, CTX);
       const married = addEvent(emptyLedger, base, {
         id: "r1",
@@ -1635,7 +1725,7 @@ describe("retirementSolver — which job a later candidate age continues", () =>
       // for those years, so the window opens at "now" instead.
       const [fromTheStart] = continuedJobsAt(membershipScenario(partner), 70, CTX);
       expect(fromTheStart?.overlaps[0]?.fromYear).toBe(START_YEAR);
-      expect(fromTheStart?.overlaps[0]?.fromAge).toBe(samplePlan.currentAge);
+      expect(fromTheStart?.overlaps[0]?.fromAge).toBe(CURRENT_AGE);
     });
 
     it("reports no overlap where two jobs overlap as EMPLOYMENT but not as household income", () => {
@@ -1701,7 +1791,7 @@ describe("retirementSolver — which job a later candidate age continues", () =>
         jobs: [partnerJobAt("theirs", partnerBirthYear, 30, 60)],
         continuationJobId: "theirs",
       });
-      const base = createProjectionBase(planWithJobs(samplePlan.jobs, "job-main"), CTX);
+      const base = createProjectionBase(planWithJobs(samplePlan.primary.jobs, "job-main"), CTX);
       const married = addEvent(emptyLedger, base, {
         id: "r1",
         type: "RelationshipEvent",
@@ -1710,7 +1800,7 @@ describe("retirementSolver — which job a later candidate age continues", () =>
       });
       if (!married.ok) throw new Error(`fixture rejected: ${married.conflict}`);
       const scenario = withLedger(
-        scenarioOf(planWithJobs(samplePlan.jobs, "job-main")),
+        scenarioOf(planWithJobs(samplePlan.primary.jobs, "job-main")),
         married.ledger,
       );
 
@@ -1754,6 +1844,7 @@ describe("continuationJobIdOf — what a household that never chose gets", () =>
     id: "p1",
     name: "A",
     birthYear: 1960,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
     benefitClaimingAge: 67,
     jobs,
     ...(continuationJobId !== undefined ? { continuationJobId } : {}),
@@ -1801,5 +1892,101 @@ describe("continuationJobIdOf — what a household that never chose gets", () =>
     // The authoring path clears the selection with the job it named, so this only catches a
     // state restored from outside — where a dangling id must not become licence to work forever.
     expect(continuationJobIdOf(person([job("current", 1995, 2020)], "deleted"), NOW)).toBeNull();
+  });
+});
+
+describe("solveRetirement — horizonAnchor names the longest-lived member", () => {
+  // samplePlan: primary age 40, expectancy 85. The anchor is whose expectancy the run ends at.
+  const anchorOf = (scenario: Scenario) => solveRetirement(scenario, CTX).horizonAnchor;
+
+  const samPartner = (over: PartnerOverrides): Person => ({
+    id: "p2",
+    name: "Sam",
+    birthYear: PRIMARY_BIRTH_YEAR,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
+    benefitClaimingAge: 67,
+    jobs: [],
+    ...over,
+  });
+
+  function withPartner(partner: Person, separateAtMonth?: number): Scenario {
+    const base = createProjectionBase(samplePlan, CTX);
+    const married = addEvent(emptyLedger, base, {
+      id: "r1",
+      type: "RelationshipEvent",
+      month: 0,
+      person: partner,
+    });
+    if (!married.ok) throw new Error(`fixture rejected: ${married.conflict}`);
+    let ledger = married.ledger;
+    if (separateAtMonth !== undefined) {
+      const separated = addEvent(ledger, base, {
+        id: "s1",
+        type: "SeparationEvent",
+        month: separateAtMonth,
+        partnerPersonId: partner.id,
+        alimonyMonthlyCents: 0,
+        alimonyDurationMonths: 0,
+        childSupportMonthlyCents: 0,
+      });
+      if (!separated.ok) throw new Error(`fixture rejected: ${separated.conflict}`);
+      ledger = separated.ledger;
+    }
+    return withLedger(scenarioOf(samplePlan), ledger);
+  }
+
+  it("names the primary (null) when nobody outlives them", () => {
+    expect(anchorOf(scenarioOf(samplePlan))).toEqual({ age: 85, memberName: null });
+  });
+
+  it("names a younger partner who outlives the primary, at their own stated expectancy", () => {
+    // Born 10 years after the primary, same expectancy age 85 → reaches it in a later calendar
+    // year, so the run ends at Sam's 85, not the primary's.
+    expect(anchorOf(withPartner(samPartner({ birthYear: PRIMARY_BIRTH_YEAR + 10 })))).toEqual({
+      age: 85,
+      memberName: "Sam",
+    });
+  });
+
+  it("honours a partner's own stated expectancy over the household default", () => {
+    expect(
+      anchorOf(withPartner(samPartner({ birthYear: PRIMARY_BIRTH_YEAR + 10, lifeExpectancy: 95 }))),
+    ).toEqual({ age: 95, memberName: "Sam" });
+  });
+
+  it("falls back to the primary when the partner would die first", () => {
+    expect(anchorOf(withPartner(samPartner({ birthYear: PRIMARY_BIRTH_YEAR - 10 })))).toEqual({
+      age: 85,
+      memberName: null,
+    });
+  });
+
+  // The anchor names whoever the SIM ran to, so it applies the same both-alive rule
+  // (`memberHorizonReach`) that `buildHouseholdInput` does. Sam is born ten years after the
+  // primary at the same expectancy 85, so the primary dies at month 540 and Sam at 660, and the
+  // boundary a separation has to beat is the primary's 540.
+  describe("a separation removes the anchor only while both are alive", () => {
+    const younger = () => samPartner({ birthYear: PRIMARY_BIRTH_YEAR + 10 });
+    const PRIMARY_DEATH_MONTH = (85 - 40) * 12; // 540
+
+    it("BEFORE either death: Sam leaves, so the primary anchors", () => {
+      expect(anchorOf(withPartner(younger(), 12))).toEqual({ age: 85, memberName: null });
+      expect(anchorOf(withPartner(younger(), PRIMARY_DEATH_MONTH - 1))).toEqual({
+        age: 85,
+        memberName: null,
+      });
+    });
+
+    it("EXACTLY AT the first death: too late to happen, so Sam still anchors", () => {
+      expect(anchorOf(withPartner(younger(), PRIMARY_DEATH_MONTH))).toEqual({
+        age: 85,
+        memberName: "Sam",
+      });
+    });
+
+    it("AFTER the first death: Sam anchors — they never left while alive", () => {
+      expect(anchorOf(withPartner(younger(), 600))).toEqual({ age: 85, memberName: "Sam" });
+      expect(anchorOf(withPartner(younger(), 700))).toEqual({ age: 85, memberName: "Sam" });
+    });
   });
 });

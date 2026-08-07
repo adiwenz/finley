@@ -138,7 +138,6 @@ function partnerJobSeries(
 ): HouseholdSeries[] {
   const compiled = compileHouseholdJobSeries(
     resolveHouseholdJobs(personJobContexts(membership), nowYear, scope),
-    nowYear,
     inflationRate,
   );
   return compiled.map((os, i) =>

@@ -36,11 +36,33 @@ function budget(opts: {
   monthlyIncome?: number;
   deferralPct?: number;
   overrides?: Partial<Plan>;
+  currentAge?: number;
 }): Plan {
   let plan: Plan = { ...PLAN_DEFAULTS, ...(opts.overrides ?? {}) };
+  if (opts.currentAge !== undefined) {
+    // The job moves with the person. Its years are calendar years read against the OWNER's birth
+    // year, so re-aging Alex without shifting them would re-age the employment too — a 64-year-old
+    // would hold the default job at ages 47 to 94, which is not a job somebody lives to finish.
+    // Shifting by the same delta keeps the default's own start and end AGES, which is what a case
+    // saying "aged 64, retiring next year" means.
+    const birthYear = START_YEAR - opts.currentAge;
+    const shift = birthYear - PLAN_DEFAULTS.primary.birthYear;
+    plan = {
+      ...plan,
+      primary: {
+        ...plan.primary,
+        birthYear,
+        jobs: plan.primary.jobs.map((j) => ({
+          ...j,
+          startYear: j.startYear + shift,
+          endYear: j.endYear + shift,
+        })),
+      },
+    };
+  }
   // The default plan's lone job, by its engine-minted id — these single-earner cases never
   // override `jobs`, so this is Alex's job on the plan being tuned.
-  const jobId = PLAN_DEFAULTS.jobs[0]!.id;
+  const jobId = PLAN_DEFAULTS.primary.jobs[0]!.id;
   if (opts.monthlyIncome !== undefined) plan = setJobMonthlyIncome(plan, jobId, dollarsToCents(opts.monthlyIncome));
   if (opts.deferralPct !== undefined) plan = setJobDeferralFraction(plan, jobId, opts.deferralPct / 100);
   return plan;
@@ -83,6 +105,7 @@ const partnerWith = (jobs: readonly Job[]): Ledger => ({
         id: "p-1",
         name: "Sam",
         birthYear: START_YEAR - 40,
+        lifeExpectancy: 85,
         benefitClaimingAge: 67,
         jobs,
       },
@@ -101,7 +124,7 @@ describe("deferralLimitCrossing — one earner", () => {
     const crossing = crossingFor(budget({ monthlyIncome: 5000, deferralPct: 50 }));
     expect(crossing).not.toBeNull();
     expect(crossing!.year).toBe(START_YEAR);
-    expect(crossing!.personName).toBe(PLAN_DEFAULTS.name); // named, even on a solo plan
+    expect(crossing!.personName).toBe(PLAN_DEFAULTS.primary.name); // named, even on a solo plan
   });
 
   it("crosses in a LATER year when income inflates past the limit", () => {
@@ -111,7 +134,8 @@ describe("deferralLimitCrossing — one earner", () => {
       budget({
         monthlyIncome: 4000,
         deferralPct: 50,
-        overrides: { inflationPct: 3, currentAge: 35 },
+        overrides: { inflationPct: 3 },
+        currentAge: 35,
       }),
     );
     expect(crossing).not.toBeNull();
@@ -126,7 +150,8 @@ describe("deferralLimitCrossing — one earner", () => {
         budget({
           monthlyIncome: 4000,
           deferralPct: 10,
-          overrides: { inflationPct: 3, currentAge: 35 },
+          overrides: { inflationPct: 3 },
+          currentAge: 35,
         }),
       ),
     ).toBeNull();
@@ -138,7 +163,7 @@ describe("deferralLimitCrossing — one earner", () => {
       budget({
         monthlyIncome: 1500,
         deferralPct: 50,
-        overrides: { currentAge: 64 },
+        currentAge: 64,
       }),
     );
     // $18k/yr at 50% = $9k, under the age-64 limit ($24,500 + $8,000 catch-up) → null.
@@ -150,18 +175,22 @@ describe("deferralLimitCrossing — a person's own jobs, summed", () => {
   it("aggregates one person's jobs before comparing with the limit", () => {
     // Two jobs at $30k/yr, each deferring 50% = $30k total, over the $24,500 limit.
     // Neither job crosses alone.
+    const base = budget({ monthlyIncome: 2500, deferralPct: 50 });
     const twoJobs: Plan = {
-      ...budget({ monthlyIncome: 2500, deferralPct: 50 }),
-      jobs: [
-        job("job-1", PRIMARY_PERSON_ID, 2500, 50),
-        job("job-2", PRIMARY_PERSON_ID, 2500, 50),
-      ],
+      ...base,
+      primary: {
+        ...base.primary,
+        jobs: [
+          job("job-1", PRIMARY_PERSON_ID, 2500, 50),
+          job("job-2", PRIMARY_PERSON_ID, 2500, 50),
+        ],
+      },
     };
     const crossing = crossingFor(twoJobs);
     expect(crossing).not.toBeNull();
     expect(crossing!.year).toBe(START_YEAR);
     expect(crossing!.annualDeferralCents).toBe(dollarsToCents(30_000));
-    expect(crossing!.personName).toBe(PLAN_DEFAULTS.name);
+    expect(crossing!.personName).toBe(PLAN_DEFAULTS.primary.name);
   });
 
   it("counts only the years a job is actually worked", () => {
@@ -169,10 +198,13 @@ describe("deferralLimitCrossing — a person's own jobs, summed", () => {
     const later: Plan = {
       ...PLAN_DEFAULTS,
       inflationPct: 0,
-      jobs: [
-        job("job-1", PRIMARY_PERSON_ID, 2500, 50),
-        job("job-2", PRIMARY_PERSON_ID, 2500, 50, { startYear: START_YEAR + 5 }),
-      ],
+      primary: {
+        ...PLAN_DEFAULTS.primary,
+        jobs: [
+          job("job-1", PRIMARY_PERSON_ID, 2500, 50),
+          job("job-2", PRIMARY_PERSON_ID, 2500, 50, { startYear: START_YEAR + 5 }),
+        ],
+      },
     };
     const crossing = crossingFor(later);
     expect(crossing).not.toBeNull();
@@ -213,7 +245,10 @@ describe("deferralLimitCrossing — every earner, each against their own limit",
     const plan: Plan = {
       ...PLAN_DEFAULTS,
       inflationPct: 0,
-      jobs: [job("job-1", PRIMARY_PERSON_ID, 5000, 33.34)], // $60k at 33.34% ≈ $20k
+      primary: {
+        ...PLAN_DEFAULTS.primary,
+        jobs: [job("job-1", PRIMARY_PERSON_ID, 5000, 33.34)], // $60k at 33.34% ≈ $20k
+      },
     };
     const crossing = crossingFor(plan, partnerWith([job("p-1-job-1", "p-1", 5000, 33.34)]));
     expect(crossing).toBeNull();
@@ -225,7 +260,7 @@ describe("deferralLimitCrossing — every earner, each against their own limit",
     const plan = budget({ monthlyIncome: 5000, deferralPct: 50, overrides: { inflationPct: 3 } });
     const crossing = crossingFor(plan, partnerWith([job("p-1-job-1", "p-1", 4000, 50)]));
     expect(crossing).not.toBeNull();
-    expect(crossing!.personName).toBe(PLAN_DEFAULTS.name);
+    expect(crossing!.personName).toBe(PLAN_DEFAULTS.primary.name);
     expect(crossing!.year).toBe(START_YEAR);
   });
 
@@ -243,6 +278,7 @@ describe("deferralLimitCrossing — every earner, each against their own limit",
             id: "p-1",
             name: "Sam",
             birthYear: START_YEAR - 40,
+            lifeExpectancy: 85,
             benefitClaimingAge: 67,
             jobs: [job("p-1-job-1", "p-1", 2000, 50)],
           },

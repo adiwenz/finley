@@ -47,7 +47,7 @@ describe("GoalsPanel", () => {
     // goal needs a plan that actually saves: a $6,500 wage fills a $5,000 target well before
     // the 24-month date.
     const budget: Plan = {
-      ...setJobMonthlyIncome(PLAN_DEFAULTS, PLAN_DEFAULTS.jobs[0]!.id, dollarsToCents(6500)),
+      ...setJobMonthlyIncome(PLAN_DEFAULTS, PLAN_DEFAULTS.primary.jobs[0]!.id, dollarsToCents(6500)),
       goals: [
         {
           id: "car",

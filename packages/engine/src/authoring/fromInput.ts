@@ -14,7 +14,7 @@
 
 import type { BudgetTarget } from "../budget/budgetLine";
 import { goalFundAccountId } from "../compile/projectionBase";
-import { ageAboveMaximum } from "../plan/plan";
+import { invalidAge } from "../plan/plan";
 import {
   PRIMARY_PERSON_REF,
   RETIREMENT_REF,
@@ -61,12 +61,28 @@ export function interpretScenarioInput(
   // makes this an authoring path: the state it starts from holds no id at all, so restoration has
   // nothing to floor past and the counter opens at 1.
   const { jobs, goals, budgetLines, events: _events, continuationJobRef, ...scalars } = input;
-  // `open` REFUSES an over-large age by throwing, which is right for a caller holding a handle
+  // Same reason as the age bound below: `open` throws for a document with no primary expectancy,
+  // and a document's answer is `{ ok: false }` with a reason. The type already requires it, but a
+  // published package is reached from JavaScript too, and a `NaN` horizon is not a refusal.
+  if (
+    typeof scalars.lifeExpectancy !== "number" ||
+    !Number.isFinite(scalars.lifeExpectancy)
+  ) {
+    return { ok: false, error: { reason: "lifeExpectancy is required — the plan states how long the primary lives" } };
+  }
+  // `open` REFUSES an out-of-range age by throwing, which is right for a caller holding a handle
   // but wrong for a document: this path answers `{ ok: false }` with a reason, so the age is
   // checked here and reported like any other thing wrong with the input.
-  const overAge = ageAboveMaximum(scalars);
+  const overAge = invalidAge(
+    {
+      birthYear: scalars.birthYear,
+      lifeExpectancy: scalars.lifeExpectancy,
+      benefitClaimingAge: scalars.benefitClaimingAge,
+    },
+    scalars.startYear,
+  );
   if (overAge) {
-    return { ok: false, error: { reason: `${overAge.field} ${overAge.age} exceeds the ${overAge.limit} maximum` } };
+    return { ok: false, error: { reason: `${overAge.field} ${overAge.age} ${overAge.problem}` } };
   }
   const projection = open(scalars);
 
@@ -141,6 +157,7 @@ export function interpretScenarioInput(
               name: entry.name,
               birthYear: entry.birthYear,
               ...(entry.benefitClaimingAge !== undefined ? { benefitClaimingAge: entry.benefitClaimingAge } : {}),
+              lifeExpectancy: entry.lifeExpectancy,
               ...(entry.jobs !== undefined ? { jobs: entry.jobs.map(toJobInput) } : {}),
             }),
           );
@@ -164,6 +181,7 @@ export function interpretScenarioInput(
               name: entry.name,
               birthYear: entry.birthYear,
               ...(entry.benefitClaimingAge !== undefined ? { benefitClaimingAge: entry.benefitClaimingAge } : {}),
+              lifeExpectancy: entry.lifeExpectancy,
               ...(entry.jobs !== undefined ? { jobs: entry.jobs.map(toJobInput) } : {}),
             }),
           );

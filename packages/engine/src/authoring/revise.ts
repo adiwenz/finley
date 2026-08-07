@@ -13,6 +13,7 @@ import type { Cents } from "../money/money";
 import type { EmbeddedMortgage, LifeEvent, NewLifeEvent } from "../ledger/eventTypes";
 import type { ProjectionState } from "./state";
 import { dropEvent, replaceEvent } from "./eventWrite";
+import { withBirthYear } from "../plan/person";
 import { isPreExisting } from "../projection/nowMarker";
 import { mint } from "./mint";
 
@@ -48,6 +49,12 @@ export type TransactionRevision =
       readonly month?: number;
       readonly name?: string;
       readonly birthYear?: number;
+      /**
+       * Optional the way every field on a revision is — omitted means "leave it alone", never
+       * "default it". A partner's expectancy is required at `marry` and never inherited from the
+       * primary, so this is the only way to change one after the fact.
+       */
+      readonly lifeExpectancy?: number;
       readonly benefitClaimingAge?: number;
     }
   | {
@@ -158,16 +165,23 @@ function revisedEvent(state: ProjectionState, current: LifeEvent, revision: Tran
   switch (current.type) {
     case "RelationshipEvent": {
       const r = at("marry");
+      // A partner's jobs are dated in the partner's own ages, so a corrected birth year moves
+      // them with it — the same rule the primary's edit runs, from the one definition of it, so
+      // the two planes cannot disagree about what correcting a birthday means. Everything else
+      // spreads over the result; their id and job list ride through either way.
+      const person =
+        r.birthYear === undefined ? current.person : withBirthYear(current.person, r.birthYear);
       return {
         next: {
           ...kept,
           month: r.month ?? current.month,
-          // The person is spread, so their id and their whole job list ride through untouched.
+          // `birthYear` is not restated here: `person` already carries it, applied through the
+          // rule above so the jobs it dates moved with it.
           person: {
-            ...current.person,
-            name: r.name ?? current.person.name,
-            birthYear: r.birthYear ?? current.person.birthYear,
-            benefitClaimingAge: r.benefitClaimingAge ?? current.person.benefitClaimingAge,
+            ...person,
+            name: r.name ?? person.name,
+            lifeExpectancy: r.lifeExpectancy ?? person.lifeExpectancy,
+            benefitClaimingAge: r.benefitClaimingAge ?? person.benefitClaimingAge,
           },
         } as NewLifeEvent,
       };
@@ -351,6 +365,11 @@ export function reviseProjectionTransaction(
         `which a "${revision.type}" revision does not address`,
     );
   }
+  // A `marry` revision may move that partner's `birthYear` or `lifeExpectancy`, and so the month
+  // they die — which everything that partner takes part in is dated against: their own separation,
+  // any loan or home they own, any job they hold. `replaceEvent` checks the prospective state for
+  // exactly that, so an edit that strands one past a death is refused rather than leaving an event
+  // nobody lives to see.
   const { next, nextSeq } = revisedEvent(state, current, revision);
   return replaceEvent(state, jurisdiction, id, next, nextSeq);
 }

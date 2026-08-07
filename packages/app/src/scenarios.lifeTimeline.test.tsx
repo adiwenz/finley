@@ -44,7 +44,7 @@ function lifeArc() {
     },
     deferral: { deferralFraction: 0.25, fundAccountId: RETIREMENT_ID },
   };
-  const alexJobId = p.plan.jobs[0]!.id;
+  const alexJobId = p.plan.primary.jobs[0]!.id;
   p.replaceJob(alexJobId, alexJob);
 
   // Sam, already a decade into the household and the same age as Alex, holding a job of their own.
@@ -52,6 +52,7 @@ function lifeArc() {
     partneredForMonths: 120,
     name: "Sam",
     birthYear: ALEX_BIRTH,
+    lifeExpectancy: LIFE_EXPECTANCY,
     jobs: [jobAt(30, 60, 90_000, ALEX_BIRTH)],
   });
 
@@ -114,7 +115,7 @@ describe("life timeline — one household coherent across decades", () => {
 
   it("still gives the household one retirement answer after the whole arc", () => {
     expect(headline(lifeArc().projection)).toBe(
-      `You can retire at 47 and have the portfolio last to age ${LIFE_EXPECTANCY}.`,
+      `You can retire at 47 and have the portfolio last to your life expectancy (age ${LIFE_EXPECTANCY}).`,
     );
   });
 

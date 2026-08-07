@@ -13,6 +13,8 @@ import { type BudgetLine } from "../budget/budgetLine";
 import { RETIREMENT_ID } from "../plan/ids";
 import { P1, freshProjection, plainJob, partnerEvent } from "../testing/projectionFacadeFixtures";
 
+const CURRENT_AGE = SAMPLE_START_YEAR - samplePlan.primary.birthYear;
+
 describe("Projection root — per-line monthly resolution in the result", () => {
   /**
    * `obligationBudgetLineId` keys each line `line:<id>`, and the engine mints that id — so a test
@@ -47,7 +49,7 @@ describe("Projection root — per-line monthly resolution in the result", () => 
     // shortfall. Priority funds rent (a need) before fun (a want).
     const p = Projection.fromState(stateOf({
           ...samplePlan,
-          jobs: [salariedJob(dollarsToCents(3_000))],
+          primary: { ...samplePlan.primary, jobs: [salariedJob(dollarsToCents(3_000))] },
           openingBalanceCents: 0,
           goals: [],
         }), nullJurisdiction);
@@ -108,7 +110,7 @@ describe("Projection root — per-line monthly resolution in the result", () => 
 
     const months = p.run(nullJurisdiction).series.months;
     // Age 63 — three years past retirement, four years before the benefit starts.
-    const gapMonth = (63 - samplePlan.currentAge) * 12;
+    const gapMonth = (63 - CURRENT_AGE) * 12;
     const flows = months[gapMonth]?.flows;
     expect(flows?.totalIncomeCents).toBe(0);
 
@@ -120,7 +122,7 @@ describe("Projection root — per-line monthly resolution in the result", () => 
     expect(flows?.lineMonthlyCents[keyOf(fun)]).toBeGreaterThan(0); // the first line to starve
 
     // Nothing starves anywhere across the whole gap.
-    for (let m = (60 - samplePlan.currentAge) * 12; m <= (67 - samplePlan.currentAge) * 12; m++) {
+    for (let m = (60 - CURRENT_AGE) * 12; m <= (67 - CURRENT_AGE) * 12; m++) {
       expect(fundedTotal(m)).toBe(months[m]?.flows?.expensesCents);
     }
   });
@@ -224,6 +226,7 @@ describe("Projection reads — over authored state", () => {
       month: 0,
       name: "Sam",
       birthYear: SAMPLE_START_YEAR - 38,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
       jobs: [
         { ...plainJob, salary: { startingSalaryCents: dollarsToCents(60000), currentSalaryCents: dollarsToCents(60000), realGrowthPct: 0 } },
       ],
@@ -275,7 +278,7 @@ describe("ProjectionResult reads — over one run", () => {
 
   it("reports who is in the household at a month, and only from the month they joined", () => {
     const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
-    p.marry({ month: 24, name: "Sam", birthYear: SAMPLE_START_YEAR - 38 });
+    p.marry({ month: 24, name: "Sam", birthYear: SAMPLE_START_YEAR - 38, lifeExpectancy: samplePlan.primary.lifeExpectancy });
     const result = p.run(RUN_JURISDICTION);
     expect(result.membersAt(0).map((m) => m.id)).toEqual(["p1"]);
     expect(result.membersAt(24).map((m) => m.name)).toContain("Sam");

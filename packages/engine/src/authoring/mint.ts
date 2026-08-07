@@ -137,7 +137,7 @@ function eventIds(event: LifeEvent): readonly (string | undefined)[] {
 function mintedIdFields(scenario: Scenario): readonly (string | undefined)[] {
   const { plan, ledger } = scenario;
   return [
-    ...plan.jobs.flatMap(jobIds),
+    ...plan.primary.jobs.flatMap(jobIds),
     ...plan.goals.map((g) => g.id),
     ...plan.budgetLines.flatMap((l) => [
       l.id,

@@ -23,6 +23,7 @@ const EXISTING: RelationshipEvent = {
     id: "p2",
     name: "Sam",
     birthYear: 1988,
+    lifeExpectancy: 85,
     benefitClaimingAge: 68,
     jobs: [],
   },
@@ -85,6 +86,44 @@ describe("RelationshipForm — partner jobs", () => {
     // the form invents neither.
     expect(job).not.toHaveProperty("id");
     expect(job).not.toHaveProperty("ownerId");
+  });
+
+  // The floor under "Their life expectancy" is the partner's OWN age. It used to be
+  // `Math.max(60, age)`, so a partner entered at 40 could not be projected to anything under 60
+  // — a number nobody typed, on a field that gave no reason for refusing what they did type.
+  describe("the life-expectancy floor is the partner's own age", () => {
+    it("lets a 40-year-old partner be projected to 41", () => {
+      const marry = renderForm();
+      enterNumber(spin(/Their age/i), "40");
+      const expectancy = spin(/Their life expectancy/i);
+      expect(Number(expectancy.min)).toBe(41);
+
+      enterNumber(expectancy, "41");
+      fireEvent.click(btn(/Add event/i));
+      expect(marry.mock.calls[0][0].lifeExpectancy).toBe(41);
+    });
+
+    it("clamps only AT their age, which is the engine's own boundary", () => {
+      // An expectancy equal to the age they already are is the month-0 death `invalidAge`
+      // rejects, so the field stops one past it rather than committing a refused write.
+      const marry = renderForm();
+      enterNumber(spin(/Their age/i), "40");
+      enterNumber(spin(/Their life expectancy/i), "40");
+      fireEvent.click(btn(/Add event/i));
+      expect(marry.mock.calls[0][0].lifeExpectancy).toBe(41);
+    });
+
+    it("follows the age field rather than being fixed at render", () => {
+      renderForm();
+      enterNumber(spin(/Their age/i), "76");
+      expect(Number(spin(/Their life expectancy/i).min)).toBe(77);
+    });
+
+    it("bounds an EDIT by the partner's age today, not by a fixed floor", () => {
+      // Sam is born 1988 and joins in 2028, so the form reads their age in the join year (40).
+      renderEdit();
+      expect(Number(spin(/Their life expectancy/i).min)).toBe(41);
+    });
   });
 
   it("takes the partner's age at the year they join, and stores it as their birth year", () => {
@@ -181,7 +220,10 @@ describe("RelationshipForm — editing an existing partner", () => {
       month: 24,
       name: "Sam",
       birthYear: 1988,
-        benefitClaimingAge: 68,
+      // Seeded from the partner on the timeline and sent back unchanged — a revision is the only
+      // way to edit an expectancy, since nothing defaults one.
+      lifeExpectancy: 85,
+      benefitClaimingAge: 68,
     });
   });
 

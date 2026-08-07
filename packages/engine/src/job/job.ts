@@ -280,6 +280,10 @@ export interface Job {
    * start after that age disappeared from the projection the moment it was saved, because the
    * thing that ended it was a number the user had entered somewhere else entirely. An end date
    * is a fact about a job, and a job states its own.
+   *
+   * Bounded by the owner's own life, as the start is: authoring holds a job to
+   * `startYear < endYear <= the year they die`, so what a job states is what it works
+   * ({@link import("../authoring/reachability").assertPersonEventsStillReachable}).
    */
   readonly endYear: number;
   readonly salary: SalaryTrajectory;
@@ -315,6 +319,41 @@ export function deriveRealGrowthPct(
 // Base + Adjustments panels — must apply the SAME rule. Two implementations of one edit is a
 // rule that can drift; keeping it in one place and duplicating only the wiring is what makes
 // the two surfaces safe to keep.
+
+/**
+ * **The whole job, moved `deltaYears` along the calendar — every age inside it unchanged.**
+ *
+ * A job is authored in the owner's ages ("started at 18, ends at 65") and STORED in calendar
+ * years, because a year is what the projection dates months from. Those are two readings of one
+ * fact, joined by the owner's birth year — so when the birth year moves, the calendar years have
+ * to move with it or the ages silently change into ones the user never typed. This is that move,
+ * and it is the reason a birth-year edit is not a plain field write: see
+ * {@link import("../plan/person").withBirthYear}, its only caller.
+ *
+ * **The dated adjustments move too, by the same span.** A raise, a bonus and a missed paycheck are
+ * stored as absolute simulation months, so leaving them where they were would slide them to
+ * different ages within the job — a raise authored at 40 landing at 41, or falling outside the
+ * employment altogether. Twelve months per year: no rounding, and nothing to reconcile.
+ *
+ * `startingSalaryCents` is deliberately NOT re-indexed. It is the payslip figure in the money of
+ * the job's own start year, and moving the job moves that year, so the figure now reads as that
+ * year's money. Inflating it by a year of CPI would restate a number the user typed from memory.
+ */
+export function withShiftedYears(job: Job, deltaYears: number): Job {
+  if (deltaYears === 0) return job;
+  const months = deltaYears * 12;
+  const moved = <T extends { readonly month: number }>(dated: readonly T[]): T[] =>
+    dated.map((d) => ({ ...d, month: d.month + months }));
+  return {
+    ...job,
+    startYear: job.startYear + deltaYears,
+    endYear: job.endYear + deltaYears,
+    // Spread conditionally, so a job with no adjustments comes out without the keys rather than
+    // growing empty arrays — the shape a replace would then have to clear.
+    ...(job.payChanges ? { payChanges: moved(job.payChanges) } : {}),
+    ...(job.incomeOverrides ? { incomeOverrides: moved(job.incomeOverrides) } : {}),
+  };
+}
 
 /** Apply `f` to the job with `id`, leaving the rest of the list alone. */
 export function mapJob(

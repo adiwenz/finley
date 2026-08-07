@@ -87,7 +87,7 @@ describe("timelineMarkers", () => {
     // Authored out of month order: the month-24 child before the month-12 marriage.
     const ledger = authored((p) => {
       p.haveChild({ month: 24, name: "Robin", annualCostCents: 0 });
-      p.marry({ month: 12, name: "Sam", birthYear: 1990 });
+      p.marry({ month: 12, name: "Sam", birthYear: 1990, lifeExpectancy: PLAN_DEFAULTS.primary.lifeExpectancy });
     });
     const markers = timelineMarkers(ledger);
     expect(markers.map((m) => m.month)).toEqual([12, 24]);
@@ -123,7 +123,12 @@ describe("timelineMarkers — per-event outcomes from a blocked projection", () 
       });
     const blocker = buy(12, 500_000, 200_000);
     const later = buy(60, 300_000, 60_000);
-    const marriage = p.marry({ month: 36, name: "Sam", birthYear: 1990 });
+    const marriage = p.marry({
+      month: 36,
+      name: "Sam",
+      birthYear: 1990,
+      lifeExpectancy: PLAN_DEFAULTS.primary.lifeExpectancy,
+    });
     p.updatePlan({ openingBalanceCents: dollarsToCents(60_000) });
     return { ledger: p.ledger, series: p.run(usJurisdiction).series, blocker, later, marriage };
   }
@@ -140,7 +145,14 @@ describe("timelineMarkers — per-event outcomes from a blocked projection", () 
   });
 
   it("leaves every marker executed with no series, and on a run to the horizon", () => {
-    const ledger = authored((p) => p.marry({ month: 12, name: "Sam", birthYear: 1990 }));
+    const ledger = authored((p) =>
+      p.marry({
+        month: 12,
+        name: "Sam",
+        birthYear: 1990,
+        lifeExpectancy: PLAN_DEFAULTS.primary.lifeExpectancy,
+      }),
+    );
     // No series argument — the timeline shows an indicator only once something has actually stopped.
     expect(timelineMarkers(ledger).every((m) => m.outcome === "executed")).toBe(true);
   });
@@ -179,7 +191,14 @@ describe("blockedWarning — the soft-warning content for a stopped projection",
   });
 
   it("is null with no series and on a run that reached the horizon", () => {
-    const ledger = authored((p) => p.marry({ month: 12, name: "Sam", birthYear: 1990 }));
+    const ledger = authored((p) =>
+      p.marry({
+        month: 12,
+        name: "Sam",
+        birthYear: 1990,
+        lifeExpectancy: PLAN_DEFAULTS.primary.lifeExpectancy,
+      }),
+    );
     // The snapshot panel's use — no series to read a block off of.
     expect(blockedWarning(ledger, undefined)).toBeNull();
     // A real, unblocked run has nothing to warn about, so the condition never holds.

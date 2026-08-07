@@ -56,10 +56,13 @@ describe("DebugPanel — rates that differ between series", () => {
     // only series compiled with its own rate, and it is an ordinary CPI-grown budget line
     // now. What still differs is BETWEEN series — a job with real growth outruns CPI — and
     // that is what the resolved readout must not flatten.
-    const [job] = PLAN_DEFAULTS.jobs;
+    const [job] = PLAN_DEFAULTS.primary.jobs;
     const html = render({
       ...PLAN_DEFAULTS,
-      jobs: [{ ...job!, salary: { ...job!.salary, realGrowthPct: 2 } }],
+      primary: {
+        ...PLAN_DEFAULTS.primary,
+        jobs: [{ ...job!, salary: { ...job!.salary, realGrowthPct: 2 } }],
+      },
     });
     expect(html).toContain("<dt>Housing</dt><dd>3%</dd>");
     expect(html).toContain("<dt>Healthcare</dt><dd>3%</dd>");

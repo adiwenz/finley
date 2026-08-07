@@ -1,7 +1,14 @@
 /** Partner joins the household — a RelationshipEvent. */
 
 import { useState } from "react";
-import { AGE_LIMITS, isPreExisting, MAX_LIVED_AGE, type RelationshipEvent } from "@finley/engine";
+import {
+  AGE_LIMITS,
+  isPreExisting,
+  MAX_AGE,
+  MAX_LIVED_AGE,
+  minLifeExpectancyFor,
+  type RelationshipEvent,
+} from "@finley/engine";
 import {
   elapsedYears,
   monthOfElapsedYears,
@@ -18,6 +25,13 @@ import { JobForm } from "../jobsPanel/jobForm";
 /** A generic-adult starting point, until the user says otherwise. */
 const PARTNER_DEFAULT_AGE = 40;
 
+/**
+ * What the life-expectancy field opens on. A visible, editable starting point — NOT a fallback:
+ * the engine requires a partner's own expectancy and never substitutes the primary's, so the
+ * number has to be one the user can see and change, exactly like {@link PARTNER_DEFAULT_AGE}.
+ */
+const PARTNER_DEFAULT_LIFE_EXPECTANCY = 90;
+
 /** The form's live state — one draft, not a hook per field. */
 interface RelationshipDraft {
   readonly month: number;
@@ -28,6 +42,11 @@ interface RelationshipDraft {
    * how old they are today). A birth year would make them do the arithmetic.
    */
   readonly age: number;
+  /**
+   * The age they are projected to live to — THEIRS, never the household's. The projection runs to
+   * the longest-lived member, so a partner younger than the primary is what extends it.
+   */
+  readonly lifeExpectancy: number;
   /** The age their government benefit begins, 62–70. */
   readonly claimingAge: number;
   /** Jobs authored for the partner, in the terms the Jobs form speaks (ages + dollars). */
@@ -56,6 +75,7 @@ function draftFromEvent(event: RelationshipEvent): RelationshipDraft {
     month,
     name: person.name,
     age: ageYearOf(month) - person.birthYear,
+    lifeExpectancy: person.lifeExpectancy,
     claimingAge: person.benefitClaimingAge,
     jobs: [],
   };
@@ -74,6 +94,7 @@ export function RelationshipForm({
           month: defaultMonth,
           name: "",
           age: PARTNER_DEFAULT_AGE,
+          lifeExpectancy: PARTNER_DEFAULT_LIFE_EXPECTANCY,
           claimingAge: 67,
           jobs: [],
         },
@@ -120,6 +141,7 @@ export function RelationshipForm({
           month: draft.month,
           name: draft.name || "Partner",
           birthYear: partnerBirthYear,
+          lifeExpectancy: draft.lifeExpectancy,
           benefitClaimingAge: draft.claimingAge,
         }),
       );
@@ -134,6 +156,7 @@ export function RelationshipForm({
         month: draft.month,
         name: draft.name || "Partner",
         birthYear: partnerBirthYear,
+        lifeExpectancy: draft.lifeExpectancy,
         benefitClaimingAge: draft.claimingAge,
         jobs: draft.jobs.map((job) => jobInputFromDraft(partnerBirthYear, job)),
       }),
@@ -222,6 +245,9 @@ export function RelationshipForm({
             // Their age when they join, which is "now" for every age this form collects — a
             // partner's job is authored in the terms of the moment they arrive.
             currentAge={draft.age}
+            // The expectancy being authored in this very form, so the job's end age follows the
+            // partner's own life as it is typed — the engine bounds it by that, not the primary's.
+            lifeExpectancy={draft.lifeExpectancy}
             submitLabel="Add"
             onSubmit={addJob}
             onCancel={() => setAddingJob(false)}
@@ -240,6 +266,20 @@ export function RelationshipForm({
         <summary>Advanced</summary>
         {/* No "their retirement age" here. Each job they hold says when it ends, so a second
             age that also ended their jobs could only ever contradict one of them. */}
+        {/* Their own expectancy, not the household's — the run reaches the longest-lived
+            member, so a younger partner extends it and nothing infers that for them. */}
+        <NumInput
+          label="Their life expectancy"
+          value={draft.lifeExpectancy}
+          onChange={(lifeExpectancy) => patch({ lifeExpectancy })}
+          // Their own age, plus one — the engine's floor and nothing else. It used to carry a
+          // `Math.max(60, …)`, which snapped a 40-year-old partner's expectancy to 60 (an age
+          // nobody typed), and `draft.age` unfloored would have committed the one value the
+          // engine refuses outright.
+          min={minLifeExpectancyFor(draft.age)}
+          max={MAX_AGE}
+          step={1}
+        />
         {/* Their benefit rides their own covered earnings, so it begins on their clock, not
             the household's. */}
         <NumInput

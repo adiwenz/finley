@@ -15,6 +15,13 @@ export type RetirementSearch =
  * One candidate age, judged. There is no `nearestFeasibleAge` here any more: it existed to give
  * the plan's pinned age a fallback, and nothing pins an age now — the search's own answer
  * ({@link RetirementSolution.fullRetirementAge}) IS the nearest feasible age.
+ *
+ * **No score, deliberately.** There was an `onTrackFraction` here: the fraction of the
+ * retirement-to-life-expectancy window the plan stayed solvent. Elapsed simulation time is not a
+ * measure of a retirement plan's success — a plan that runs out of money in its final year is not
+ * 97% of a working plan, it is a plan that fails — and stating a high percentage beside
+ * {@link feasible}` === false` invited exactly that reading. The outcome is the verdict
+ * ({@link feasible}, {@link blocked}, {@link blockedAtMonth}) and nothing is scored alongside it.
  */
 export interface RetirementEvaluation {
   /** The age evaluated — a candidate the search is trying. */
@@ -32,18 +39,6 @@ export interface RetirementEvaluation {
   readonly blocked: boolean;
   /** The month the projection blocked; present iff {@link blocked}. */
   readonly blockedAtMonth?: number;
-  /**
-   * Fraction of the retirement-to-life-expectancy window the plan stays solvent; 1.0 when
-   * it survives. Read from WHEN the plan first fails (insolvency / negative real net
-   * worth), never from the magnitude of a net-worth dip — insolvency nulls that and
-   * phantom equity distorts it. Strictly < 1 for any infeasible plan.
-   *
-   * Nothing in the app renders this today: it scored the plan against a pinned retirement age,
-   * and no age is pinned any more. It survives as the search's own "how close was that
-   * candidate?" signal — {@link feasible} is what the search reads — and because a caller
-   * evaluating one age of their own choosing has no other way to tell a near miss from a rout.
-   */
-  readonly onTrackFraction: number;
 }
 
 /**
@@ -129,6 +124,23 @@ export interface JobOverlap {
 }
 
 /**
+ * Whose life expectancy the projection horizon rests on — the longest-lived member, whose
+ * expectancy the portfolio must actually last to. The horizon is the MAX across members, so in a
+ * two-earner household with a younger partner this is the PARTNER, not the primary, and a panel
+ * that said "age 90" (the primary's) would understate the years the money has to cover.
+ */
+export interface HorizonAnchor {
+  /** The age the portfolio must last to — the longest-lived member's expectancy. */
+  readonly age: number;
+  /**
+   * That member's name, or `null` when it is the PRIMARY — the reader, addressed as "you". A tie
+   * (every member reaching their expectancy in the same calendar year, e.g. a same-age partner)
+   * falls to the primary, so an unremarkable household still says "your".
+   */
+  readonly memberName: string | null;
+}
+
+/**
  * What the default retirement query reports, read off the SAME real projection the net-worth
  * graph draws. An age is `null` when even working to life expectancy cannot make that scenario
  * survive.
@@ -189,4 +201,10 @@ export interface RetirementSolution {
    * assumption. Reporting the age without it states a conclusion and hides its premise.
    */
   readonly continuedJobs: readonly ContinuedJob[];
+  /**
+   * Whose expectancy the horizon rests on — see {@link HorizonAnchor}. The panel names them in
+   * the sentence about the portfolio lasting to life expectancy, so "age 90" is never read as a
+   * household guarantee when it is one member's own.
+   */
+  readonly horizonAnchor: HorizonAnchor;
 }

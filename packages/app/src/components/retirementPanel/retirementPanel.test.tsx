@@ -12,6 +12,7 @@ import { stateOf } from "../../testing/projectionHarness";
 import { RetirementPanel } from "./retirementPanel";
 import { retirementView, type RetirementView } from "../../retirementView";
 import { PLAN_DEFAULTS } from "../../planDefaults";
+import { START_YEAR } from "../../config";
 import type { Plan } from "@finley/engine";
 
 const noop = () => {};
@@ -58,7 +59,7 @@ function earlyRetiree(flagged: boolean): RetirementView {
   return {
     ...retirementView(Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction)),
     headlineAge: 58,
-    headlineMonth: (58 - PLAN_DEFAULTS.currentAge) * 12,
+    headlineMonth: (58 - (START_YEAR - PLAN_DEFAULTS.primary.birthYear)) * 12,
     earlyRetireeHealth: flagged
       ? { flagged: true, gapYears: 7, shortfallMonthlyCents: dollarsToCents(600) }
       : { flagged: false, gapYears: 0, shortfallMonthlyCents: 0 },
@@ -99,16 +100,67 @@ describe("RetirementPanel", () => {
     // and what the panel owes is that it prints both answers rather than only the happy one.
     const base = retirementView(Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction));
     const succeeds = renderWithView({ ...base, authoredPlanSurvives: true });
-    expect(succeeds).toContain(`This plan succeeds through age ${PLAN_DEFAULTS.lifeExpectancy}.`);
+    expect(succeeds).toContain(
+      `This plan succeeds through your life expectancy (age ${PLAN_DEFAULTS.primary.lifeExpectancy}).`,
+    );
     expect(succeeds).not.toContain("runs out of money");
 
     const fails = renderWithView({ ...base, authoredPlanSurvives: false });
     expect(fails).toContain(
-      `This plan runs out of money before age ${PLAN_DEFAULTS.lifeExpectancy}.`,
+      `This plan runs out of money before your life expectancy (age ${PLAN_DEFAULTS.primary.lifeExpectancy}).`,
     );
     // And a failing plan does not suppress the solved age: the two results are independent, and
     // "your plan fails but you could stop at 76" is an ordinary, useful pair of answers.
     expect(fails).toContain(`>${base.headlineAge}</strong>`);
+  });
+
+  it("discloses that the horizon age is the PRIMARY's life expectancy, not the household's", () => {
+    // The finding this pins: every life-expectancy mention was a bare "age 90" with no
+    // possessive, so in a two-earner household it read as a guarantee that covers a younger
+    // partner's last years too — which the primary-anchored horizon does not. Whose the age is
+    // rides the answer sentence itself: "your", the same voice the panel speaks in everywhere.
+    const base = retirementView(Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction));
+    const le = PLAN_DEFAULTS.primary.lifeExpectancy;
+
+    const succeeds = renderWithView({ ...base, authoredPlanSurvives: true });
+    expect(succeeds).toContain(`This plan succeeds through your life expectancy (age ${le}).`);
+    // A bare, unqualified "age 90" must be gone — the disclosure is the whole point.
+    expect(succeeds).not.toContain(`through age ${le}`);
+
+    const fails = renderWithView({ ...base, authoredPlanSurvives: false });
+    expect(fails).toContain(
+      `This plan runs out of money before your life expectancy (age ${le}).`,
+    );
+
+    // The headline's survival clause discloses it too, both forms.
+    expect(renderWithView({ ...base, continuedJobs: [] })).toContain(
+      `have the portfolio last to your life expectancy (age ${le}).`,
+    );
+    expect(renderWithView(base)).toContain(
+      `with the portfolio lasting to your life expectancy (age ${le}).`,
+    );
+
+    // As does the infeasible line — the age it never reaches is still the primary's.
+    expect(renderWithView({ ...base, headlineAge: null, headlineMonth: null })).toContain(
+      `the money never lasts to your life expectancy (age ${le})`,
+    );
+  });
+
+  it("names the partner when the horizon rests on THEIR expectancy, not the primary's", () => {
+    // A younger partner outlives the primary, so the portfolio must last to the partner's
+    // expectancy — the panel says whose it is rather than printing a bare age that reads as the
+    // household's. The engine hands the view the anchor (name + age); the panel renders it.
+    const base = retirementView(Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction));
+    const partnerAnchored = { ...base, horizonAge: 88, horizonMemberName: "Sam" };
+
+    expect(renderWithView({ ...partnerAnchored, authoredPlanSurvives: true })).toContain(
+      "This plan succeeds through Sam’s life expectancy (age 88).",
+    );
+    expect(renderWithView({ ...partnerAnchored, continuedJobs: [] })).toContain(
+      "have the portfolio last to Sam’s life expectancy (age 88).",
+    );
+    // And it is not the primary's own figure being reprinted under a partner's name.
+    expect(renderWithView(partnerAnchored)).not.toContain("your life expectancy");
   });
 
   it("says the plan holds no jobs rather than naming a stop age it does not have", () => {
@@ -202,7 +254,7 @@ describe("RetirementPanel — chart preview toggle", () => {
     const unnamed = renderToStaticMarkup(
       <RetirementPanel
         view={feasible}
-        budget={{ ...PLAN_DEFAULTS, name: "" }}
+        budget={{ ...PLAN_DEFAULTS, primary: { ...PLAN_DEFAULTS.primary, name: "" } }}
         previewing={false}
         onTogglePreview={noop}
       />,
@@ -235,7 +287,7 @@ describe("RetirementPanel — chart preview toggle", () => {
     // there is no premise to attach and attaching one would invent a caveat.
     const html = renderWithView({ ...feasible, continuedJobs: [] });
     expect(html).toContain(
-      `You can retire at <strong aria-label="Earliest feasible retirement age">${feasible.headlineAge}</strong> and have the portfolio last to age ${PLAN_DEFAULTS.lifeExpectancy}.`,
+      `You can retire at <strong aria-label="Earliest feasible retirement age">${feasible.headlineAge}</strong> and have the portfolio last to your life expectancy (age ${PLAN_DEFAULTS.primary.lifeExpectancy}).`,
     );
     expect(html).not.toContain("could stop working");
     // No condition hung off the age. Scoped to the headline paragraph: the preview toggle above
@@ -251,7 +303,7 @@ describe("RetirementPanel — chart preview toggle", () => {
     // sentence, and the survival claim rides it rather than being asserted separately.
     const html = renderWithView({ ...feasible, continuedJobs: oneContinuation });
     expect(html).toContain(
-      `You could stop working at <strong aria-label="Earliest feasible retirement age">${feasible.headlineAge}</strong> if your <strong>Software Engineer</strong> job continued through when you are 76 (2067), with the portfolio lasting to age ${PLAN_DEFAULTS.lifeExpectancy}.`,
+      `You could stop working at <strong aria-label="Earliest feasible retirement age">${feasible.headlineAge}</strong> if your <strong>Software Engineer</strong> job continued through when you are 76 (2067), with the portfolio lasting to your life expectancy (age ${PLAN_DEFAULTS.primary.lifeExpectancy}).`,
     );
     // The unconditional phrasing must be gone, not merely followed by a correction.
     expect(html).not.toContain("You can retire at");
@@ -279,7 +331,7 @@ describe("RetirementPanel — chart preview toggle", () => {
       ],
     });
     expect(html).toContain(
-      `You could stop working at <strong aria-label="Earliest feasible retirement age">${feasible.headlineAge}</strong> if your <strong>Software Engineer</strong> job continued through when you are 76 (2067) and Sam’s <strong>Nursing</strong> job continued through when Sam is 71 (2057), with the portfolio lasting to age ${PLAN_DEFAULTS.lifeExpectancy}.`,
+      `You could stop working at <strong aria-label="Earliest feasible retirement age">${feasible.headlineAge}</strong> if your <strong>Software Engineer</strong> job continued through when you are 76 (2067) and Sam’s <strong>Nursing</strong> job continued through when Sam is 71 (2057), with the portfolio lasting to your life expectancy (age ${PLAN_DEFAULTS.primary.lifeExpectancy}).`,
     );
     // Each owner keeps their own clock; neither age is restated as the household's.
     expect(html.match(/could stop working/g)).toHaveLength(1);
@@ -334,7 +386,7 @@ describe("RetirementPanel — chart preview toggle", () => {
     // Still its OWN paragraph, after the headline rather than inside it: it qualifies the
     // assumption, not the age, and folding it in would bury the condition it footnotes.
     expect(html).toContain(
-      `age ${PLAN_DEFAULTS.lifeExpectancy}.</p><p class="hint">This scenario assumes`,
+      `your life expectancy (age ${PLAN_DEFAULTS.primary.lifeExpectancy}).</p><p class="hint">This scenario assumes`,
     );
   });
 
@@ -412,7 +464,7 @@ describe("RetirementPanel — chart preview toggle", () => {
             },
           ],
         }}
-        budget={{ ...PLAN_DEFAULTS, name: "" }}
+        budget={{ ...PLAN_DEFAULTS, primary: { ...PLAN_DEFAULTS.primary, name: "" } }}
         previewing={false}
         onTogglePreview={noop}
       />,
@@ -449,6 +501,8 @@ describe("RetirementPanel — chart preview toggle", () => {
       authoredPlanSurvives: false,
       earlyRetireeHealth: { flagged: false, gapYears: 0, shortfallMonthlyCents: 0 },
       continuedJobs: [],
+      horizonAge: PLAN_DEFAULTS.primary.lifeExpectancy!,
+      horizonMemberName: null,
     };
     const html = renderToStaticMarkup(
       <RetirementPanel view={blockedView} budget={PLAN_DEFAULTS} previewing={false} onTogglePreview={noop} />,

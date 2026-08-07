@@ -29,6 +29,8 @@ export interface JobFormOwner {
    * the future for a 25-year-old, and the salary fields follow.
    */
   readonly currentAge: number;
+  /** Their own expectancy, which is where this form's ages stop — see {@link JobFormCommon}. */
+  readonly lifeExpectancy: number;
 }
 
 interface JobFormCommon {
@@ -37,6 +39,18 @@ interface JobFormCommon {
    * screen the selected owner's own age wins; this is the age of the owner the form opened on.
    */
   currentAge: number;
+  /**
+   * The owner's own life expectancy — the ceiling on this form's ages, for the same reason the
+   * Budget editor chains current age below it: **a job must be worked while its owner is alive**,
+   * so the engine refuses one ending past their death, and a field that let a higher age through
+   * would commit a value the very next write rejected. The form would then close on an edit that
+   * never landed, which reads as nothing having happened at all.
+   *
+   * An end AT this age is allowed and is the point of stating it as the ceiling rather than one
+   * below: `endAge` is exclusive, so a job ending at the expectancy is worked to the last month
+   * lived — "I'll work as long as I can", which must stay writable.
+   */
+  lifeExpectancy: number;
   /** Verb shown on the primary button and used to label the form ("Add" / "Save"). */
   submitLabel: string;
   onCancel: () => void;
@@ -96,7 +110,7 @@ interface JobFormDraft {
 const NO_OWNERS: readonly JobFormOwner[] = [];
 
 export function JobForm(props: JobFormProps) {
-  const { initial, currentAge, submitLabel, onCancel } = props;
+  const { initial, currentAge, lifeExpectancy, submitLabel, onCancel } = props;
   const [draft, setDraft] = useState<JobFormDraft>(() => ({
     name: initial.name,
     monthlyDollars: Math.round(initial.monthlyCents / 100),
@@ -132,6 +146,17 @@ export function JobForm(props: JobFormProps) {
   // The ages here are the owner's, so picking a different one while creating re-reads the whole
   // form against the new clock before anything is submitted.
   const ownerAge = picked?.currentAge ?? currentAge;
+  /**
+   * Where this owner's ages stop. Picked up from the selected owner for the same reason
+   * {@link ownerAge} is: a partner ten years younger with a shorter expectancy has a different
+   * ceiling, and the job being authored is theirs the moment the picker says so.
+   */
+  const ownerLifeExpectancy = picked?.lifeExpectancy ?? lifeExpectancy;
+  /**
+   * The last age a job may still START at — a job needs a month to be worked in AND a later end,
+   * so it stops one below the end's own ceiling.
+   */
+  const maxStartAge = Math.min(MAX_LIVED_AGE, ownerLifeExpectancy - 1);
   /** The job is already under way, so what it paid on day one is a separate fact from today's pay. */
   const hasHistory = draft.startAge < ownerAge;
   /**
@@ -151,8 +176,14 @@ export function JobForm(props: JobFormProps) {
       startingMonthlyCents: Math.round(
         (hasHistory ? draft.startingMonthlyDollars : draft.monthlyDollars) * 100,
       ),
-      startAge: draft.startAge,
-      endAge: Math.max(draft.startAge + 1, draft.endAge),
+      startAge: Math.min(draft.startAge, maxStartAge),
+      // Bounded at both ends, and in this order: after the start, and not past the death. The
+      // fields already clamp on commit, so this is the guard against a draft assembled around
+      // them — an owner picked after the ages were typed, whose own expectancy is lower.
+      endAge: Math.min(
+        Math.max(Math.min(draft.startAge, maxStartAge) + 1, draft.endAge),
+        ownerLifeExpectancy,
+      ),
       realGrowthPct: draft.realGrowthPct,
       deferralPct: draft.deferralPct,
       employerMatchPct: draft.employerMatchPct,
@@ -280,18 +311,21 @@ export function JobForm(props: JobFormProps) {
         value={draft.startAge}
         onChange={(v) => patch({ startAge: v })}
         min={14}
-        max={MAX_LIVED_AGE}
+        max={maxStartAge}
         step={1}
       />
       {/* Required, like the start age. A job used to be allowed to leave this blank and be
           "open-ended", which meant it silently ended at whatever retirement age was authored
-          elsewhere — a date the user never typed, on a form that showed no end at all. */}
+          elsewhere — a date the user never typed, on a form that showed no end at all.
+
+          Its ceiling is the owner's own expectancy, not the engine's age limit: the job has to
+          be worked while they are alive. See {@link JobFormCommon.lifeExpectancy}. */}
       <NumInput
         label="End age"
         value={draft.endAge}
         onChange={(v) => patch({ endAge: v })}
         min={draft.startAge + 1}
-        max={MAX_LIVED_AGE}
+        max={ownerLifeExpectancy}
         step={1}
       />
       <p className="hint">

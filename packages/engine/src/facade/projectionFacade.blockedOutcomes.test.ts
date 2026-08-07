@@ -25,7 +25,7 @@ function freshProjection(): Projection {
   return Projection.fromState(
     stateOf({
       ...samplePlan,
-      jobs: [],
+      primary: { ...samplePlan.primary, jobs: [] },
       budgetLines: [],
       openingBalanceCents: dollarsToCents(2_000_000),
     }),

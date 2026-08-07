@@ -109,9 +109,9 @@ function Configuration({
       <ConfigGroup
         title="Identity & horizon"
         rows={[
-          ["Name", budget.name || "You"],
-          ["Current age", budget.currentAge],
-          ["Life expectancy", budget.lifeExpectancy],
+          ["Name", budget.primary.name || "You"],
+          ["Current age", inputs.startYear - budget.primary.birthYear],
+          ["Life expectancy", budget.primary.lifeExpectancy],
           ["Jurisdiction", jurisdictionId],
           ["Horizon", `${inputs.horizonYears} yr (${inputs.horizonMonths} mo)`],
           ["Years", `${inputs.startYear}–${inputs.endYear}`],
@@ -140,7 +140,7 @@ function Configuration({
       />
       <ConfigGroup
         title="Retirement & Social Security"
-        rows={[["SS claiming age", budget.benefitClaimingAge]]}
+        rows={[["SS claiming age", budget.primary.benefitClaimingAge]]}
       />
       {/* No "Health care" group: the plan holds no health scalars. Health is a
           `healthcare`-category budget line, listed with every other line below. */}
@@ -184,6 +184,17 @@ export function DebugPanel({
   projection: PlanFigures;
 }) {
   const [everyMonth, setEveryMonth] = useState(false);
+  /**
+   * Whether the disclosure is actually open. `<details>` hides its contents from SIGHT while
+   * closed, but React builds and reconciles them regardless — and the month table below is by
+   * far the largest thing this app renders: ~1,140 nodes against ~950 for every other panel put
+   * together. A developer tool nobody has opened was more than half the DOM of every render, on
+   * every plan edit, for every user.
+   *
+   * Only the table is deferred. The configuration readout above it is small and is what the
+   * panel's tests assert on, so it keeps rendering with the rest of the tree.
+   */
+  const [open, setOpen] = useState(false);
   const { columns, months, inputs } = report;
   const jurisdictionId = String((report.meta?.jurisdictionId as string | undefined) ?? "—");
 
@@ -204,7 +215,7 @@ export function DebugPanel({
   }
 
   return (
-    <details className={styles.debug}>
+    <details className={styles.debug} onToggle={(e) => setOpen(e.currentTarget.open)}>
       <summary>Debug · simulation data</summary>
 
       <div className={styles.toolbar}>
@@ -237,6 +248,8 @@ export function DebugPanel({
         jurisdictionId={jurisdictionId}
       />
 
+      {/* Built on first open, not on every render — see `open` above. */}
+      {open && (
       <div className={styles.scroll}>
         <table className={styles.table}>
           <thead>
@@ -312,6 +325,7 @@ export function DebugPanel({
           </tbody>
         </table>
       </div>
+      )}
     </details>
   );
 }

@@ -5,8 +5,9 @@
 
 import type { GoalDisposal } from "../goal/goal";
 import type { SharedContributionScheme } from "../projection/waterfall";
-import type { Job } from "../job/job";
 import type { BudgetLine } from "../budget/budgetLine";
+import type { Person } from "./person";
+import { withBirthYear } from "./person";
 
 /**
  * A goal fund account's {@link import("./simAccount").SimAccountTaxProfile} and liquidity:
@@ -50,7 +51,6 @@ export type GoalPlan = GoalPlanBase & GoalDisposal;
  * base on `[plan]`.
  */
 export interface Plan {
-  readonly name: string;
   readonly openingBalanceCents: number;
   /**
    * Whole-number percents. Goal fund accounts carry their own rate on {@link GoalPlan}.
@@ -68,39 +68,23 @@ export interface Plan {
    * line and the retirement drawdown.
    */
   readonly inflationPct: number;
-  /** The base the retirement solver counts years from. */
-  readonly currentAge: number;
-  // No `retirementAge`. A plan used to pin one, and the panel scored an on-track percentage
-  // against it — but every job now states its own end, so the age earned income stops is a
-  // READ of the jobs (`plannedWorkStopAge`) rather than a second figure that could disagree
-  // with them. "When could you stop working?" is answered by the solver, not authored.
-  /** Age the portfolio must last to. */
-  readonly lifeExpectancy: number;
-  /** An input to the check, never searched. */
-  readonly benefitClaimingAge: number;
   /**
    * A DECIMAL rate (e.g. `0.02`), unlike the whole-percent fields above. Unset couples the
    * benefit COLA to {@link inflationPct}.
    */
   readonly benefitColaRate?: number;
   /**
-   * Source of truth for earned income, and the ONLY thing that says when it stops: every job
-   * carries its own end, so nothing outside this list ends one. Covered SS earnings, including
-   * the pre-"now" record, derive from job spans and salaries — when a person started working is
-   * the earliest job's `startYear`, not a separate field.
-   */
-  readonly jobs: readonly Job[];
-  /**
-   * The PRIMARY person's continuation job — see
-   * {@link import("./person").Person.continuationJobId}, which is where the field is documented
-   * and what `createProjectionBase` copies this onto.
+   * The primary household member — their name, birth year, life expectancy, claiming age, jobs
+   * and continuation job all live here, on a real standing {@link Person}, the same shape a
+   * partner's is on the `RelationshipEvent` that brought them in. `id` is always
+   * {@link import("../compile/projectionBase").PRIMARY_PERSON_ID}.
    *
-   * It lives on the plan rather than on a person because the primary holds no `Person` record:
-   * their standing data IS the plan, and `createProjectionBase` builds the `Person` the engine
-   * reads from it. A partner authors the same field on the `RelationshipEvent` that brought them
-   * in. Two planes, one field — the same split every one of the primary's jobs already lives on.
+   * `birthYear` is frozen at authoring time — not re-derived from a wall clock or from
+   * `ProjectionContext.startYear` on every compile — the same way a partner's is set once at
+   * `marry` and never revisited. Re-projecting the same plan against a later "now" ages the
+   * primary the way it already ages a partner: not at all, on the engine's own account.
    */
-  readonly continuationJobId?: string | null;
+  readonly primary: Person;
   /**
    * The sole expense authoring surface, and REQUIRED: a plan always states its spend, even if
    * that statement is "nothing". `createProjectionBase` compiles the *expense* lines into the
@@ -148,7 +132,6 @@ export const MAX_AGE = 120;
  * for.
  */
 export const AGE_LIMITS = {
-  currentAge: 119,
   lifeExpectancy: MAX_AGE,
   benefitClaimingAge: 70,
 } as const satisfies Record<string, number>;
@@ -157,7 +140,25 @@ export const AGE_LIMITS = {
  * The oldest age a person can already BE, as opposed to be projected to — one short of
  * {@link MAX_AGE}, so there is at least one month of life left to project.
  */
-export const MAX_LIVED_AGE = AGE_LIMITS.currentAge;
+export const MAX_LIVED_AGE = 119;
+
+/**
+ * **The lowest life expectancy a person of `currentAge` may be given** — one past the age they
+ * already are, because an expectancy AT it is the month-0 death {@link invalidAge} refuses.
+ *
+ * A floor that depends on the person, which is why it is a function and not another entry in
+ * {@link AGE_LIMITS}: a 40-year-old may be projected to 41 and a 76-year-old may not. Exported
+ * because the authoring FORMS need it — a field bounded any higher silently rewrites a number
+ * the user typed, and one bounded lower commits a value the very next write rejects. Both were
+ * live: three fields carried a `Math.max(60, …)` floor, so a 40-year-old partner's expectancy
+ * snapped to 60, an age nobody entered and the engine never asked for.
+ *
+ * Read by {@link invalidAge} itself, so the bound a form draws and the bound a write enforces
+ * are one number.
+ */
+export function minLifeExpectancyFor(currentAge: number): number {
+  return currentAge + 1;
+}
 
 /**
  * How many months this plan spans: "now" to life expectancy. The projection simulates exactly
@@ -170,26 +171,80 @@ export const MAX_LIVED_AGE = AGE_LIMITS.currentAge;
  * truncated by the engine would drift silently, and the chart would be the last place anyone
  * looked. Clamped at 0 for a life expectancy at or below the current age — a plan with no months
  * left to simulate, which the engine refuses upstream but which no arithmetic here should invent.
+ *
+ * "Current age" is read off the primary's frozen `birthYear` against `startYear` — the calendar
+ * "now" the caller is projecting from, never a wall clock — so the same plan re-projected at a
+ * later `startYear` reaches a shorter horizon rather than a stale one.
  */
-export function planHorizonMonths(plan: Pick<Plan, "currentAge" | "lifeExpectancy">): number {
-  return Math.max(0, plan.lifeExpectancy - plan.currentAge) * 12;
+export function planHorizonMonths(
+  plan: Pick<Plan, "primary">,
+  startYear: number,
+): number {
+  const currentAge = startYear - plan.primary.birthYear;
+  return Math.max(0, plan.primary.lifeExpectancy - currentAge) * 12;
 }
 
-/** The plan's age-valued scalars, named for the refusal message. */
-const AGE_FIELDS = Object.keys(AGE_LIMITS) as readonly (keyof typeof AGE_LIMITS)[];
+/** The first age-valued field the engine will not accept, and what is wrong with it. */
+export interface InvalidAge {
+  readonly field: string;
+  readonly age: number;
+  /**
+   * The complaint, phrased to complete "`<field> <age>` …" — `"may not exceed 120"`,
+   * `"must be past the age they already are (40)"`. A sentence fragment rather than a `limit`
+   * number, because the reasons are no longer all the same shape: one bound is a ceiling the
+   * engine imposes, the other is a floor the person's own birth year sets.
+   */
+  readonly problem: string;
+}
 
 /**
- * The first age-valued field over its {@link AGE_LIMITS} ceiling, or `null` when every one is
- * within. Only an OVER-large age is a refusal here — what is too young, or out of order against
- * the other ages, is the surface's own question and not this bound's.
+ * The first age-valued field the engine will not accept, or `null` when every one is fine —
+ * checked against `startYear`, the calendar "now" `birthYear` is read relative to.
+ *
+ * Two bounds, and they are different in kind:
+ *
+ *  - **A ceiling**, from {@link AGE_LIMITS}: a horizon nobody can afford to simulate, a claiming
+ *    age past the top of the legal window.
+ *  - **A floor on the life expectancy alone**: it must be past the age the person already is.
+ *    An expectancy at or below their current age says they are already dead, which closes their
+ *    {@link import("../job/personActiveWindow").PersonActiveWindow} at month 0 — every job of
+ *    theirs ends before it starts, no benefit is ever paid, and a plan whose only member is that
+ *    person projects zero months. That is a well-defined answer and a useless one, and it arrives
+ *    from a slider the user can drag rather than from anything exotic. Refused at the door
+ *    instead, where the number they typed is still in front of them.
+ *
+ * What is out of ORDER against the other ages — an expectancy below a claiming age, a job ending
+ * after one — is the surface's own question and not this bound's.
+ *
+ * Shared by the primary (at plan-open and on every `updatePlan`) and a partner (at `marry`) —
+ * the same bounds apply to either, since both are a {@link Person}. Restoration deliberately
+ * does NOT run this: a file that arrives already stating one is better opened and clamped than
+ * refused with nothing the user can fix it in.
  */
-export function ageAboveMaximum(
-  plan: Pick<Plan, (typeof AGE_FIELDS)[number]>,
-): { readonly field: string; readonly age: number; readonly limit: number } | null {
-  for (const field of AGE_FIELDS) {
-    const age = plan[field];
-    const limit = AGE_LIMITS[field];
-    if (age > limit) return { field, age, limit };
+export function invalidAge(
+  person: Pick<Person, "birthYear" | "lifeExpectancy"> & { readonly benefitClaimingAge?: number },
+  startYear: number,
+): InvalidAge | null {
+  const currentAge = startYear - person.birthYear;
+  const notOver = (limit: number) => `may not exceed ${limit}`;
+  if (currentAge > MAX_LIVED_AGE) {
+    return { field: "age", age: currentAge, problem: notOver(MAX_LIVED_AGE) };
+  }
+  const checks: readonly (readonly [string, number | undefined, number])[] = [
+    ["lifeExpectancy", person.lifeExpectancy, AGE_LIMITS.lifeExpectancy],
+    ["benefitClaimingAge", person.benefitClaimingAge, AGE_LIMITS.benefitClaimingAge],
+  ];
+  for (const [field, age, limit] of checks) {
+    if (age !== undefined && age > limit) return { field, age, problem: notOver(limit) };
+  }
+  // At, not merely below: an expectancy equal to the current age is the month-0 death, and a
+  // projection with no months in it is not a plan.
+  if (person.lifeExpectancy < minLifeExpectancyFor(currentAge)) {
+    return {
+      field: "lifeExpectancy",
+      age: person.lifeExpectancy,
+      problem: `must be past the age they already are (${currentAge})`,
+    };
   }
   return null;
 }
@@ -206,19 +261,33 @@ export function ageAboveMaximum(
 export type GoalPatch = Partial<Omit<GoalPlan, "id">>;
 
 /**
- * The plan's standing **scalars** — every {@link Plan} field except the three collections and
- * the one reference into them.
- *
- * The exclusion is the point, not tidiness: each collection has operations that mint stable
- * ids and enforce rules (removing a goal is refused while an event still spends from its
- * fund account). A bare `Partial<Plan>` would let a caller drop every goal in a "scalar"
- * patch and walk straight past that guard.
- *
- * {@link Plan.continuationJobId} is out for the same reason from the other direction: it is not
- * a scalar but a job id, and the write that sets it checks that the job exists and belongs to
- * the person. A patch could otherwise point it at a partner's job, or at nothing at all.
+ * The primary's own scalars a plan patch may reach — name, birth year, life expectancy, claiming
+ * age. Not `jobs` or `continuationJobId`: those are not scalars but an id-bearing collection and
+ * a job id, each with its own mint/validate path (`addJob`, `setContinuationJob`), the same
+ * reason `goals`/`budgetLines` are excluded below.
  */
-export type PlanPatch = Partial<Omit<Plan, "goals" | "jobs" | "budgetLines" | "continuationJobId">>;
+type PrimaryPatchKeys = "name" | "birthYear" | "lifeExpectancy" | "benefitClaimingAge";
+
+/**
+ * The plan's standing **scalars** — every {@link Plan} field except the two collections, plus
+ * the primary's own patchable scalars (see {@link PrimaryPatchKeys}) flattened in, so a caller
+ * still writes `{ lifeExpectancy: 90 }` rather than reaching through `{ primary: { ... } }`.
+ *
+ * The collection exclusion is the point, not tidiness: `goals`/`budgetLines` have operations
+ * that mint stable ids and enforce rules (removing a goal is refused while an event still spends
+ * from its fund account). A bare `Partial<Plan>` would let a caller drop every goal in a
+ * "scalar" patch and walk straight past that guard.
+ */
+export type PlanPatch = Partial<Omit<Plan, "goals" | "budgetLines" | "primary">> &
+  Partial<Pick<Person, PrimaryPatchKeys>>;
+
+/** {@link PlanPatch}'s primary-scoped keys, named once so `withPlanPatch` can split on them. */
+const PRIMARY_PATCH_KEYS: readonly PrimaryPatchKeys[] = [
+  "name",
+  "birthYear",
+  "lifeExpectancy",
+  "benefitClaimingAge",
+];
 
 /**
  * Overwrite one goal's named fields, keeping its `id` — and thus its derived `fund-<id>`
@@ -263,21 +332,39 @@ export function withGoalReordered(
 }
 
 /**
- * Patch the plan's scalars, dropping the three collections at RUNTIME as well as in the
+ * Patch the plan's scalars, dropping the two collections at RUNTIME as well as in the
  * type: `@finley/engine` is published, and a JavaScript caller passing `{ goals: [] }`
  * would otherwise spread straight past the goal-removal guard. A type that is the only
  * guard is not a guard.
+ *
+ * `startYear` is the calendar "now" a primary-scalar edit is validated against — the same bound
+ * {@link invalidAge} applies to a partner at `marry`.
  */
-export function withPlanPatch(plan: Plan, patch: PlanPatch): Plan {
-  const {
-    goals: _g,
-    jobs: _j,
-    budgetLines: _b,
-    continuationJobId: _c,
-    ...scalars
-  } = patch as Partial<Plan>;
-  const next = { ...plan, ...scalars };
-  const bad = ageAboveMaximum(next);
-  if (bad) throw new Error(`Projection: cannot set ${bad.field} to ${bad.age} — it may not exceed ${bad.limit}`);
-  return next;
+export function withPlanPatch(plan: Plan, patch: PlanPatch, startYear: number): Plan {
+  const { goals: _g, budgetLines: _b, ...rest } = patch as Partial<Plan> & Partial<Plan["primary"]>;
+  const primaryPatch: Partial<Pick<Person, PrimaryPatchKeys>> = {};
+  const scalars: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(rest)) {
+    if ((PRIMARY_PATCH_KEYS as readonly string[]).includes(key)) {
+      // Every primary scalar is REQUIRED on the Person, so an explicit `undefined` is a clear,
+      // not a write — and spreading it would erase a field the type says is always there
+      // (`lifeExpectancy` above all, which the horizon is computed from). Skipped for the same
+      // reason the collections are dropped at runtime: a type that is the only guard is not a guard.
+      if (value !== undefined) (primaryPatch as Record<string, unknown>)[key] = value;
+    } else {
+      // A plan scalar may be genuinely optional (`surplusCashTo`, `benefitColaRate`), so an
+      // `undefined` here is left alone — unsetting one is a real edit.
+      scalars[key] = value;
+    }
+  }
+  // `birthYear` is applied through {@link withBirthYear} rather than spread with its siblings: it
+  // is the origin the primary's job ages are read against, so moving it moves their whole working
+  // life with them rather than restating ages nobody edited. The rest spread over the result, so
+  // a patch moving the birth year AND the expectancy in one write still ends up with both.
+  const { birthYear, ...otherPrimaryPatch } = primaryPatch;
+  const rebased = birthYear === undefined ? plan.primary : withBirthYear(plan.primary, birthYear);
+  const primary = { ...rebased, ...otherPrimaryPatch };
+  const bad = invalidAge(primary, startYear);
+  if (bad) throw new Error(`Projection: cannot set ${bad.field} to ${bad.age} — it ${bad.problem}`);
+  return { ...plan, ...scalars, primary };
 }

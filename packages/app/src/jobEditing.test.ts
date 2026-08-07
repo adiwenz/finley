@@ -38,6 +38,7 @@ const richJob: Job = {
 const owner = (over: Partial<JobOwner> & Pick<JobOwner, "id" | "name" | "birthYear" | "jobs">): JobOwner => ({
   startMonth: -Infinity,
   writeTarget: "plan",
+  lifeExpectancy: 90,
   ...over,
 });
 
@@ -58,7 +59,11 @@ function household(jobs: readonly Job[] = [richJob], samJobs: readonly Job[] = [
 }
 
 const draftFor = (birthYear: number, job: Job, over: Partial<JobEditDraft> = {}): JobEditDraft => ({
-  ...jobToDraftFor(readerOf({ ...PLAN_DEFAULTS, jobs: [job] }), birthYear, job),
+  ...jobToDraftFor(
+    readerOf({ ...PLAN_DEFAULTS, primary: { ...PLAN_DEFAULTS.primary, jobs: [job] } }),
+    birthYear,
+    job,
+  ),
   ...over,
 });
 

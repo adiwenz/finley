@@ -43,7 +43,6 @@ function compilePersonIncomeSeries(person: Person, nowYear: number, inflationRat
   return compileHouseholdJobSeries(
     // Authored: no hypothetical stop, so an open-ended job runs to the horizon.
     resolveHouseholdJobs(personJobContexts(membership), nowYear, { kind: "authored" }),
-    nowYear,
     inflationRate,
   );
 }
@@ -59,14 +58,15 @@ const lateEndingJob: Job = salariedJob(dollarsToCents(8000), { deferralFraction:
 
 describe("Job/Person standing model — additive compilation", () => {
   it("allows any number of jobs — no elevated career job", () => {
-    const birthYear = START_YEAR - samplePlan.currentAge;
+    const birthYear = samplePlan.primary.birthYear;
     // Two jobs is legal: neither is elevated, and each compiles to forward income ending where
     // it was authored to end.
     const person: Person = {
       id: PRIMARY_PERSON_ID,
       name: "P",
       birthYear,
-      benefitClaimingAge: samplePlan.benefitClaimingAge,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
+      benefitClaimingAge: samplePlan.primary.benefitClaimingAge,
       // Both authored to run to 80 — well past where the fixture's own job stops at 60, which
       // is the point: the end is each job's, and holding two does not make either the one that
       // ends employment.
@@ -74,10 +74,10 @@ describe("Job/Person standing model — additive compilation", () => {
     };
     const series = compilePersonIncomeSeries(person, START_YEAR, samplePlan.inflationPct / 100);
     expect(series).toHaveLength(2);
-    const authoredEndMonth = (80 - samplePlan.currentAge) * 12 - 1;
+    const authoredEndMonth = (80 - (START_YEAR - samplePlan.primary.birthYear)) * 12 - 1;
     expect(series.every((s) => s.series.endMonth === authoredEndMonth)).toBe(true);
     expect(series[0]!.series.endMonth).toBeGreaterThan(
-      (SAMPLE_JOB_END_AGE - samplePlan.currentAge) * 12,
+      (SAMPLE_JOB_END_AGE - (START_YEAR - samplePlan.primary.birthYear)) * 12,
     );
   });
 
@@ -88,25 +88,27 @@ describe("Job/Person standing model — additive compilation", () => {
     const person: Person = {
       id: PRIMARY_PERSON_ID,
       name: "P",
-      birthYear: START_YEAR - samplePlan.currentAge,
-      benefitClaimingAge: samplePlan.benefitClaimingAge,
+      birthYear: samplePlan.primary.birthYear,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
+      benefitClaimingAge: samplePlan.primary.benefitClaimingAge,
       jobs: [lateEndingJob],
     };
     expect(Object.keys(person)).not.toContain("retirementTargetAge");
     const [series] = compilePersonIncomeSeries(person, START_YEAR, samplePlan.inflationPct / 100);
-    expect(series.series.endMonth).toBe((80 - samplePlan.currentAge) * 12 - 1);
+    expect(series.series.endMonth).toBe((80 - (START_YEAR - samplePlan.primary.birthYear)) * 12 - 1);
   });
 
   it("ends a job exactly where it was authored to end", () => {
     // The other half of the same rule: what the user stated is what happens. Only an authored
     // end ends a job, and it is unaffected by any retirement target.
-    const birthYear = START_YEAR - samplePlan.currentAge;
+    const birthYear = samplePlan.primary.birthYear;
     const endYear = START_YEAR + 10;
     const person: Person = {
       id: PRIMARY_PERSON_ID,
       name: "P",
       birthYear,
-      benefitClaimingAge: samplePlan.benefitClaimingAge,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
+      benefitClaimingAge: samplePlan.primary.benefitClaimingAge,
       jobs: [{ ...openEndedJob, endYear }],
     };
     const [series] = compilePersonIncomeSeries(person, START_YEAR, samplePlan.inflationPct / 100);
@@ -114,14 +116,14 @@ describe("Job/Person standing model — additive compilation", () => {
   });
 
   it("computes pre-'now' earnings directly from the jobs", () => {
-    const base = createProjectionBase({ ...samplePlan, jobs: [openEndedJob] }, ctx());
+    const base = createProjectionBase({ ...samplePlan, primary: { ...samplePlan.primary, jobs: [openEndedJob] } }, ctx());
     // The pre-"now" record derives from the roster's authoring Persons, as the sim
     // boundary does via compilePerson.
     const prior = compilePersonPriorEarnings(base.initialPersons![0], START_YEAR);
     // The record covers exactly the pre-"now" working years [careerStart … now).
     expect(Object.keys(prior).length).toBeGreaterThan(0);
     // Sim still starts at "now" — no pre-"now" months are simulated.
-    expect(project({ ...samplePlan, jobs: [openEndedJob] }).months[0].month).toBe(0);
+    expect(project({ ...samplePlan, primary: { ...samplePlan.primary, jobs: [openEndedJob] } }).months[0].month).toBe(0);
   });
 
   it("derives a real growth rate from two salary points", () => {
@@ -175,8 +177,9 @@ describe("Job/Person standing model — one-month income overrides", () => {
   const person = (jobs: Job[]): Person => ({
     id: PRIMARY_PERSON_ID,
     name: "P",
-    birthYear: START_YEAR - samplePlan.currentAge,
-    benefitClaimingAge: samplePlan.benefitClaimingAge,
+    birthYear: samplePlan.primary.birthYear,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
+    benefitClaimingAge: samplePlan.primary.benefitClaimingAge,
     jobs,
   });
   const monthly = (job: Job, month: number): number =>
@@ -290,7 +293,7 @@ describe("Job/Person standing model — one-month income overrides", () => {
     // A one-month bonus raises that month's gross wages, so the income flow reads
     // base + bonus.
     const job: Job = { ...base, incomeOverrides: [{ id: "adjustment-65", month: 6, kind: "addBonus", cents: dollarsToCents(3000) }] };
-    const series = project({ ...samplePlan, jobs: [job] }).months;
+    const series = project({ ...samplePlan, primary: { ...samplePlan.primary, jobs: [job] } }).months;
     expect(series[6].flows?.totalIncomeCents).toBe(dollarsToCents(9000)); // 6000 + 3000
     expect(series[5].flows?.totalIncomeCents).toBe(dollarsToCents(6000));
   });
@@ -309,8 +312,9 @@ describe("a permanent raise and a one-month adjustment in the same month", () =>
   const person = (jobs: Job[]): Person => ({
     id: PRIMARY_PERSON_ID,
     name: "P",
-    birthYear: START_YEAR - samplePlan.currentAge,
-    benefitClaimingAge: samplePlan.benefitClaimingAge,
+    birthYear: samplePlan.primary.birthYear,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
+    benefitClaimingAge: samplePlan.primary.benefitClaimingAge,
     jobs,
   });
   const monthly = (job: Job, month: number): number =>
@@ -414,8 +418,9 @@ describe("Job/Person standing model — permanent pay changes", () => {
   const person = (jobs: Job[]): Person => ({
     id: PRIMARY_PERSON_ID,
     name: "P",
-    birthYear: START_YEAR - samplePlan.currentAge,
-    benefitClaimingAge: samplePlan.benefitClaimingAge,
+    birthYear: samplePlan.primary.birthYear,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
+    benefitClaimingAge: samplePlan.primary.benefitClaimingAge,
     jobs,
   });
   const monthly = (job: Job, month: number): number =>
@@ -470,7 +475,7 @@ describe("Job/Person standing model — permanent pay changes", () => {
 
   it("carries the changed pay through the projection as taxable wages, every month after", () => {
     const job: Job = { ...base, payChanges: [{ id: "adjustment-74", month: 6, kind: "setTo", cents: dollarsToCents(9000) }] };
-    const series = project({ ...samplePlan, jobs: [job] }).months;
+    const series = project({ ...samplePlan, primary: { ...samplePlan.primary, jobs: [job] } }).months;
     expect(series[5].flows?.totalIncomeCents).toBe(dollarsToCents(6000));
     expect(series[6].flows?.totalIncomeCents).toBe(dollarsToCents(9000));
     expect(series[7].flows?.totalIncomeCents).toBe(dollarsToCents(9000)); // persists, not one month
@@ -486,6 +491,7 @@ describe("Job/Person standing model — pre-'now' covered earnings from actual c
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: START_YEAR - 40,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
     benefitClaimingAge: 67,
     jobs,
   });
@@ -543,6 +549,7 @@ describe("Job/Person standing model — the month-0 current-salary anchor", () =
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: START_YEAR - 40,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
     benefitClaimingAge: 67,
     jobs,
   });
@@ -695,8 +702,9 @@ describe("Job — human name drives the income band label (display only)", () =>
   const personWith = (job: Job): Person => ({
     id: PRIMARY_PERSON_ID,
     name: "P",
-    birthYear: START_YEAR - samplePlan.currentAge,
-    benefitClaimingAge: samplePlan.benefitClaimingAge,
+    birthYear: samplePlan.primary.birthYear,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
+    benefitClaimingAge: samplePlan.primary.benefitClaimingAge,
     jobs: [job],
   });
   const labelOf = (job: Job): string | undefined =>
@@ -943,8 +951,9 @@ describe("a permanent pay change authored at month 0 — deferred to month 1", (
   const person = (jobs: Job[]): Person => ({
     id: PRIMARY_PERSON_ID,
     name: "P",
-    birthYear: START_YEAR - samplePlan.currentAge,
-    benefitClaimingAge: samplePlan.benefitClaimingAge,
+    birthYear: samplePlan.primary.birthYear,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
+    benefitClaimingAge: samplePlan.primary.benefitClaimingAge,
     jobs,
   });
   // Zero inflation, so a projected paycheck is the authored figure and the two readers are
@@ -955,7 +964,7 @@ describe("a permanent pay change authored at month 0 — deferred to month 1", (
   const authored = (job: Job, month: number): number =>
     jobPayPath(job, {
       startMonth: 0,
-      endMonthExclusive: (SAMPLE_JOB_END_AGE - samplePlan.currentAge) * 12,
+      endMonthExclusive: (SAMPLE_JOB_END_AGE - (START_YEAR - samplePlan.primary.birthYear)) * 12,
     }).monthlyCentsAt(month);
 
   /** $60k/yr = a round $5,000/mo, real-flat. */
@@ -1089,7 +1098,8 @@ describe("jobPayPath — today's dollars vs the nominal paycheck", () => {
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: BIRTH_YEAR,
-    benefitClaimingAge: samplePlan.benefitClaimingAge,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
+    benefitClaimingAge: samplePlan.primary.benefitClaimingAge,
     jobs,
   });
 
@@ -1181,7 +1191,8 @@ describe("historical pay is flat", () => {
     id: PRIMARY_PERSON_ID,
     name: "P",
     birthYear: BIRTH_YEAR,
-    benefitClaimingAge: samplePlan.benefitClaimingAge,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
+    benefitClaimingAge: samplePlan.primary.benefitClaimingAge,
     jobs,
   });
   const base: Job = {
@@ -1261,7 +1272,8 @@ describe("membership clips what the household is paid, not the job's salary path
     id: "p2",
     name: "Sam",
     birthYear: BIRTH_YEAR,
-    benefitClaimingAge: samplePlan.benefitClaimingAge,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
+    benefitClaimingAge: samplePlan.primary.benefitClaimingAge,
     jobs,
   });
   /** $6,000/mo now, real-flat, running from before "now" to retirement. */
@@ -1281,7 +1293,6 @@ describe("membership clips what the household is paid, not the job's salary path
     const membership = { person: partner([job]), ...(span ?? { startMonth: JOIN, endMonth: null }) };
     const compiled = compileHouseholdJobSeries(
       resolveHouseholdJobs(personJobContexts(membership), START_YEAR, { kind: "authored" }),
-      START_YEAR,
       0,
     );
     return compiled.length === 0 ? 0 : compiled[0]!.series.getMonthlyCents(month);

@@ -77,6 +77,18 @@ export interface RetirementView {
    * more years of consulting, and the household may never have opened the picker that chose it.
    */
   readonly continuedJobs: readonly ContinuedJob[];
+  /**
+   * The age the portfolio must last to — the LONGEST-LIVED member's expectancy, since the horizon
+   * is the max across the household. The primary's own in the ordinary case; a younger partner's
+   * when they outlive the primary.
+   */
+  readonly horizonAge: number;
+  /**
+   * Whose expectancy {@link horizonAge} is — `null` for the primary (the reader, "you"), else the
+   * partner's name. What lets the panel say "Sam's life expectancy" instead of implying the age is
+   * a household-wide guarantee.
+   */
+  readonly horizonMemberName: string | null;
 }
 
 /**
@@ -106,5 +118,7 @@ export function retirementView(
     authoredPlanSurvives: solution.authoredPlanSurvives,
     earlyRetireeHealth,
     continuedJobs: solution.continuedJobs,
+    horizonAge: solution.horizonAnchor.age,
+    horizonMemberName: solution.horizonAnchor.memberName,
   };
 }

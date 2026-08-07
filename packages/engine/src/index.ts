@@ -68,10 +68,18 @@ export type { TransactionRevision } from "./authoring/revise";
 // The authored model, and the artifacts a run produces.
 export type { Plan, PlanPatch, GoalPlan, GoalPatch, GoalAccountType, SurplusCashDestination } from "./plan/plan";
 /**
- * The age ceilings every authoring surface shares: {@link MAX_AGE} is the outer bound,
- * {@link AGE_LIMITS} the per-field one, {@link MAX_LIVED_AGE} the oldest a person can already be.
+ * The age bounds every authoring surface shares: {@link MAX_AGE} is the outer bound,
+ * {@link AGE_LIMITS} the per-field one, {@link MAX_LIVED_AGE} the oldest a person can already be,
+ * and {@link minLifeExpectancyFor} the floor under an expectancy — the one bound that depends on
+ * the person it is applied to.
  */
-export { MAX_AGE, MAX_LIVED_AGE, AGE_LIMITS, planHorizonMonths } from "./plan/plan";
+export {
+  MAX_AGE,
+  MAX_LIVED_AGE,
+  AGE_LIMITS,
+  minLifeExpectancyFor,
+  planHorizonMonths,
+} from "./plan/plan";
 // The declarative, id-free authoring input `fromInput` consumes, and the result it answers with —
 // how seed data and presets describe a whole scenario without naming an id.
 export type { ScenarioInput, FromInputResult } from "./input/scenarioInput";

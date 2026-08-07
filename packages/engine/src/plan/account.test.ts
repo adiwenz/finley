@@ -27,6 +27,7 @@ function personLit(id: PersonId): Person {
     id,
     name: id,
     birthYear: 1990,
+    lifeExpectancy: 85,
     benefitClaimingAge: 67,
     jobs: [],
   };
@@ -153,6 +154,7 @@ describe("accounts on the unified household aggregate", () => {
     id: p1,
     name: "Alice",
     birthYear: 1990,
+    lifeExpectancy: 85,
     benefitClaimingAge: 67,
     jobs: [],
   };

@@ -4,6 +4,7 @@ import { usJurisdiction } from "@finley/rules";
 import { stateOf } from "./testing/projectionHarness";
 import { retirementView } from "./retirementView";
 import { PLAN_DEFAULTS } from "./planDefaults";
+import { START_YEAR } from "./config";
 import { setJobCurrentMonthlyIncome } from "./testing/planFixtures";
 import type { Plan } from "@finley/engine";
 
@@ -96,7 +97,13 @@ describe("retirementView — a blocked projection can't be solved", () => {
 
   it("reports blocked and the age the projection stopped at", () => {
     // Blocked 24 months out on a plan aged 40 — the engine reports that as age 42.
-    const view = retirementView(blockedReader({ ...PLAN_DEFAULTS, currentAge: 40 }, 24, 42));
+    const view = retirementView(
+      blockedReader(
+        { ...PLAN_DEFAULTS, primary: { ...PLAN_DEFAULTS.primary, birthYear: START_YEAR - 40 } },
+        24,
+        42,
+      ),
+    );
     expect(view.blocked).toBe(true);
     expect(view.blockedAtAge).toBe(42);
     expect(view.headlineAge).toBeNull();
@@ -120,14 +127,14 @@ describe("retirementView — headline age driven off the real projection", () =>
   it("the month offset is (age − now) × 12, floored at 0 — the chart reference line", () => {
     const view = viewOf(PLAN_DEFAULTS);
     const age = view.headlineAge as number;
-    expect(view.headlineMonth).toBe((age - PLAN_DEFAULTS.currentAge) * 12);
+    expect(view.headlineMonth).toBe((age - (START_YEAR - PLAN_DEFAULTS.primary.birthYear)) * 12);
   });
 
   it("reports no feasible headline when the money can never last", () => {
     const broke: Plan = {
       ...PLAN_DEFAULTS,
       openingBalanceCents: 0,
-      jobs: [],
+      primary: { ...PLAN_DEFAULTS.primary, jobs: [] },
     };
     const view = viewOf(broke);
     expect(view.headlineAge).toBeNull();
@@ -155,7 +162,11 @@ describe("retirementView — early-retiree health flag, measured at the SOLVED a
   });
 
   it("does NOT flag a household that can never retire — no retirement, no gap", () => {
-    const view = viewOf({ ...PLAN_DEFAULTS, openingBalanceCents: 0, jobs: [] });
+    const view = viewOf({
+      ...PLAN_DEFAULTS,
+      openingBalanceCents: 0,
+      primary: { ...PLAN_DEFAULTS.primary, jobs: [] },
+    });
     expect(view.headlineAge).toBeNull();
     expect(view.earlyRetireeHealth.flagged).toBe(false);
     expect(view.earlyRetireeHealth.gapYears).toBe(0);
@@ -190,7 +201,7 @@ describe("retirementView — the timeline events count toward retirement", () =>
     // the benefit is priced off.
     const plan: Plan = setJobCurrentMonthlyIncome(
       PLAN_DEFAULTS,
-      PLAN_DEFAULTS.jobs[0]!.id,
+      PLAN_DEFAULTS.primary.jobs[0]!.id,
       dollarsToCents(7000),
     );
     // A child spawns an 18-year childcare expense on the timeline — the surviving way the

@@ -5,13 +5,14 @@
  */
 
 import type { Job } from "../job/job";
-import { AGE_LIMITS, MAX_LIVED_AGE } from "../plan/plan";
+import { invalidAge } from "../plan/plan";
 import type { PersonId } from "../job/job";
 import type { Jurisdiction } from "../jurisdiction/jurisdiction";
 import type { Person } from "../plan/person";
 import type { ProjectionState, Written } from "./state";
 import { mint } from "./mint";
 import { appendEvent } from "./eventWrite";
+import { earliestDeath, yearOfMonth } from "./reachability";
 import { resolveJobInput, type JobInput } from "./jobs";
 
 /**
@@ -30,6 +31,19 @@ export interface MarryInput {
   readonly name: string;
   readonly birthYear: number;
   readonly benefitClaimingAge?: number;
+  /**
+   * The age the partner is projected to live to — REQUIRED, and never defaulted from the primary.
+   *
+   * A partner is a person, and how long they live is a fact about them, not about whoever they
+   * married. Falling back to the primary's would put a number nobody chose behind the projection
+   * horizon: a partner ten years younger inheriting age 90 silently extends the run a decade, and
+   * the household never said that. Whoever authors a partner says how long they live, the same way
+   * they say when they were born.
+   *
+   * A partner younger than the primary reaches the same age in a later calendar year, which is
+   * what extends the projection horizon to cover their tail.
+   */
+  readonly lifeExpectancy: number;
   readonly jobs?: readonly JobInput[];
 }
 
@@ -49,6 +63,8 @@ export interface StartPartneredInput {
   readonly name: string;
   readonly birthYear: number;
   readonly benefitClaimingAge?: number;
+  /** See {@link MarryInput.lifeExpectancy} — required, never defaulted from the primary. */
+  readonly lifeExpectancy: number;
   readonly jobs?: readonly JobInput[];
 }
 
@@ -91,25 +107,79 @@ export interface SeparateInput {
   readonly childSupportMonthlyCents?: number;
 }
 
+/**
+ * Refuse an event that takes TWO living people at a month one of them will not see.
+ *
+ * A marriage and a separation are both things a couple does, so neither can be dated at or after
+ * `min(the primary's death, the partner's)`. You cannot marry someone the plan has already buried,
+ * and you cannot leave a household you have died out of — an "impossible date" in the plainest
+ * sense, and one a user can author by accident simply by booking an event far out.
+ *
+ * At or after, not merely after:
+ * {@link import("../job/personActiveWindow").lifeExpectancyEndMonthExclusive} is the first month the
+ * person is gone, so the month itself is already too late. This is the same boundary
+ * {@link import("../job/personActiveWindow").memberHorizonReach} uses to decide whether a separation
+ * takes a partner's tail out of the projection — refused here at the moment it is authored, and
+ * still handled there, because an expectancy LOWERED after the fact can stand a separation that
+ * was legal when written.
+ *
+ * This is the WRITE-time half of the rule, kept for the sentence it can say: it knows the verb the
+ * caller used, so it blames the wedding rather than "this change". The other half — an edit that
+ * moves a death under an event already written — is {@link assertPersonEventsStillReachable}, and
+ * both reckon the death through the same {@link earliestDeath}.
+ */
+function assertBothAliveAt(
+  state: ProjectionState,
+  month: number,
+  partner: Pick<Person, "name" | "birthYear" | "lifeExpectancy">,
+  verb: "marry" | "separate",
+): void {
+  const primary = state.scenario.plan.primary;
+  // The primary first, so a tie names them — the order `earliestDeath` reads.
+  const first = earliestDeath(
+    [
+      { ...primary, role: "the primary" },
+      { ...partner, role: "the partner" },
+    ],
+    state.startYear,
+  );
+  if (month < first.month) return;
+  const noun = verb === "marry" ? "marriage" : "separation";
+  // Everything the reader needs sits AFTER the em-dash: the app strips the `Projection: cannot X —`
+  // prefix before showing this (see `useProjection`'s `conflictOf`), so a reason that leaned on the
+  // prefix for the date would reach them without one.
+  throw new Error(
+    `Projection: cannot ${verb} — a ${noun} in ${yearOfMonth(state.startYear, month)} needs both ` +
+      `partners alive, and ${first.who} is projected to live only to ${first.year}`,
+  );
+}
+
 /** Answers with the minted `"person-N"` id. */
 export function applyMarriage(
   state: ProjectionState,
   jurisdiction: Jurisdiction,
   input: MarryInput,
 ): Written<string> {
-  // A partner is a person, and the same age bound holds for them as for the primary — stated
-  // here in the three places a partner's age is actually authored. Their age is a birth YEAR on
-  // the way in, so it is read against the plan's frozen "now" rather than a wall clock.
-  const ages: readonly (readonly [string, number | undefined, number])[] = [
-    // An age they already ARE, so it stops one short of the ceiling like the primary's.
-    ["age", state.startYear - input.birthYear, MAX_LIVED_AGE],
-    ["benefitClaimingAge", input.benefitClaimingAge, AGE_LIMITS.benefitClaimingAge],
-  ];
-  for (const [field, age, limit] of ages) {
-    if (age !== undefined && age > limit) {
-      throw new Error(`Projection: cannot author a partner with ${field} ${age} — it may not exceed ${limit}`);
-    }
+  // Required, with no fallback to the primary's — see {@link MarryInput.lifeExpectancy}. The type
+  // says so, and `@finley/engine` is published, so a JavaScript caller is checked too: absent, it
+  // would reach the horizon arithmetic and answer `NaN` months.
+  if (typeof input.lifeExpectancy !== "number" || !Number.isFinite(input.lifeExpectancy)) {
+    throw new Error("Projection: cannot author a partner without a lifeExpectancy");
   }
+  const lifeExpectancy = input.lifeExpectancy;
+  // A partner is a person, and the same age bounds hold for them as for the primary — see
+  // {@link invalidAge}, including the floor: a partner stated to have already outlived their own
+  // expectancy joins dead. Their age is a birth YEAR on the way in, so it is read against the
+  // plan's frozen "now" rather than a wall clock.
+  const bad = invalidAge(
+    { birthYear: input.birthYear, lifeExpectancy, benefitClaimingAge: input.benefitClaimingAge },
+    state.startYear,
+  );
+  if (bad) {
+    throw new Error(`Projection: cannot author a partner with ${bad.field} ${bad.age} — it ${bad.problem}`);
+  }
+  // Before the first mint, so a refused marriage leaves no id issued behind it.
+  assertBothAliveAt(state, input.month, { ...input, lifeExpectancy }, "marry");
   const { id, nextSeq: afterPerson } = mint(state, "person");
   // One counter, threaded person → jobs: each job mints against the seq the previous mint left,
   // so the partner and their jobs draw distinct ids from the same monotonic run. The owner is
@@ -125,6 +195,7 @@ export function applyMarriage(
     id,
     name: input.name,
     birthYear: input.birthYear,
+    lifeExpectancy,
     benefitClaimingAge: input.benefitClaimingAge ?? 67,
     jobs,
   };
@@ -227,6 +298,15 @@ export function applySeparation(
   jurisdiction: Jurisdiction,
   input: SeparateInput,
 ): Written<string> {
+  const partner = state.scenario.ledger.events.find(
+    (e) => e.type === "RelationshipEvent" && e.person.id === input.partnerPersonId,
+  );
+  if (partner === undefined || partner.type !== "RelationshipEvent") {
+    throw new Error(
+      `Projection: cannot separate — no partner "${input.partnerPersonId}" in this timeline`,
+    );
+  }
+  assertBothAliveAt(state, input.month, partner.person, "separate");
   const { id, nextSeq } = mint(state, "separation");
   return {
     state: appendEvent(

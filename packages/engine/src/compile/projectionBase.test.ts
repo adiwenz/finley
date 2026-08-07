@@ -48,7 +48,8 @@ function endingNetWorthCents(plan: Plan, jurisdiction = nullJurisdiction): numbe
 
 function netWorthAtAge(plan: Plan, age: number, jurisdiction = nullJurisdiction): number {
   const series = project(plan, jurisdiction);
-  return series.months[(age - plan.currentAge) * 12].netWorthNominalCents!;
+  const currentAge = START_YEAR - plan.primary.birthYear;
+  return series.months[(age - currentAge) * 12].netWorthNominalCents!;
 }
 
 describe("createProjectionBase — expenses come only from budget lines", () => {
@@ -72,7 +73,13 @@ describe("createProjectionBase — expenses come only from budget lines", () => 
 
 describe("createProjectionBase — retirement + government benefit wired into the graph", () => {
   it("gives the projection person a benefit basis: birth year (from age) and claiming age", () => {
-    const base = createProjectionBase({ ...samplePlan, currentAge: 40, benefitClaimingAge: 68 }, ctx());
+    const base = createProjectionBase(
+      {
+        ...samplePlan,
+        primary: { ...samplePlan.primary, birthYear: START_YEAR - 40, benefitClaimingAge: 68 },
+      },
+      ctx(),
+    );
     const p = base.initialPersons![0];
     expect(p.birthYear).toBe(base.startYear! - 40);
     expect(p.benefitClaimingAge).toBe(68);
@@ -82,7 +89,10 @@ describe("createProjectionBase — retirement + government benefit wired into th
     // Authored ends, not the plan's retirement age: that age is a target the household aims at
     // and no longer truncates anybody's employment. Working longer is a longer JOB.
     const retiringAt = (endAge: number) =>
-      endingNetWorthCents({ ...samplePlan, jobs: [salariedJob(dollarsToCents(8000), { endAge })] });
+      endingNetWorthCents({
+        ...samplePlan,
+        primary: { ...samplePlan.primary, jobs: [salariedJob(dollarsToCents(8000), { endAge })] },
+      });
     expect(retiringAt(70)).toBeGreaterThan(retiringAt(55));
   });
 
@@ -92,8 +102,9 @@ describe("createProjectionBase — retirement + government benefit wired into th
     // is gone rather than merely ignored — the job's own end is the only end there is — so this
     // now asserts the positive: a job authored to 82 pays to 82.
     const series = project(retiringAt(82));
+    const sampleCurrentAge = START_YEAR - samplePlan.primary.birthYear;
     const wagesAt = (age: number) =>
-      series.months[(age - samplePlan.currentAge) * 12]?.flows?.incomeByCategoryCents.wages ?? 0;
+      series.months[(age - sampleCurrentAge) * 12]?.flows?.incomeByCategoryCents.wages ?? 0;
     expect(wagesAt(50)).toBeGreaterThan(0);
     expect(wagesAt(60)).toBeGreaterThan(0);
     expect(wagesAt(80)).toBeGreaterThan(0);
@@ -102,13 +113,17 @@ describe("createProjectionBase — retirement + government benefit wired into th
   it("charts a job that only STARTS after the retirement age — the reported bug", () => {
     // Stop-working age 65, a job picked up at 70. It used to be compiled away the instant it
     // was saved; it now pays from 70 exactly as authored.
-    const birthYear = START_YEAR - samplePlan.currentAge;
+    const birthYear = samplePlan.primary.birthYear;
     const series = project({
       ...samplePlan,
-      jobs: [{ ...salariedJob(dollarsToCents(3000)), startYear: birthYear + 70, endYear: birthYear + 80 }],
+      primary: {
+        ...samplePlan.primary,
+        jobs: [{ ...salariedJob(dollarsToCents(3000)), startYear: birthYear + 70, endYear: birthYear + 80 }],
+      },
     });
+    const sampleCurrentAge = START_YEAR - samplePlan.primary.birthYear;
     const wagesAt = (age: number) =>
-      series.months[(age - samplePlan.currentAge) * 12]?.flows?.incomeByCategoryCents.wages ?? 0;
+      series.months[(age - sampleCurrentAge) * 12]?.flows?.incomeByCategoryCents.wages ?? 0;
     expect(wagesAt(68)).toBe(0);
     expect(wagesAt(70)).toBeGreaterThan(0);
     expect(wagesAt(79)).toBeGreaterThan(0);
@@ -134,8 +149,11 @@ describe("createProjectionBase — earned income before current age comes from t
   // A job's start age is its `startYear`, not a scalar field.
   const planFromStartAge = (startAge: number): Plan => ({
     ...samplePlan,
-    currentAge: 40,
-    jobs: [salariedJob(dollarsToCents(8000), { currentAge: 40, startAge })],
+    primary: {
+      ...samplePlan.primary,
+      birthYear: START_YEAR - 40,
+      jobs: [salariedJob(dollarsToCents(8000), { currentAge: 40, startAge })],
+    },
   });
   const priorYears = (startAge: number) => {
     const base = createProjectionBase(planFromStartAge(startAge), ctx());
@@ -177,12 +195,15 @@ describe("createProjectionBase — the covered-earnings record the benefit seam 
   // Inflation 0 so a real-flat salary is nominally flat: each pre-"now" year reads the exact
   // authored pay, and a raise or bonus is a clean whole-dollar shift the AIME seam can be
   // pinned against.
-  const zeroInflation = (jobs: Plan["jobs"]): Plan => ({
+  const zeroInflation = (jobs: Plan["primary"]["jobs"]): Plan => ({
     ...samplePlan,
     inflationPct: 0,
-    currentAge: 40,
-    benefitClaimingAge: 67,
-    jobs,
+    primary: {
+      ...samplePlan.primary,
+      birthYear: START_YEAR - 40,
+      benefitClaimingAge: 67,
+      jobs,
+    },
   });
 
   /** The covered-earnings record as the benefit seam first sees it (at the claiming month). */
@@ -258,7 +279,10 @@ describe("createProjectionBase — the covered-earnings record the benefit seam 
  */
 const retiringAt = (endAge: number): Plan => ({
   ...samplePlan,
-  jobs: [salariedJob(dollarsToCents(8000), { deferralFraction: 0.1, endAge })],
+  primary: {
+    ...samplePlan.primary,
+    jobs: [salariedJob(dollarsToCents(8000), { deferralFraction: 0.1, endAge })],
+  },
 });
 
 describe("createProjectionBase — retirement decumulation liquidates instead of borrowing", () => {
@@ -413,7 +437,10 @@ describe("createProjectionBase — a goal declares its account type", () => {
 describe("createProjectionBase — horizon spans to life expectancy", () => {
   it("projects from now to life expectancy, not a fixed 30 years", () => {
     const horizon = (currentAge: number, lifeExpectancy: number) =>
-      project({ ...samplePlan, currentAge, lifeExpectancy }).months.length;
+      project({
+        ...samplePlan,
+        primary: { ...samplePlan.primary, birthYear: START_YEAR - currentAge, lifeExpectancy },
+      }).months.length;
     // months are [0 … (life − now)*12), one processed month each → length (life − now)*12.
     expect(horizon(35, 90)).toBe((90 - 35) * 12);
     expect(horizon(25, 95)).toBe((95 - 25) * 12);
@@ -425,19 +452,32 @@ describe("createProjectionBase — horizon spans to life expectancy", () => {
     // event year picker) needs the same span the simulator ran, and a second derivation of it can
     // disagree with the months it is handed — most invisibly when the series is TRUNCATED at a
     // block and the only remaining statement of the full span is this one.
-    const plan = { ...samplePlan, currentAge: 35, lifeExpectancy: 90 };
-    expect(project(plan).months.length).toBe(planHorizonMonths(plan));
+    const plan = {
+      ...samplePlan,
+      primary: { ...samplePlan.primary, birthYear: START_YEAR - 35, lifeExpectancy: 90 },
+    };
+    expect(project(plan).months.length).toBe(planHorizonMonths(plan, START_YEAR));
     // Clamped rather than negative: a life expectancy at or below today's age has no months to
     // simulate, and no caller should have to guard a negative span.
-    expect(planHorizonMonths({ currentAge: 90, lifeExpectancy: 90 })).toBe(0);
-    expect(planHorizonMonths({ currentAge: 95, lifeExpectancy: 90 })).toBe(0);
+    expect(
+      planHorizonMonths(
+        { primary: { ...samplePlan.primary, birthYear: START_YEAR - 90, lifeExpectancy: 90 } },
+        START_YEAR,
+      ),
+    ).toBe(0);
+    expect(
+      planHorizonMonths(
+        { primary: { ...samplePlan.primary, birthYear: START_YEAR - 95, lifeExpectancy: 90 } },
+        START_YEAR,
+      ),
+    ).toBe(0);
   });
 });
 
 describe("createProjectionBase — health is an ordinary budget line", () => {
   const saver: Plan = {
     ...samplePlan,
-    jobs: [salariedJob(dollarsToCents(6_000))],
+    primary: { ...samplePlan.primary, jobs: [salariedJob(dollarsToCents(6_000))] },
     budgetLines: [spendLine(dollarsToCents(3_000))],
     goals: [],
   };
@@ -469,9 +509,12 @@ describe("createProjectionBase — health is an ordinary budget line", () => {
     // jurisdiction naming none project identically.
     const plan: Plan = {
       ...saver,
-      currentAge: 55,
-      lifeExpectancy: 90,
-      jobs: [salariedJob(dollarsToCents(6_000), { currentAge: 55 })],
+      primary: {
+        ...saver.primary,
+        birthYear: START_YEAR - 55,
+        lifeExpectancy: 90,
+        jobs: [salariedJob(dollarsToCents(6_000), { currentAge: 55 })],
+      },
       budgetLines: [spendLine(dollarsToCents(3_000)), healthLine(dollarsToCents(1_000))],
     };
     expect(endingNetWorthCents(plan, mockJurisdiction({ publicHealthCoverageAge: 65 }))).toBe(

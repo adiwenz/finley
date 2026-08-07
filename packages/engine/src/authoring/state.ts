@@ -9,11 +9,13 @@
  */
 
 import type { Plan } from "../plan/plan";
-import { ageAboveMaximum } from "../plan/plan";
+import { invalidAge } from "../plan/plan";
 import type { Scenario } from "../plan/scenario";
 import { scenarioOf, withLedger, withPlan } from "../plan/scenario";
 import type { Ledger } from "../ledger/ledger";
 import type { ScenarioScalars } from "../input/scenarioInput";
+import { PRIMARY_PERSON_ID } from "../compile/projectionBase";
+import { assertPersonEventsStillReachable } from "./reachability";
 
 /** The immutable authoring state a `Projection` holds, and the whole of what it serializes. */
 export interface ProjectionState {
@@ -43,6 +45,12 @@ export interface ProjectionState {
  * versions would be a promise this build cannot keep — reading a v1 file under v2 rules means
  * transforming it, and no transforms exist — so the gate there is exact equality, and it stays
  * exact until the first real migration lands.
+ *
+ * **Not bumped for a shape change nothing has written yet.** `Person.lifeExpectancy` became
+ * required while this build was still the only thing producing states, so there is no file in
+ * existence carrying the older shape and nothing for a new version to distinguish. A bump would
+ * describe a migration that never happened. `./restore` still checks that every person states one
+ * — see `assertEveryPersonHasLifeExpectancy` — because a state can be wrong without being old.
  */
 export const CURRENT_FORMAT_VERSION = 1;
 
@@ -56,16 +64,37 @@ export const CURRENT_FORMAT_VERSION = 1;
  * is exactly what `Projection.init` does rather than keeping a second, unchecked door open.
  */
 export function emptyState(scalars: ScenarioScalars): ProjectionState {
-  const { startYear, ...plan } = scalars;
+  const { startYear, name, birthYear, lifeExpectancy, benefitClaimingAge, ...rest } = scalars;
+  // Every person's expectancy is REQUIRED, the primary's included, and nothing defaults one —
+  // and `@finley/engine` is published, so the type is not the only
+  // guard: a JavaScript caller omitting it would otherwise reach `planHorizonMonths` and produce a
+  // horizon of `NaN` months. Refused rather than defaulted, for the reason `MAX_AGE` is refused
+  // rather than clamped: a plan projected to an age it does not state is a plan whose numbers
+  // disagree with the answer beside them.
+  if (typeof lifeExpectancy !== "number" || !Number.isFinite(lifeExpectancy)) {
+    throw new Error("Projection: cannot open a plan without the primary's lifeExpectancy");
+  }
   // The age bound applies at the door as well as on every later edit — `Projection.init` is a
   // way into the plan that does not pass through `withPlanPatch`, and a horizon nobody can
   // afford to simulate is no more welcome for having arrived first.
-  const bad = ageAboveMaximum(plan);
+  const bad = invalidAge({ birthYear, lifeExpectancy, benefitClaimingAge }, startYear);
   if (bad) {
-    throw new Error(`Projection: cannot open a plan with ${bad.field} ${bad.age} — it may not exceed ${bad.limit}`);
+    throw new Error(`Projection: cannot open a plan with ${bad.field} ${bad.age} — it ${bad.problem}`);
   }
   return {
-    scenario: scenarioOf({ ...plan, jobs: [], goals: [], budgetLines: [] }),
+    scenario: scenarioOf({
+      ...rest,
+      goals: [],
+      budgetLines: [],
+      primary: {
+        id: PRIMARY_PERSON_ID,
+        name,
+        birthYear,
+        lifeExpectancy,
+        benefitClaimingAge,
+        jobs: [],
+      },
+    }),
     startYear,
     nextSeq: 1,
     version: CURRENT_FORMAT_VERSION,
@@ -85,17 +114,27 @@ export interface Written<R> {
  * `state` with `plan` swapped in, carrying the ledger through so no standing write drops the
  * timeline. `nextSeq` moves with it when the write minted an id, so the plan and the counter
  * that named its contents land as ONE new state.
+ *
+ * **The prospective state is checked before it is returned** — see
+ * {@link assertPersonEventsStillReachable}. A plan patch can move the primary's `birthYear` or
+ * `lifeExpectancy`, and so the month they die, which everything they take part in is dated
+ * against: every marriage and separation in the timeline, every loan and home they own, every job
+ * they start. Here rather than in `./planScalars` because this is the plan plane's ONE write, so
+ * there is no standing edit that reaches a plan around the check — the same reason the ledger
+ * plane's version lives in `./eventWrite` rather than in each authoring verb.
  */
 export function withStatePlan(
   state: ProjectionState,
   plan: Plan,
   nextSeq?: number,
 ): ProjectionState {
-  return {
+  const next = {
     ...state,
     scenario: withPlan(state.scenario, plan),
     ...(nextSeq !== undefined ? { nextSeq } : {}),
   };
+  assertPersonEventsStillReachable(next);
+  return next;
 }
 
 /** The ledger-plane counterpart of {@link withStatePlan}, carrying the plan through. */
@@ -127,7 +166,8 @@ export function planSite(
 ): Plan {
   const plan = state.scenario.plan;
   const noun = collection === "budgetLines" ? "budget line" : collection.slice(0, -1);
-  if (!plan[collection].some((entry: { id: string }) => entry.id === id)) {
+  const entries = collection === "jobs" ? plan.primary.jobs : plan[collection];
+  if (!entries.some((entry: { id: string }) => entry.id === id)) {
     throw new Error(`Projection: cannot edit a ${noun} — no ${noun} "${id}" on this plan`);
   }
   return plan;

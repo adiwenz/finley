@@ -440,31 +440,32 @@ export interface SimPerson {
    */
   readonly priorEarningsCents?: Readonly<Record<number, Cents>>;
   /**
-   * The months this person's money belongs to THIS household — `startMonth` inclusive,
-   * `endMonthExclusive` the separation month (or `Infinity` while they are still a member).
-   * Absent means unbounded, which is what a person with no membership record (every
-   * single-earner plan) gets.
+   * **When this person is still doing things** — the single
+   * {@link import("../job/personActiveWindow").PersonActiveWindow}: from the month they joined the
+   * household until the earlier of separating and dying. Absent means unbounded, which is what a
+   * person with no membership record (every single-earner plan) and no reckonable death gets.
    *
-   * Carried across the sim boundary because a wage is not the only thing membership governs.
-   * The income series were already clipped to this window upstream, so the simulator never had
-   * to ask — but a government benefit is derived INSIDE the sim from the earnings record, and
-   * so arrives with no window attached. Without this it was paid to the household forever: a
-   * partner who separated at 50 still contributed their Social Security from 67 to the end of
-   * the projection, inflating net worth and pulling the solved retirement age earlier.
+   * Carried across the sim boundary because the compiled income series are not the only
+   * person-scoped money in a month. A government benefit is derived INSIDE the sim from the
+   * earnings record and so arrives with no window attached; without this it was paid forever, a
+   * partner who separated at 50 still contributing their Social Security to the end of the
+   * projection. Death is the same shape of problem one step further on — it used to be a second
+   * field checked beside this one, and only by the benefit, so a job went on paying a dead
+   * earner. One window, and every person-scoped stream is clipped by it.
    */
-  readonly membership?: {
+  readonly activeWindow?: {
     readonly startMonth: number;
     readonly endMonthExclusive: number;
   };
 }
 
 /**
- * Is this person's money the household's in `month`? Absent membership is unbounded — the
- * single-earner case, and every fixture that states a roster without a timeline.
+ * Is this person's money the household's in `month` — a member, and alive? Absent window is
+ * unbounded: the single-earner case, and every fixture that states a roster without a timeline.
  */
-export function isHouseholdMemberAt(person: SimPerson, month: number): boolean {
+export function isPersonActiveAt(person: SimPerson, month: number): boolean {
   // Not named `window` — the purity guard reads that as the browser global, and it is right to.
-  const bounds = person.membership;
+  const bounds = person.activeWindow;
   if (bounds === undefined) return true;
   return month >= bounds.startMonth && month < bounds.endMonthExclusive;
 }

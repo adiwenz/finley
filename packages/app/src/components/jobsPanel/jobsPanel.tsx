@@ -211,7 +211,13 @@ export function JobsPanel({
   const severalOwners = owners.length > 1;
   /** The picker's options — the form needs who they are, not where their jobs live. */
   const pickableOwners = useMemo(
-    () => owners.map((o) => ({ id: o.id, name: o.name, currentAge: ownerAgeAtMonth(o.birthYear, 0) })),
+    () =>
+      owners.map((o) => ({
+        id: o.id,
+        name: o.name,
+        currentAge: ownerAgeAtMonth(o.birthYear, 0),
+        lifeExpectancy: o.lifeExpectancy,
+      })),
     [owners],
   );
 
@@ -225,7 +231,7 @@ export function JobsPanel({
    */
   function add({ ownerId, ...fields }: NewJobDraft) {
     const result = addJob(owners, ownerId, fields);
-    if (result.ok) commit(result.writes);
+    if (result.ok && !commit(result.writes)) return; // refused: the draft stays on screen
     setAuthoring(null);
   }
 
@@ -238,7 +244,12 @@ export function JobsPanel({
   function edit(owner: JobOwner, id: string, draft: JobEditDraft) {
     const result = editJob(owners, id, draft);
     if (!result.ok) return setAuthoring(null);
-    if (commit(result.writes)) setNotice(strandedNotice(owner, result.strandedPayChanges));
+    // A refusal leaves the form open holding what was typed, rather than closing on an edit that
+    // never landed — which is indistinguishable from nothing having happened. The fields are
+    // bounded so the ordinary refusals cannot be reached from here at all (see `JobForm`); this
+    // is for a state the form's own bounds cannot see, such as an expectancy lowered elsewhere.
+    if (!commit(result.writes)) return;
+    setNotice(strandedNotice(owner, result.strandedPayChanges));
     setAuthoring(null);
   }
 
@@ -343,7 +354,7 @@ export function JobsPanel({
                 initialEditDraft={jobToDraftFor(projection, owner.birthYear, job)}
                 path={path}
                 uncounted={uncounted}
-                lifeExpectancy={budget.lifeExpectancy}
+                lifeExpectancy={owner.lifeExpectancy}
                 inTodaysDollars={inTodaysDollars}
                 severalOwners={severalOwners}
                 isPrimaryOwner={owner.id === owners[0].id}
@@ -417,6 +428,7 @@ export function JobsPanel({
           // it to a partner before it is added.
           initial={blankJobDraftFor(owners[0].id, ownerAgeAtMonth(owners[0].birthYear, 0))}
           currentAge={ownerAgeAtMonth(owners[0].birthYear, 0)}
+          lifeExpectancy={owners[0].lifeExpectancy}
           submitLabel="Add"
           // Whose job it is, is settled here and only here.
           ownership="choose"
