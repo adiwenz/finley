@@ -2,7 +2,9 @@
  * `ProjectionSeries.obligationOutcomes` as the public `Projection` facade reports it — the
  * consumer-visible seam the app's timeline/warning read. Authored entirely through `Projection`
  * (`buyHome`, `updatePlan`), never through simulator internals, since what matters here is what a
- * caller of the public API actually sees.
+ * caller of the public API actually sees: the outcome CONTRACT (status + provenance), not the
+ * resolution mechanics that produce it — those are pinned at the simulator seam in
+ * `projection/simulate.blocking.test.ts`.
  *
  * The load-bearing case: four purchases in ledger order, A and B and C landing in the SAME month.
  * A resolves before the block, B is the block, C is a same-month sibling authored after B, and D
@@ -44,7 +46,7 @@ function buy(p: Projection, month: number, priceDollars: number, downDollars: nu
 }
 
 describe("Projection.run().series.obligationOutcomes — actual resolution order, not month position", () => {
-  it("reports A executed, B blocked, a same-month C not-reached, and a later D not-reached", () => {
+  it("reports A executed, B blocked, a same-month C not-reached, and a later D not-reached — with provenance", () => {
     const p = freshProjection();
     // Ledger order: A ($5k down, affordable alone), B ($80k down, the blocker), C ($10k down, same
     // month as B but authored after it), D ($10k down, two months later). $50k opening savings
@@ -60,37 +62,32 @@ describe("Projection.run().series.obligationOutcomes — actual resolution order
     const { series } = p.run(nullJurisdiction);
     expect(series.status).toBe("blocked");
     expect(series.blockedAtMonth).toBe(BLOCK_MONTH);
+    const blockingObligationId = series.blockingObligation?.obligationId;
+    expect(blockingObligationId).toBeDefined();
 
-    const outcomes = series.obligationOutcomes;
+    // Provenance is explicit on the public result — no obligationId parsing required to recover
+    // which event each outcome belongs to, and every outcome's own `sourceEventId` names its
+    // authoring purchase.
     const byEvent = new Map(
-      Object.values(outcomes)
+      Object.values(series.obligationOutcomes)
         .filter((o) => o.sourceEventId !== undefined)
         .map((o) => [o.sourceEventId!, o]),
     );
 
-    expect(byEvent.get(a)?.status).toBe("executed");
-    expect(byEvent.get(b)?.status).toBe("blocked");
-    expect(byEvent.get(c)?.status).toBe("not-reached");
-    expect(byEvent.get(d)?.status).toBe("not-reached");
-
-    // Provenance is explicit on the public result — no obligationId parsing required to recover
-    // which event each outcome belongs to.
-    expect(byEvent.get(a)?.sourceEventId).toBe(a);
-    expect(byEvent.get(b)?.sourceEventId).toBe(b);
-    expect(byEvent.get(c)?.sourceEventId).toBe(c);
-    expect(byEvent.get(d)?.sourceEventId).toBe(d);
-
-    // The claim is grounded in what actually happened: A's home stands, B/C/D's do not — an
-    // obligation is never reported executed while its artifacts were omitted.
-    const blocked = series.months[BLOCK_MONTH];
-    const homeIdOf = (eventId: string) => {
-      const event = p.state.scenario.ledger.events.find((e) => e.id === eventId);
-      if (event?.type !== "HomePurchaseEvent") throw new Error(`expected a home purchase for ${eventId}`);
-      return event.propertyId;
-    };
-    expect(blocked.propertyValuesCents[homeIdOf(a)]).toBeGreaterThan(0);
-    for (const eventId of [b, c, d]) {
-      expect(blocked.propertyValuesCents[homeIdOf(eventId)] ?? 0).toBe(0);
-    }
+    expect(byEvent.get(a)).toMatchObject({ status: "executed", sourceEventId: a });
+    expect(byEvent.get(b)).toMatchObject({ status: "blocked", sourceEventId: b, month: BLOCK_MONTH });
+    // C sits in the SAME month as the blocker but was authored after it — resolution stopped
+    // before reaching it, so it reads `not-reached`, identically to D authored two months later,
+    // never `executed`.
+    expect(byEvent.get(c)).toMatchObject({
+      status: "not-reached",
+      sourceEventId: c,
+      blockedByObligationId: blockingObligationId,
+    });
+    expect(byEvent.get(d)).toMatchObject({
+      status: "not-reached",
+      sourceEventId: d,
+      blockedByObligationId: blockingObligationId,
+    });
   });
 });

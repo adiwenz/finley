@@ -340,7 +340,7 @@ describe("projection blocking — an unfundable purchase", () => {
   });
 });
 
-describe("per-obligation outcomes", () => {
+describe("per-obligation resolution — simulateHousehold()'s own obligationOutcomes contract", () => {
   // A financed purchase: its property, mortgage, and down-payment draw, all tied to one event.
   // Kept generic over month/amount so a single plan can string several draws across the timeline.
   function purchase(eventId: string, month: number, downCents: number, priceCents: number) {
@@ -375,120 +375,29 @@ describe("per-obligation outcomes", () => {
     };
   }
 
-  it("classifies draws by position: executed before the block, blocked, not-reached after", () => {
-    // $50k savings. buy0 spends $10k cash-in-full at month 1 (executes, no mortgage to drain the
-    // rest), buy1's $80k blocks at month 3 against the $40k left, buy2 at month 5 is never
-    // simulated at all.
-    const buy0 = purchase("buy0", 1, 1_000_000, 1_000_000);
-    const buy1 = purchase("buy1", 3, DOWN, PRICE);
-    const buy2 = purchase("buy2", 5, 1_000_000, 5_000_000);
+  // "keeps an EARLIER same-month purchase" and "suppresses a LATER same-month purchase" above
+  // already pin resolution order and artifact suppression WITHIN the blocked month; the public
+  // outcome-status contract itself (executed/blocked/not-reached, with provenance) is
+  // `projectionFacade.blockedOutcomes.test.ts`'s job. What neither covers: a draw authored in a
+  // month the sim never even reaches, because the loop halts at the block before getting there.
+  it("resolves nothing for a draw authored a month after the block — no artifacts, loop never reaches it", () => {
+    const blocker = purchase("buy1", BLOCK_MONTH, DOWN, PRICE);
+    const later = purchase("buy2", BLOCK_MONTH + 2, 1_000_000, 5_000_000);
     const series = run({
       accounts: [savings(5_000_000)],
-      properties: [buy0.property, buy1.property, buy2.property],
-      liabilities: [buy0.mortgage, buy1.mortgage, buy2.mortgage],
-      fundingDraws: [buy0.draw, buy1.draw, buy2.draw],
+      properties: [blocker.property, later.property],
+      liabilities: [blocker.mortgage, later.mortgage],
+      fundingDraws: [blocker.draw, later.draw],
     });
 
     expect(series.status).toBe("blocked");
-    expect(series.obligationOutcomes["draw:dp:buy0"]).toEqual({
-      status: "executed",
-      sourceEventId: "buy0",
-    });
-    expect(series.obligationOutcomes["draw:dp:buy1"]).toEqual({
-      status: "blocked",
-      month: BLOCK_MONTH,
-      shortfallCents: DOWN - 4_000_000,
-      sourceEventId: "buy1",
-    });
-    expect(series.obligationOutcomes["draw:dp:buy2"]).toEqual({
-      status: "not-reached",
-      blockedByObligationId: "draw:dp:buy1",
-      sourceEventId: "buy2",
-    });
-  });
-
-  it("reports a same-month sibling AFTER the blocker as not-reached, never executed", () => {
-    // Two draws in the blocked month. buy1's $80k blocks, which stops resolution for the rest of
-    // the month — buy2's draw is never priced or withdrawn, so it must read `not-reached` exactly
-    // like a later-month draw would, NOT `executed`: reporting it executed while its money never
-    // moved and its property/mortgage were suppressed is the contradiction this outcome map exists
-    // to rule out.
-    const buy1 = purchase("buy1", BLOCK_MONTH, DOWN, PRICE);
-    const buy2 = purchase("buy2", BLOCK_MONTH, 1_000_000, 5_000_000);
-    const series = run({
-      accounts: [savings(5_000_000)],
-      properties: [buy1.property, buy2.property],
-      liabilities: [buy1.mortgage, buy2.mortgage],
-      fundingDraws: [buy1.draw, buy2.draw],
-    });
-
-    expect(series.blockingObligation?.obligationId).toBe("draw:dp:buy1");
-    expect(series.obligationOutcomes["draw:dp:buy1"]?.status).toBe("blocked");
-    expect(series.obligationOutcomes["draw:dp:buy2"]).toEqual({
-      status: "not-reached",
-      blockedByObligationId: "draw:dp:buy1",
-      sourceEventId: "buy2",
-    });
-    // The outcome map's claim is not free-floating: buy2's artifacts really were omitted.
+    expect(series.blockedAtMonth).toBe(BLOCK_MONTH);
+    // The sim stops at the blocked month — `later`'s month is never simulated at all.
+    expect(series.months).toHaveLength(BLOCK_MONTH + 1);
     const blocked = series.months[BLOCK_MONTH];
-    expect(blocked.propertyValuesCents[buy2.property.id] ?? 0).toBe(0);
-    expect(blocked.liabilityBalancesCents[buy2.mortgage.id] ?? 0).toBe(0);
-  });
-
-  it("reports outcomes by ACTUAL resolution order — A executed, B blocked, C same-month not-reached, D later not-reached", () => {
-    // Four draws in ledger order. A resolves before the blocker at the SAME month; B is the
-    // blocker; C is later in that SAME month, after B, so its draw is skipped even though it was
-    // never itself tested for affordability; D is authored in a later month entirely and the sim
-    // never reaches it. $50k savings: A's $5k down (on a $10k home, financing the rest) executes,
-    // leaving $45k — short of B's $80k.
-    const a = purchase("buyA", BLOCK_MONTH, 500_000, 1_000_000);
-    const b = purchase("buyB", BLOCK_MONTH, DOWN, PRICE);
-    const c = purchase("buyC", BLOCK_MONTH, 1_000_000, 5_000_000);
-    const d = purchase("buyD", BLOCK_MONTH + 2, 1_000_000, 5_000_000);
-    const series = run({
-      accounts: [savings(5_000_000)],
-      properties: [a.property, b.property, c.property, d.property],
-      liabilities: [a.mortgage, b.mortgage, c.mortgage, d.mortgage],
-      // Ledger/resolution order: A, then B (the blocker), then C, then D.
-      fundingDraws: [a.draw, b.draw, c.draw, d.draw],
-    });
-
-    expect(series.status).toBe("blocked");
-    expect(series.obligationOutcomes["draw:dp:buyA"]).toEqual({
-      status: "executed",
-      sourceEventId: "buyA",
-    });
-    expect(series.obligationOutcomes["draw:dp:buyB"]).toEqual({
-      status: "blocked",
-      month: BLOCK_MONTH,
-      shortfallCents: DOWN - 4_500_000,
-      sourceEventId: "buyB",
-    });
-    expect(series.obligationOutcomes["draw:dp:buyC"]).toEqual({
-      status: "not-reached",
-      blockedByObligationId: "draw:dp:buyB",
-      sourceEventId: "buyC",
-    });
-    expect(series.obligationOutcomes["draw:dp:buyD"]).toEqual({
-      status: "not-reached",
-      blockedByObligationId: "draw:dp:buyB",
-      sourceEventId: "buyD",
-    });
-
-    // The claim is grounded in what the sim actually did: A's artifacts stand, B/C/D's do not —
-    // an obligation can never be reported `executed` while its effects were omitted.
-    const blocked = series.months[BLOCK_MONTH];
-    expect(blocked.propertyValuesCents[a.property.id]).toBe(1_000_000);
-    // A really did originate a $5k mortgage (the financed remainder) — proof it executed, not
-    // merely a zero balance that would pass either way.
-    expect(blocked.liabilityBalancesCents[a.mortgage.id]).toBe(500_000);
-    expect(blocked.accountBalancesCents.savings).toBe(4_500_000);
-    for (const p of [b.property, c.property, d.property]) {
-      expect(blocked.propertyValuesCents[p.id] ?? 0).toBe(0);
-    }
-    for (const m of [b.mortgage, c.mortgage, d.mortgage]) {
-      expect(blocked.liabilityBalancesCents[m.id] ?? 0).toBe(0);
-    }
+    expect(blocked.propertyValuesCents[later.property.id] ?? 0).toBe(0);
+    expect(blocked.liabilityBalancesCents[later.mortgage.id] ?? 0).toBe(0);
+    expect(blocked.accountBalancesCents.savings).toBe(5_000_000);
   });
 
   it("reports every obligation executed when the plan runs to the horizon", () => {
