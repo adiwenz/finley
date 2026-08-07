@@ -90,7 +90,6 @@ export function paragraphs(p: Projection): string[] {
   const html = renderToStaticMarkup(
     <RetirementPanel
       view={retirementView(p, usJurisdiction)}
-      budget={p.plan}
       previewing={false}
       onTogglePreview={() => {}}
     />,

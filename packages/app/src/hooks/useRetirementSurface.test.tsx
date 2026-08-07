@@ -30,6 +30,7 @@ import { renderHook } from "@testing-library/react";
 import {
   dollarsToCents,
   liabilityKindLabel,
+  planHorizonMonths,
   Projection,
   ref,
   SYNTHETIC_CARD_ID,
@@ -418,5 +419,88 @@ describe("useRetirementSurface — the preview graph and the editable surfaces a
     expect(result.current.pending).toBe(true);
     expect(result.current.chartResult).toBe(RUN_B);
     expect(result.current.authoringResult).toBe(RUN_B);
+  });
+});
+
+/**
+ * A life-expectancy change is the case that made the hazard visible: the plan's span itself
+ * moves, so a chart that kept the OLD preview series but adopted the NEW horizon would resize
+ * once when the edit commits (to the new life expectancy) and again when the new preview lands
+ * (as the series catches up) — two visible moves for one edit. `chartHorizonMonths` exists so the
+ * axis is paired with `chartResult` exactly the way `retirement` is paired with the projection
+ * that solved it.
+ */
+function projectionWithLifeExpectancy(lifeExpectancy: number): Projection {
+  const input: ScenarioInput = { ...DEFAULT_INPUT, lifeExpectancy };
+  const built = Projection.fromInput(input, usJurisdiction);
+  if (!built.ok) throw new Error(`fixture is not a valid ScenarioInput: ${built.error.reason}`);
+  return built.projection;
+}
+
+/** Life expectancy 85. */
+const YOUNGER_HORIZON = projectionWithLifeExpectancy(85);
+/** Life expectancy 95 — a later horizon than {@link YOUNGER_HORIZON}. */
+const OLDER_HORIZON = projectionWithLifeExpectancy(95);
+
+const RUN_YOUNGER_HORIZON = YOUNGER_HORIZON.run(usJurisdiction);
+const RUN_OLDER_HORIZON = OLDER_HORIZON.run(usJurisdiction);
+
+describe("useRetirementSurface — the preview horizon stays paired with the preview series", () => {
+  it("keeps the OLD horizon beside the retained preview while a life-expectancy edit is pending", () => {
+    const { result, rerender } = renderSurface({
+      projection: YOUNGER_HORIZON,
+      authoredResult: RUN_YOUNGER_HORIZON,
+      solvedProjection: YOUNGER_HORIZON,
+      previewEnabled: true,
+    });
+    expect(result.current.chartHorizonMonths).toBe(planHorizonMonths(YOUNGER_HORIZON.plan));
+
+    // The user raises life expectancy to 95. The solve has not caught up.
+    rerender({
+      projection: OLDER_HORIZON,
+      authoredResult: RUN_OLDER_HORIZON,
+      solvedProjection: YOUNGER_HORIZON,
+      previewEnabled: true,
+    });
+
+    expect(result.current.pending).toBe(true);
+    // The series is still the OLD preview...
+    expect(result.current.chartResult).toBe(result.current.previewResult);
+    expect(result.current.chartResult).not.toBe(RUN_OLDER_HORIZON);
+    // ...and the axis must still be the horizon THAT preview was drawn against, not the live
+    // plan's — otherwise the chart would show age-85 data plotted against a 95-year axis.
+    expect(result.current.chartHorizonMonths).toBe(planHorizonMonths(YOUNGER_HORIZON.plan));
+    expect(result.current.chartHorizonMonths).not.toBe(planHorizonMonths(OLDER_HORIZON.plan));
+
+    // The solve lands. Series and horizon switch together, in one step.
+    rerender({
+      projection: OLDER_HORIZON,
+      authoredResult: RUN_OLDER_HORIZON,
+      solvedProjection: OLDER_HORIZON,
+      previewEnabled: true,
+    });
+    expect(result.current.pending).toBe(false);
+    expect(result.current.chartResult).toBe(result.current.previewResult);
+    expect(result.current.chartHorizonMonths).toBe(planHorizonMonths(OLDER_HORIZON.plan));
+  });
+
+  it("tracks the live horizon immediately when the preview toggle is off", () => {
+    // With no preview to retain, `chartResult` already falls back to the live authored run (see
+    // "draws the authored run everywhere when the preview is off" above) — the horizon follows
+    // the same live plan, even while a solve is pending.
+    const { result, rerender } = renderSurface({
+      projection: YOUNGER_HORIZON,
+      authoredResult: RUN_YOUNGER_HORIZON,
+      solvedProjection: YOUNGER_HORIZON,
+      previewEnabled: false,
+    });
+    rerender({
+      projection: OLDER_HORIZON,
+      authoredResult: RUN_OLDER_HORIZON,
+      solvedProjection: YOUNGER_HORIZON,
+      previewEnabled: false,
+    });
+    expect(result.current.pending).toBe(true);
+    expect(result.current.chartHorizonMonths).toBe(planHorizonMonths(OLDER_HORIZON.plan));
   });
 });

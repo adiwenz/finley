@@ -18,7 +18,7 @@
  */
 
 import { Fragment } from "react";
-import { PRIMARY_PERSON_ID, type Plan } from "@finley/engine";
+import { PRIMARY_PERSON_ID } from "@finley/engine";
 import type { RetirementView } from "../../retirementView";
 import { formatDollars } from "../../format";
 
@@ -80,13 +80,11 @@ function Recalculating() {
 
 export function RetirementPanel({
   view,
-  budget,
   previewing,
   pending = false,
   onTogglePreview,
 }: {
   view: RetirementView;
-  budget: Plan;
   /** Whether the toggle is on — the user's own intent, not whether a preview is on screen. */
   previewing: boolean;
   /**
@@ -142,9 +140,9 @@ export function RetirementPanel({
           </>
         )}{" "}
         {view.authoredPlanSurvives ? (
-          <>This plan succeeds through age {budget.lifeExpectancy}.</>
+          <>This plan succeeds through age {view.lifeExpectancy}.</>
         ) : (
-          <>This plan runs out of money before age {budget.lifeExpectancy}.</>
+          <>This plan runs out of money before age {view.lifeExpectancy}.</>
         )}
       </p>
 
@@ -171,9 +169,9 @@ export function RetirementPanel({
           />
           <span>
             Preview the charts as if everyone stopped working by the time{" "}
-            {budget.name ? (
+            {view.primaryName ? (
               <>
-                {budget.name} turns <strong>{view.headlineAge}</strong>
+                {view.primaryName} turns <strong>{view.headlineAge}</strong>
               </>
             ) : (
               <>
@@ -194,14 +192,14 @@ export function RetirementPanel({
           assumption, not the age. */}
       {view.headlineAge === null ? (
         <p className="alert alert-red" role="status">
-          On these numbers the money never lasts to age {budget.lifeExpectancy} — no
+          On these numbers the money never lasts to age {view.lifeExpectancy} — no
           retirement age is feasible. Structural changes are required.
         </p>
       ) : view.continuedJobs.length === 0 ? (
         <p className="hint">
           You can retire at{" "}
           <strong aria-label="Earliest feasible retirement age">{view.headlineAge}</strong> and
-          have the portfolio last to age {budget.lifeExpectancy}.
+          have the portfolio last to age {view.lifeExpectancy}.
         </p>
       ) : (
         <p className="hint" role="status">
@@ -218,7 +216,7 @@ export function RetirementPanel({
           ))}
           {/* The survival claim rides the same sentence rather than repeating the age, so two
               continued jobs read as one list and not as two sentences fighting over the number. */}
-          , with the portfolio lasting to age {budget.lifeExpectancy}.
+          , with the portfolio lasting to age {view.lifeExpectancy}.
         </p>
       )}
 

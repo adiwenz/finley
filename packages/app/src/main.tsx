@@ -103,10 +103,12 @@ export function App() {
    * simulations against the default plan, ~5× the cost of the graph's single `run` above.
    *
    * So it is deferred rather than computed on the render that commits an edit. React paints the
-   * charts, the editor and the snapshot from the fresh `projection` immediately, then re-renders
-   * this memo against the new one in the background; until it lands, every surface below reads
-   * the previous solve. Without this, each committed keystroke waited on the whole search before
-   * anything could paint.
+   * editable surfaces, the editor and the snapshot from the fresh `projection` immediately, then
+   * re-renders this memo against the new one in the background; until it lands, the retirement
+   * answer below reads the previous solve, and the net-worth chart's preview series and horizon
+   * do too WHEN the preview toggle is on (see the bullet below) — every other chart is editable
+   * and moves with the live plan. Without this, each committed keystroke waited on the whole
+   * search before anything could paint.
    *
    * Deferred rather than GATED on the retirement panel being open, which was the obvious move
    * and is wrong: the solved age is not panel-local. It dates the graph's retirement reference
@@ -124,13 +126,17 @@ export function App() {
    * - **The preview graph never shows a mid-transition mixture.** With the toggle ON, a retained
    *   preview run at the previous solve's age is a real, complete answer — just a moment old —
    *   so `chartResult` KEEPS showing it, dimmed on the reference line, for the whole pending
-   *   window, then swaps straight to the new preview when the solve lands. What it must never do
-   *   is fall back to the live authored plan in between: that would make the graph visibly change
-   *   twice per edit (old preview → authored → new preview) instead of once. With the toggle OFF
-   *   there is no preview to hold onto, so `chartResult` is just the live authored run, and the
-   *   reference line — which would have nowhere honest to point — is dropped rather than redrawn
-   *   early. The preview TOGGLE itself is never touched either way: it keeps recording the user's
-   *   intent and stays interactive throughout, per `RetirementPanel`.
+   *   window, then swaps straight to the new preview when the solve lands. `chartHorizonMonths`
+   *   travels with it, paired the same way: the axis stays the horizon THAT preview was solved
+   *   against, not the live plan's, so the chart does not resize once when the edit commits and
+   *   again when the new preview lands. What it must never do is fall back to the live authored
+   *   plan (or the live horizon) in between: that would make the graph visibly change twice per
+   *   edit (old preview → authored → new preview) instead of once. With the toggle OFF there is
+   *   no preview to hold onto, so `chartResult` and `chartHorizonMonths` are just the live
+   *   authored run and the live horizon, and the reference line — which would have nowhere
+   *   honest to point — is dropped rather than redrawn early. The preview TOGGLE itself is never
+   *   touched either way: it keeps recording the user's intent and stays interactive throughout,
+   *   per `RetirementPanel`.
    * - **Nothing EDITABLE reads it, ever.** Base + Adjustments, the jobs' pay figures and the
    *   breakdown's balances sit beside rows, names and controls from the live plan, so they take
    *   `authoringResult` — the live authored run, unconditionally, whether or not the toggle is on
@@ -150,6 +156,7 @@ export function App() {
     retirement,
     pending: retirementPending,
     chartResult,
+    chartHorizonMonths,
     authoringResult,
   } = useRetirementSurface({
     projection,
@@ -235,7 +242,12 @@ export function App() {
         <div className="main-col">
           <div className="card">
             {/* The plan's own span, so the axis reaches life expectancy even when the projection
-                stopped early — a blocked series is truncated at the block. */}
+                stopped early — a blocked series is truncated at the block. `chartHorizonMonths`
+                rather than the live `horizonMonths` below: it is paired with `chartSeries` the
+                same way `chartResult` is paired with the projection it was solved from, so a
+                retained stale preview keeps its OWN horizon through the pending window instead
+                of resizing to the live plan's the instant the edit commits and again when the
+                new preview lands (see `useRetirementSurface.chartHorizonMonths`). */}
             <NetWorthChart
               series={chartSeries}
               // With the toggle OFF, `chartSeries` is the live authored run, so a month solved
@@ -247,7 +259,7 @@ export function App() {
                 retirementPending && !previewing ? null : retirement.headlineMonth
               }
               retirementMonthMuted={retirementPending && previewing}
-              horizonMonths={horizonMonths}
+              horizonMonths={chartHorizonMonths}
             />
 
             {/* The toggle is on, and the graph above is still showing the LAST complete preview
@@ -346,7 +358,6 @@ export function App() {
           <div className="card">
             <RetirementPanel
               view={retirement}
-              budget={budget}
               previewing={previewing}
               pending={retirementPending}
               onTogglePreview={setPreviewRetirement}

@@ -77,16 +77,32 @@ export interface RetirementView {
    * more years of consulting, and the household may never have opened the picker that chose it.
    */
   readonly continuedJobs: readonly ContinuedJob[];
+  /**
+   * The life expectancy this whole view was solved against — read off the SAME projection as
+   * every field above, never the live plan. The panel prints this beside `headlineAge` and
+   * `authoredPlanSurvives`, and both are answers to "does the money last to life expectancy?";
+   * pairing them with a live `budget.lifeExpectancy` that has since changed would print a
+   * verdict about an age nobody asked about (see `useRetirementSurface`'s module doc — the same
+   * hybrid hazard, for a scalar rather than a series).
+   */
+  readonly lifeExpectancy: number;
+  /**
+   * The plan's display name at the moment this view was solved, or `null` when unset — the same
+   * fallback-to-"you" the panel already applies. Read off the same projection as everything
+   * else above, so a rename mid-recalculation cannot attach the new name to the old solve.
+   */
+  readonly primaryName: string | null;
 }
 
 /**
  * What this view reads, and nothing else. Narrow on purpose: it says the view cannot author,
  * and a test standing in for it states one member rather than a whole projection.
  *
- * One member, since the outlook began reporting the blocked age itself: reading the plan was
- * only ever to convert that month onto the primary's clock, which is the engine's to do.
+ * Two members now: `plan` joined `retirement` when the panel's own copy — life expectancy, the
+ * plan's name — turned out to need pinning to the same solve as the rest of the view, rather
+ * than reading the live plan out from under it.
  */
-type RetirementSource = Pick<Projection, "retirement">;
+type RetirementSource = Pick<Projection, "retirement" | "plan">;
 
 export function retirementView(
   projection: RetirementSource,
@@ -106,5 +122,7 @@ export function retirementView(
     authoredPlanSurvives: solution.authoredPlanSurvives,
     earlyRetireeHealth,
     continuedJobs: solution.continuedJobs,
+    lifeExpectancy: projection.plan.lifeExpectancy,
+    primaryName: projection.plan.name || null,
   };
 }

@@ -62,6 +62,26 @@ describe("retirementView — one query behind every figure", () => {
     expect(view.authoredPlanSurvives).toBe(outlook.solution.authoredPlanSurvives);
     expect(view.earlyRetireeHealth).toEqual(outlook.earlyRetireeHealth);
     expect(view.continuedJobs).toEqual(outlook.solution.continuedJobs);
+    // The presentation fields the panel used to read off the live `budget` instead — pinned here
+    // as coming off the SAME reader as everything above, not a second, possibly-live source.
+    expect(view.lifeExpectancy).toBe(reader.plan.lifeExpectancy);
+    expect(view.primaryName).toBe(reader.plan.name || null);
+  });
+
+  it("reads lifeExpectancy and primaryName off the projection passed in, not a later one", () => {
+    // The hazard `useRetirementSurface` guards against for the series and the age: pairing a
+    // solved view with metadata from a DIFFERENT plan. A view built from one projection must
+    // report that projection's own life expectancy and name, whatever a caller holds elsewhere.
+    const younger = viewOf({ ...PLAN_DEFAULTS, lifeExpectancy: 85, name: "Old" });
+    const older = viewOf({ ...PLAN_DEFAULTS, lifeExpectancy: 95, name: "New" });
+    expect(younger.lifeExpectancy).toBe(85);
+    expect(younger.primaryName).toBe("Old");
+    expect(older.lifeExpectancy).toBe(95);
+    expect(older.primaryName).toBe("New");
+  });
+
+  it("falls back to null for an unnamed plan, same as the panel's own fallback", () => {
+    expect(viewOf({ ...PLAN_DEFAULTS, name: "" }).primaryName).toBeNull();
   });
 
   it("carries no pinned-target figures — there is no age to score against", () => {
@@ -85,6 +105,7 @@ describe("retirementView — a blocked projection can't be solved", () => {
     const real = Projection.fromState(stateOf(plan), usJurisdiction);
     const outlook = real.retirement(usJurisdiction);
     return {
+      plan: real.plan,
       retirement: (_j: Jurisdiction) => ({
         ...outlook,
         solution: { ...outlook.solution, fullRetirementAge: null, blocked: true, blockedAtMonth },

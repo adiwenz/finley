@@ -42,16 +42,21 @@
  */
 
 import { useMemo } from "react";
+import { planHorizonMonths } from "@finley/engine";
 import type { Jurisdiction, Projection, ProjectionResult } from "@finley/engine";
 import { retirementView, type RetirementView } from "../retirementView";
 
 /**
- * What this needs of a projection: the solve, and the preview run at a solved age. Narrow so a
+ * What this needs of a projection: the solve, the preview run at a solved age, and the plan
+ * scalars `retirementView` and the chart's horizon read off the same handle. Narrow so a
  * test can state two distinct handles without building two whole apps — which is also the only
  * way to observe the pending window deterministically, since React decides when a deferred value
  * catches up and no test can sit inside that decision.
  */
-export type SolvableProjection = Pick<Projection, "retirement" | "runAtStopWorkingAge">;
+export type SolvableProjection = Pick<
+  Projection,
+  "retirement" | "runAtStopWorkingAge" | "plan"
+>;
 
 export interface RetirementSurface {
   /** The solved answer — always read off {@link pending}'s older projection when one exists. */
@@ -74,6 +79,15 @@ export interface RetirementSurface {
    * off. See the module doc for why this must NOT fall back to the authored run mid-solve.
    */
   readonly chartResult: ProjectionResult;
+  /**
+   * The horizon {@link chartResult} was produced against — paired with it exactly the way
+   * {@link retirement} is paired with the projection that solved it. While a stale preview is
+   * retained mid-solve, its axis must stay the horizon IT was drawn against, or the chart resizes
+   * once when the edit commits and again when the new preview lands, for a graph that never
+   * moved. See the module doc's rule for {@link chartResult}; this is the same rule for the span
+   * that decorates it.
+   */
+  readonly chartHorizonMonths: number;
   /**
    * What every EDITABLE surface draws: the live authored run, unconditionally. Never the preview,
    * whether or not the toggle is on and whether or not a solve is in flight — see the module doc.
@@ -129,8 +143,24 @@ export function useRetirementSurface({
   // toggle is off, or no age is feasible.
   const chartResult = previewEnabled ? (previewResult ?? authoredResult) : authoredResult;
 
+  // Paired with `chartResult` by the same condition that picks it: when the graph is drawing
+  // `previewResult`, the horizon has to be the plan `previewResult` was solved against
+  // (`solvedProjection`, which does not move during the pending window) — never the live plan's,
+  // or the axis would resize on the render an edit commits and again when the new preview lands.
+  const chartHorizonMonths =
+    previewEnabled && previewResult !== null
+      ? planHorizonMonths(solvedProjection.plan)
+      : planHorizonMonths(projection.plan);
+
   // Every editable surface draws the plan being authored, full stop — never the hypothetical.
   const authoringResult = authoredResult;
 
-  return { retirement, previewResult, pending, chartResult, authoringResult };
+  return {
+    retirement,
+    previewResult,
+    pending,
+    chartResult,
+    chartHorizonMonths,
+    authoringResult,
+  };
 }

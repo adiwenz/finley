@@ -20,7 +20,6 @@ function render(budget: Plan) {
   return renderToStaticMarkup(
     <RetirementPanel
       view={retirementView(Projection.fromState(stateOf(budget), usJurisdiction))}
-      budget={budget}
       previewing={false}
       onTogglePreview={noop}
     />,
@@ -31,7 +30,6 @@ function renderWithView(view: RetirementView, previewing = false, pending = fals
   return renderToStaticMarkup(
     <RetirementPanel
       view={view}
-      budget={PLAN_DEFAULTS}
       previewing={previewing}
       pending={pending}
       onTogglePreview={noop}
@@ -219,6 +217,19 @@ describe("RetirementPanel — while the solve is behind the plan", () => {
     expect(renderWithView(blocked, false, true)).toMatch(/Recalculating/i);
     expect(renderWithView(blocked)).not.toMatch(/Recalculating/i);
   });
+
+  it("prints the life expectancy and name the SOLVED view carries, not a caller's own idea of the live plan", () => {
+    // The panel used to take `budget: Plan` on top of `view` and read `budget.lifeExpectancy` /
+    // `budget.name` for this copy — a second, always-live source that could disagree with a
+    // pending `view`. It now takes only `view`, so there is no live value left to leak in: a
+    // life expectancy and name that don't match ANY real plan's defaults still have to come
+    // through verbatim, proving they are read from `view` and nowhere else.
+    const stale: RetirementView = { ...feasible, lifeExpectancy: 95, primaryName: "Riley" };
+    const html = renderWithView(stale, false, true);
+    expect(html).toContain("age 95");
+    expect(html).not.toContain(`age ${PLAN_DEFAULTS.lifeExpectancy}`);
+    expect(html).toContain("Riley turns");
+  });
 });
 
 describe("RetirementPanel — chart preview toggle", () => {
@@ -252,8 +263,7 @@ describe("RetirementPanel — chart preview toggle", () => {
   it("falls back to 'you' when the plan has no authored name", () => {
     const unnamed = renderToStaticMarkup(
       <RetirementPanel
-        view={feasible}
-        budget={{ ...PLAN_DEFAULTS, name: "" }}
+        view={{ ...feasible, primaryName: null }}
         previewing={false}
         onTogglePreview={noop}
       />,
@@ -450,6 +460,7 @@ describe("RetirementPanel — chart preview toggle", () => {
       <RetirementPanel
         view={{
           ...feasible,
+          primaryName: null,
           continuedJobs: [
             {
               jobId: "job-1",
@@ -463,7 +474,6 @@ describe("RetirementPanel — chart preview toggle", () => {
             },
           ],
         }}
-        budget={{ ...PLAN_DEFAULTS, name: "" }}
         previewing={false}
         onTogglePreview={noop}
       />,
@@ -500,9 +510,11 @@ describe("RetirementPanel — chart preview toggle", () => {
       authoredPlanSurvives: false,
       earlyRetireeHealth: { flagged: false, gapYears: 0, shortfallMonthlyCents: 0 },
       continuedJobs: [],
+      lifeExpectancy: PLAN_DEFAULTS.lifeExpectancy,
+      primaryName: PLAN_DEFAULTS.name || null,
     };
     const html = renderToStaticMarkup(
-      <RetirementPanel view={blockedView} budget={PLAN_DEFAULTS} previewing={false} onTogglePreview={noop} />,
+      <RetirementPanel view={blockedView} previewing={false} onTogglePreview={noop} />,
     );
     expect(html).toContain("blocked at age 40");
     expect(html).toContain("Can’t compute a retirement age");
