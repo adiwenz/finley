@@ -8,7 +8,9 @@ import { buildObligations, automaticFundingTotal, fundedLiabilityPayments } from
 import { resolveFundingAttribution, type FundingSupplyPlan } from "./resolvedFunding";
 import type {
   HouseholdSimInput,
+  LiabilityPaymentRecord,
   ProjectionMonth,
+  ProjectionMonthFlows,
   ProjectionSeries,
 } from "./simulate.types";
 import { initSimState } from "./runState";
@@ -269,100 +271,113 @@ export function simulateHousehold(
     const fundedObligationTotalCents = Math.max(0, automaticFundingCents - unfundedObligationCents);
     const appliedLiabilityPayments = fundedLiabilityPayments(obligations, fundedObligationTotalCents);
 
-    // Per-line funding attribution — a partition of the SAME funded total, in the order the
-    // cascade consumed its sources: income cash, liquid drawdown, decumulation, then credit. The
-    // real, sized movements (each account liquidated, cards actually borrowed against) are
-    // attributed as-is; income is the waterfall's own obligation coverage net of the decumulation
-    // folded into it, and liquid absorbs whatever of the obligation's own share of the cascade's
-    // covering capacity ({@link obligationCoveredCents}) the real credit draw didn't need — so a
-    // rounding-sized gap the pre-allocation withdrawal sizing missed, but the liquid buffer (with
-    // room to spare) quietly covered, is attributed to savings rather than falsely to a card that
-    // was never touched.
-    const decumulationTotalCents = withdrawal.decumulationDraws.reduce(
-      (total, d) => total + d.netDeliveredCents,
-      0,
-    );
-    // Obligations' own slice of what the cascade's shared liquid+credit capacity covered this
-    // month (see the `unfundedObligationCents` comment above for the priority-over-contributions
-    // reasoning) — the total this layer split has to divide between liquid and credit.
-    const obligationCoveredCents = preCascadeObligationShortfallCents - unfundedObligationCents;
-    // Real credit used for obligations: obligations claim the cascade's combined capacity before
-    // contributions, so a card is only touched on their behalf once the household's REAL liquid
-    // contribution (covering capacity minus what genuinely landed on a card) can't cover them.
-    const realHouseholdLiquidCents = Math.max(0, coveredCapacityCents - borrowedOntoCreditCents);
-    const creditForObligationsCents = Math.max(0, obligationCoveredCents - realHouseholdLiquidCents);
-    const liquidToObligationsCents = obligationCoveredCents - creditForObligationsCents;
-    const incomeToObligationsCents = Math.max(
-      0,
-      Math.min(
-        automaticFundingCents - preCascadeObligationShortfallCents - decumulationTotalCents,
-        Math.max(0, fundedObligationTotalCents - liquidToObligationsCents - decumulationTotalCents),
-      ),
-    );
-    const supply: FundingSupplyPlan = {
-      incomeCents: incomeToObligationsCents,
-      liquidDrawdown:
-        state.liquidAccount !== null && liquidToObligationsCents > 0
-          ? { sourceId: state.liquidAccount.id, amountCents: liquidToObligationsCents }
-          : null,
-      decumulationDraws: withdrawal.decumulationDraws,
-      creditCents: Math.max(
-        0,
-        fundedObligationTotalCents -
-          incomeToObligationsCents -
-          liquidToObligationsCents -
-          decumulationTotalCents,
-      ),
-    };
-    // Explicit draws resolved first in the month, so their records lead the flat list; the
-    // automatic obligations follow, attributed from the shared supply. Both are the same shape —
-    // a consumer reads `kind`, never the id, to tell an account-drained purchase from an
-    // income-funded line.
-    const resolvedFunding = [
-      ...fundingDraw.resolvedFunding,
-      ...resolveFundingAttribution(obligations, supply),
-    ];
-
     applyAssetTransfers(state, month);
     compoundAssets(state, month, jurisdiction, ctx);
     advanceLiabilities(state, month, appliedLiabilityPayments, suppressedLiabilityIds);
     advanceProperties(state, month, suppressedPropertyIds);
-    const paymentRecords = buildLiabilityPaymentRecords(payments);
-    const bands = buildFlows(
-      // The down-payment gain bands are reporting-only: `cashInflowCents` the gain, no
-      // waterfall inflow — its tax already rode the net-neutral source through allocation.
-      [...incomeSources, ...fundingDraw.gainSources],
-      taxCents,
-      // The very list the waterfall funded above, re-shaped into the flow record — expenses,
-      // debt and per-line rollups all derive from it, so none can drift from the funded amount.
-      obligations,
-      // The withdrawal channel's liquid-buffer drawdown PLUS a down payment's returned
-      // principal (and any cash source's whole draw) — one `savingsDrawdown` source, so a
-      // month spent from savings isn't a zero band.
-      withdrawal.liquidDrawdownCents + fundingDraw.principalDrawdownCents,
-      // Undefined when the jurisdiction declines a breakdown; the app then draws one band.
-      taxByCategoryCents,
-      // The finer per-SOURCE splits, so a chart can band tax by job and show take-home
-      // per source.
-      taxBySourceCents,
-      deferralBySourceCents,
-      // Employee payroll tax (FICA) — its own line, already removed from take-home.
-      payrollTaxCents,
-      // The finer per-SOURCE payroll-tax splits, mirroring `taxBySourceCents`.
-      payrollTaxBySourceCents,
-    );
-    // The taxable base after this month's explicit draws but BEFORE decumulation, so the
-    // authoring gate prices a would-be draw on top of any sibling draw at this month — and NOT
-    // on top of decumulation, which now resolves after the candidate and so is not tax it
-    // induces. A newly appended event's draw is last in ledger order, hence last among the
-    // explicit draws in resolution, so this base is its marginal context.
-    const flows = {
-      ...bands,
-      resolvedFunding,
-      taxableByOwnerAfterFundingCents: toTaxableRecord(fundingDraw.taxableByOwnerAfter),
-      accountBalancesAfterFundingCents,
-      accountBasisAfterFundingCents,
-    };
+
+    // Everything below is REPORTING ONLY — the per-month flow bands, per-line funding
+    // attribution, and liability payment records. The survival search reads none of it (only
+    // `isInsolvent` and net worth), so it is skipped there: the state above is already advanced,
+    // so the survival signal and every later month are identical whether or not it runs. The
+    // funded total (`appliedLiabilityPayments`) that DOES move state was computed above and is
+    // outside this block. Attribution is computed here, after the state mutations, rather than at
+    // the seam it describes: its inputs are captured locals the mutations don't touch, so the
+    // result is unchanged and one guard covers the whole reporting cost.
+    let paymentRecords: Record<string, LiabilityPaymentRecord> = {};
+    let flows: ProjectionMonthFlows | undefined;
+    if (!survivalOnly) {
+      // Per-line funding attribution — a partition of the SAME funded total, in the order the
+      // cascade consumed its sources: income cash, liquid drawdown, decumulation, then credit. The
+      // real, sized movements (each account liquidated, cards actually borrowed against) are
+      // attributed as-is; income is the waterfall's own obligation coverage net of the decumulation
+      // folded into it, and liquid absorbs whatever of the obligation's own share of the cascade's
+      // covering capacity ({@link obligationCoveredCents}) the real credit draw didn't need — so a
+      // rounding-sized gap the pre-allocation withdrawal sizing missed, but the liquid buffer (with
+      // room to spare) quietly covered, is attributed to savings rather than falsely to a card that
+      // was never touched.
+      const decumulationTotalCents = withdrawal.decumulationDraws.reduce(
+        (total, d) => total + d.netDeliveredCents,
+        0,
+      );
+      // Obligations' own slice of what the cascade's shared liquid+credit capacity covered this
+      // month (see the `unfundedObligationCents` comment above for the priority-over-contributions
+      // reasoning) — the total this layer split has to divide between liquid and credit.
+      const obligationCoveredCents = preCascadeObligationShortfallCents - unfundedObligationCents;
+      // Real credit used for obligations: obligations claim the cascade's combined capacity before
+      // contributions, so a card is only touched on their behalf once the household's REAL liquid
+      // contribution (covering capacity minus what genuinely landed on a card) can't cover them.
+      const realHouseholdLiquidCents = Math.max(0, coveredCapacityCents - borrowedOntoCreditCents);
+      const creditForObligationsCents = Math.max(0, obligationCoveredCents - realHouseholdLiquidCents);
+      const liquidToObligationsCents = obligationCoveredCents - creditForObligationsCents;
+      const incomeToObligationsCents = Math.max(
+        0,
+        Math.min(
+          automaticFundingCents - preCascadeObligationShortfallCents - decumulationTotalCents,
+          Math.max(0, fundedObligationTotalCents - liquidToObligationsCents - decumulationTotalCents),
+        ),
+      );
+      const supply: FundingSupplyPlan = {
+        incomeCents: incomeToObligationsCents,
+        liquidDrawdown:
+          state.liquidAccount !== null && liquidToObligationsCents > 0
+            ? { sourceId: state.liquidAccount.id, amountCents: liquidToObligationsCents }
+            : null,
+        decumulationDraws: withdrawal.decumulationDraws,
+        creditCents: Math.max(
+          0,
+          fundedObligationTotalCents -
+            incomeToObligationsCents -
+            liquidToObligationsCents -
+            decumulationTotalCents,
+        ),
+      };
+      // Explicit draws resolved first in the month, so their records lead the flat list; the
+      // automatic obligations follow, attributed from the shared supply. Both are the same shape —
+      // a consumer reads `kind`, never the id, to tell an account-drained purchase from an
+      // income-funded line.
+      const resolvedFunding = [
+        ...fundingDraw.resolvedFunding,
+        ...resolveFundingAttribution(obligations, supply),
+      ];
+
+      paymentRecords = buildLiabilityPaymentRecords(payments);
+      const bands = buildFlows(
+        // The down-payment gain bands are reporting-only: `cashInflowCents` the gain, no
+        // waterfall inflow — its tax already rode the net-neutral source through allocation.
+        [...incomeSources, ...fundingDraw.gainSources],
+        taxCents,
+        // The very list the waterfall funded above, re-shaped into the flow record — expenses,
+        // debt and per-line rollups all derive from it, so none can drift from the funded amount.
+        obligations,
+        // The withdrawal channel's liquid-buffer drawdown PLUS a down payment's returned
+        // principal (and any cash source's whole draw) — one `savingsDrawdown` source, so a
+        // month spent from savings isn't a zero band.
+        withdrawal.liquidDrawdownCents + fundingDraw.principalDrawdownCents,
+        // Undefined when the jurisdiction declines a breakdown; the app then draws one band.
+        taxByCategoryCents,
+        // The finer per-SOURCE splits, so a chart can band tax by job and show take-home
+        // per source.
+        taxBySourceCents,
+        deferralBySourceCents,
+        // Employee payroll tax (FICA) — its own line, already removed from take-home.
+        payrollTaxCents,
+        // The finer per-SOURCE payroll-tax splits, mirroring `taxBySourceCents`.
+        payrollTaxBySourceCents,
+      );
+      // The taxable base after this month's explicit draws but BEFORE decumulation, so the
+      // authoring gate prices a would-be draw on top of any sibling draw at this month — and NOT
+      // on top of decumulation, which now resolves after the candidate and so is not tax it
+      // induces. A newly appended event's draw is last in ledger order, hence last among the
+      // explicit draws in resolution, so this base is its marginal context.
+      flows = {
+        ...bands,
+        resolvedFunding,
+        taxableByOwnerAfterFundingCents: toTaxableRecord(fundingDraw.taxableByOwnerAfter),
+        accountBalancesAfterFundingCents,
+        accountBasisAfterFundingCents,
+      };
+    }
 
     months.push(
       snapshotMonth(state, {
