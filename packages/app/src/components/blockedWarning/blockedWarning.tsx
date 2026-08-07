@@ -7,19 +7,46 @@ import { formatDollars, monthLabel } from "../../format";
  * carries no dismiss control, because dismissing it would not make it less true; it clears only when
  * the plan no longer blocks (a different funding source, a smaller purchase). Named for the DTI
  * advisory's `soft-warning` marker class, but NOT advice: it proposes no value change, it reports a
- * stop that already happened. Red rather than amber for that reason — the plan did not merely lean
- * hard on credit, it ran out of money the purchase needed.
+ * stop that already happened. Red rather than amber for that reason.
+ *
+ * The copy branches on the engine's funding-failure classification. A funding-configuration block
+ * names the eligible accounts that could cover it — the money exists, the instructions don't point
+ * at it — and the remedy is to re-point the funding. A no-eligible-source block states the
+ * eligibility fact and explicitly withholds any judgement about affordability: a household with
+ * ample retirement wealth lands here, and calling that "can't afford it" would be false.
  *
  * The parent renders this only while `blockedWarning` returns non-null, so mounting IS the
  * condition holding; the component itself is a pure statement of that fact.
  */
 export function BlockedWarning({ warning }: { warning: BlockedWarningView }) {
+  const lead = (
+    <>
+      <strong>Projection stopped.</strong> “{warning.eventLabel}” in {monthLabel(warning.month)}{" "}
+    </>
+  );
   return (
     <div className="alert alert-red soft-warning" role="status">
-      <strong>Projection stopped.</strong> “{warning.eventLabel}” in {monthLabel(warning.month)}{" "}
-      can’t be funded — the down payment falls {formatDollars(warning.shortfallCents)} short of what
-      the chosen accounts deliver after the tax on selling them. The plan can’t go past that point,
-      so everything after it is on hold and the graph is hatched from there.
+      {warning.kind === "funding-configuration" ? (
+        <>
+          {lead}
+          can’t be funded from the accounts you chose — they fall{" "}
+          {formatDollars(warning.shortfallCents)} short after the tax on selling them. The money is
+          there, just not in the accounts you pointed at:{" "}
+          {warning.alternativeSources
+            .map((s) => `${s.label} (${formatDollars(s.availableCents)} available)`)
+            .join(", ")}{" "}
+          could cover it. Re-point the funding or lower the amount — nothing is moved for you.
+        </>
+      ) : (
+        <>
+          {lead}
+          can’t be funded: no eligible account can cover it, and it falls{" "}
+          {formatDollars(warning.shortfallCents)} short after the tax on selling what you have.
+          Retirement accounts aren’t eligible for a purchase like this, so a balance held there
+          doesn’t change it. This isn’t a judgement about what you can manage — it’s that no
+          account the purchase may draw from holds enough.
+        </>
+      )}
     </div>
   );
 }

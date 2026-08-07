@@ -97,7 +97,7 @@ export function App() {
   // The blocked-projection soft warning, off the AUTHORED run for the same reason the markers are:
   // it names the plan as written, never the retirement preview. `null` until something stops, so
   // its mere presence IS the condition holding — persistence and clearing fall out of the render.
-  const blocked = useMemo(() => blockedWarning(ledger, series), [ledger, series]);
+  const blocked = useMemo(() => blockedWarning(ledger, series, funding), [ledger, series, funding]);
   // The event the edit surface is bound to, resolved live. Null when nothing is being edited or
   // when the target was removed out from under an open edit — either way the add form is shown.
   const editingEvent = useMemo(
