@@ -5,7 +5,7 @@
  * engine's job, see `snapshotAt` in @finley/engine.
  */
 
-import type { Ledger, LifeEvent, SnapshotSeries } from "@finley/engine";
+import type { Ledger, LifeEvent, ProjectionSeries, SnapshotSeries } from "@finley/engine";
 import { formatDollars } from "./format";
 
 export interface EventSummary {
@@ -85,20 +85,75 @@ export function seriesLabel(s: Pick<SnapshotSeries, "role" | "seriesType">): str
   }
 }
 
+/**
+ * How the projection treated the obligation an event spawned:
+ *   - `executed` — its month ran, or it never spawned an obligation (a structural event, a
+ *     pre-existing holding) so the stop never concerned it. The timeline shows no indicator.
+ *   - `blocked` — this event's down payment could not be funded and stopped the projection.
+ *   - `not-reached` — authored after the blocked month, so the simulation stopped before testing it.
+ */
+export type MarkerOutcome = "executed" | "blocked" | "not-reached";
+
 export interface TimelineMarker extends EventSummary {
   readonly id: string;
   readonly month: number;
   readonly type: LifeEvent["type"];
+  readonly outcome: MarkerOutcome;
 }
 
-/** The ledger as plain-language markers, sorted by (month, sequenceNumber). */
-export function timelineMarkers(ledger: Ledger): TimelineMarker[] {
+/** The projection fields the timeline reads to classify each event — nothing else of the series. */
+type OutcomeSource = Pick<
+  ProjectionSeries,
+  "status" | "blockingObligation" | "obligationOutcomes"
+>;
+
+/**
+ * Every authoring event the projection did not simply execute, keyed by its own id — the blocking
+ * purchase and every purchase authored after it. Read straight from the engine's `obligationOutcomes`
+ * and never re-derived positionally: only obligation-bearing purchases appear there, so structural
+ * events (a marriage, a child, a separation) and pre-existing holdings are absent and fall through to
+ * `executed` with no indicator, exactly as the slice requires.
+ *
+ * The outcome map is keyed by obligation id (`<prefix><authoring-event-id>`, `draw:downpayment:home-1`
+ * today). Rather than hard-code that spelling, recover `<prefix>` from the one (obligationId,
+ * sourceEventId) pair the engine hands us on `blockingObligation` and strip it back off each key — so
+ * the join stays on the authoring event and survives a change to the id scheme. Empty for a run that
+ * reached the horizon: nothing stopped, so every event executed.
+ */
+function eventOutcomes(series: OutcomeSource | undefined): Map<string, MarkerOutcome> {
+  const outcomes = new Map<string, MarkerOutcome>();
+  if (series === undefined || series.status !== "blocked") return outcomes;
+  const blocking = series.blockingObligation;
+  if (blocking?.sourceEventId === undefined) return outcomes;
+  const { obligationId, sourceEventId } = blocking;
+  // The obligation id ends with its authoring event id by construction. If that ever fails we can
+  // still name the blocking event; we just cannot translate the rest of the map.
+  if (!obligationId.endsWith(sourceEventId)) {
+    outcomes.set(sourceEventId, "blocked");
+    return outcomes;
+  }
+  const prefix = obligationId.slice(0, obligationId.length - sourceEventId.length);
+  for (const [id, outcome] of Object.entries(series.obligationOutcomes)) {
+    if (outcome.status === "executed" || !id.startsWith(prefix)) continue;
+    outcomes.set(id.slice(prefix.length), outcome.status);
+  }
+  return outcomes;
+}
+
+/**
+ * The ledger as plain-language markers, sorted by (month, sequenceNumber). Pass the projection
+ * `series` to fold in per-event outcomes — the blocking purchase and every purchase stranded after
+ * it; omit it (the snapshot panel's use) and every marker reads `executed`.
+ */
+export function timelineMarkers(ledger: Ledger, series?: OutcomeSource): TimelineMarker[] {
+  const outcomes = eventOutcomes(series);
   return [...ledger.events]
     .sort((a, b) => a.month - b.month || a.sequenceNumber - b.sequenceNumber)
     .map((e) => ({
       id: e.id,
       month: e.month,
       type: e.type,
+      outcome: outcomes.get(e.id) ?? "executed",
       ...summarizeEvent(e),
     }));
 }

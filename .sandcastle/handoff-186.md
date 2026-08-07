@@ -2,40 +2,48 @@
 
 **Done so far:**
 - Task 1 (engine outcome map) — **DONE**.
-- Task 2 (graph: solid to block, hatched after) — **DONE** (this commit).
-- Task 3 (timeline: blocked / not-reached indicators) — remaining.
+- Task 2 (graph: solid to block, hatched after) — **DONE**.
+- Task 3 (timeline: blocked / not-reached indicators) — **DONE** (this commit).
 - Task 4 (soft warning + end-to-end) — remaining. Owns the summary + handoff deletion.
 
-## Live constraints (what tasks 3–4 consume)
+## Live constraints (what task 4 consumes)
 - `ProjectionSeries.obligationOutcomes` is **always present** (`{}` on a plain run), a
   `Record<ObligationId, ObligationOutcome>`. Three-state union in `simulate.types.ts`.
   Only **explicit** draws appear — automatic obligations (budget lines, liability payments) and
-  structural events (marriage/child/separation) are deliberately absent. Do not add them; the map's
-  keys ARE "the authored purchases".
-- Outcome keys are the obligation's `id`, which for down-payment draws is `draw:${authoredId}`
-  (see `financialObligation.ts`). The timeline (task 3) keys events via
-  `BlockedObligation.sourceEventId` / `ObligationOutcome`, not by the raw draw id — join on the
-  authoring event, not the `draw:`-prefixed id.
+  structural events (marriage/child/separation) are deliberately absent. The map's keys ARE
+  "the authored purchases".
+- Outcome keys are the obligation's `id` = `draw:downpayment:${authoredEventId}`
+  (`eventHandlers.ts:384` + `assetAcquisitionObligation`). **Join on the authoring event, not by
+  hard-coding that spelling.** Task 3's timeline recovers the `draw:downpayment:` prefix by stripping
+  `blockingObligation.sourceEventId` off `blockingObligation.obligationId`, then strips it back off
+  each outcome key — see `eventOutcomes` in `ledgerView.ts`. Reuse that seam if task 4 needs the
+  event→outcome join; don't re-derive positionally.
 - `not-reached` is **positional** (authored strictly after `blockedAtMonth`), never
-  dependency-derived. A same-month sibling of the blocker is `executed`. Tasks 3/4 must not
-  re-derive "reached" from dependencies — read the map.
+  dependency-derived. A same-month sibling of the blocker is `executed`. Read the map.
 - Shortfall is a **bare** figure already net of capital-gains tax (`shortfallCents`). Classifying it
   or offering alternatives is #187 — out of scope for every task here.
 - Fixtures that build a `ProjectionSeries` literal must include `obligationOutcomes` (required).
 
-## Graph, now settled (task 2)
-- The never-simulated tail is `stoppedSpan` (`chartSpan.ts`), whose `fromX` is now
-  `toAxisX(blockedAtMonth + 1)` — the hatch begins the month AFTER the block. The blocked month ran
-  its full pipeline and stays on the solid curve; do not re-anchor it on the blocked month.
-  Asserted by `blockedMarker.test.ts` and `netWorthBreakdown.test.ts` ("hatches from the month
-  after the block…").
-- Both charts (`netWorthChart.tsx`, `netWorthBreakdownChart.tsx`) render that band as an SVG
-  `<pattern>` diagonal hatch (id via `useId`, matching the `payChart.tsx` idiom), labelled
-  "not simulated" on the total chart. The blocked marker + tooltip already name the event/gap.
-- Recharts renders nothing in jsdom, so the hatch/marker visuals are NOT asserted off the SVG — the
-  seam is the pure `buildNetWorthChartData` / `buildNetWorthBreakdown` data. Task 3's timeline
-  should follow the same seam discipline (assert the data, or a hidden `<output>` mirror as
-  `payChart.tsx` does, not the rendered SVG).
+## Timeline, now settled (task 3)
+- `timelineMarkers(ledger, series?)` now annotates each marker with `outcome: MarkerOutcome`
+  (`"executed" | "blocked" | "not-reached"`, exported from `ledgerView.ts`). Omitting `series` (the
+  snapshot panel's `splitMarkers` path) leaves every marker `executed` — indicators show only once
+  something stopped. `main.tsx` feeds the **authored** `series`, never the retirement preview, so an
+  indicator reflects the plan as written.
+- `Timeline` (`components/timeline/timeline.tsx`) renders a per-row badge ("Blocked" / "Not reached")
+  and a track-dot modifier for the two non-executed outcomes; executed events render exactly as
+  before. Asserted at both seams: the pure join in `ledgerView.test.ts`, the rendered rows in
+  `components/timeline/timeline.test.tsx` (jsdom — plain DOM, no Recharts, so the rows ARE asserted).
+- The end-to-end blocked scenario used by task 3's join test mirrors `scenarios.blockedPurchase.ts`:
+  author two affordable purchases at 400k opening, `updatePlan` down to 60k to strand them. Task 4's
+  end-to-end AC can reuse that shape.
+
+## Warning pattern for task 4
+- The soft-warning precedent the issue names: `homePurchaseForm.tsx:98` + `affordability.ts` (the
+  debt-to-income warning). Persistent, non-dismissible, **not** a `Nudge`. It names the event, the
+  month, and the shortfall net of tax — all on `series.blockingObligation` (`label`, `month`,
+  `shortfallCents`). `main.tsx` already destructures `series` and renders the insolvency alert near
+  line 204 — the blocked-warning likely sits alongside it.
 
 ## Dead ends
 - (none recorded)

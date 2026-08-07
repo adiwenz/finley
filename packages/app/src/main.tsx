@@ -89,7 +89,9 @@ export function App() {
     () => new Map(household.memberships.map((m) => [m.person.id, m.person.name])),
     [household],
   );
-  const markers = useMemo(() => timelineMarkers(ledger), [ledger]);
+  // Markers carry per-event outcomes off the AUTHORED run, not the retirement preview: the timeline
+  // is an authoring surface, so a blocked/not-reached indicator must reflect the plan as written.
+  const markers = useMemo(() => timelineMarkers(ledger, series), [ledger, series]);
   // The event the edit surface is bound to, resolved live. Null when nothing is being edited or
   // when the target was removed out from under an open edit — either way the add form is shown.
   const editingEvent = useMemo(
