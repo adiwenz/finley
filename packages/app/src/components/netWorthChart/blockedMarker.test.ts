@@ -52,6 +52,7 @@ function blockedSeries(): ProjectionSeries {
     simulatedThroughMonth: BLOCK_MONTH,
     blockedAtMonth: BLOCK_MONTH,
     blockingObligation: blocking,
+    obligationOutcomes: {},
   };
 }
 
@@ -86,6 +87,7 @@ describe("net-worth chart — the terminal blocked marker", () => {
       months,
       status: "ran-to-horizon",
       simulatedThroughMonth: 1,
+      obligationOutcomes: {},
     };
     expect(buildNetWorthChartData(ranToHorizon).blocked).toBeNull();
   });
@@ -116,6 +118,7 @@ describe("net-worth chart — the terminal blocked marker", () => {
         months: [month(0, 5_000_000), month(1, 5_100_000)],
         status: "ran-to-horizon",
         simulatedThroughMonth: 1,
+        obligationOutcomes: {},
       };
       expect(buildNetWorthChartData(ranToHorizon, HORIZON_MONTHS).stopped).toBeNull();
     });

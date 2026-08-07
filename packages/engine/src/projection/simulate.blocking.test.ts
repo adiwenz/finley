@@ -339,3 +339,117 @@ describe("projection blocking — an unfundable purchase", () => {
     expect(m.netWorthNominalCents).toBe(10_000_000);
   });
 });
+
+describe("per-obligation outcomes", () => {
+  // A financed purchase: its property, mortgage, and down-payment draw, all tied to one event.
+  // Kept generic over month/amount so a single plan can string several draws across the timeline.
+  function purchase(eventId: string, month: number, downCents: number, priceCents: number) {
+    return {
+      property: {
+        id: `prop-${eventId}`,
+        ownerId: "p1",
+        startMonth: month,
+        endMonth: null,
+        openingValueCents: priceCents,
+        appreciationAnnualRate: 0,
+        causedByEventId: eventId,
+        mortgageLiabilityId: `mtg-${eventId}`,
+      } satisfies SimProperty,
+      mortgage: new AmortizingLoan({
+        id: `mtg-${eventId}`,
+        ownerId: "p1",
+        kind: "mortgage",
+        openingBalanceCents: priceCents - downCents,
+        startMonth: month,
+        apr: 0,
+        termMonths: 360,
+      }),
+      draw: assetAcquisitionObligation({
+        id: `dp:${eventId}`,
+        sourceId: `dp:${eventId}`,
+        sourceEventId: eventId,
+        month,
+        amountCents: downCents,
+        orderedAccountIds: ["savings"],
+      }),
+    };
+  }
+
+  it("classifies draws by position: executed before the block, blocked, not-reached after", () => {
+    // $50k savings. buy0 spends $10k cash-in-full at month 1 (executes, no mortgage to drain the
+    // rest), buy1's $80k blocks at month 3 against the $40k left, buy2 at month 5 is never
+    // simulated at all.
+    const buy0 = purchase("buy0", 1, 1_000_000, 1_000_000);
+    const buy1 = purchase("buy1", 3, DOWN, PRICE);
+    const buy2 = purchase("buy2", 5, 1_000_000, 5_000_000);
+    const series = run({
+      accounts: [savings(5_000_000)],
+      properties: [buy0.property, buy1.property, buy2.property],
+      liabilities: [buy0.mortgage, buy1.mortgage, buy2.mortgage],
+      fundingDraws: [buy0.draw, buy1.draw, buy2.draw],
+    });
+
+    expect(series.status).toBe("blocked");
+    expect(series.obligationOutcomes["draw:dp:buy0"]).toEqual({ status: "executed" });
+    expect(series.obligationOutcomes["draw:dp:buy1"]).toEqual({
+      status: "blocked",
+      month: BLOCK_MONTH,
+      shortfallCents: DOWN - 4_000_000,
+    });
+    expect(series.obligationOutcomes["draw:dp:buy2"]).toEqual({
+      status: "not-reached",
+      blockedByObligationId: "draw:dp:buy1",
+    });
+  });
+
+  it("reports a same-month non-blocking obligation as executed, positionally", () => {
+    // Two draws in the blocked month. buy1's $80k blocks; the sibling buy2's draw is positionally
+    // in the blocked month, so it reports `executed` even though resolution stopped before it —
+    // `not-reached` is authored-after-the-blocked-MONTH, never a same-month sibling.
+    const buy1 = purchase("buy1", BLOCK_MONTH, DOWN, PRICE);
+    const buy2 = purchase("buy2", BLOCK_MONTH, 1_000_000, 5_000_000);
+    const series = run({
+      accounts: [savings(5_000_000)],
+      properties: [buy1.property, buy2.property],
+      liabilities: [buy1.mortgage, buy2.mortgage],
+      fundingDraws: [buy1.draw, buy2.draw],
+    });
+
+    expect(series.blockingObligation?.obligationId).toBe("draw:dp:buy1");
+    expect(series.obligationOutcomes["draw:dp:buy1"]?.status).toBe("blocked");
+    expect(series.obligationOutcomes["draw:dp:buy2"]).toEqual({ status: "executed" });
+  });
+
+  it("reports every obligation executed when the plan runs to the horizon", () => {
+    // $100k covers the $80k down payment: nothing blocks, so the sole draw executed.
+    const series = run({
+      accounts: [savings(10_000_000)],
+      properties: [house],
+      liabilities: [mortgage()],
+      fundingDraws: [downPayment(DOWN)],
+    });
+
+    expect(series.status).toBe("ran-to-horizon");
+    expect(series.obligationOutcomes["draw:downpayment:buy1"]).toEqual({ status: "executed" });
+  });
+
+  it("gives automatic obligations no outcome — only explicit draws are tracked", () => {
+    // A budget line is an obligation too, but an automatic one that can never block. It funds the
+    // shared waterfall and carries no outcome; the map holds only the explicit down-payment draw.
+    const expense: SimOwnedSeries = {
+      series: monthlyExpense(dollarsToCents(1_000)),
+      ownerId: "p1",
+      label: "Living",
+      obligationSource: { kind: "budgetLine", id: "living", category: "needs", editable: true },
+    };
+    const series = run({
+      accounts: [savings(10_000_000)],
+      properties: [house],
+      liabilities: [mortgage()],
+      expenseSeries: [expense],
+      fundingDraws: [downPayment(DOWN)],
+    });
+
+    expect(Object.keys(series.obligationOutcomes)).toEqual(["draw:downpayment:buy1"]);
+  });
+});

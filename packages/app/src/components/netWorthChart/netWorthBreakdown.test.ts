@@ -38,6 +38,7 @@ function series(months: readonly MonthSpec[]): ProjectionSeries {
     months: built,
     status: "ran-to-horizon",
     simulatedThroughMonth: built.length - 1,
+    obligationOutcomes: {},
   };
 }
 
@@ -209,6 +210,7 @@ describe("buildNetWorthBreakdown", () => {
         months: [mkMonth({ accounts: { savings: 1050 } }, 0)],
         status: "ran-to-horizon",
         simulatedThroughMonth: 0,
+        obligationOutcomes: {},
       },
       META,
     );
@@ -225,6 +227,7 @@ describe("buildNetWorthBreakdown", () => {
         months: [mkMonth({ accounts: { savings: 0, brokerage: 0 } }, 0)],
         status: "ran-to-horizon",
         simulatedThroughMonth: 0,
+        obligationOutcomes: {},
       },
       META,
     );
@@ -238,6 +241,7 @@ describe("buildNetWorthBreakdown", () => {
         months: [mkMonth({ accounts: { savings: 8000 } }, 0), mkMonth({ accounts: { savings: 7000 } }, 1)],
         status: "ran-to-horizon",
         simulatedThroughMonth: 1,
+        obligationOutcomes: {},
       },
       META,
     );
@@ -266,6 +270,7 @@ describe("buildNetWorthBreakdown", () => {
         status: "blocked",
         simulatedThroughMonth: BLOCK_MONTH,
         blockedAtMonth: BLOCK_MONTH,
+        obligationOutcomes: {},
       };
     }
 

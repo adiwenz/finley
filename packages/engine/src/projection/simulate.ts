@@ -8,9 +8,11 @@ import { buildObligations, automaticFundingTotal, fundedLiabilityPayments } from
 import { resolveFundingAttribution, type FundingSupplyPlan } from "./resolvedFunding";
 import type {
   HouseholdSimInput,
+  ObligationOutcome,
   ProjectionMonth,
   ProjectionSeries,
 } from "./simulate.types";
+import type { FinancialObligation, ObligationId } from "./financialObligation";
 import { initSimState } from "./runState";
 import { snapshotMonth } from "./monthSnapshot";
 import {
@@ -43,10 +45,40 @@ export type {
   IncomeSourceCategory,
   ProjectionSeries,
   BlockedObligation,
+  ObligationOutcome,
   SimProperty,
 } from "./simulate.types";
 
 const DEFAULT_START_YEAR = 2026;
+
+/**
+ * The fate of every explicitly-funded obligation, classified by month POSITION relative to the
+ * block — the seam a stopped projection reports through. Positional, not dependency-derived: once
+ * the sim halts nothing later was tested, so everything authored after the blocked month is
+ * `not-reached` regardless of whether it depended on the blocker.
+ *
+ * An absent block means the plan ran to the horizon: nothing stopped, so every draw executed. Within
+ * the blocked month only the blocker itself is `blocked`; a same-month sibling reports `executed`,
+ * since "not reached" is authored-after-the-blocked-MONTH, never a peer in it.
+ */
+function classifyObligationOutcomes(
+  fundingDraws: readonly FinancialObligation[],
+  block: ProjectionSeries["blockingObligation"],
+): Record<ObligationId, ObligationOutcome> {
+  const outcomes: Record<ObligationId, ObligationOutcome> = {};
+  for (const draw of fundingDraws) {
+    if (block === undefined || draw.month < block.month) {
+      outcomes[draw.id] = { status: "executed" };
+    } else if (draw.month > block.month) {
+      outcomes[draw.id] = { status: "not-reached", blockedByObligationId: block.obligationId };
+    } else if (draw.id === block.obligationId) {
+      outcomes[draw.id] = { status: "blocked", month: block.month, shortfallCents: block.shortfallCents };
+    } else {
+      outcomes[draw.id] = { status: "executed" };
+    }
+  }
+  return outcomes;
+}
 
 /**
  * Household simulator. Fixed pipeline per month, each step a named helper:
@@ -404,5 +436,6 @@ export function simulateHousehold(
     ...(blockedAtMonth !== undefined ? { blockedAtMonth } : {}),
     ...(blockingObligation !== undefined ? { blockingObligation } : {}),
     ...(omittedSourceEventIds !== undefined ? { omittedSourceEventIds } : {}),
+    obligationOutcomes: classifyObligationOutcomes(state.fundingDraws, blockingObligation),
   };
 }

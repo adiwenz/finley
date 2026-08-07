@@ -65,13 +65,19 @@ export interface ObligationSource {
 }
 
 /**
+ * A {@link FinancialObligation.id} — its own semantic alias so the key type of {@link
+ * import("./simulate.types").ProjectionSeries.obligationOutcomes} reads as more than a bare string.
+ */
+export type ObligationId = string;
+
+/**
  * One thing a month must fund. Every obligation this slice constructs is `funding: automatic`;
  * the `explicit` branch is defined but unused until Slice #4, where an obligation may name the
  * accounts it draws from and so leave the shared waterfall.
  */
 export interface FinancialObligation {
   /** Stable id, unique within a month and constant across months (a chart band key). */
-  readonly id: string;
+  readonly id: ObligationId;
   /** Id of the authoring fact: the budget line, the series, the liability. */
   readonly sourceId: string;
   /**
