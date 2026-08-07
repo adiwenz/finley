@@ -14,7 +14,7 @@
 
 import type { BudgetTarget } from "../budget/budgetLine";
 import { goalFundAccountId } from "../compile/projectionBase";
-import { ageAboveMaximum } from "../plan/plan";
+import { invalidAge } from "../plan/plan";
 import {
   PRIMARY_PERSON_REF,
   RETIREMENT_REF,
@@ -70,10 +70,10 @@ export function interpretScenarioInput(
   ) {
     return { ok: false, error: { reason: "lifeExpectancy is required — the plan states how long the primary lives" } };
   }
-  // `open` REFUSES an over-large age by throwing, which is right for a caller holding a handle
+  // `open` REFUSES an out-of-range age by throwing, which is right for a caller holding a handle
   // but wrong for a document: this path answers `{ ok: false }` with a reason, so the age is
   // checked here and reported like any other thing wrong with the input.
-  const overAge = ageAboveMaximum(
+  const overAge = invalidAge(
     {
       birthYear: scalars.birthYear,
       lifeExpectancy: scalars.lifeExpectancy,
@@ -82,7 +82,7 @@ export function interpretScenarioInput(
     scalars.startYear,
   );
   if (overAge) {
-    return { ok: false, error: { reason: `${overAge.field} ${overAge.age} exceeds the ${overAge.limit} maximum` } };
+    return { ok: false, error: { reason: `${overAge.field} ${overAge.age} ${overAge.problem}` } };
   }
   const projection = open(scalars);
 

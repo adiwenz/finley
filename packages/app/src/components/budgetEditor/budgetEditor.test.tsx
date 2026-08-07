@@ -124,12 +124,15 @@ describe("BudgetEditor — no retirement age to author", () => {
     expect(screen.queryByLabelText(/Retirement age/i)).toBeNull();
   });
 
-  it("chains current age straight to life expectancy, with nothing between them", () => {
+  it("chains current age to one year below life expectancy — the two never meet", () => {
+    // A gap of one, not head to head. An expectancy equal to the age you already are says you
+    // are already dead: the engine refuses it, so a form clamping to 70 here would commit a
+    // value the very next write rejected and the field would snap back to where it started.
     render(<Harness initial={{ ...PLAN_DEFAULTS, primary: { ...PLAN_DEFAULTS.primary, lifeExpectancy: 70 } }} />);
     const input = screen.getByLabelText(/Current age/i) as HTMLInputElement;
     enterNumber(input, 80);
     fireEvent.blur(input);
-    expect(input.value).toBe("70");
+    expect(input.value).toBe("69");
   });
 });
 
@@ -149,9 +152,9 @@ describe("BudgetEditor — no age can outrun the engine's own ceiling", () => {
     // through what the engine refuses would throw on commit instead of clamping.
     render(<Harness initial={{ ...PLAN_DEFAULTS, primary: { ...PLAN_DEFAULTS.primary, lifeExpectancy: 100 } }} />);
     const maxOf = (name: RegExp) => Number((screen.getByLabelText(name) as HTMLInputElement).max);
-    // Current age chains directly to life expectancy, below its own 119 ceiling. Both stay at
-    // or under what the engine would accept.
-    expect(maxOf(/Current age/i)).toBe(100);
+    // Current age chains to one year below life expectancy, itself below its own 119 ceiling.
+    // Both stay at or under what the engine would accept.
+    expect(maxOf(/Current age/i)).toBe(99);
     expect(maxOf(/Life expectancy/i)).toBe(MAX_AGE);
     expect(maxOf(/Social Security claiming age/i)).toBe(AGE_LIMITS.benefitClaimingAge);
   });

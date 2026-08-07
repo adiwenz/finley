@@ -343,7 +343,7 @@ export function JobsPanel({
                 initialEditDraft={jobToDraftFor(projection, owner.birthYear, job)}
                 path={path}
                 uncounted={uncounted}
-                lifeExpectancy={budget.primary.lifeExpectancy}
+                lifeExpectancy={owner.lifeExpectancy}
                 inTodaysDollars={inTodaysDollars}
                 severalOwners={severalOwners}
                 isPrimaryOwner={owner.id === owners[0].id}

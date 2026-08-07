@@ -9,7 +9,7 @@
  */
 
 import type { Plan } from "../plan/plan";
-import { ageAboveMaximum } from "../plan/plan";
+import { invalidAge } from "../plan/plan";
 import type { Scenario } from "../plan/scenario";
 import { scenarioOf, withLedger, withPlan } from "../plan/scenario";
 import type { Ledger } from "../ledger/ledger";
@@ -77,9 +77,9 @@ export function emptyState(scalars: ScenarioScalars): ProjectionState {
   // The age bound applies at the door as well as on every later edit — `Projection.init` is a
   // way into the plan that does not pass through `withPlanPatch`, and a horizon nobody can
   // afford to simulate is no more welcome for having arrived first.
-  const bad = ageAboveMaximum({ birthYear, lifeExpectancy, benefitClaimingAge }, startYear);
+  const bad = invalidAge({ birthYear, lifeExpectancy, benefitClaimingAge }, startYear);
   if (bad) {
-    throw new Error(`Projection: cannot open a plan with ${bad.field} ${bad.age} — it may not exceed ${bad.limit}`);
+    throw new Error(`Projection: cannot open a plan with ${bad.field} ${bad.age} — it ${bad.problem}`);
   }
   return {
     scenario: scenarioOf({

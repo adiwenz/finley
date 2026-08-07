@@ -8,6 +8,10 @@ import { Projection, resolvedJobPaySpan, type ProjectionState } from "../index";
 import { resolvedJobEndMonth } from "../ledger/household";
 import { samplePlan, stateOf, SAMPLE_START_YEAR } from "../testing/samplePlan";
 import { mockJurisdiction } from "../testing/mockJurisdiction";
+import {
+  FLAT_BENEFIT_MONTHLY_CENTS,
+  flatBenefitJurisdiction,
+} from "../testing/flatBenefitJurisdiction";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction/jurisdiction";
 import { dollarsToCents } from "../money/cashFlowSeries";
 import { goalFundAccountId } from "../compile/projectionBase";
@@ -287,11 +291,23 @@ describe("Projection root — a marriage or separation needs both partners alive
   });
 
   it("refuses marrying someone the plan has already buried", () => {
-    // Sam is born 1950 at expectancy 60 → gone since 2010, long before the wedding.
+    // Sam is born 1950 at expectancy 77 → alive at "now" (2026, aged 76) and gone from 2027, the
+    // year of the wedding. Deliberately not someone ALREADY past their expectancy: that is
+    // refused one step earlier, by the age floor, and would not exercise this guard at all.
     const p = freshProjection();
     expect(() =>
-      p.marry({ month: 12, name: "Sam", birthYear: 1950, lifeExpectancy: 60 }),
-    ).toThrow(/Sam is projected to live only to 2010/);
+      p.marry({ month: 12, name: "Sam", birthYear: 1950, lifeExpectancy: 77 }),
+    ).toThrow(/Sam is projected to live only to 2027/);
+  });
+
+  it("refuses a partner whose expectancy is already behind them, before asking about dates", () => {
+    // The floor, and the reason it is worth having separately: this partner has no window at all
+    // — no job of theirs could pay a month, no benefit could ever be claimed — so there is no
+    // date the marriage could be moved to that would make the plan mean anything.
+    const p = freshProjection();
+    expect(() => p.marry({ month: 12, name: "Sam", birthYear: 1950, lifeExpectancy: 60 })).toThrow(
+      /lifeExpectancy 60 — it must be past the age they already are \(76\)/,
+    );
   });
 
   it("still accepts a partnering anchored in the PAST — a negative month precedes any death", () => {
@@ -1046,6 +1062,36 @@ describe("every person-scoped stream ends at its own person's death", () => {
     expect(paidBy(r, primaryJob, 530)).toBe(7_000_000);
     expect(paidBy(r, primaryJob, PRIMARY_DEATH - 1)).toBe(2_000_000);
     expect(paidBy(r, primaryJob, PRIMARY_DEATH)).toBeNull();
+  });
+
+  it("stops a government benefit at the same death, through the real household pipeline", () => {
+    // The benefit is the one person-scoped stream DERIVED inside the simulator rather than
+    // compiled upstream, so it is the one whose window has to survive a whole extra seam: the
+    // household resolves `personActiveWindow`, `compilePerson` carries it across as
+    // `SimPerson.activeWindow`, and the benefit loop reads it there. `governmentBenefit.test.ts`
+    // hands that loop a window by hand and proves it is honoured; nothing proved the window it is
+    // handed in a real run is the same one a wage is clipped by. This does.
+    //
+    // Under a flat benefit, so "did it stop?" is a question about the window and not about COLA
+    // or a covered-earnings record. Both people claim at 67: the primary from month 324, Sam
+    // from 444, and both are still being paid at 492.
+    const { p, samId } = household();
+    const r = p.run(flatBenefitJurisdiction());
+    const benefit = (personId: string, month: number) =>
+      r.series.months[month]!.flows!.incomeSources.find((s) => s.sourceId === `benefit:${personId}`)
+        ?.cashInflowCents ?? null;
+
+    expect(benefit(P1, 492)).toBe(FLAT_BENEFIT_MONTHLY_CENTS);
+    expect(benefit(samId, 492)).toBe(FLAT_BENEFIT_MONTHLY_CENTS);
+
+    // The primary's stops at their death, exactly where their wage did.
+    expect(benefit(P1, PRIMARY_DEATH - 1)).toBe(FLAT_BENEFIT_MONTHLY_CENTS);
+    expect(benefit(P1, PRIMARY_DEATH)).toBeNull();
+    expect(benefit(P1, 600)).toBeNull();
+
+    // And the survivor keeps drawing theirs, to their own last month.
+    expect(benefit(samId, PRIMARY_DEATH)).toBe(FLAT_BENEFIT_MONTHLY_CENTS);
+    expect(benefit(samId, SAM_DEATH - 1)).toBe(FLAT_BENEFIT_MONTHLY_CENTS);
   });
 
   it("does NOT step household spending down when a member dies", () => {

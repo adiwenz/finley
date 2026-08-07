@@ -124,6 +124,46 @@ describe("Projection.init — the imperative half of authoring", () => {
     expect(() => p.updatePlan({ lifeExpectancy: 950 })).toThrow(/950/);
     expect(p.plan.primary.lifeExpectancy).toBe(90);
   });
+
+  // The FLOOR under a life expectancy, which the ceiling above has no opinion about. An
+  // expectancy at or below the age the person already is says they are already dead: their
+  // active window closes at month 0, so every job of theirs ends before it starts, no benefit
+  // is ever claimed, and the projection has no months in it. Well-defined, and useless — and it
+  // arrives from a slider the user can drag, not from a typo with an extra digit.
+  describe("a life expectancy must be past the age the person already is", () => {
+    it("refuses one already behind them at plan-open, naming the age they are", () => {
+      // Born 30 years ago, so 30 is the age they already are and 29 is behind it.
+      expect(() => Projection.init({ ...base, lifeExpectancy: 29 }, nullJurisdiction)).toThrow(
+        /lifeExpectancy 29 — it must be past the age they already are \(30\)/,
+      );
+    });
+
+    it("refuses one EQUAL to their current age — a plan with no months in it is not a plan", () => {
+      expect(() => Projection.init({ ...base, lifeExpectancy: 30 }, nullJurisdiction)).toThrow(
+        /must be past the age they already are/,
+      );
+    });
+
+    it("accepts one year past it — the bound refuses what reaches the floor, not what clears it", () => {
+      const p = Projection.init({ ...base, lifeExpectancy: 31 }, nullJurisdiction);
+      expect(p.run(nullJurisdiction).series.months.length).toBe(12);
+    });
+
+    it("refuses it on a later edit too, leaving the projection as it was", () => {
+      const p = Projection.init(base, nullJurisdiction);
+      expect(() => p.updatePlan({ lifeExpectancy: 30 })).toThrow(
+        /must be past the age they already are/,
+      );
+      expect(p.plan.primary.lifeExpectancy).toBe(90);
+    });
+
+    it("reports it as a reason rather than throwing, on the document path", () => {
+      const result = Projection.fromInput({ ...base, lifeExpectancy: 29 }, nullJurisdiction);
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error("expected refusal");
+      expect(result.error.reason).toMatch(/lifeExpectancy 29 must be past the age they already are/);
+    });
+  });
 });
 
 describe("Projection.fromInput", () => {

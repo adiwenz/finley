@@ -91,20 +91,26 @@ export function BudgetEditor({ budget, transact }: BudgetEditorProps) {
             refuses. Life expectancy reaches the ceiling itself (120); current age stops one short
             of it (`MAX_LIVED_AGE`, 119), since a person who is already 120 has no plan left to
             project; the claiming age stops at 70, the top of the legal window. The bounds chain
-            directly now, across the one pair that is left; fields clamp on blur. */}
+            directly now, across the one pair that is left; fields clamp on blur.
+
+            The pair chains with a GAP of one year, not head to head: an expectancy equal to the
+            age you already are means you are already dead, which closes your active window at
+            month 0 — no job pays a month, no benefit is ever claimed, and the plan has no months
+            in it. The engine refuses that outright, so a form that let the two meet would clamp
+            to a value the very next write rejected. */}
         <NumInput
           label="Current age"
           value={START_YEAR - budget.primary.birthYear}
           onChange={(currentAge) => updateBudget({ birthYear: START_YEAR - currentAge })}
           min={18}
-          max={Math.min(MAX_LIVED_AGE, budget.primary.lifeExpectancy)}
+          max={Math.min(MAX_LIVED_AGE, budget.primary.lifeExpectancy - 1)}
           step={1}
         />
         <NumInput
           label="Life expectancy"
           value={budget.primary.lifeExpectancy}
           onChange={(lifeExpectancy) => updateBudget({ lifeExpectancy })}
-          min={Math.max(60, START_YEAR - budget.primary.birthYear)}
+          min={Math.max(60, START_YEAR - budget.primary.birthYear + 1)}
           max={MAX_AGE}
           step={1}
         />

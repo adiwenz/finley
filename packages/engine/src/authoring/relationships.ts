@@ -5,7 +5,7 @@
  */
 
 import type { Job } from "../job/job";
-import { ageAboveMaximum } from "../plan/plan";
+import { invalidAge } from "../plan/plan";
 import type { PersonId } from "../job/job";
 import type { Jurisdiction } from "../jurisdiction/jurisdiction";
 import type { Person } from "../plan/person";
@@ -167,15 +167,16 @@ export function applyMarriage(
     throw new Error("Projection: cannot author a partner without a lifeExpectancy");
   }
   const lifeExpectancy = input.lifeExpectancy;
-  // A partner is a person, and the same age bound holds for them as for the primary — see
-  // {@link ageAboveMaximum}. Their age is a birth YEAR on the way in, so it is read against the
+  // A partner is a person, and the same age bounds hold for them as for the primary — see
+  // {@link invalidAge}, including the floor: a partner stated to have already outlived their own
+  // expectancy joins dead. Their age is a birth YEAR on the way in, so it is read against the
   // plan's frozen "now" rather than a wall clock.
-  const bad = ageAboveMaximum(
+  const bad = invalidAge(
     { birthYear: input.birthYear, lifeExpectancy, benefitClaimingAge: input.benefitClaimingAge },
     state.startYear,
   );
   if (bad) {
-    throw new Error(`Projection: cannot author a partner with ${bad.field} ${bad.age} — it may not exceed ${bad.limit}`);
+    throw new Error(`Projection: cannot author a partner with ${bad.field} ${bad.age} — it ${bad.problem}`);
   }
   // Before the first mint, so a refused marriage leaves no id issued behind it.
   assertBothAliveAt(state, input.month, { ...input, lifeExpectancy }, "marry");

@@ -165,27 +165,67 @@ export function planHorizonMonths(
   return Math.max(0, plan.primary.lifeExpectancy - currentAge) * 12;
 }
 
+/** The first age-valued field the engine will not accept, and what is wrong with it. */
+export interface InvalidAge {
+  readonly field: string;
+  readonly age: number;
+  /**
+   * The complaint, phrased to complete "`<field> <age>` …" — `"may not exceed 120"`,
+   * `"must be past the age they already are (40)"`. A sentence fragment rather than a `limit`
+   * number, because the reasons are no longer all the same shape: one bound is a ceiling the
+   * engine imposes, the other is a floor the person's own birth year sets.
+   */
+  readonly problem: string;
+}
+
 /**
- * The first age-valued field over its {@link AGE_LIMITS} ceiling, or `null` when every one is
- * within — checked against `startYear`, the calendar "now" `birthYear` is read relative to.
- * Only an OVER-large age is a refusal here — what is too young, or out of order against the
- * other ages, is the surface's own question and not this bound's.
+ * The first age-valued field the engine will not accept, or `null` when every one is fine —
+ * checked against `startYear`, the calendar "now" `birthYear` is read relative to.
+ *
+ * Two bounds, and they are different in kind:
+ *
+ *  - **A ceiling**, from {@link AGE_LIMITS}: a horizon nobody can afford to simulate, a claiming
+ *    age past the top of the legal window.
+ *  - **A floor on the life expectancy alone**: it must be past the age the person already is.
+ *    An expectancy at or below their current age says they are already dead, which closes their
+ *    {@link import("../job/personActiveWindow").PersonActiveWindow} at month 0 — every job of
+ *    theirs ends before it starts, no benefit is ever paid, and a plan whose only member is that
+ *    person projects zero months. That is a well-defined answer and a useless one, and it arrives
+ *    from a slider the user can drag rather than from anything exotic. Refused at the door
+ *    instead, where the number they typed is still in front of them.
+ *
+ * What is out of ORDER against the other ages — an expectancy below a claiming age, a job ending
+ * after one — is the surface's own question and not this bound's.
  *
  * Shared by the primary (at plan-open and on every `updatePlan`) and a partner (at `marry`) —
- * the same bound applies to either, since both are a {@link Person}.
+ * the same bounds apply to either, since both are a {@link Person}. Restoration deliberately
+ * does NOT run this: a file that arrives already stating one is better opened and clamped than
+ * refused with nothing the user can fix it in.
  */
-export function ageAboveMaximum(
+export function invalidAge(
   person: Pick<Person, "birthYear" | "lifeExpectancy"> & { readonly benefitClaimingAge?: number },
   startYear: number,
-): { readonly field: string; readonly age: number; readonly limit: number } | null {
+): InvalidAge | null {
   const currentAge = startYear - person.birthYear;
-  if (currentAge > MAX_LIVED_AGE) return { field: "age", age: currentAge, limit: MAX_LIVED_AGE };
+  const notOver = (limit: number) => `may not exceed ${limit}`;
+  if (currentAge > MAX_LIVED_AGE) {
+    return { field: "age", age: currentAge, problem: notOver(MAX_LIVED_AGE) };
+  }
   const checks: readonly (readonly [string, number | undefined, number])[] = [
     ["lifeExpectancy", person.lifeExpectancy, AGE_LIMITS.lifeExpectancy],
     ["benefitClaimingAge", person.benefitClaimingAge, AGE_LIMITS.benefitClaimingAge],
   ];
   for (const [field, age, limit] of checks) {
-    if (age !== undefined && age > limit) return { field, age, limit };
+    if (age !== undefined && age > limit) return { field, age, problem: notOver(limit) };
+  }
+  // At, not merely below: an expectancy equal to the current age is the month-0 death, and a
+  // projection with no months in it is not a plan.
+  if (person.lifeExpectancy <= currentAge) {
+    return {
+      field: "lifeExpectancy",
+      age: person.lifeExpectancy,
+      problem: `must be past the age they already are (${currentAge})`,
+    };
   }
   return null;
 }
@@ -279,7 +319,7 @@ export function withGoalReordered(
  * guard is not a guard.
  *
  * `startYear` is the calendar "now" a primary-scalar edit is validated against — the same bound
- * {@link ageAboveMaximum} applies to a partner at `marry`.
+ * {@link invalidAge} applies to a partner at `marry`.
  */
 export function withPlanPatch(plan: Plan, patch: PlanPatch, startYear: number): Plan {
   const { goals: _g, budgetLines: _b, ...rest } = patch as Partial<Plan> & Partial<Plan["primary"]>;
@@ -299,7 +339,7 @@ export function withPlanPatch(plan: Plan, patch: PlanPatch, startYear: number): 
     }
   }
   const primary = { ...plan.primary, ...primaryPatch };
-  const bad = ageAboveMaximum(primary, startYear);
-  if (bad) throw new Error(`Projection: cannot set ${bad.field} to ${bad.age} — it may not exceed ${bad.limit}`);
+  const bad = invalidAge(primary, startYear);
+  if (bad) throw new Error(`Projection: cannot set ${bad.field} to ${bad.age} — it ${bad.problem}`);
   return { ...plan, ...scalars, primary };
 }

@@ -64,7 +64,18 @@ Delivered as three commits:
   Authoring keeps a matching asymmetry. A job whose START is past its owner's death is REFUSED
   (`assertPersonEventsStillReachable`): nothing survives interpreting it. A job that merely
   outlasts its owner is accepted and clamped at run time — it is worked until they die — because
-  refusing it would make "I'll work as long as I can" an unwritable plan.
+  refusing it would make "I'll work as long as I can" an unwritable plan. The Jobs card discloses
+  the difference rather than hiding it: "age 25–95 · ends at 80 (life expectancy)", so the
+  authored ages stay editable and the chart beneath them is not left contradicting the line above.
+
+- **A life expectancy must be PAST the age the person already is** (`invalidAge`, formerly
+  `ageAboveMaximum`). One at or below it says they are already dead: their window closes at month
+  0, so no job of theirs pays a month, no benefit is ever claimed, and a single-member plan
+  projects nothing. Well-defined and useless — and reachable by dragging a slider, not only by a
+  typo. Refused at every authoring door the ceiling is already checked at (`init`, `updatePlan`,
+  `marry`/`startPartnered`, `fromInput`) and, like every other one of these rules, NOT on restore.
+  The Budget editor's age fields now chain with a one-year gap instead of meeting, so the form
+  cannot clamp to a value the next write rejects.
 
 - **Horizon = max member reach, and a separation only counts while BOTH are alive.** A staying
   younger partner extends the run to their tail. A partner who separates does not — but only if the

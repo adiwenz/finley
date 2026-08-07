@@ -9,7 +9,7 @@
  * in as {@link JobCardProps.authoring}, so only one card is ever mid-edit across the list.
  */
 
-import type { Job } from "@finley/engine";
+import type { Job, JobPaySpan } from "@finley/engine";
 import type { JobPayPath } from "@finley/engine";
 import {
   jobEndAgeFor,
@@ -32,9 +32,27 @@ export type JobCardAuthoring =
   | { kind: "payChange"; seedAge?: number }
   | null;
 
-/** "age 30–45" — a job's span in its OWNER's terms. Every job has both ends. */
-function describeSpan(owner: JobOwner, job: Job): string {
-  return `age ${jobStartAgeFor(owner.birthYear, job)}–${jobEndAgeFor(owner.birthYear, job)}`;
+/**
+ * "age 30–45" — a job's span in its OWNER's terms. Every job has both ends.
+ *
+ * The AUTHORED ages, because this line is what the plan says and what the edit form opens on. A
+ * job may nonetheless be worked for less than that: it ends at `min(its authored end, its
+ * owner's death)`, which is what the chart directly below draws. Where those differ the shorter
+ * end is disclosed rather than substituted — swapping it in silently would put an age on the
+ * card that appears nowhere in the plan and cannot be edited, and showing the authored one alone
+ * leaves two numbers side by side that disagree with no explanation.
+ *
+ * Only a DEATH is disclosed, tested by the resolved end landing exactly on the owner's own
+ * expectancy. A stop-working preview shortens the same span, and calling that "life expectancy"
+ * would be wrong; the preview announces itself elsewhere.
+ */
+function describeSpan(owner: JobOwner, job: Job, employment: JobPaySpan): string {
+  const authoredEndAge = jobEndAgeFor(owner.birthYear, job);
+  const span = `age ${jobStartAgeFor(owner.birthYear, job)}–${authoredEndAge}`;
+  const workedToAge = ownerAgeAtMonth(owner.birthYear, employment.endMonthExclusive);
+  return workedToAge < authoredEndAge && workedToAge === owner.lifeExpectancy
+    ? `${span} · ends at ${workedToAge} (life expectancy)`
+    : span;
 }
 
 export interface JobCardProps {
@@ -121,7 +139,7 @@ export function JobCard({
           </span>
         )}
       </div>
-      <div className={styles.meta}>{describeSpan(owner, job)}</div>
+      <div className={styles.meta}>{describeSpan(owner, job, path.span)}</div>
       {(job.deferral || overrideCount > 0) && (
         <div className={styles.meta}>
           {job.deferral

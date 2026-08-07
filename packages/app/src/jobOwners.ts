@@ -22,6 +22,13 @@ export interface JobOwner {
   readonly id: PersonId;
   readonly name: string;
   readonly birthYear: number;
+  /**
+   * This member's OWN life expectancy — not the primary's, which every job card used to be
+   * handed regardless of whose job it was. It bounds their jobs (a job ends at `min(authored
+   * end, death)`), so a partner's pay chart drawn to the primary's expectancy could put the axis
+   * short of, or well past, the point their own job stops.
+   */
+  readonly lifeExpectancy: number;
   readonly jobs: readonly Job[];
   /**
    * `-Infinity` for the primary person — the one thing this list reads it for is which plane a
@@ -56,6 +63,7 @@ export function jobOwnersOf(household: Household, ledger: Ledger): readonly JobO
       id: m.person.id,
       name: m.person.name,
       birthYear: m.person.birthYear,
+      lifeExpectancy: m.person.lifeExpectancy,
       jobs: m.person.jobs,
       startMonth: m.startMonth,
       writeTarget: joinedByEvent && event ? "event" : "plan",
