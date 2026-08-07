@@ -353,19 +353,21 @@ describe("App — retirement chart preview", () => {
   const incomeDollars = () =>
     Number((screen.getByTestId("income-readonly").textContent ?? "").replace(/[^0-9.]/g, ""));
 
-  it("swaps the income chart to the stop-working preview, and back", () => {
+  it("never swaps Base + Adjustments to the stop-working preview — it always reads the authored plan", () => {
+    // The preview toggle governs the net-worth PREVIEW GRAPH only (see `useRetirementSurface`):
+    // an editable surface like Base + Adjustments has to keep showing what was actually authored,
+    // pending or not, toggled or not, or its income/spending readouts would describe a job the
+    // household never chose to keep working.
     render(<App />);
 
-    // Age 70 (month 420): the authored default plan retires the primary at 65, so no wages; the
-    // solved headline age (76) keeps them working, so previewing adds those wages back.
+    // Age 70 (month 420): the authored default plan retires the primary at 65, so no wages.
     enterNumber(screen.getByRole("spinbutton", { name: "Month" }), "420");
     const authored = incomeDollars();
 
     const toggle = () => screen.getByRole("checkbox", { name: /Preview the charts/ });
     fireEvent.click(toggle());
-    expect(incomeDollars()).toBeGreaterThan(authored);
+    expect(incomeDollars()).toBe(authored);
 
-    // Turning the preview off restores the authored figure — the toggle changed no plan data.
     fireEvent.click(toggle());
     expect(incomeDollars()).toBe(authored);
   });

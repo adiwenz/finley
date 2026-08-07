@@ -126,16 +126,22 @@ function Row({
 
 /**
  * `retirementMonth`: the solved stop-working age as a month offset from "now".
+ * `retirementMonthMuted`: the line is real but describes the PREVIOUS preview, not the one that
+ * matches the plan on screen right now — a solve is still catching up (see `useRetirementSurface`
+ * and `main.tsx`). Dimmed rather than dropped, since dropping it would itself be a visible change
+ * that reverses the moment the new preview lands.
  * `horizonMonths`: the plan's own span to life expectancy, so the axis covers the whole plan even
  * when the projection stopped early — see {@link buildNetWorthChartData}.
  */
 export function NetWorthChart({
   series,
   retirementMonth,
+  retirementMonthMuted = false,
   horizonMonths,
 }: {
   series: ProjectionSeries;
   retirementMonth?: number | null;
+  retirementMonthMuted?: boolean;
   horizonMonths?: number;
 }) {
   // Every decision about where the curve ends, where the marker goes and what the dashed drop
@@ -192,8 +198,15 @@ export function NetWorthChart({
             <ReferenceLine
               x={toAxisX(retirementMonth)}
               stroke={AMBER}
+              strokeOpacity={retirementMonthMuted ? 0.4 : 1}
               strokeDasharray="4 4"
-              label={{ value: "Retire", position: "top", fill: AMBER, fontSize: 11 }}
+              label={{
+                value: retirementMonthMuted ? "Retire (previous)" : "Retire",
+                position: "top",
+                fill: AMBER,
+                fillOpacity: retirementMonthMuted ? 0.4 : 1,
+                fontSize: 11,
+              }}
             />
           )}
           <Tooltip content={<NetWorthTooltip runsOut={runsOut} blocked={blocked} />} />

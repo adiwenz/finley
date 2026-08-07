@@ -16,10 +16,13 @@
  * 329. So a hybrid does not merely show a slightly-off number; it shows an insolvency that is
  * true of no plan the user has.
  *
- * The second describe is the other half of the rule: WHICH surfaces may draw that retained
- * answer. The presets are chosen so the two plans disagree about what exists, not only about
- * how much — `student-loan` carries a loan the `default` plan does not — because that is what
- * turns a stale number into a false one when the live plan's names are laid over it.
+ * The second describe is the other half of the rule, and it now splits in two: `chartResult` (the
+ * retirement preview graph) DOES keep drawing the retained preview through the pending window —
+ * that is the point, a complete stale answer beats a mid-transition mixture — while
+ * `authoringResult` (every editable surface) never does, falling back to the live authored run
+ * unconditionally. The presets are chosen so the two plans disagree about what exists, not only
+ * about how much — `student-loan` carries a loan the `default` plan does not — because that is
+ * what would turn a stale number into a false one if `authoringResult` still drew it.
  */
 
 import { describe, it, expect } from "vitest";
@@ -278,7 +281,7 @@ function fundBalanceAt(
   return data.rows.find((row) => row.month === month)?.centsById[FUND_ACCOUNT_ID];
 }
 
-describe("useRetirementSurface — an authoring surface never draws the plan behind", () => {
+describe("useRetirementSurface — the preview graph and the editable surfaces answer differently while pending", () => {
   it("pins the rename fixtures", () => {
     expect(BEFORE_RENAME.retirement(usJurisdiction).solution.fullRetirementAge).toBe(62);
     expect(AFTER_RENAME.retirement(usJurisdiction).solution.fullRetirementAge).toBe(65);
@@ -294,16 +297,18 @@ describe("useRetirementSurface — an authoring surface never draws the plan beh
     expect(after[FUND_ACCOUNT_ID]).not.toBe(before[FUND_ACCOUNT_ID]);
   });
 
-  it("hands Base + Adjustments the plan it writes to, obligations and all", () => {
+  it("keeps the preview graph on the retained preview while the editable surfaces move on", () => {
     const { result, rerender } = renderSurface({
       projection: PLAN_A,
       authoredResult: RUN_A,
       solvedProjection: PLAN_A,
       previewEnabled: true,
     });
-    // While the solve is current, the editor charts the preview like everything else.
-    expect(result.current.authoringResult).toBe(result.current.chartResult);
-    expect(result.current.authoringResult).toBe(result.current.previewResult);
+    // While the solve is current, the preview graph charts the preview; editable surfaces always
+    // chart the live authored run — the two agree in VALUE here only because plan A's authored
+    // run and its own preview happen to be distinct objects the assertions below don't conflate.
+    expect(result.current.chartResult).toBe(result.current.previewResult);
+    expect(result.current.authoringResult).toBe(RUN_A);
 
     // The user deletes the loan — plan B. The solve has not caught up.
     rerender({
@@ -313,49 +318,28 @@ describe("useRetirementSurface — an authoring surface never draws the plan beh
       previewEnabled: true,
     });
 
-    // The editor's rows, jobs and accounts come from plan B and its edits are written there, so
-    // its series is plan B's — not the loan-carrying preview still on the read-only charts.
+    // The toggle is still on, so the preview graph keeps showing plan A's retained preview — a
+    // complete, real answer, just a moment old — rather than jumping to the live plan and back.
+    // The editable surfaces, meanwhile, already show plan B: the loan is gone.
     expect(result.current.pending).toBe(true);
-    expect(result.current.authoringResult).toBe(RUN_B);
     expect(result.current.chartResult).toBe(result.current.previewResult);
-    expect(result.current.chartResult).not.toBe(result.current.authoringResult);
-
-    const stillOwes = (run: ProjectionResult): boolean =>
-      run.series.months.some((month) =>
-        Object.values(month.liabilityBalancesCents).some((cents) => cents > 0),
-      );
-    // Stated in the data, not just in identity: the retained preview is still paying off a loan
-    // the plan under the editor's controls no longer has.
-    expect(stillOwes(result.current.chartResult)).toBe(true);
+    expect(result.current.chartResult).not.toBe(RUN_B);
+    expect(result.current.authoringResult).toBe(RUN_B);
     expect(result.current.authoringResult.household.liabilities).toEqual([]);
-  });
 
-  it("never labels a retained preview's balances with the live plan's metadata", () => {
-    const { result, rerender } = renderSurface({
-      projection: PLAN_A,
-      authoredResult: RUN_A,
-      solvedProjection: PLAN_A,
-      previewEnabled: true,
-    });
+    // The solve lands. The graph swaps straight to plan B's own preview — never through RUN_B in
+    // between.
     rerender({
       projection: PLAN_B,
       authoredResult: RUN_B,
-      solvedProjection: PLAN_A,
+      solvedProjection: PLAN_B,
       previewEnabled: true,
     });
-
-    const meta = liveBreakdownMeta(PLAN_B, RUN_B);
-    // The hazard, pinned: plan B's metadata has no name for plan A's loan, so charting the
-    // retained preview under it draws a debt band nothing on the live plan accounts for.
-    expect(
-      unlabelledLiabilityBands(result.current.chartResult.series, meta).length,
-    ).toBeGreaterThan(0);
-    // The breakdown is built from the authoring result, so every band it draws is one the live
-    // plan's own metadata names.
-    expect(unlabelledLiabilityBands(result.current.authoringResult.series, meta)).toEqual([]);
+    expect(result.current.pending).toBe(false);
+    expect(result.current.chartResult).toBe(result.current.previewResult);
   });
 
-  it("never puts a renamed account's label over the previous plan's balances", () => {
+  it("never puts a renamed account's label over the previous plan's balances on the editable surfaces", () => {
     const { result, rerender } = renderSurface({
       projection: BEFORE_RENAME,
       authoredResult: RUN_BEFORE_RENAME,
@@ -374,18 +358,18 @@ describe("useRetirementSurface — an authoring surface never draws the plan beh
 
     const meta = liveBreakdownMeta(AFTER_RENAME, RUN_AFTER_RENAME);
     const authored = fundBalanceAt(result.current.authoringResult.series, meta, A_LATER_MONTH);
-    const stale = fundBalanceAt(result.current.chartResult.series, meta, A_LATER_MONTH);
 
-    // Under the label "House deposit", the balance the live plan actually holds there.
+    // Under the label "House deposit", the balance the live plan actually holds there — the
+    // editable surface, which never draws the previous plan's retained preview.
     expect(authored).toBe(
       RUN_AFTER_RENAME.series.months[A_LATER_MONTH].accountBalancesCents[FUND_ACCOUNT_ID],
     );
-    // And not the previous plan's, which the same label would otherwise have vouched for — a
-    // figure belonging to no plan the user has, presented as the one they just named.
-    expect(stale).not.toBe(authored);
+    // `authoringResult` is always the live authored run — the account metadata built off it
+    // therefore never goes unlabelled on it, pending or not.
+    expect(unlabelledLiabilityBands(result.current.authoringResult.series, meta)).toEqual([]);
   });
 
-  it("resumes the preview on every surface once the solve lands", () => {
+  it("resumes the preview graph once the solve lands, while the editable surface stays live throughout", () => {
     const { result, rerender } = renderSurface({
       projection: BEFORE_RENAME,
       authoredResult: RUN_BEFORE_RENAME,
@@ -406,11 +390,12 @@ describe("useRetirementSurface — an authoring surface never draws the plan beh
     });
 
     expect(result.current.pending).toBe(false);
-    // One answer again, on the read-only charts and the editor alike: the new plan's preview,
-    // at the age solved from it.
+    // The preview graph is back on the new plan's own preview, at the age solved from it.
     expect(result.current.retirement.headlineAge).toBe(65);
     expect(result.current.chartResult).toBe(result.current.previewResult);
-    expect(result.current.authoringResult).toBe(result.current.previewResult);
+    // The editable surface was never behind to begin with — it is the live authored run before,
+    // during and after the solve.
+    expect(result.current.authoringResult).toBe(RUN_AFTER_RENAME);
   });
 
   it("draws the authored run everywhere when the preview is off", () => {

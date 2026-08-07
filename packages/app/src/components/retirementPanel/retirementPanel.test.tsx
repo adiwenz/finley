@@ -179,33 +179,33 @@ describe("RetirementPanel", () => {
 /**
  * The solve is deferred, so between an edit committing and the search catching up the panel is
  * showing the PREVIOUS plan's answer (see `useRetirementSurface`). What it must not do in that
- * window is present that answer as the current plan's, or let it start a preview.
+ * window is present that answer as the current plan's. It must also never lock the toggle: the
+ * charts it drives already fall back to the current authored plan while pending, so there is
+ * nothing unsafe about the user flipping it mid-recalculation.
  */
 describe("RetirementPanel — while the solve is behind the plan", () => {
   const feasible = retirementView(Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction));
 
-  it("says the answer is for the previous plan, and holds the preview toggle", () => {
+  it("says the answer is for the previous plan, and leaves the preview toggle live", () => {
     const html = renderWithView(feasible, false, true);
     expect(html).toMatch(/Recalculating/i);
     expect(html).toContain("previous plan");
-    // Held, not hidden: the age in the toggle's own sentence is about to change, so flipping it
-    // either way would act on a number that no longer applies.
-    expect(html).toMatch(/<input[^>]*type="checkbox"[^>]*disabled/);
+    // No lockout: the toggle stays interactive throughout a recalculation.
+    expect(html).not.toMatch(/<input[^>]*disabled/);
   });
 
-  it("says nothing of the sort, and takes the toggle, once it has caught up", () => {
+  it("says nothing of the sort once it has caught up", () => {
     const html = renderWithView(feasible);
     expect(html).not.toMatch(/Recalculating/i);
     expect(html).toContain("checkbox");
     expect(html).not.toMatch(/<input[^>]*disabled/);
   });
 
-  it("keeps an open preview usable to look at, but not to change", () => {
-    // The charts go on drawing the previous plan's preview — a real answer one edit old, which
-    // beats blanking them on every keystroke. It is labelled rather than trusted.
+  it("keeps the toggle checked and live while pending, since it records intent", () => {
     const html = renderWithView(feasible, true, true);
     expect(html).toMatch(/Recalculating/i);
-    expect(html).toMatch(/<input[^>]*checked[^>]*disabled|<input[^>]*disabled[^>]*checked/);
+    expect(html).toMatch(/<input[^>]*checked/);
+    expect(html).not.toMatch(/<input[^>]*disabled/);
   });
 
   it("flags a stale BLOCK too — the edit in flight may be the one that unblocks it", () => {

@@ -112,20 +112,29 @@ export function App() {
    * and is wrong: the solved age is not panel-local. It dates the graph's retirement reference
    * line and is what `previewResult` simulates at, both visible with the panel untouched.
    *
-   * Stale for a frame is honest on a read-only overlay of a plan the user is still typing into,
-   * and nowhere else. So the lag is confined by three rules, and everything below is one of them:
+   * The current authored plan is what every EDITABLE surface shows, always — editing never
+   * blocks and never falls back to a stale plan. Only the retirement ANSWER — the headline age
+   * and its own preview run, both a search — is allowed to lag, and only labelled as such. So the
+   * lag is confined by three rules, and everything below is one of them:
    *
    * - **Nothing WRITES from it.** The Base + Adjustments quickstart used to bound its savings
    *   line at `retirement.plannedWorkStopAge`, which made a deferred value an input to a budget
    *   edit; it reads `projection.plannedWorkStopAge` below instead — the same figure, no search,
    *   off the live handle.
-   * - **Nothing PRESENTS it as current.** `retirementPending` says the answer is a plan behind,
-   *   and each surface reading it either says so (the panel, the chart note) or steps aside
-   *   until it lands (the reference line, the preview toggle).
-   * - **Nothing EDITABLE reads it, and nothing pairs it with live labels.** Base + Adjustments,
-   *   the jobs' pay figures and the breakdown's balances sit beside rows, names and controls
-   *   from the live plan, so they take `authoringResult` — the preview once it has caught up,
-   *   the authored run until then. `useRetirementSurface` holds the split.
+   * - **The preview graph never shows a mid-transition mixture.** With the toggle ON, a retained
+   *   preview run at the previous solve's age is a real, complete answer — just a moment old —
+   *   so `chartResult` KEEPS showing it, dimmed on the reference line, for the whole pending
+   *   window, then swaps straight to the new preview when the solve lands. What it must never do
+   *   is fall back to the live authored plan in between: that would make the graph visibly change
+   *   twice per edit (old preview → authored → new preview) instead of once. With the toggle OFF
+   *   there is no preview to hold onto, so `chartResult` is just the live authored run, and the
+   *   reference line — which would have nowhere honest to point — is dropped rather than redrawn
+   *   early. The preview TOGGLE itself is never touched either way: it keeps recording the user's
+   *   intent and stays interactive throughout, per `RetirementPanel`.
+   * - **Nothing EDITABLE reads it, ever.** Base + Adjustments, the jobs' pay figures and the
+   *   breakdown's balances sit beside rows, names and controls from the live plan, so they take
+   *   `authoringResult` — the live authored run, unconditionally, whether or not the toggle is on
+   *   and whether or not a solve is behind. `useRetirementSurface` holds this.
    */
   const solvedProjection = useDeferredValue(projection);
   /**
@@ -139,7 +148,6 @@ export function App() {
    */
   const {
     retirement,
-    previewResult,
     pending: retirementPending,
     chartResult,
     authoringResult,
@@ -161,13 +169,13 @@ export function App() {
     () => projection.plannedWorkStopAge(usJurisdiction),
     [projection],
   );
-  // `previewResult` is already gated on `previewRetirement` above, so this collapses to a
-  // simple null check — a stale toggle with no feasible age still reports itself off.
-  const previewing = previewResult !== null;
-  // The series the read-only charts draw — the preview when previewing, the authored run
-  // otherwise, and a plan behind while the solve is out (labelled below). Every EDITABLE or
-  // live-labelled surface takes `authoringSeries` instead, which drops back to the authored run
-  // for exactly that window; the hook holds why.
+  // The toggle's own intent, not a read of whether a preview happens to be on screen right now:
+  // it stays exactly what the user last set it to through a recalculation, per `RetirementPanel`
+  // — the charts, not this flag, are what fall back while the solve is behind.
+  const previewing = previewRetirement;
+  // What the main net-worth graph draws: the preview (even a stale one, labelled below) while
+  // toggled on, the authored run otherwise. `authoringSeries` is every EDITABLE surface's series
+  // instead — the live authored run, unconditionally — see `useRetirementSurface`.
   const chartSeries = chartResult.series;
   const authoringSeries = authoringResult.series;
 
@@ -230,22 +238,26 @@ export function App() {
                 stopped early — a blocked series is truncated at the block. */}
             <NetWorthChart
               series={chartSeries}
-              // Dropped while the solve is behind: the line marks WHERE ON THIS SERIES work
-              // could stop, and a month solved from the previous plan lands somewhere arbitrary
-              // on the current one. Absent for a frame beats confidently misplaced.
-              retirementMonth={retirementPending ? null : retirement.headlineMonth}
+              // With the toggle OFF, `chartSeries` is the live authored run, so a month solved
+              // from the previous plan would land somewhere arbitrary on it — dropped while
+              // pending, same as before. With the toggle ON, `chartSeries` IS the preview that
+              // produced this month (see `useRetirementSurface.chartResult`), so the line stays
+              // paired with it and only dims — see `retirementMonthMuted` below.
+              retirementMonth={
+                retirementPending && !previewing ? null : retirement.headlineMonth
+              }
+              retirementMonthMuted={retirementPending && previewing}
               horizonMonths={horizonMonths}
             />
 
-            {/* This chart is still drawing the previous plan's preview — a real answer, one edit
-                old. Said outright rather than left to look current, since nothing else on screen
-                distinguishes it from a preview of what the user just typed. Editable surfaces
-                (Base + Adjustments, the breakdown below) do not share this lag — they take
-                `authoringResult` and are never behind the plan under their own controls. */}
+            {/* The toggle is on, and the graph above is still showing the LAST complete preview
+                — not the current plan, and not a mixture — while the new one solves. Said
+                outright so a reader sees why the boundary looks a little stale rather than
+                reading it as broken. The graph moves old preview -> new preview in one step once
+                the solve lands; it never shows the authored plan in between. */}
             {retirementPending && previewing && (
               <p className="hint" role="status">
-                Recalculating the retirement preview — the net-worth chart still shows the
-                previous plan.
+                Recalculating your stop-working age — still showing your last preview.
               </p>
             )}
 
@@ -350,23 +362,20 @@ export function App() {
           household={household}
           ledger={ledger}
           projection={projection}
-          // The job LIST beside these figures is the live plan's, so the figures have to be
-          // too whenever the preview is a plan behind — a pay display looked up from the
-          // previous plan's run is either about a job the user has since changed or missing
-          // outright. The preview's own pay figures return the moment it catches up.
+          // The job LIST beside these figures is the live plan's, so the figures have to be too:
+          // `authoringResult` is the live authored run unconditionally, never the retirement
+          // preview — a pay display looked up from a hypothetical "everyone stopped working"
+          // scenario is either about a job the user never chose to stop or missing outright.
           payDisplay={authoringResult.jobPayDisplay}
         />
       </div>
 
       <div className="card">
-        {/* Charts `authoringSeries`, not the net-worth graph's `chartSeries` — the two agree
-            once the solve is current, but this panel edits the plan it charts, and its rows,
-            jobs and accounts come off the live handles beside it. `authoringSeries` is exactly
-            that: the current plan's own series, plus the live timeline (so its spending need
-            counts loan payments and every other event, not just the standing budget), never a
-            retained preview. While the solve is behind, a retained preview would put the
-            previous plan's obligations and spending under controls that write to the current
-            one — see `useRetirementSurface` for why the two series diverge during that window. */}
+        {/* Charts `authoringSeries`, not the net-worth graph's `chartSeries` — this panel edits
+            the plan it charts, and its rows, jobs and accounts come off the live handles beside
+            it, so it needs the live authored series, plus the live timeline (so its spending need
+            counts loan payments and every other event, not just the standing budget) — never the
+            retirement preview, which `chartSeries` alone may be showing. */}
         <BaseAdjustmentsPanel
           plan={budget}
           transact={transact}

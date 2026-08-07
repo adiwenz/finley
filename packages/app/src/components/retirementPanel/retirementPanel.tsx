@@ -87,14 +87,16 @@ export function RetirementPanel({
 }: {
   view: RetirementView;
   budget: Plan;
-  /** Whether the net-worth and income charts are currently showing the stop-working preview. */
+  /** Whether the toggle is on — the user's own intent, not whether a preview is on screen. */
   previewing: boolean;
   /**
    * The solve below describes an EARLIER plan than the one being edited — the search is deferred
    * and has not caught up (see `useRetirementSurface`). The answer stays on screen, because a
    * moment-old real answer beats a blank panel on every keystroke, but it is labelled as
-   * recalculating and the preview toggle is held: flipping it would ask the app to preview an
-   * age that is about to change.
+   * recalculating. Nothing here is locked while pending: the toggle stays live, because it is
+   * reporting intent ("preview once an age lands"), not previewing a number that could go stale
+   * mid-flip — the charts fall back to the authored plan for this window regardless of what the
+   * toggle says (see `useRetirementSurface.chartResult`).
    */
   pending?: boolean;
   /** Flip the preview on or off. The parent owns the state; the panel only reports the intent. */
@@ -162,10 +164,9 @@ export function RetirementPanel({
           <input
             type="checkbox"
             checked={previewing}
-            // Held while the solve is behind: the age in this very sentence is about to change,
-            // so a flip now would open a preview of an answer that no longer applies — and
-            // closing one is just as suspect, since the user is reacting to a stale number.
-            disabled={pending}
+            // Never locked: the toggle records intent, and the charts already know not to draw
+            // a stale preview while the solve is behind (see `useRetirementSurface`) — so there
+            // is nothing unsafe about flipping it mid-recalculation.
             onChange={(e) => onTogglePreview(e.target.checked)}
           />
           <span>

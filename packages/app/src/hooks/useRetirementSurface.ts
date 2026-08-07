@@ -18,15 +18,27 @@
  * that produced the age.** {@link RetirementSurface.pending} then says outright that the pair is
  * behind the plan.
  *
- * The second rule follows from where a surface sits rather than from what it draws. A stale
- * preview is honest on a READ-ONLY overlay — a real answer, one edit old, and labelled as
- * recalculating. It is not honest on an AUTHORING surface, where the rows, names and controls
- * beside it come off the live plan: the user would be editing plan B while reading plan A's
- * numbers, and any label the live plan supplies (an account's new name, an obligation it no
- * longer has) would be attached to balances that never belonged to it. So this module hands out
- * the two results by SURFACE — {@link RetirementSurface.chartResult} for the overlays,
- * {@link RetirementSurface.authoringResult} for anything editable or labelled from the live
- * projection — rather than leaving each caller to re-derive the distinction from `pending`.
+ * The second rule is about what each surface is allowed to show while a solve is behind, and the
+ * two kinds of surface answer it differently:
+ *
+ * - **Editable surfaces** (Base + Adjustments, the jobs list, the account breakdown) draw the
+ *   plan the user is actually authoring. {@link RetirementSurface.authoringResult} is simply the
+ *   live `authoredResult` — always, whether or not the preview toggle is on and whether or not a
+ *   solve is in flight. There is no version of "editing the plan" that should show a hypothetical
+ *   instead of what was typed.
+ * - **The retirement preview graph** treats "preview on" as a complete snapshot rather than a
+ *   live readout: {@link RetirementSurface.chartResult} shows `previewResult` — which, because it
+ *   is keyed on `solvedProjection`, already IS the last COMPLETE preview during the pending
+ *   window, paired with the age that produced it — right up until the new solve lands, then
+ *   switches straight to the new one. It never passes through the live authored plan in between;
+ *   doing so would mean the graph visibly changes twice per edit (old preview → authored → new
+ *   preview) instead of once (old preview → new preview). With the toggle off there is no preview
+ *   to hold onto, so `chartResult` is just the live authored run, same as `authoringResult`.
+ *
+ * Only the headline age and its own preview run ({@link RetirementSurface.retirement},
+ * {@link RetirementSurface.previewResult}) are allowed to lag, because there is no live
+ * substitute for a search that has not finished — and callers that show them say so via
+ * {@link RetirementSurface.pending} rather than presenting them as current.
  */
 
 import { useMemo } from "react";
@@ -50,21 +62,21 @@ export interface RetirementSurface {
    */
   readonly previewResult: ProjectionResult | null;
   /**
-   * The answer above describes an EARLIER plan than the one being edited. Callers must not
-   * present it as the current plan's: say it is recalculating, and do not let it drive a write
-   * or open a new preview until it catches up.
+   * The headline age and {@link previewResult} above describe an EARLIER plan than the one being
+   * edited. Callers must not present either as the current plan's: say the answer is
+   * recalculating, and do not let it drive a write until it catches up.
    */
   readonly pending: boolean;
   /**
-   * What the READ-ONLY overlays draw: the preview while previewing, the authored run otherwise.
-   * May be a plan behind — internally consistent, but say so ({@link pending}) rather than
-   * letting it read as the plan the user just typed.
+   * What the retirement PREVIEW graph draws: the last complete {@link previewResult} while the
+   * toggle is on — stale during {@link pending}, but a real, internally-consistent snapshot, never
+   * swapped for the live authored plan in between — or the live authored run while the toggle is
+   * off. See the module doc for why this must NOT fall back to the authored run mid-solve.
    */
   readonly chartResult: ProjectionResult;
   /**
-   * What every EDITABLE surface draws, and what anything labelled from the live projection is
-   * paired with: the same preview once it has caught up, the authored run while it has not.
-   * Never a series from one plan beside rows, names or controls from another.
+   * What every EDITABLE surface draws: the live authored run, unconditionally. Never the preview,
+   * whether or not the toggle is on and whether or not a solve is in flight — see the module doc.
    */
   readonly authoringResult: ProjectionResult;
 }
@@ -110,12 +122,15 @@ export function useRetirementSurface({
     [solvedProjection, previewEnabled, retirement.headlineAge, jurisdiction],
   );
 
-  // The two surfaces, split on where the caller sits rather than on what it draws — see the
-  // module doc. `pending` is the only difference between them, and it is spent here so no caller
-  // has to remember to spend it: an authoring surface that forgets looks exactly like one that
-  // didn't, until the day the two plans disagree.
-  const chartResult = previewResult ?? authoredResult;
-  const authoringResult = pending ? authoredResult : chartResult;
+  // The preview graph: `previewResult` while the toggle is on, `pending` or not — it is already
+  // the last COMPLETE preview during the pending window (see the module doc), so this is how the
+  // graph moves old preview -> new preview in one step rather than through the live plan between
+  // them. Falls back to the authored run only when there is no preview to show at all: the
+  // toggle is off, or no age is feasible.
+  const chartResult = previewEnabled ? (previewResult ?? authoredResult) : authoredResult;
+
+  // Every editable surface draws the plan being authored, full stop — never the hypothetical.
+  const authoringResult = authoredResult;
 
   return { retirement, previewResult, pending, chartResult, authoringResult };
 }
