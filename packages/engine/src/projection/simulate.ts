@@ -48,6 +48,19 @@ export type {
 
 const DEFAULT_START_YEAR = 2026;
 
+/** Knobs that trim the sim for callers that read less than the full series. */
+export interface SimulateOptions {
+  /**
+   * Stop the moment the plan's fate is decided rather than running to the horizon. The
+   * retirement search only asks "does any month fail" ({@link planSurvives}), and the first
+   * insolvent month settles that — so the loop breaks there. The truncated series carries the
+   * IDENTICAL survival verdict: `planSurvives` reads the last emitted month, which is the
+   * insolvent one, and a block still stops the loop first, so a blocked run reports blocked in
+   * either mode. Net worth past the first failure is fiction the search never reads.
+   */
+  readonly survivalOnly?: boolean;
+}
+
 /**
  * Household simulator. Fixed pipeline per month, each step a named helper:
  *   3–6. allocation waterfall: per-source pre-tax deferrals, tax seam,
@@ -65,7 +78,9 @@ const DEFAULT_START_YEAR = 2026;
 export function simulateHousehold(
   input: HouseholdSimInput,
   jurisdiction: Jurisdiction,
+  options?: SimulateOptions,
 ): ProjectionSeries {
+  const survivalOnly = options?.survivalOnly ?? false;
   const startYear = input.startYear ?? DEFAULT_START_YEAR;
   const state = initSimState(input);
   // "Now", before any flow: the net-worth chart's first point and the baseline every
@@ -391,6 +406,12 @@ export function simulateHousehold(
       omittedSourceEventIds = [...omittedEventIds];
       break;
     }
+
+    // Survival-only callers have their answer at the first insolvent month — `planSurvives`
+    // reads exactly this signal — so stop rather than null net worth to the horizon. AFTER the
+    // block check so a month that both blocks and goes insolvent still records the block,
+    // leaving `status` identical to a full run and the verdict unchanged.
+    if (survivalOnly && isInsolvent) break;
   }
 
   const blockedAtMonth = blockingObligation?.month;

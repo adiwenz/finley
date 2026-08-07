@@ -23,7 +23,7 @@
 
 import { interpretLedger } from "../ledger/interpret";
 import { buildHouseholdSimInput } from "../projection/buildHouseholdInput";
-import { simulateHousehold } from "../projection/simulate";
+import { simulateHousehold, type SimulateOptions } from "../projection/simulate";
 import { createProjectionBase } from "../compile/projectionBase";
 import { jobDisplayNames } from "../compile/compilePerson";
 import type { ProjectionContext } from "../compile/projectionBase";
@@ -72,11 +72,12 @@ export function projectScenarioParts(
   scenario: Scenario,
   ctx: ProjectionContext,
   stopWorking?: StopWorkingBoundary,
+  options?: SimulateOptions,
 ): ScenarioProjection {
   const base = createProjectionBase(scenario.plan, ctx, stopWorking);
   const household = interpretLedger(scenario.ledger, base);
   const simInput = buildHouseholdSimInput(household, base);
-  const series = simulateHousehold(simInput, ctx.jurisdiction);
+  const series = simulateHousehold(simInput, ctx.jurisdiction, options);
   return { household, simInput, series };
 }
 
@@ -90,8 +91,9 @@ export function projectScenario(
   scenario: Scenario,
   ctx: ProjectionContext,
   stopWorking?: StopWorkingBoundary,
+  options?: SimulateOptions,
 ): ProjectionSeries {
-  return projectScenarioParts(scenario, ctx, stopWorking).series;
+  return projectScenarioParts(scenario, ctx, stopWorking, options).series;
 }
 
 /**
@@ -243,8 +245,14 @@ export function projectFullRetirement(
   scenario: Scenario,
   age: number,
   ctx: ProjectionContext,
+  options?: SimulateOptions,
 ): ProjectionSeries {
-  return projectScenario(scenario, ctx, stopWorkingBoundaryAt(scenario.plan, age, ctx.startYear));
+  return projectScenario(
+    scenario,
+    ctx,
+    stopWorkingBoundaryAt(scenario.plan, age, ctx.startYear),
+    options,
+  );
 }
 
 /** Evaluate a run with all jobs ceased at `age`. */
@@ -265,7 +273,15 @@ export function evaluateFullRetirementAtAge(
  * job that stops separately from the rest, and "when could we stop working" has one answer.
  */
 export function earliestFullRetirementAge(scenario: Scenario, ctx: ProjectionContext): number | null {
-  return earliestSurvivingAge(scenario.plan, (age) => evaluateFullRetirementAtAge(scenario, age, ctx).feasible);
+  // The search reads only feasibility, so it runs the survival-only sim: it stops at the first
+  // insolvent month instead of nulling net worth to the horizon, which makes every infeasible
+  // low-age probe cheap. `planSurvives` on the truncated series is the SAME verdict
+  // `evaluateFullRetirementAtAge(...).feasible` gives — both are "no month fails, and not
+  // blocked" — so the threshold the search returns is identical. The reported evaluation for the
+  // answer age still runs the full projection elsewhere.
+  return earliestSurvivingAge(scenario.plan, (age) =>
+    planSurvives(projectFullRetirement(scenario, age, ctx, { survivalOnly: true })),
+  );
 }
 
 /**

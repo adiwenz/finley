@@ -69,6 +69,20 @@ describe("retirementSolver — survival off the real projection", () => {
     expect(seenSurviving).toBe(true);
   });
 
+  it("the survival-only fast path agrees with the full sim at every age", () => {
+    // The correctness gate for the solver's early-exit: the binary search reads this fast
+    // path (it returns at the first insolvent month instead of running to the horizon), so it
+    // must give the identical survival verdict as the full-horizon projection at every
+    // candidate — the feasible high ages AND the infeasible low ones it short-circuits.
+    for (const plan of [samplePlan, { ...samplePlan, openingBalanceCents: 0 }, baristaPlan]) {
+      const scenario = scenarioOf(plan);
+      for (let age = plan.currentAge; age <= plan.lifeExpectancy; age++) {
+        const fast = planSurvives(projectFullRetirement(scenario, age, CTX, { survivalOnly: true }));
+        expect(fast).toBe(survivesAt(plan, age));
+      }
+    }
+  });
+
   it("the binary search returns exactly the threshold age", () => {
     const age = earliestFullRetirementAge(scenarioOf(samplePlan), CTX);
     expect(age).not.toBeNull();
@@ -208,6 +222,17 @@ describe("retirementSolver — a blocked projection is a third state", () => {
       blockedAtMonth: 0,
     };
     expect(planSurvives(blocked)).toBe(false);
+  });
+
+  it("the survival-only fast path also refuses a blocked plan", () => {
+    // A block, not an insolvency, is what fails the stranded plan — the survival-only sim must
+    // still report it as not surviving. The block break fires in both modes, so the fast path
+    // returns the identical false the full sim does; the early-exit never masks a block.
+    const scenario = strandedScenario();
+    const age = scenario.plan.lifeExpectancy;
+    const fast = planSurvives(projectFullRetirement(scenario, age, CTX, { survivalOnly: true }));
+    expect(fast).toBe(planSurvives(projectFullRetirement(scenario, age, CTX)));
+    expect(fast).toBe(false);
   });
 
   it("reports blocked from solveRetirement — distinct from null", () => {

@@ -204,4 +204,47 @@ describe("simulateHousehold", () => {
     expect(series.months[3].netWorthNominalCents).toBe(dollarsToCents(5000));
     expect(series.months[4].netWorthNominalCents).toBe(dollarsToCents(5000));
   });
+
+  describe("survivalOnly early-exit", () => {
+    it("a plan that never fails runs the full horizon, identical to a full sim", () => {
+      // Income exceeds expense every month, so no month is insolvent: survivalOnly has
+      // nothing to short-circuit and must run every month the full sim runs.
+      const acc = makeInvestmentAccount(dollarsToCents(10_000), 0);
+      const input = {
+        horizonMonths: 24,
+        annualInflationRate: 0,
+        persons: [makePerson()],
+        accounts: [acc],
+        incomeSeries: [{ series: monthlyIncome(dollarsToCents(4_000)), ownerId: "p1" }],
+        expenseSeries: [{ series: monthlyExpense(dollarsToCents(2_000)), ownerId: "p1" }],
+      };
+      const full = simulateHousehold(input, nullJurisdiction);
+      const lean = simulateHousehold(input, nullJurisdiction, { survivalOnly: true });
+      expect(lean.status).toBe("ran-to-horizon");
+      expect(lean.months.length).toBe(full.months.length);
+      expect(lean.months.every((m) => !m.isInsolvent)).toBe(true);
+    });
+
+    it("stops at the first insolvent month, where the full sim runs the whole horizon", () => {
+      // A $30k/mo deficit with no assets exhausts the synthetic card and trips insolvency
+      // early. The full sim carries on nulling net worth to the horizon; survivalOnly has its
+      // answer at the first insolvent month and stops there.
+      const acc = makeInvestmentAccount(0, 0);
+      const input = {
+        horizonMonths: 6,
+        annualInflationRate: 0,
+        persons: [makePerson()],
+        accounts: [acc],
+        incomeSeries: [],
+        expenseSeries: [{ series: monthlyExpense(dollarsToCents(30_000)), ownerId: "p1" }],
+      };
+      const full = simulateHousehold(input, nullJurisdiction);
+      const lean = simulateHousehold(input, nullJurisdiction, { survivalOnly: true });
+      const firstInsolvent = full.months.findIndex((m) => m.isInsolvent);
+      expect(firstInsolvent).toBeGreaterThanOrEqual(0);
+      expect(full.months.length).toBe(6);
+      expect(lean.months.length).toBe(firstInsolvent + 1);
+      expect(lean.months[lean.months.length - 1].isInsolvent).toBe(true);
+    });
+  });
 });
