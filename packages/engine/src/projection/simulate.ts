@@ -52,29 +52,41 @@ export type {
 const DEFAULT_START_YEAR = 2026;
 
 /**
- * The fate of every explicitly-funded obligation, classified by month POSITION relative to the
- * block — the seam a stopped projection reports through. Positional, not dependency-derived: once
- * the sim halts nothing later was tested, so everything authored after the blocked month is
- * `not-reached` regardless of whether it depended on the blocker.
+ * The fate of every explicitly-funded obligation, classified by what actually happened during
+ * resolution — never by comparing months. `resolvedObligationIds` is the accumulated set of draws
+ * {@link resolveFundingDraws} actually resolved (money moved, attribution recorded) across every
+ * month the sim ran; that set, not a month comparison, is what makes a same-month sibling AFTER the
+ * blocker read as `not-reached` rather than `executed` — resolution stops mid-month, so a draw
+ * later in the SAME month as the blocker was never reached any more than one in a later month was.
  *
- * An absent block means the plan ran to the horizon: nothing stopped, so every draw executed. Within
- * the blocked month only the blocker itself is `blocked`; a same-month sibling reports `executed`,
- * since "not reached" is authored-after-the-blocked-MONTH, never a peer in it.
+ * An absent block means the plan ran to the horizon: nothing stopped, so every draw resolved.
  */
 function classifyObligationOutcomes(
   fundingDraws: readonly FinancialObligation[],
+  resolvedObligationIds: ReadonlySet<ObligationId>,
   block: ProjectionSeries["blockingObligation"],
 ): Record<ObligationId, ObligationOutcome> {
   const outcomes: Record<ObligationId, ObligationOutcome> = {};
   for (const draw of fundingDraws) {
-    if (block === undefined || draw.month < block.month) {
-      outcomes[draw.id] = { status: "executed" };
-    } else if (draw.month > block.month) {
-      outcomes[draw.id] = { status: "not-reached", blockedByObligationId: block.obligationId };
+    const sourceEventId =
+      draw.sourceEventId !== undefined ? { sourceEventId: draw.sourceEventId } : {};
+    if (block === undefined) {
+      outcomes[draw.id] = { status: "executed", ...sourceEventId };
     } else if (draw.id === block.obligationId) {
-      outcomes[draw.id] = { status: "blocked", month: block.month, shortfallCents: block.shortfallCents };
+      outcomes[draw.id] = {
+        status: "blocked",
+        month: block.month,
+        shortfallCents: block.shortfallCents,
+        ...sourceEventId,
+      };
+    } else if (resolvedObligationIds.has(draw.id)) {
+      outcomes[draw.id] = { status: "executed", ...sourceEventId };
     } else {
-      outcomes[draw.id] = { status: "executed" };
+      outcomes[draw.id] = {
+        status: "not-reached",
+        blockedByObligationId: block.obligationId,
+        ...sourceEventId,
+      };
     }
   }
   return outcomes;
@@ -124,6 +136,10 @@ export function simulateHousehold(
   // Every event whose draw the block omitted — the blocker and the same-month draws after it,
   // whose artifacts were suppressed alongside its own. Captured with `blockingObligation`.
   let omittedSourceEventIds: ProjectionSeries["omittedSourceEventIds"];
+  // Every explicit obligation actually resolved (money moved, attribution recorded) across every
+  // month the loop ran — the ground truth `classifyObligationOutcomes` reports outcomes from,
+  // never a month comparison.
+  const resolvedObligationIds = new Set<ObligationId>();
 
   // `< horizonMonths` (not `<=`): the opening snapshot is no longer an array slot, so the
   // same span now yields exactly `horizonMonths` processed months, `month` 0-based.
@@ -182,6 +198,7 @@ export function simulateHousehold(
     // prices a candidate over its siblings the SAME way (exact under any regime).
     const fundingBase = buildTaxableByOwner(nonWithdrawalSources);
     const fundingDraw = resolveFundingDraws(state, month, jurisdiction, ctx, fundingBase);
+    for (const resolved of fundingDraw.resolvedFunding) resolvedObligationIds.add(resolved.obligationId);
     // An omitted draw suppresses the property and mortgage its authoring event would originate this
     // month — otherwise `advanceProperties`/`advanceLiabilities` would mint a house and a loan with
     // no cash ever leaving, which is the very fabrication blocking exists to stop. Keyed off EVERY
@@ -436,6 +453,10 @@ export function simulateHousehold(
     ...(blockedAtMonth !== undefined ? { blockedAtMonth } : {}),
     ...(blockingObligation !== undefined ? { blockingObligation } : {}),
     ...(omittedSourceEventIds !== undefined ? { omittedSourceEventIds } : {}),
-    obligationOutcomes: classifyObligationOutcomes(state.fundingDraws, blockingObligation),
+    obligationOutcomes: classifyObligationOutcomes(
+      state.fundingDraws,
+      resolvedObligationIds,
+      blockingObligation,
+    ),
   };
 }

@@ -102,40 +102,23 @@ export interface TimelineMarker extends EventSummary {
 }
 
 /** The projection fields the timeline reads to classify each event — nothing else of the series. */
-type OutcomeSource = Pick<
-  ProjectionSeries,
-  "status" | "blockingObligation" | "obligationOutcomes"
->;
+type OutcomeSource = Pick<ProjectionSeries, "status" | "obligationOutcomes">;
 
 /**
  * Every authoring event the projection did not simply execute, keyed by its own id — the blocking
- * purchase and every purchase authored after it. Read straight from the engine's `obligationOutcomes`
- * and never re-derived positionally: only obligation-bearing purchases appear there, so structural
- * events (a marriage, a child, a separation) and pre-existing holdings are absent and fall through to
- * `executed` with no indicator, exactly as the slice requires.
- *
- * The outcome map is keyed by obligation id (`<prefix><authoring-event-id>`, `draw:downpayment:home-1`
- * today). Rather than hard-code that spelling, recover `<prefix>` from the one (obligationId,
- * sourceEventId) pair the engine hands us on `blockingObligation` and strip it back off each key — so
- * the join stays on the authoring event and survives a change to the id scheme. Empty for a run that
- * reached the horizon: nothing stopped, so every event executed.
+ * purchase and every purchase authored after it. Read straight off each {@link ObligationOutcome}'s
+ * `sourceEventId`, which the engine mirrors from the obligation it classified — the app never parses
+ * `obligationId`'s spelling to recover the event that spawned it. Only obligation-bearing purchases
+ * carry a `sourceEventId` at all, so structural events (a marriage, a child, a separation) and
+ * pre-existing holdings are absent and fall through to `executed` with no indicator, exactly as the
+ * slice requires. Empty for a run that reached the horizon: nothing stopped, so every event executed.
  */
 function eventOutcomes(series: OutcomeSource | undefined): Map<string, MarkerOutcome> {
   const outcomes = new Map<string, MarkerOutcome>();
   if (series === undefined || series.status !== "blocked") return outcomes;
-  const blocking = series.blockingObligation;
-  if (blocking?.sourceEventId === undefined) return outcomes;
-  const { obligationId, sourceEventId } = blocking;
-  // The obligation id ends with its authoring event id by construction. If that ever fails we can
-  // still name the blocking event; we just cannot translate the rest of the map.
-  if (!obligationId.endsWith(sourceEventId)) {
-    outcomes.set(sourceEventId, "blocked");
-    return outcomes;
-  }
-  const prefix = obligationId.slice(0, obligationId.length - sourceEventId.length);
-  for (const [id, outcome] of Object.entries(series.obligationOutcomes)) {
-    if (outcome.status === "executed" || !id.startsWith(prefix)) continue;
-    outcomes.set(id.slice(prefix.length), outcome.status);
+  for (const outcome of Object.values(series.obligationOutcomes)) {
+    if (outcome.status === "executed" || outcome.sourceEventId === undefined) continue;
+    outcomes.set(outcome.sourceEventId, outcome.status);
   }
   return outcomes;
 }

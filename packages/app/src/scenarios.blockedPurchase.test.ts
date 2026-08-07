@@ -102,6 +102,14 @@ describe("a purchase stranded by a later edit — what the projection does with 
     const untouched = household(OPENING_AFTER_EDIT).run(usJurisdiction).series.months[BUY_MONTH]!;
     expect(blocked.accountBalancesCents).toEqual(untouched.accountBalancesCents);
     expect(blocked.netWorthNominalCents).toBe(untouched.netWorthNominalCents);
+
+    // The timeline's claim has to agree with what actually happened: the SECOND purchase sits in
+    // the same month as the blocker, but its draw never resolved, so it reads `not-reached` — never
+    // `executed` — exactly like the artifacts above already show. Read off the public engine
+    // output only; nothing here parses an obligation id to make the join.
+    const outcome = new Map(timelineMarkers(p.ledger, series).map((m) => [m.id, m.outcome]));
+    expect(outcome.get(first)).toBe("blocked");
+    expect(outcome.get(second)).toBe("not-reached");
   });
 
   it("keeps an EARLIER same-month home whose down payment did resolve", () => {

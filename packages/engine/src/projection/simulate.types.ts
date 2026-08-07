@@ -293,23 +293,38 @@ export interface ProjectionIncomeSource {
 
 /**
  * What became of one explicitly-funded obligation across the whole simulation — the per-obligation
- * companion to the series-level {@link ProjectionSeries.status}. Keyed by month POSITION relative to
- * the block, never by dependency:
- *   - `executed` — its month ran, at or before the blocked month. A same-month sibling of the
- *     blocker reports this too: it sits IN the blocked month, and only what is authored strictly
- *     after that month is "not reached".
+ * companion to the series-level {@link ProjectionSeries.status}. Classified from ACTUAL resolution,
+ * never by comparing months: a same-month sibling of the blocker that was never resolved reports
+ * `not-reached` exactly like a later-month draw would, since resolution stops mid-month.
+ *   - `executed` — its draw actually resolved: money moved, its artifacts stand.
  *   - `blocked` — this obligation is the one that stopped the projection; carries its month and the
  *     bare shortfall (net of the capital-gains tax liquidating its sources owes). Classifying that
  *     shortfall and offering alternatives is a later slice, not here.
- *   - `not-reached` — authored after the blocked month, so the simulation stopped before testing it.
- *     `blockedByObligationId` names the obligation that stopped it. NOT a claim of dependency: once
- *     the sim halts nothing later was tested, and marking only dependents would imply the rest were
- *     checked and found fine.
+ *   - `not-reached` — its draw was never resolved because the block stopped resolution first, either
+ *     a same-month sibling after the blocker or something authored later. `blockedByObligationId`
+ *     names the obligation that stopped it. NOT a claim of dependency: once the sim halts nothing
+ *     later was tested, and marking only dependents would imply the rest were checked and found fine.
+ *
+ * Every variant carries `sourceEventId` — the life event that spawned this obligation, mirrored
+ * straight off {@link FinancialObligation.sourceEventId} — so a consumer (the app's timeline/warning)
+ * can join outcome back to authoring event without parsing `ObligationId`'s internal spelling. Absent
+ * exactly where the obligation itself carries none (a budget line, a liability payment — obligations
+ * with no event provenance at all, which is also why the map has no entry for them: see {@link
+ * ProjectionSeries.obligationOutcomes}).
  */
 export type ObligationOutcome =
-  | { readonly status: "executed" }
-  | { readonly status: "blocked"; readonly month: number; readonly shortfallCents: Cents }
-  | { readonly status: "not-reached"; readonly blockedByObligationId: ObligationId };
+  | { readonly status: "executed"; readonly sourceEventId?: string }
+  | {
+      readonly status: "blocked";
+      readonly month: number;
+      readonly shortfallCents: Cents;
+      readonly sourceEventId?: string;
+    }
+  | {
+      readonly status: "not-reached";
+      readonly blockedByObligationId: ObligationId;
+      readonly sourceEventId?: string;
+    };
 
 /**
  * The obligation that stopped a {@link ProjectionSeries}, and the funding gap that stopped it.
