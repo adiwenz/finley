@@ -81,7 +81,7 @@ export function App() {
   const projection = useMemo(() => Projection.fromState(state, usJurisdiction), [state]);
   const result = useMemo(() => projection.run(usJurisdiction), [projection]);
   const funding = useMemo(() => projection.funding(), [projection]);
-  const { series, household, report } = result;
+  const { household, report } = result;
 
   // Who's in the household, by id — so a chart can name whose income a band is when the
   // label alone can't (two members' government benefits).
@@ -112,9 +112,8 @@ export function App() {
    * and is wrong: the solved age is not panel-local. It dates the graph's retirement reference
    * line and is what `previewResult` simulates at, both visible with the panel untouched.
    *
-   * Stale for a frame is honest here in a way it would not be on an authoring surface: these are
-   * read-only overlays on a plan the user is still typing into. So the lag is confined by two
-   * rules, and everything below is one or the other of them:
+   * Stale for a frame is honest on a read-only overlay of a plan the user is still typing into,
+   * and nowhere else. So the lag is confined by three rules, and everything below is one of them:
    *
    * - **Nothing WRITES from it.** The Base + Adjustments quickstart used to bound its savings
    *   line at `retirement.plannedWorkStopAge`, which made a deferred value an input to a budget
@@ -122,7 +121,11 @@ export function App() {
    *   off the live handle.
    * - **Nothing PRESENTS it as current.** `retirementPending` says the answer is a plan behind,
    *   and each surface reading it either says so (the panel, the chart note) or steps aside
-   *   until it lands (the reference line, the jobs' pay figures, the preview toggle).
+   *   until it lands (the reference line, the preview toggle).
+   * - **Nothing EDITABLE reads it, and nothing pairs it with live labels.** Base + Adjustments,
+   *   the jobs' pay figures and the breakdown's balances sit beside rows, names and controls
+   *   from the live plan, so they take `authoringResult` — the preview once it has caught up,
+   *   the authored run until then. `useRetirementSurface` holds the split.
    */
   const solvedProjection = useDeferredValue(projection);
   /**
@@ -138,8 +141,11 @@ export function App() {
     retirement,
     previewResult,
     pending: retirementPending,
+    chartResult,
+    authoringResult,
   } = useRetirementSurface({
     projection,
+    authoredResult: result,
     solvedProjection,
     previewEnabled: previewRetirement,
     jurisdiction: usJurisdiction,
@@ -158,10 +164,12 @@ export function App() {
   // `previewResult` is already gated on `previewRetirement` above, so this collapses to a
   // simple null check — a stale toggle with no feasible age still reports itself off.
   const previewing = previewResult !== null;
-  // The series the charts draw — the preview when previewing, the authored run otherwise. The
-  // guard narrows `previewResult` here; only the CHARTS swap, every authoring/editing surface
-  // below stays on the authored `result`.
-  const chartSeries = previewResult ? previewResult.series : series;
+  // The series the read-only charts draw — the preview when previewing, the authored run
+  // otherwise, and a plan behind while the solve is out (labelled below). Every EDITABLE or
+  // live-labelled surface takes `authoringSeries` instead, which drops back to the authored run
+  // for exactly that window; the hook holds why.
+  const chartSeries = chartResult.series;
+  const authoringSeries = authoringResult.series;
 
   // Chart, timeline, and event picker all span "now" → life expectancy.
   const horizonMonths = planHorizonMonths(budget);
@@ -169,6 +177,11 @@ export function App() {
   // The net-worth *breakdown* chart's data. Names/order come through supported engine seams
   // — account descriptors and the household's liabilities, labelled by kind — never the
   // SimAccount class, so presentation stays off the sim-construction path.
+  //
+  // Those names come off the LIVE projection, so the balances they label have to as well: this
+  // reads `authoringSeries`, not `chartSeries`. A renamed account or a discharged mortgage would
+  // otherwise relabel a preview that predates the rename — the account's new name over the old
+  // plan's balances, which is not a stale answer but a fabricated one.
   const breakdown = useMemo(() => {
     // The engine's synthetic last-resort borrowing is a revolving credit card in the model,
     // so it charts as "Credit card" debt below zero: a plan living on borrowed money (or one
@@ -180,12 +193,12 @@ export function App() {
       liabilityLabels[liability.id] = liabilityKindLabel(liability.kind);
     }
     return buildNetWorthBreakdown(
-      chartSeries,
+      authoringSeries,
       { accounts: projection.accountDescriptors(), liabilityLabels },
       // The plan's own span, so this chart ends at the same year as the total above it.
       horizonMonths,
     );
-  }, [chartSeries, projection, household, horizonMonths]);
+  }, [authoringSeries, projection, household, horizonMonths]);
 
   return (
     <>
@@ -338,19 +351,24 @@ export function App() {
           // too whenever the preview is a plan behind — a pay display looked up from the
           // previous plan's run is either about a job the user has since changed or missing
           // outright. The preview's own pay figures return the moment it catches up.
-          payDisplay={(retirementPending ? result : previewResult ?? result).jobPayDisplay}
+          payDisplay={authoringResult.jobPayDisplay}
         />
       </div>
 
       <div className="card">
-        {/* Charts the SAME series the net-worth graph draws — plan plus the live timeline
-            — so its spending need counts loan payments and every other event, not just the
+        {/* Charts the same series the net-worth graph draws — plan plus the live timeline —
+            so its spending need counts loan payments and every other event, not just the
             standing budget. Everything rides on that one series (the engine itemizes the
-            spending), so there is nothing else to pass. */}
+            spending), so there is nothing else to pass.
+
+            The AUTHORING one, though: this panel edits the plan it charts, and its rows, jobs
+            and accounts come off the live handles beside it. While the solve is behind, a
+            preview would put the previous plan's obligations and spending under controls that
+            write to the current one. */}
         <BaseAdjustmentsPanel
           plan={budget}
           transact={transact}
-          series={chartSeries}
+          series={authoringSeries}
           personNames={personNames}
           household={household}
           ledger={ledger}

@@ -16,8 +16,17 @@
  * So the rule is simple, and this module exists to hold it in one place rather than as a
  * convention three `useMemo` calls in `App` have to keep: **the preview runs on the projection
  * that produced the age.** {@link RetirementSurface.pending} then says outright that the pair is
- * behind the plan, and the surfaces reading it are responsible for not passing an old answer off
- * as the current plan's.
+ * behind the plan.
+ *
+ * The second rule follows from where a surface sits rather than from what it draws. A stale
+ * preview is honest on a READ-ONLY overlay — a real answer, one edit old, and labelled as
+ * recalculating. It is not honest on an AUTHORING surface, where the rows, names and controls
+ * beside it come off the live plan: the user would be editing plan B while reading plan A's
+ * numbers, and any label the live plan supplies (an account's new name, an obligation it no
+ * longer has) would be attached to balances that never belonged to it. So this module hands out
+ * the two results by SURFACE — {@link RetirementSurface.chartResult} for the overlays,
+ * {@link RetirementSurface.authoringResult} for anything editable or labelled from the live
+ * projection — rather than leaving each caller to re-derive the distinction from `pending`.
  */
 
 import { useMemo } from "react";
@@ -46,16 +55,34 @@ export interface RetirementSurface {
    * or open a new preview until it catches up.
    */
   readonly pending: boolean;
+  /**
+   * What the READ-ONLY overlays draw: the preview while previewing, the authored run otherwise.
+   * May be a plan behind — internally consistent, but say so ({@link pending}) rather than
+   * letting it read as the plan the user just typed.
+   */
+  readonly chartResult: ProjectionResult;
+  /**
+   * What every EDITABLE surface draws, and what anything labelled from the live projection is
+   * paired with: the same preview once it has caught up, the authored run while it has not.
+   * Never a series from one plan beside rows, names or controls from another.
+   */
+  readonly authoringResult: ProjectionResult;
 }
 
 export function useRetirementSurface({
   projection,
+  authoredResult,
   solvedProjection,
   previewEnabled,
   jurisdiction,
 }: {
   /** The live handle over what the user has authored. */
   readonly projection: SolvableProjection;
+  /**
+   * `projection.run(jurisdiction)` — the authored plan, no search involved, so it is current on
+   * the render the edit commits. It is what the two results below fall back to.
+   */
+  readonly authoredResult: ProjectionResult;
   /** The handle the solve is allowed to lag on — `useDeferredValue(projection)` in the app. */
   readonly solvedProjection: SolvableProjection;
   readonly previewEnabled: boolean;
@@ -83,5 +110,12 @@ export function useRetirementSurface({
     [solvedProjection, previewEnabled, retirement.headlineAge, jurisdiction],
   );
 
-  return { retirement, previewResult, pending };
+  // The two surfaces, split on where the caller sits rather than on what it draws — see the
+  // module doc. `pending` is the only difference between them, and it is spent here so no caller
+  // has to remember to spend it: an authoring surface that forgets looks exactly like one that
+  // didn't, until the day the two plans disagree.
+  const chartResult = previewResult ?? authoredResult;
+  const authoringResult = pending ? authoredResult : chartResult;
+
+  return { retirement, previewResult, pending, chartResult, authoringResult };
 }
