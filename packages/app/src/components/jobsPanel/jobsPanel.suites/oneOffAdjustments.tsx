@@ -1,6 +1,4 @@
 /**
- * @vitest-environment jsdom
- *
  * **A bonus and a missed paycheck — pay that moves for exactly one month.**
  *
  * Separate from a raise in every way that matters to this panel: it rides the chart as a
@@ -8,21 +6,20 @@
  * a replacement), and removing one must leave both its siblings and any permanent change dated
  * the same month standing.
  */
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { describe, it, expect } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
 import {
   dollarsToCents,
   type Plan,
 } from "@finley/engine";
-import { PLAN_DEFAULTS } from "../../planDefaults";
+import { PLAN_DEFAULTS } from "../../../planDefaults";
 import {
   Harness,
   authored,
   headline,
   timeline,
-} from "./jobsPanel.testUtils";
+} from "../jobsPanel.testUtils";
 
-afterEach(cleanup);
 
 
 describe("JobsPanel — one-month adjustments show on the job", () => {

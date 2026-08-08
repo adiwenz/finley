@@ -1,6 +1,4 @@
 /**
- * @vitest-environment jsdom
- *
  * **Permanent pay changes — a raise, a cut, and the pay history a job carries.**
  *
  * A pay change lands on `payChanges` and moves pay from a dated month forward; the starting
@@ -11,15 +9,15 @@
  * One-off adjustments (a bonus, a missed paycheck) are a different gesture and live in
  * `jobsPanel.oneOffAdjustments.test.tsx`.
  */
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
-import { enterNumber } from "../../testing/numberField";
+import { describe, it, expect } from "vitest";
+import { render, screen, fireEvent, within } from "@testing-library/react";
+import { enterNumber } from "../../../testing/numberField";
 import {
   dollarsToCents,
   type Plan,
 } from "@finley/engine";
-import { PLAN_DEFAULTS } from "../../planDefaults";
-import { addJobPayChange } from "../../testing/planFixtures";
+import { PLAN_DEFAULTS } from "../../../planDefaults";
+import { addJobPayChange } from "../../../testing/planFixtures";
 import {
   DEFAULT_JOB_ID,
   Harness,
@@ -30,9 +28,8 @@ import {
   partnerJobs,
   spin,
   timeline,
-} from "./jobsPanel.testUtils";
+} from "../jobsPanel.testUtils";
 
-afterEach(cleanup);
 
 
 describe("JobsPanel — permanent pay changes", () => {

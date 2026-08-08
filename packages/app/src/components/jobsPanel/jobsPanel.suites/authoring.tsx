@@ -1,6 +1,4 @@
 /**
- * @vitest-environment jsdom
- *
  * **Adding, editing and deleting a job** — the gestures, the form state around them, and the
  * public write each one makes.
  *
@@ -9,9 +7,9 @@
  * `RelationshipEvent`. What the projected money then does is the engine's to prove; the one case
  * here that reaches for a projection does so to show an edit changes ONLY what it names.
  */
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
-import { enterNumber } from "../../testing/numberField";
+import { describe, it, expect } from "vitest";
+import { render, screen, fireEvent, within } from "@testing-library/react";
+import { enterNumber } from "../../../testing/numberField";
 import {
   PRIMARY_PERSON_ID,
   Projection,
@@ -21,9 +19,9 @@ import {
   type ProjectionSeries,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
-import { PLAN_DEFAULTS } from "../../planDefaults";
-import { stateOf } from "../../testing/projectionHarness";
-import { START_YEAR } from "../../config";
+import { PLAN_DEFAULTS } from "../../../planDefaults";
+import { stateOf } from "../../../testing/projectionHarness";
+import { START_YEAR } from "../../../config";
 import {
   Harness,
   authored,
@@ -35,9 +33,8 @@ import {
   partnerMonthlyDollars,
   spin,
   timeline,
-} from "./jobsPanel.testUtils";
+} from "../jobsPanel.testUtils";
 
-afterEach(cleanup);
 
 
 describe("JobsPanel — add / edit / delete", () => {

@@ -1,6 +1,4 @@
 /**
- * @vitest-environment jsdom
- *
  * **The continuation question, as an authoring control.**
  *
  * What selecting a job MEANS is the solver's, pinned in
@@ -9,22 +7,21 @@
  * answer to the plane its owner lives on, and — the property the whole design turns on — leaves
  * an answer alone when the job list changes underneath it.
  */
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { describe, it, expect } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
 import {
   type Job,
 } from "@finley/engine";
-import { PLAN_DEFAULTS } from "../../planDefaults";
-import { START_YEAR } from "../../config";
+import { PLAN_DEFAULTS } from "../../../planDefaults";
+import { START_YEAR } from "../../../config";
 import {
   DEFAULT_JOB_ID,
   Harness,
   authored,
   partnerJob,
   partnerJoining,
-} from "./jobsPanel.testUtils";
+} from "../jobsPanel.testUtils";
 
-afterEach(cleanup);
 
 /**
  * The continuation job as an authoring control. What selecting one MEANS is pinned in the engine

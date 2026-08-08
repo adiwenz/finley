@@ -1,6 +1,4 @@
 /**
- * @vitest-environment jsdom
- *
  * **What the panel SHOWS, given a plan and an engine run** — no gestures, no writes.
  *
  * A job's row, its authored span, the stretch of it a stop-working preview would pay, the months
@@ -8,14 +6,14 @@
  * interval drawn here is resolved by the engine (`ProjectionResult.jobPayDisplay`); what these own
  * is that the panel renders that resolution rather than a rule of its own.
  */
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
+import { describe, it, expect } from "vitest";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import {
   type NewLifeEvent,
 } from "@finley/engine";
-import { PLAN_DEFAULTS } from "../../planDefaults";
-import { START_YEAR } from "../../config";
-import { setJobDeferralFraction } from "../../testing/planFixtures";
+import { PLAN_DEFAULTS } from "../../../planDefaults";
+import { START_YEAR } from "../../../config";
+import { setJobDeferralFraction } from "../../../testing/planFixtures";
 import {
   DEFAULT_JOB_ID,
   Harness,
@@ -23,9 +21,8 @@ import {
   partnerJob,
   partnerJoining,
   spin,
-} from "./jobsPanel.testUtils";
+} from "../jobsPanel.testUtils";
 
-afterEach(cleanup);
 
 
 describe("JobsPanel — listing", () => {
