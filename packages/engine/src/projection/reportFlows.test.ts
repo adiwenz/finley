@@ -205,6 +205,32 @@ describe("buildFlows", () => {
     });
   });
 
+  it("nets a source's deferral, income tax, AND payroll tax together — none dropped, none double-counted", () => {
+    // $5,000 cash in, $500 pre-tax deferral, $400 income tax, $100 payroll tax, all
+    // attributed to the same source: net = 5000 − 500 − 400 − 100 = $4,000.
+    const flows = buildFlows(
+      [src("p1", 500_000, "wages", { sourceId: "job", label: "Job" })],
+      400_00,
+      [],
+      0,
+      { wages: 400_00 },
+      { job: 400_00 },
+      { job: 500_00 },
+      100_00,
+      { job: 100_00 },
+    );
+    expect(flows.incomeSources).toEqual([
+      {
+        sourceId: "job",
+        label: "Job",
+        category: "wages",
+        ownerId: "p1",
+        cashInflowCents: 500_000,
+        netCashFlowCents: 400_000,
+      },
+    ]);
+  });
+
   it("adds no drawdown band when savings covered nothing", () => {
     const flows = buildFlows([src("p1", 5_000_00, "wages", { sourceId: "job:a", label: "Job A" })], 0, [], 0);
     expect(flows.incomeSources.some((s) => s.category === "savingsDrawdown")).toBe(false);
