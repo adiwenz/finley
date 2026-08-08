@@ -16,7 +16,6 @@ import {
   continuedJobsAt,
   stopWorkingBoundaryAt,
 } from "./retirementSolver";
-import { continuationJobIdOf } from "../job/householdJob";
 import { compilePersonPriorEarnings } from "../compile/compilePerson";
 import { scenarioOf, withLedger } from "../plan/scenario";
 import { addEvent } from "../ledger/addEvent";
@@ -1471,8 +1470,11 @@ describe("retirementSolver — which job a later candidate age continues", () =>
     expect(p.continuationJobOf("p1")).toBeNull();
 
     // Order is not information: the same jobs listed the other way round still answer None.
-    const reversed = planWithJobs([...jobs].reverse(), null);
-    expect(continuationJobIdOf(reversed.primary, START_YEAR)).toBeNull();
+    const reversed = Projection.fromState(
+      stateOf(planWithJobs([...jobs].reverse(), null)),
+      mockJurisdiction(),
+    );
+    expect(reversed.continuationJobOf("p1")).toBeNull();
 
     // And the answer is invented nowhere downstream: neither solver nor preview pays a month the
     // plan does not contain. Every job left is authored to end by 72, so past that a preview at
@@ -1823,75 +1825,91 @@ describe("retirementSolver — which job a later candidate age continues", () =>
 });
 
 /**
- * The rule that answers "which job would continue?" for a household that has never been asked —
- * see {@link continuationJobIdOf}. It runs on READ, so it follows the jobs a person holds today
- * rather than freezing an answer at the moment their plan was created (for the primary, before a
- * single job existed), and it never displaces a choice already made.
- *
- * Pinned directly on the rule rather than through a projection: every case here is about which
- * id comes out, and routing that through a simulation would test the wiring instead.
+ * The rule that answers "which job would continue?" for a household that has never been asked,
+ * read the way every caller reads it — through {@link Projection.continuationJobOf}, the surface
+ * a picker draws and the same resolved answer the solver extends a job by. It runs on READ, so it
+ * follows the jobs a person holds today rather than freezing an answer at the moment their plan
+ * was created (for the primary, before a single job existed), and it never displaces a choice
+ * already made.
  */
-describe("continuationJobIdOf — what a household that never chose gets", () => {
-  const NOW = 2000;
-  const job = (id: string, startYear: number, endYear: number): Job => ({
+describe("Projection.continuationJobOf — what a household that never chose gets", () => {
+  const at = (age: number) => PRIMARY_BIRTH_YEAR + age;
+  const job = (id: string, startAge: number, endAge: number): Job => ({
     id,
     ownerId: "p1",
-    startYear,
-    endYear,
+    startYear: at(startAge),
+    endYear: at(endAge),
     salary: { startingSalaryCents: 1, currentSalaryCents: 1, realGrowthPct: 0 },
   });
-  const person = (jobs: readonly Job[], continuationJobId?: string | null): Person => ({
-    id: "p1",
-    name: "A",
-    birthYear: 1960,
-    lifeExpectancy: samplePlan.primary.lifeExpectancy,
-    benefitClaimingAge: 67,
-    jobs,
-    ...(continuationJobId !== undefined ? { continuationJobId } : {}),
-  });
+
+  /**
+   * The resolved selection for a primary holding `jobs`. Omitting `continuationJobId` leaves it
+   * UNSTATED — the "nobody has chosen yet" case the initialization rule answers — which is a
+   * different plan from one stating `null`, so the two are never spelled the same way here.
+   */
+  const chosenFrom = (jobs: readonly Job[], continuationJobId?: string | null): string | null =>
+    Projection.fromState(
+      stateOf({
+        ...samplePlan,
+        primary: {
+          ...samplePlan.primary,
+          jobs,
+          ...(continuationJobId !== undefined ? { continuationJobId } : {}),
+        },
+      }),
+      mockJurisdiction(),
+    ).continuationJobOf("p1");
 
   it("picks the job they are working NOW", () => {
-    const jobs = [job("past", 1980, 1990), job("current", 1995, 2020), job("later", 2020, 2030)];
-    expect(continuationJobIdOf(person(jobs), NOW)).toBe("current");
+    const jobs = [job("past", 20, 30), job("current", 35, 60), job("later", 60, 70)];
+    expect(chosenFrom(jobs)).toBe("current");
   });
 
   it("picks the earliest job still to START when none is running yet", () => {
-    const jobs = [job("soon", 2005, 2030), job("later", 2010, 2040)];
-    expect(continuationJobIdOf(person(jobs), NOW)).toBe("soon");
+    expect(chosenFrom([job("soon", 45, 70), job("later", 50, 75)])).toBe("soon");
   });
 
   it("picks nothing when every job is behind them", () => {
     // Re-entering finished employment is not something to assume on a person's behalf. Those
     // jobs stay selectable; they are simply never chosen for them.
-    expect(continuationJobIdOf(person([job("past", 1980, 1990)]), NOW)).toBeNull();
-    expect(continuationJobIdOf(person([]), NOW)).toBeNull();
+    expect(chosenFrom([job("past", 20, 30)])).toBeNull();
+    expect(chosenFrom([])).toBeNull();
   });
 
   it("resolves several concurrent jobs to the latest-ending one, deterministically", () => {
     // Arbitrary between equals, which is exactly why it is stated: the job they would still be
     // in once the others finish. An exact tie falls to the first authored.
-    const jobs = [job("short", 1995, 2010), job("long", 1998, 2025)];
-    expect(continuationJobIdOf(person(jobs), NOW)).toBe("long");
-    expect(continuationJobIdOf(person([...jobs].reverse()), NOW)).toBe("long");
-    const tied = [job("first", 1995, 2020), job("second", 1998, 2020)];
-    expect(continuationJobIdOf(person(tied), NOW)).toBe("first");
+    const jobs = [job("short", 35, 50), job("long", 38, 65)];
+    expect(chosenFrom(jobs)).toBe("long");
+    expect(chosenFrom([...jobs].reverse())).toBe("long");
+    expect(chosenFrom([job("first", 35, 60), job("second", 38, 60)])).toBe("first");
   });
 
   it("never revisits a choice already made — including None", () => {
     // The stability guarantee the picker depends on. Adding a job that WOULD have won the
     // initialization rule changes nothing, because the rule does not run once someone has
     // answered.
-    const current = job("current", 1995, 2020);
-    expect(continuationJobIdOf(person([current], "current"), NOW)).toBe("current");
-    const withNewer = person([current, job("newer", 1998, 2030)], "current");
-    expect(continuationJobIdOf(withNewer, NOW)).toBe("current");
-    expect(continuationJobIdOf(person([current, job("newer", 1998, 2030)], null), NOW)).toBeNull();
+    const current = job("current", 35, 60);
+    const newer = job("newer", 38, 70);
+    expect(chosenFrom([current], "current")).toBe("current");
+    expect(chosenFrom([current, newer], "current")).toBe("current");
+    expect(chosenFrom([current, newer], null)).toBeNull();
   });
 
   it("reads a selection whose job is gone as None, never as an unbounded extension", () => {
     // The authoring path clears the selection with the job it named, so this only catches a
     // state restored from outside — where a dangling id must not become licence to work forever.
-    expect(continuationJobIdOf(person([job("current", 1995, 2020)], "deleted"), NOW)).toBeNull();
+    // And nothing downstream invents the extension either: a preview past every authored end
+    // pays no wage at all.
+    const p = Projection.fromState(
+      stateOf({
+        ...samplePlan,
+        primary: { ...samplePlan.primary, jobs: [job("current", 35, 60)], continuationJobId: "deleted" },
+      }),
+      mockJurisdiction(),
+    );
+    expect(p.continuationJobOf("p1")).toBeNull();
+    expect(solveRetirement({ plan: p.plan, ledger: p.ledger }, CTX).continuedJobs).toEqual([]);
   });
 });
 

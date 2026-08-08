@@ -1,30 +1,31 @@
 /**
  * `householdJob.ts` owns one derived concept — when a job pays the household — and the surfaces
- * that read it (the Jobs panel's chart, the retirement solver) must never re-derive it. These
- * pin {@link resolveHouseholdJob} and {@link resolveJobPayDisplay} directly: the boundary/death
- * caps that decide the EMPLOYMENT span, and the membership intersection that decides what of it
- * is PAID and what is drawn as an uncounted (hatched) stretch.
+ * that read it (the Jobs panel's chart, the retirement solver) must never re-derive it.
+ *
+ * {@link resolveHouseholdJob} and {@link resolveJobPayDisplay} ARE that concept, so they are the
+ * only two functions pinned here. The boundary/death caps that decide the EMPLOYMENT span, the
+ * membership intersection that decides what of it is PAID, and the span arithmetic behind a
+ * continuation disclosure are all reachable through the two resolved results — so the helpers
+ * that implement them (`authoredJobEndYearExclusive`, `employmentEndYearExclusive`,
+ * `householdPaidMonths` and friends) are deliberately NOT tested one by one. They are free to be
+ * renamed, inlined or deleted; only the resolved shape is a promise.
  *
  * The retirement solver's own boundary-extension and membership-clipping behavior — whether a
- * candidate stop-working age extends or caps a job's WAGES — is pinned end to end in
- * `retirementSolver.test.ts`, off a real projection. What is pinned here instead is the shape
- * `resolveJobPayDisplay` hands to a caller: which stretches of an employment are `paidSpan` and
- * which are `uncountedSpans`, for every join/separation geometry a chart has to draw. Before this
- * file existed, that geometry was proven only through `JobsPanel`'s rendering, which meant a
- * React test was the sole guardian of an engine invariant.
+ * candidate stop-working age extends or caps a job's WAGES, and which months it discloses as
+ * added or overlapping — is pinned end to end in `retirementSolver.test.ts`, off a real
+ * projection. What is pinned here instead is the shape `resolveJobPayDisplay` hands to a caller:
+ * which stretches of an employment are `paidSpan` and which are `uncountedSpans`, for every
+ * join/separation geometry a chart has to draw. Before this file existed, that geometry was
+ * proven only through `JobsPanel`'s rendering, which meant a React test was the sole guardian of
+ * an engine invariant.
  */
 import { describe, it, expect } from "vitest";
 import type { Job } from "./job";
 import type { Person } from "../plan/person";
 import type { HouseholdMembership } from "../ledger/household";
 import {
-  authoredJobEndYearExclusive,
-  employmentEndYearExclusive,
   resolveHouseholdJob,
   resolveJobPayDisplay,
-  addedHouseholdPaidMonths,
-  householdPaidMonths,
-  intersectHouseholdPaidMonths,
   type HouseholdJobContext,
   type JobResolutionScope,
 } from "./householdJob";
@@ -72,37 +73,24 @@ function ctxOf(j: Job, owner: Person, membership: Partial<HouseholdMembership> =
   };
 }
 
-describe("authoredJobEndYearExclusive", () => {
-  it("is the job's own endYear, and nothing else", () => {
-    expect(authoredJobEndYearExclusive(job({ endYear: START_YEAR + 12 }))).toBe(START_YEAR + 12);
-  });
-});
-
-describe("employmentEndYearExclusive", () => {
-  const owner = person({ continuationJobId: "job-1", jobs: [job()] });
-
-  it("under 'authored' scope, is just the job's own end — no boundary applies", () => {
-    expect(employmentEndYearExclusive(job(), owner, START_YEAR, AUTHORED)).toBe(job().endYear);
+describe("resolveHouseholdJob — employment, membership and death, composed", () => {
+  it("ends an authored job at its own endYear, and nothing else", () => {
+    const resolved = resolveHouseholdJob(ctxOf(job({ endYear: START_YEAR + 12 }), person()), START_YEAR, AUTHORED);
+    expect(resolved.endYearExclusive).toBe(START_YEAR + 12);
   });
 
   it("caps the selected job at a boundary INSIDE its own span — never extends", () => {
-    const end = employmentEndYearExclusive(job(), owner, START_YEAR, hypothetical(START_YEAR + 10));
-    expect(end).toBe(START_YEAR + 10);
-  });
-
-  it("extends the selected job past its own authored end", () => {
-    const end = employmentEndYearExclusive(job(), owner, START_YEAR, hypothetical(START_YEAR + 40));
-    expect(end).toBe(START_YEAR + 40);
+    const owner = person({ continuationJobId: "job-1", jobs: [job()] });
+    const resolved = resolveHouseholdJob(ctxOf(job(), owner), START_YEAR, hypothetical(START_YEAR + 10));
+    expect(resolved.endYearExclusive).toBe(START_YEAR + 10);
   });
 
   it("caps an UNSELECTED job at its own end even when the boundary is later", () => {
-    const unselectedOwner = person({ continuationJobId: null, jobs: [job()] });
-    const end = employmentEndYearExclusive(job(), unselectedOwner, START_YEAR, hypothetical(START_YEAR + 40));
-    expect(end).toBe(job().endYear); // never extended — nobody named it
+    const owner = person({ continuationJobId: null, jobs: [job()] });
+    const resolved = resolveHouseholdJob(ctxOf(job(), owner), START_YEAR, hypothetical(START_YEAR + 40));
+    expect(resolved.endYearExclusive).toBe(job().endYear); // never extended — nobody named it
   });
-});
 
-describe("resolveHouseholdJob — employment, membership and death, composed", () => {
   it("clamps the growth anchor to 0 for a job already under way", () => {
     const resolved = resolveHouseholdJob(ctxOf(job(), person()), START_YEAR, AUTHORED);
     expect(resolved.employmentStartMonth).toBe(0);
@@ -244,57 +232,5 @@ describe("resolveJobPayDisplay — the whole-employment chart, and where it is u
     const owner = person({ continuationJobId: "job-1", jobs: [job()] });
     const display = resolveJobPayDisplay(ctxOf(job(), owner), START_YEAR, hypothetical(START_YEAR + 40));
     expect(display.employmentSpan.endMonthExclusive).toBe(40 * 12);
-  });
-});
-
-describe("addedHouseholdPaidMonths — the months a hypothesis adds over the authored plan", () => {
-  it("is null when the hypothesis pays no more than the authored plan already did", () => {
-    const owner = person({ continuationJobId: "job-1", jobs: [job()] });
-    const authored = resolveHouseholdJob(ctxOf(job(), owner), START_YEAR, AUTHORED);
-    const same = resolveHouseholdJob(
-      ctxOf(job(), owner),
-      START_YEAR,
-      hypothetical(START_YEAR + 10), // inside the job's own span — capped, not extended
-    );
-    expect(addedHouseholdPaidMonths(authored, same)).toBeNull();
-  });
-
-  it("reports the added months when a boundary extends the selected job", () => {
-    const owner = person({ continuationJobId: "job-1", jobs: [job()] });
-    const authored = resolveHouseholdJob(ctxOf(job(), owner), START_YEAR, AUTHORED);
-    const extended = resolveHouseholdJob(ctxOf(job(), owner), START_YEAR, hypothetical(START_YEAR + 40));
-    expect(addedHouseholdPaidMonths(authored, extended)).toEqual({
-      fromMonth: 25 * 12,
-      toMonthExclusive: 40 * 12,
-    });
-  });
-
-  it("never counts added employment the owner's OWN membership excludes", () => {
-    // A partner who joins after the job's authored end: the extension's paid start is bounded by
-    // the join, not by the authored end five years earlier.
-    const owner = person({ continuationJobId: "job-1", jobs: [job()] });
-    const joinsLate = { startMonth: 30 * 12, endMonth: null };
-    const authored = resolveHouseholdJob(ctxOf(job(), owner, joinsLate), START_YEAR, AUTHORED);
-    const extended = resolveHouseholdJob(ctxOf(job(), owner, joinsLate), START_YEAR, hypothetical(START_YEAR + 40));
-    expect(addedHouseholdPaidMonths(authored, extended)).toEqual({
-      fromMonth: 30 * 12,
-      toMonthExclusive: 40 * 12,
-    });
-  });
-});
-
-describe("householdPaidMonths and intersectHouseholdPaidMonths", () => {
-  it("is null for a job that pays the household nothing", () => {
-    const past = job({ startYear: START_YEAR - 20, endYear: START_YEAR - 5 });
-    const resolved = resolveHouseholdJob(ctxOf(past, person()), START_YEAR, AUTHORED);
-    expect(householdPaidMonths(resolved)).toBeNull();
-  });
-
-  it("intersects two paid spans, and null with anything is null", () => {
-    const a = { fromMonth: 0, toMonthExclusive: 100 };
-    const b = { fromMonth: 50, toMonthExclusive: 150 };
-    expect(intersectHouseholdPaidMonths(a, b)).toEqual({ fromMonth: 50, toMonthExclusive: 100 });
-    expect(intersectHouseholdPaidMonths(a, null)).toBeNull();
-    expect(intersectHouseholdPaidMonths(null, b)).toBeNull();
   });
 });
