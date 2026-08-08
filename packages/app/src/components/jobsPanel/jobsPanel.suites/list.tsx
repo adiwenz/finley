@@ -139,16 +139,10 @@ describe("JobsPanel — 401(k) elective-limit nudge", () => {
     expect(screen.getByText(/paid as taxable income/i)).toBeTruthy();
   });
 
-  it("does not pool two earners into one limit", () => {
-    // $20k + $20k tops a single $24,500 limit, but neither person is over their own.
-    render(
-      <Harness
-        initial={setJobDeferralFraction(PLAN_DEFAULTS, DEFAULT_JOB_ID, 0.3334)}
-        events={[partnerDeferring(5000, 33.34)]}
-      />,
-    );
-    expect(screen.queryByText(/paid as taxable income/i)).toBeNull();
-  });
+  // That the limit is INDIVIDUAL — one person's jobs summed against their own limit, two earners
+  // never pooled — is the scan's own rule, pinned on `firstDeferralLimitCrossing` in
+  // `retirement/deferralLimit.test.ts`. The panel renders whichever crossing it is handed, which
+  // is what the three cases above establish.
 });
 
 

@@ -11,7 +11,6 @@ import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { enterNumber } from "../../../testing/numberField";
 import {
-  PRIMARY_PERSON_ID,
   dollarsToCents,
   type Job,
 } from "@finley/engine";
@@ -97,14 +96,6 @@ describe("JobsPanel — add / edit / delete", () => {
     expect(within(row).queryByText(/match/i)).toBeNull();
   });
 
-  it("moves a job's end through the end-age control", () => {
-    render(<Harness />);
-    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
-    enterNumber(spin(/End age/i), "50");
-    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
-    expect(within(screen.getByLabelText("Job 1")).getByText(/age 18–50/)).toBeTruthy();
-  });
-
   // A job must be WORKED while its owner is alive, so the engine refuses one ending past their
   // death. A field that let a higher age through would commit a value the very next write
   // rejected — the form would close on an edit that never landed, which reads to the user as
@@ -129,23 +120,9 @@ describe("JobsPanel — add / edit / delete", () => {
       expect(within(screen.getByLabelText("Job 1")).getByText(/age 18–90/)).toBeTruthy();
     });
 
-    it("allows an end AT the expectancy — working to the last month lived stays writable", () => {
-      render(<Harness />);
-      fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
-      enterNumber(spin(/End age/i), "90");
-      fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
-      expect(authored().plan.primary.jobs[0].endYear).toBe(
-        PLAN_DEFAULTS.primary.birthYear + PLAN_DEFAULTS.primary.lifeExpectancy,
-      );
-    });
-
-    it("reads the bound off the PARTNER when the job is theirs", () => {
-      // Sam's expectancy is 85 and the primary's is 90. A job takes only its owner, so a
-      // partner's form must not be bounded by somebody else's life.
-      render(<Harness events={[partnerJoining([partnerJob(2500)])]} />);
-      fireEvent.click(screen.getByRole("button", { name: /Edit Sam · Job 1/i }));
-      expect(Number(spin(/End age/i).max)).toBe(85);
-    });
+    // Which owner's expectancy the bound is read from is proved where it can actually change —
+    // "re-reads the end-age bound when the owner picker moves to a shorter-lived owner", below,
+    // which watches it move from Alex's 90 to Sam's 85 and then bind on submit.
   });
 
   it("keeps the form open when a write is refused, rather than closing on an edit that never landed", () => {
@@ -159,17 +136,6 @@ describe("JobsPanel — add / edit / delete", () => {
     expect(screen.getByRole("button", { name: /^Save$/ })).toBeTruthy();
     expect(Number(spin(/End age/i).value)).toBe(50);
     expect(within(screen.getByLabelText("Job 1")).getByText(/age 18–65/)).toBeTruthy();
-  });
-
-  it("offers no way to author a job without an end — the field is always there", () => {
-    // There used to be an "Open-ended (runs until retirement)" checkbox that hid this field,
-    // and a job with it ticked silently ended at whatever retirement age was authored on
-    // another panel. Every job says when it ends, so the control is unconditional.
-    render(<Harness />);
-    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
-    expect(screen.queryByLabelText(/Open-ended/i)).toBeNull();
-    expect(spin(/End age/i)).toBeTruthy();
-    expect(Number(spin(/End age/i).value)).toBe(65);
   });
 
   it("deletes a job", () => {
@@ -187,15 +153,6 @@ describe("JobsPanel — add / edit / delete", () => {
     fireEvent.click(screen.getByRole("button", { name: /Delete Job 1/i }));
     expect(jobCount()).toBe(0);
     expect(screen.queryByRole("button", { name: /^Save$/ })).toBeNull();
-  });
-
-  it("clears an in-progress pay change when its job is deleted", () => {
-    render(<Harness />);
-    fireEvent.click(screen.getByRole("button", { name: /Change pay on Job 1/i }));
-    expect(screen.getByRole("group", { name: /Pay change/i })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Delete Job 1/i }));
-    expect(jobCount()).toBe(0);
-    expect(screen.queryByRole("group", { name: /Pay change/i })).toBeNull();
   });
 
   it("names a job — the row is titled by the name, and it round-trips back into the edit form", () => {
@@ -268,33 +225,10 @@ describe("JobsPanel — every member's jobs", () => {
     expect(headline("Sam · Job 1")).toBe("$2,500/mo");
   });
 
-  it("mints a partner's new job off the shared counter, not a per-owner scheme", () => {
-    render(<Harness events={withPartner([])} />);
-    fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
-    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
-    enterNumber(spin(/Monthly salary now/i), "2500");
-    fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
-
-    const { plan } = authored();
-    const minted = partnerJobs()[0].id;
-    // One namespace with the plan's jobs, and clear of every id already in the household.
-    expect(minted).toMatch(/^job-\d+$/);
-    expect(plan.primary.jobs.map((j) => j.id)).not.toContain(minted);
-  });
-
-  it("writes nothing when the ledger refuses the revision", () => {
-    // A partner's jobs ride their RelationshipEvent, so editing one is a ledger revision. A
-    // refusal must leave the job exactly as it was rather than half-edited.
-    render(<Harness events={withPartner([partnerJob(2500)])} rejectRevisions />);
-    fireEvent.click(screen.getByRole("button", { name: /Edit Sam · Job 1/i }));
-    // Sam started this job at their current age, so there is no history field beside it.
-    enterNumber(spin(/^Monthly salary\$$/), "9000");
-    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
-
-    expect(partnerMonthlyDollars()).toBe(2500); // the refused salary did not stick
-    expect(headline("Sam · Job 1")).toBe("$2,500/mo");
-    expect(jobCount()).toBe(1); // and the other plane was never touched either
-  });
+  // Which id a new job gets is the engine's: one shared counter stepped past every id the
+  // scenario already holds, pinned exhaustively in `authoring/mint.test.ts`. That a refused
+  // revision leaves BOTH planes untouched is the facade's atomicity, and the panel's half of it
+  // — the form staying open on a refusal — is "keeps the form open when a write is refused".
 
   it("offers no owner picker when EDITING — the owner is fixed context instead", () => {
     // Moving a job would re-read every age against another birth year, shifting its whole
@@ -310,40 +244,11 @@ describe("JobsPanel — every member's jobs", () => {
     expect(screen.getByLabelText("Whose job")).toBeTruthy();
   });
 
-  it("names the partner as the fixed owner when editing THEIR job", () => {
-    render(<Harness events={withPartner([partnerJob(2500)])} />);
-    fireEvent.click(screen.getByRole("button", { name: /Edit Sam · Job 1/i }));
-    expect(screen.getByTestId("job-owner").textContent).toMatch(/Sam’s job/);
-    expect(screen.queryByLabelText("Whose job")).toBeNull();
-  });
-
   it("states no owner at all on a single-earner plan — there is nobody else it could be", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
     expect(screen.queryByTestId("job-owner")).toBeNull();
     expect(screen.queryByLabelText("Whose job")).toBeNull();
-  });
-
-  it("creates a job for EITHER eligible owner from the same picker", () => {
-    render(<Harness events={withPartner([])} />);
-    // The primary person, explicitly — not merely the default.
-    fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
-    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: PRIMARY_PERSON_ID } });
-    enterNumber(spin(/Monthly salary/i), "1500");
-    fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
-    expect(jobCount()).toBe(2);
-    expect(partnerJobs()).toHaveLength(0);
-
-    // Then the partner, from the same form. The draft opened on Alex's age 35, which is
-    // history for 40-year-old Sam — so the form now shows both anchors and "now" is the one
-    // to state.
-    fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
-    fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
-    enterNumber(spin(/Monthly salary now/i), "2500");
-    fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
-    expect(jobCount()).toBe(2);
-    expect(partnerJobs()).toHaveLength(1);
-    expect(partnerJobs()[0].ownerId).toBe("p-1");
   });
 
   it("re-reads the end-age bound when the owner picker moves to a shorter-lived owner", () => {

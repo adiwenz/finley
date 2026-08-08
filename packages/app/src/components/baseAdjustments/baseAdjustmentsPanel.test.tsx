@@ -535,16 +535,11 @@ describe("BaseAdjustmentsPanel — renders every obligation the month incurs", (
     expect(screen.getByRole("button", { name: /Delete Healthcare/i })).toBeTruthy();
   });
 
-  it("routes a health edit through the same 'from here forward' gesture as any line", () => {
-    // Health is not a special case in the UI — it stages and routes like Housing does. What the
-    // resulting dated override means month to month is `monthEdit.test.ts`.
-    renderPanel(PLAN_DEFAULTS);
-    selectMonth(24);
-    editRow(/Healthcare/, 900);
-    fireEvent.click(screen.getByRole("button", { name: /From here forward/i }));
-    expect(screen.getByTestId("adjustment-route").textContent).toMatch(/dated override/i);
-    expect(Number(spin(/Healthcare/).value)).toBe(900);
-  });
+  // Health routes a "from here forward" edit to a dated override exactly as Housing does — which
+  // is the point, and why it is NOT re-proved here. "routes 'from here forward' to a dated
+  // override" above owns that routing; the test just above owns the claim that health is an
+  // ordinary editable row. Running the gesture a second time with a different label proved
+  // nothing the pair did not.
 
   it("bands a loan payment read-only beside the editable budget lines, linking to the loan", () => {
     const projection = Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction);

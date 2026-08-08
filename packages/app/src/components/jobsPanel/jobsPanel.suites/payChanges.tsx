@@ -119,25 +119,10 @@ describe("JobsPanel — authoring a raise", () => {
     expect(authored().plan.primary.jobs[0].payChanges).toBeUndefined();
   });
 
-  it("dates a change BEFORE now as a negative month — that is how a pay history is authored", () => {
-    // The floor is the job's start age (18 here), not "now": an age already lived becomes a
-    // negative month, which is what routes the change to the historical reconstruction.
-    render(<Harness />);
-    openPayChange("Job 1");
-    applyPayChange("setTo", 20, 7000);
-    expect(authored().plan.primary.jobs[0].payChanges).toEqual([
-      { id: expect.any(String), month: (20 - 35) * 12, kind: "setTo", cents: dollarsToCents(7000) },
-    ]);
-  });
-
-  it("clamps a change dated before the job existed — there is no baseline to apply it to", () => {
-    render(<Harness />); // the default job starts at 18
-    openPayChange("Job 1");
-    applyPayChange("setTo", 12, 7000);
-    expect(authored().plan.primary.jobs[0].payChanges).toEqual([
-      { id: expect.any(String), month: (18 - 35) * 12, kind: "setTo", cents: dollarsToCents(7000) },
-    ]);
-  });
+  // A change dated before "now" becomes a negative month, and one dated before the job existed
+  // clamps into its span. Both are proved under "authoring a job's pay history" below, on the
+  // cases that go on to read the result back: "lists a pre-'now' raise in the same age-ordered
+  // list as a future one" and "bounds a pay change to the job's own span".
 
   it("closes without writing when cancelled", () => {
     render(<Harness />);

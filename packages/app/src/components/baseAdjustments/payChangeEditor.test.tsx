@@ -200,10 +200,11 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
       .toHaveLength(2);
   });
 
-  it("lists two bonuses on the SAME job in the same month as two entries", () => {
+  it("lists two bonuses on the SAME job in the same month as two entries, each separately stored", () => {
     // The sharpest form of the collision: same job, same month, same scope — which the old
     // `${jobId}:${scope}` key made indistinguishable, so React kept one row and the second
-    // bonus overwrote the first's text.
+    // bonus overwrote the first's text. Both halves of the fix — what is SHOWN and what is
+    // STORED — read off the same pair of gestures rather than authoring them twice.
     renderPanel(PLAN_DEFAULTS);
     selectMonth(6);
 
@@ -221,18 +222,6 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
     expect(
       screen.getAllByRole("listitem").filter((li) => /bonus of/i.test(li.textContent ?? "")),
     ).toHaveLength(2);
-  });
-
-  it("keeps both stored on the job, and pays their sum", () => {
-    renderPanel(PLAN_DEFAULTS);
-    selectMonth(6);
-
-    openOneOff();
-    setOneOffAmount(2000);
-    applyOneOff();
-    openOneOff();
-    setOneOffAmount(1500);
-    applyOneOff();
 
     // Two authored facts with distinct ids, neither collapsed into the other.
     const overrides = jobsOn("primary-jobs")[0].incomeOverrides ?? [];
@@ -243,32 +232,13 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
     // "composes by folding, which is the whole of what stacking is".
   });
 
-  it("shows a permanent change and a one-off at the same month side by side", () => {
-    renderPanel(PLAN_DEFAULTS);
-    selectMonth(6);
-
-    openOneOff();
-    setOneOffKind("setOngoing");
-    setOneOffAmount(6000);
-    applyOneOff();
-
-    openOneOff();
-    setOneOffKind("addBonus");
-    setOneOffAmount(500);
-    applyOneOff();
-
-    const listed = screen.getByTestId("pay-change-route").textContent ?? "";
-    // Both stored on the same job at the same month, and both scopes named.
-    expect(listed).toMatch(/pay set to \$6,000.*onward \(ongoing\)/is);
-    expect(listed).toMatch(/bonus of \$500.*at month 6/is);
-  });
-
   /**
    * The regression this pins: a permanent raise and a missed paycheck authored at the SAME
    * month. The raise sets the salary state, the override changes only that month's payment, and
-   * both must stay separately visible here — the surface where both are authored.
+   * both must stay separately visible here — the surface where both are authored. Listing and
+   * storage are asserted off one pair of gestures, since a second render proved nothing more.
    */
-  it("names a same-month raise and missed paycheck as two entries, and pays $0", () => {
+  it("names a same-month raise and missed paycheck as two entries, on two collections", () => {
     renderPanel(PLAN_DEFAULTS);
     selectMonth(10);
 
@@ -287,20 +257,6 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
     expect(listed).toMatch(/pay set to \$0.*at month 10/is);
     expect(screen.getAllByRole("listitem").filter((li) => /at month 10|onward/.test(li.textContent ?? "")))
       .toHaveLength(2);
-  });
-
-
-  it("keeps both stored on the job, each with its own identity", () => {
-    renderPanel(PLAN_DEFAULTS);
-    selectMonth(10);
-    openOneOff();
-    setOneOffKind("setOngoing");
-    setOneOffAmount(6000);
-    applyOneOff();
-    openOneOff();
-    setOneOffKind("setTo");
-    setOneOffAmount(0);
-    applyOneOff();
 
     const job = jobsOn("primary-jobs")[0];
     // Two different collections, two different kinds of fact — neither collapsed into the other.
@@ -313,45 +269,12 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
     expect(job.payChanges![0].id).not.toBe(job.incomeOverrides![0].id);
   });
 
-
-  it("stops naming an adjustment once it is removed from the plan", () => {
-    renderPanel(PLAN_DEFAULTS);
-    selectMonth(6);
-    openOneOff();
-    setOneOffAmount(2000);
-    applyOneOff();
-    expect(screen.getByTestId("pay-change-route")).toBeTruthy();
-
-    // Removing it anywhere removes it here: the echo was outliving its own change before.
-    selectMonth(7);
-    expect(screen.queryByTestId("pay-change-route")).toBeNull();
-    selectMonth(6);
-    expect(screen.getByTestId("pay-change-route")).toBeTruthy();
-  });
-
-  it("gives a partner's job a one-month bonus, then a missed paycheck", () => {
-    withPartner();
-    selectMonth(6);
-    openOneOff();
-    pickJob("p-1-job-1");
-    setOneOffAmount(2000); // default kind: bonus on top
-    applyOneOff();
-    selectMonth(7);
-
-    openOneOff();
-    pickJob("p-1-job-1");
-    setOneOffKind("setTo");
-    setOneOffAmount(0);
-    applyOneOff();
-
-    // Both overrides landed on the PARTNER's job — the routing this editor owns — and the
-    // earlier one survived the later. What each then pays, and that two earners' wages add
-    // rather than one winning, is the engine's (`job.test.ts` — additive compilation).
-    expect(jobsOn("partner-jobs")[0].incomeOverrides).toEqual([
-      { id: expect.any(String), month: 6, kind: "addBonus", cents: dollarsToCents(2000) },
-      { id: expect.any(String), month: 7, kind: "setTo", cents: 0 },
-    ]);
-  });
+  // That the list is a reading of the plan AT the selected month — empty on a month with nothing
+  // on it, and back when the month returns — is asserted at the tail of "gives a partner's job a
+  // permanent raise", which already walks the months either side of the change it authored.
+  //
+  // A bonus and a missed paycheck on a partner's job is the same routing the two cases below
+  // prove with the remaining kinds, on the same plane.
 
   it("cuts a partner's ongoing pay, and corrects a single month of it", () => {
     // The remaining two kinds on a partner's job: a permanent CUT (a pay change can go down —

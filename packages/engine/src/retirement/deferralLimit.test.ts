@@ -68,6 +68,9 @@ const flatPlan = (jobs: readonly Job[]): Plan => ({
   primary: { ...samplePlan.primary, jobs },
 });
 
+/** The same plan with 3% CPI, for the cases about a figure that only crosses once it has grown. */
+const inflatingPlan = (jobs: readonly Job[]): Plan => ({ ...flatPlan(jobs), inflationPct: 3 });
+
 /** A partner joining at `joinMonth`, optionally leaving at `separationMonth`. */
 function withPartner(
   plan: Plan,
@@ -189,5 +192,108 @@ describe("firstDeferralLimitCrossing", () => {
     const crossing = firstDeferralLimitCrossing(scenario, CTX);
     expect(crossing!.year).toBe(START_YEAR);
     expect(crossing!.annualDeferralCents).toBe(dollarsToCents(24_000));
+  });
+
+  it("says nothing when nobody defers at all", () => {
+    // A job big enough to cross several times over, electing nothing. The scan's first question.
+    const { deferral: _none, ...noElection } = deferringJob("j1", "p1", 30, 65, 96_000);
+    expect(firstDeferralLimitCrossing(scenarioOf(flatPlan([noElection])), CTX)).toBeNull();
+  });
+
+  it("crosses only once CPI lifts the deferral past a limit it started under", () => {
+    // $36k at 50% is $18,000 — under the $20,000 limit as authored. The limit here does not
+    // index, so the only thing that can move is the pay, and the crossing year is the year it
+    // does. Reporting this one today would warn about a deferral nobody has elected yet.
+    const growing = firstDeferralLimitCrossing(
+      scenarioOf(inflatingPlan([deferringJob("j1", "p1", 30, 65, 36_000)])),
+      CTX,
+    );
+    expect(growing).not.toBeNull();
+    expect(growing!.year).toBeGreaterThan(START_YEAR);
+    expect(growing!.annualDeferralCents).toBeGreaterThan(growing!.limitCents);
+
+    // The same job with no CPI behind it never crosses at all.
+    expect(
+      firstDeferralLimitCrossing(scenarioOf(flatPlan([deferringJob("j1", "p1", 30, 65, 36_000)])), CTX),
+    ).toBeNull();
+  });
+});
+
+/**
+ * **The limit belongs to the person, not to the job and not to the household.** One person's jobs
+ * sum against one limit; two people are never pooled. Both halves of that have their own failure —
+ * scanning job by job under-reports, scanning the household over-reports — so both are pinned.
+ */
+describe("firstDeferralLimitCrossing — whose deferral counts against whose limit", () => {
+  it("sums one person's jobs before comparing, though neither crosses alone", () => {
+    const first = deferringJob("j1", "p1", 30, 65, 30_000);
+    const second = deferringJob("j2", "p1", 30, 65, 30_000);
+
+    const crossing = firstDeferralLimitCrossing(scenarioOf(flatPlan([first, second])), CTX);
+    expect(crossing!.annualDeferralCents).toBe(dollarsToCents(30_000)); // $15k + $15k
+    expect(crossing!.personName).toBe(samplePlan.primary.name);
+
+    // Either one on its own is $15,000, comfortably inside the limit.
+    expect(firstDeferralLimitCrossing(scenarioOf(flatPlan([first])), CTX)).toBeNull();
+  });
+
+  it("counts a second job only from the year it starts paying", () => {
+    // $15k today, $30k once the job at 45 begins. A scan that summed every authored job whatever
+    // its span would warn fifteen years early.
+    const crossing = firstDeferralLimitCrossing(
+      scenarioOf(
+        flatPlan([deferringJob("j1", "p1", 30, 65, 30_000), deferringJob("j2", "p1", 45, 65, 30_000)]),
+      ),
+      CTX,
+    );
+    expect(crossing!.year).toBe(BIRTH_YEAR + 45);
+  });
+
+  it("sums a partner's own jobs, and attributes the crossing to them", () => {
+    const scenario = withPartner(
+      flatPlan([]),
+      partnerHolding([
+        deferringJob("pj1", "p2", 40, 65, 24_000),
+        deferringJob("pj2", "p2", 40, 65, 24_000),
+      ]),
+    );
+
+    const crossing = firstDeferralLimitCrossing(scenario, CTX);
+    expect(crossing!.personId).toBe("p2");
+    expect(crossing!.annualDeferralCents).toBe(dollarsToCents(24_000));
+  });
+
+  it("does NOT pool two earners — each stays inside a limit of their own", () => {
+    // $12,000 apiece is $24,000 across the household, past a single $20,000 limit; neither person
+    // is anywhere near theirs. Summing the household would invent a warning out of nothing.
+    const scenario = withPartner(
+      flatPlan([deferringJob("j1", "p1", 30, 65, 24_000)]),
+      partnerHolding([deferringJob("pj", "p2", 40, 65, 24_000)]),
+    );
+    expect(firstDeferralLimitCrossing(scenario, CTX)).toBeNull();
+  });
+
+  it("reports the EARLIEST crossing when both earners eventually cross", () => {
+    // The nudge names one person, so which one is not a free choice: the primary crosses on a job
+    // already running, the partner only when theirs begins at 50.
+    const scenario = withPartner(
+      flatPlan([deferringJob("j1", "p1", 30, 65, 96_000)]),
+      partnerHolding([deferringJob("pj", "p2", 50, 65, 96_000)]),
+    );
+
+    const crossing = firstDeferralLimitCrossing(scenario, CTX);
+    expect(crossing!.year).toBe(START_YEAR);
+    expect(crossing!.personId).toBe("p1");
+  });
+
+  it("stops at the end of the PARTNER's own job, not at the household's last working year", () => {
+    // $18,000 while it lasts, and it lasts one year — so the year CPI would have carried it past
+    // the limit is a year they are no longer paid in. The primary works on either way.
+    const oneYear = partnerHolding([deferringJob("pj", "p2", 40, 41, 36_000)]);
+    expect(firstDeferralLimitCrossing(withPartner(inflatingPlan([]), oneYear), CTX)).toBeNull();
+
+    // Held to 65, the same pay does cross — so it is the job's end that silences it.
+    const wholeCareer = partnerHolding([deferringJob("pj", "p2", 40, 65, 36_000)]);
+    expect(firstDeferralLimitCrossing(withPartner(inflatingPlan([]), wholeCareer), CTX)).not.toBeNull();
   });
 });

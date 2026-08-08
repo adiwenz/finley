@@ -13,16 +13,13 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import { enterNumber } from "../../testing/numberField";
-import type { Ledger, Projection, ProjectionResult } from "@finley/engine";
+import type { FundingLookup, Projection, ProjectionResult } from "@finley/engine";
 import { AddEventForm } from "./addEventForm";
 import { LoanForm } from "./loanForm";
 import { SeparationForm } from "./separationForm";
 import { ChildForm } from "./childForm";
 import { HomePurchaseForm } from "./homePurchaseForm";
 import type { EventOf } from "./formControls";
-import { PLAN_DEFAULTS } from "../../planDefaults";
-import { START_YEAR } from "../../config";
-import { readerOf, runOf } from "../../testing/projectionHarness";
 
 afterEach(cleanup);
 
@@ -51,6 +48,37 @@ const withPartner = {
     { id: "p2", name: "Partner" },
   ],
 } as unknown as ProjectionResult;
+
+/**
+ * All the home-purchase form reads of a run and a funding lookup. Both answers are the engine's
+ * — the §4.5 guideline read is pinned at `facade/projectionFacade.transactions.test.ts`, the
+ * ordered draw at `ledger/addEvent`'s own suite — so they are supplied here rather than
+ * manufactured by running a 55-year simulation to prefill a few number fields.
+ */
+const noGate = {
+  assessHomePurchase: () => ({
+    assessment: {
+      frontEndRatio: 0,
+      backEndRatio: 0,
+      frontEndExceeded: false,
+      backEndExceeded: false,
+    },
+    monthlyMortgageCents: 0,
+    monthlyGrossCents: 0,
+    exceeded: false,
+  }),
+} as unknown as ProjectionResult;
+
+const noFunding: FundingLookup = {
+  sourcesAt: () => [],
+  availabilityAt: () => ({
+    shortfallCents: 0,
+    availableCents: 0,
+    taxCents: 0,
+    taxed: false,
+    sources: [],
+  }),
+};
 
 const spin = (name: RegExp | string) =>
   screen.getByRole("spinbutton", { name }) as HTMLInputElement;
@@ -295,8 +323,8 @@ describe("sub-forms — editing an existing event", () => {
         defaultMonth={0}
         horizonMonths={660}
         onAdd={vi.fn()}
-        result={runOf(PLAN_DEFAULTS)}
-        funding={readerOf(PLAN_DEFAULTS).funding()}
+        result={noGate}
+        funding={noFunding}
         edit={{ event: HOME, onRevise }}
       />,
     );
@@ -421,8 +449,8 @@ describe("sub-forms — editing something already true on day one", () => {
         defaultMonth={0}
         horizonMonths={660}
         onAdd={vi.fn()}
-        result={runOf(PLAN_DEFAULTS)}
-        funding={readerOf(PLAN_DEFAULTS).funding()}
+        result={noGate}
+        funding={noFunding}
         edit={{ event: OWNED_HOME, onRevise }}
       />,
     );
@@ -464,32 +492,22 @@ describe("sub-forms — editing something already true on day one", () => {
  * What is left here is that the form asks the run rather than deciding for itself.
  */
 describe("AddEventForm — the type picker", () => {
-  /** A partner joining at `month`, in the public serialized shape a saved plan restores from. */
-  const partnerJoiningAt = (month: number): Ledger => ({
-    events: [
-      {
-        id: "r1",
-        sequenceNumber: 0,
-        type: "RelationshipEvent",
-        month,
-        person: {
-          id: "p-1",
-          name: "Sam",
-          birthYear: START_YEAR - 40,
-          lifeExpectancy: 85,
-          benefitClaimingAge: 67,
-          jobs: [],
-        },
-      },
-    ],
-    nextSequenceNumber: 1,
-  });
+  /**
+   * A run in which a partner is in the household from `joinsAt` onwards. `membersAt` is the
+   * engine's answer (`projection/household.test.ts` owns when somebody counts as a member); what
+   * is under test here is only that the card re-asks it at the month the user chose.
+   */
+  const runWithPartnerFrom = (joinsAt: number) =>
+    ({
+      membersAt: (month: number) =>
+        month >= joinsAt ? [{ id: "p1", name: "You" }, { id: "p-1", name: "Sam" }] : [{ id: "p1", name: "You" }],
+    }) as unknown as ProjectionResult;
 
-  const renderCard = (ledger: Ledger = { events: [], nextSequenceNumber: 0 }) =>
+  const renderCard = (result: ProjectionResult = runWithPartnerFrom(Infinity)) =>
     render(
       <AddEventForm
-        result={runOf(PLAN_DEFAULTS, ledger)}
-        funding={readerOf(PLAN_DEFAULTS, ledger).funding()}
+        result={result}
+        funding={noFunding}
         defaultMonth={0}
         horizonMonths={660}
         onAdd={vi.fn()}
@@ -505,7 +523,7 @@ describe("AddEventForm — the type picker", () => {
   });
 
   it("only offers partners already in the household by the separation month", () => {
-    renderCard(partnerJoiningAt(60));
+    renderCard(runWithPartnerFrom(60));
 
     // The card opens at Year 0 — before the partnership — so there is nobody to name, and it
     // says so rather than offering an empty picker.

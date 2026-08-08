@@ -95,31 +95,6 @@ describe("JobsPanel — one-month adjustments show on the job", () => {
     expect(authored().plan.primary.jobs[0].payChanges).toHaveLength(1);
   });
 
-  it("stacks two bonuses in one month instead of the second replacing the first", () => {
-    const twice: Plan = {
-      ...PLAN_DEFAULTS,
-      primary: {
-        ...PLAN_DEFAULTS.primary,
-        jobs: PLAN_DEFAULTS.primary.jobs.map((j) => ({
-        ...j,
-        incomeOverrides: [
-          { id: "a1", month: 12, kind: "addBonus", cents: dollarsToCents(4000) },
-          { id: "a2", month: 12, kind: "addBonus", cents: dollarsToCents(1000) },
-        ],
-        })),
-      },
-    };
-    render(<Harness initial={twice} />);
-
-    // Both listed, each on its own row. What the month then PAYS is the engine's
-    // ("stacks several adjustments in one month, each applied to what the last one left").
-    const rows = timeline("Job 1")
-      .getAllByRole("listitem")
-      .map((li) => li.textContent ?? "");
-    expect(rows.filter((t) => /Bonus \$4,000/.test(t))).toHaveLength(1);
-    expect(rows.filter((t) => /Bonus \$1,000/.test(t))).toHaveLength(1);
-  });
-
   it("quotes each stacked row at the running total, not all of them at the same figure", () => {
     const twice: Plan = {
       ...PLAN_DEFAULTS,
@@ -144,6 +119,9 @@ describe("JobsPanel — one-month adjustments show on the job", () => {
     // `job.adjustments.test.ts` ("composes by folding, which is the whole of what stacking is").
     const quoted = (row: string): number =>
       Number((row.match(/\$([\d,]+) this month/)?.[1] ?? "0").replace(/,/g, ""));
+    // One row each: the second stacks rather than replacing the first.
+    expect(rows.filter((t) => /Bonus \$4,000/.test(t))).toHaveLength(1);
+    expect(rows.filter((t) => /Bonus \$1,000/.test(t))).toHaveLength(1);
     const first = quoted(rows.find((t) => /Bonus \$4,000/.test(t)) ?? "");
     const second = quoted(rows.find((t) => /Bonus \$1,000/.test(t)) ?? "");
     expect(first).toBeGreaterThan(0);
@@ -169,29 +147,6 @@ describe("JobsPanel — one-month adjustments show on the job", () => {
 
     // By id: the month keeps the other one. Removing by month would have taken both.
     expect(authored().plan.primary.jobs[0].incomeOverrides?.map((o) => o.id)).toEqual(["a2"]);
-  });
-
-  it("gives two adjustments in one month distinct React identity", () => {
-    const twice: Plan = {
-      ...PLAN_DEFAULTS,
-      primary: {
-        ...PLAN_DEFAULTS.primary,
-        jobs: PLAN_DEFAULTS.primary.jobs.map((j) => ({
-        ...j,
-        incomeOverrides: [
-          { id: "a1", month: 12, kind: "addBonus", cents: dollarsToCents(4000) },
-          { id: "a2", month: 12, kind: "setTo", cents: dollarsToCents(2000) },
-        ],
-        })),
-      },
-    };
-    render(<Harness initial={twice} />);
-    // Two rows and two separately-addressable Remove buttons — the shape a shared key
-    // (`jobId:scope`, or the month) collapsed into one.
-    expect(screen.getByRole("button", { name: /Remove Bonus \$4,000 at age 36 on Job 1/i })).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: /Remove Pay this month \$2,000 at age 36 on Job 1/i }),
-    ).toBeTruthy();
   });
 
   /**

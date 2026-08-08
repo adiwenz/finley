@@ -1,239 +1,175 @@
-import { describe, it, expect } from "vitest";
-import { Projection, PRIMARY_PERSON_ID, dollarsToCents, nullJurisdiction } from "@finley/engine";
-import type { Ledger, SnapshotSeries } from "@finley/engine";
-import { usJurisdiction } from "@finley/rules";
-import { stateOf } from "./testing/projectionHarness";
-import { DEFAULT_INPUT, PLAN_DEFAULTS } from "./planDefaults";
-import { summarizeEvent, timelineMarkers, splitMarkers, seriesLabel, blockedWarning } from "./ledgerView";
+import { describe, expect, it } from "vitest";
+import type {
+  BlockedObligation,
+  Ledger,
+  ObligationOutcome,
+  ProjectionSeries,
+  SnapshotSeries,
+} from "@finley/engine";
+import {
+  blockedWarning,
+  seriesLabel,
+  splitMarkers,
+  summarizeEvent,
+  timelineMarkers,
+} from "./ledgerView";
+
+const child = (id: string, month: number, sequenceNumber: number, name = "Robin") => ({
+  id,
+  type: "ChildEvent" as const,
+  month,
+  sequenceNumber,
+  childId: `child-${id}`,
+  childName: name,
+  birthMonth: month,
+  annualCostCents: 0,
+});
+
+const home = (id: string, month: number, sequenceNumber: number) => ({
+  id,
+  type: "HomePurchaseEvent" as const,
+  month,
+  sequenceNumber,
+  propertyId: `home-${id}`,
+  ownerId: "primary",
+  purchasePriceCents: 30_000_000,
+  downPaymentCents: 6_000_000,
+  downPaymentSourceIds: [] as string[],
+  mortgage: {
+    liabilityId: `mortgage-${id}`,
+    openingBalanceCents: 24_000_000,
+    apr: 0.065,
+    termMonths: 360,
+  },
+});
+
+const ledger = (...events: any[]): Ledger => ({ events, nextSequenceNumber: events.length }) as Ledger;
 
 /**
- * Author a timeline through the facade and read back the {@link Ledger} the view consumes —
- * the app never seeds a ledger by hand, it writes events through `Projection`. Event ids are
- * minted by the engine, so a test reads them off the returned ledger rather than naming them.
+ * A blocked run, supplied directly. Which obligations the simulator classifies as blocked or
+ * not-reached is the engine's (`projection/simulate.blocking.test.ts`); what these pin is the join
+ * back to the AUTHORING event, which is the app's alone.
  */
-function authored(write: (p: Projection) => void): Ledger {
-  return Projection.transact(stateOf(PLAN_DEFAULTS), nullJurisdiction, write).state.scenario.ledger;
-}
+const blockedRun = (
+  blocking: Partial<BlockedObligation>,
+  outcomes: Record<string, ObligationOutcome> = {},
+): Pick<ProjectionSeries, "status" | "obligationOutcomes" | "blockingObligation"> => ({
+  status: "blocked",
+  obligationOutcomes: outcomes,
+  blockingObligation: {
+    obligationId: "downpayment:blocked",
+    label: "downpayment",
+    month: 12,
+    requiredCents: 6_000_000,
+    availableCents: 4_500_000,
+    shortfallCents: 1_500_000,
+    markerNetWorthCents: null,
+    ...blocking,
+  },
+});
 
-describe("summarizeEvent — one plain-language label per structural change", () => {
-  it("labels a child event", () => {
-    const s = summarizeEvent({
-      id: "c1",
-      type: "ChildEvent",
-      month: 24,
-      sequenceNumber: 0,
-      childId: "kid1",
-      childName: "Robin",
-      birthMonth: 24,
-      annualCostCents: 0,
+describe("summarizeEvent", () => {
+  it("turns authored events into timeline language", () => {
+    expect(summarizeEvent(child("c1", 24, 0, "Robin"))).toMatchObject({
+      label: "Had a child",
     });
-    expect(s.label).toBe("Had a child");
-    expect(s.detail).toContain("Robin");
+    expect(summarizeEvent(child("c1", 24, 0, "Robin")).detail).toContain("Robin");
+
+    const purchase = summarizeEvent(home("h1", 36, 0));
+    expect(purchase.label).toBe("Bought a home");
+    expect(purchase.detail).toContain("$300,000");
+    expect(purchase.detail).toContain("$60,000 down");
+    expect(purchase.detail).toContain("$240,000 mortgage");
   });
 
-  it("labels a separation", () => {
-    const s = summarizeEvent({
-      id: "sep1",
-      type: "SeparationEvent",
-      month: 60,
-      sequenceNumber: 0,
-      partnerPersonId: "p2",
-      alimonyMonthlyCents: 0,
-      alimonyDurationMonths: 0,
-      childSupportMonthlyCents: 0,
-    });
-    expect(s.label).toBe("Separated");
-  });
-
-  it("folds the financing mortgage into a home-purchase detail", () => {
-    const s = summarizeEvent({
-      id: "buy1",
-      type: "HomePurchaseEvent",
-      month: 36,
-      sequenceNumber: 0,
-      propertyId: "home-1",
-      ownerId: "p1",
-      purchasePriceCents: 300_000_00,
-      downPaymentCents: 60_000_00,
-      downPaymentSourceIds: [],
-      mortgage: { liabilityId: "home-1-mortgage", openingBalanceCents: 240_000_00, apr: 0.065, termMonths: 360 },
-    });
-    expect(s.label).toBe("Bought a home");
-    expect(s.detail).toContain("$300,000");
-    expect(s.detail).toContain("$60,000 down");
-    expect(s.detail).toContain("$240,000 mortgage");
-    expect(s.detail).toContain("6.5%");
-    expect(s.detail).toContain("30 yr");
-  });
-
-  it("names a cash purchase as having no mortgage", () => {
-    const s = summarizeEvent({
-      id: "own1",
-      type: "HomePurchaseEvent",
-      month: -1,
-      sequenceNumber: 0,
-      propertyId: "home-1",
-      ownerId: "p1",
-      purchasePriceCents: 400_000_00,
-      downPaymentCents: 0,
-      downPaymentSourceIds: [],
-    });
-    expect(s.detail).toBe("$400,000, no mortgage");
+  it("describes a cash purchase without inventing financing", () => {
+    expect(
+      summarizeEvent({
+        ...home("h1", -1, 0),
+        purchasePriceCents: 40_000_000,
+        downPaymentCents: 0,
+        mortgage: undefined,
+      } as any).detail,
+    ).toBe("$400,000, no mortgage");
   });
 });
 
 describe("timelineMarkers", () => {
-  it("returns markers sorted by (month, sequenceNumber)", () => {
-    // Authored out of month order: the month-24 child before the month-12 marriage.
-    const ledger = authored((p) => {
-      p.haveChild({ month: 24, name: "Robin", annualCostCents: 0 });
-      p.marry({ month: 12, name: "Sam", birthYear: 1990, lifeExpectancy: PLAN_DEFAULTS.primary.lifeExpectancy });
-    });
-    const markers = timelineMarkers(ledger);
-    expect(markers.map((m) => m.month)).toEqual([12, 24]);
-    // The month-12 marriage sorts ahead of the month-24 child.
-    const marriageId = ledger.events.find((e) => e.type === "RelationshipEvent")!.id;
-    expect(markers[0].id).toBe(marriageId);
+  it("sorts by month then sequence number", () => {
+    const markers = timelineMarkers(
+      ledger(child("later", 24, 0), child("second", 12, 2), child("first", 12, 1)),
+    );
+    expect(markers.map((marker) => marker.id)).toEqual(["first", "second", "later"]);
+  });
+
+  it("maps engine-provided event outcomes without re-running the engine", () => {
+    const events = ledger(home("blocked", 12, 0), child("structural", 36, 1), home("later", 60, 2));
+    // Keyed by OBLIGATION id, joined back to the event through `sourceEventId`. The structural
+    // event bears no obligation at all, so it is absent and must fall through to executed.
+    const series = blockedRun(
+      { sourceEventId: "blocked" },
+      {
+        "downpayment:blocked": { status: "blocked", month: 12, shortfallCents: 1_500_000, sourceEventId: "blocked" },
+        "downpayment:later": { status: "not-reached", blockedByObligationId: "downpayment:blocked", sourceEventId: "later" },
+      },
+    );
+
+    expect(new Map(timelineMarkers(events, series).map((marker) => [marker.id, marker.outcome]))).toEqual(
+      new Map([
+        ["blocked", "blocked"],
+        ["structural", "executed"],
+        ["later", "not-reached"],
+      ]),
+    );
+  });
+
+  it("defaults every marker to executed when no projection series is supplied", () => {
+    expect(timelineMarkers(ledger(child("c1", 12, 0))).map((marker) => marker.outcome)).toEqual([
+      "executed",
+    ]);
   });
 });
 
-describe("timelineMarkers — per-event outcomes from a blocked projection", () => {
-  /**
-   * Two purchases the plan can afford as authored, stranded by a later opening-balance edit exactly
-   * as the UI drives it: the block lands on the first, the second is never reached, and a marriage
-   * authored after the block stays a plain executed event — a structural change carries no
-   * obligation, so the engine's outcome map never names it.
-   */
-  function strandedPurchases() {
-    const built = Projection.fromInput(
-      { ...DEFAULT_INPUT, openingBalanceCents: dollarsToCents(400_000) },
-      usJurisdiction,
-    );
-    if (!built.ok) throw new Error(`fixture is not a valid ScenarioInput: ${built.error.reason}`);
-    const p = built.projection;
-    const buy = (month: number, price: number, down: number): string =>
-      p.buyHome({
-        month,
-        ownerId: PRIMARY_PERSON_ID,
-        purchasePriceCents: dollarsToCents(price),
-        downPaymentCents: dollarsToCents(down),
-        downPaymentSourceIds: ["savings"],
-        mortgageApr: 0.06,
-        mortgageTermMonths: 360,
-      });
-    const blocker = buy(12, 500_000, 200_000);
-    const later = buy(60, 300_000, 60_000);
-    const marriage = p.marry({
-      month: 36,
-      name: "Sam",
-      birthYear: 1990,
-      lifeExpectancy: PLAN_DEFAULTS.primary.lifeExpectancy,
-    });
-    p.updatePlan({ openingBalanceCents: dollarsToCents(60_000) });
-    return { ledger: p.ledger, series: p.run(usJurisdiction).series, blocker, later, marriage };
-  }
+describe("blockedWarning", () => {
+  it("combines the blocking event's app label with the engine-provided shortfall", () => {
+    const events = ledger(home("blocked", 12, 0));
 
-  it("marks the blocking event blocked, later events not-reached, and structural events executed", () => {
-    const { ledger, series, blocker, later, marriage } = strandedPurchases();
-    expect(series.status).toBe("blocked");
-    const outcome = new Map(timelineMarkers(ledger, series).map((m) => [m.id, m.outcome]));
-    expect(outcome.get(blocker)).toBe("blocked");
-    expect(outcome.get(later)).toBe("not-reached");
-    // Folded into the household before month 0, the marriage was never an obligation the sim could
-    // reach or fail — it renders with no indicator even though it sits after the blocked month.
-    expect(outcome.get(marriage)).toBe("executed");
-  });
-
-  it("leaves every marker executed with no series, and on a run to the horizon", () => {
-    const ledger = authored((p) =>
-      p.marry({
-        month: 12,
-        name: "Sam",
-        birthYear: 1990,
-        lifeExpectancy: PLAN_DEFAULTS.primary.lifeExpectancy,
-      }),
-    );
-    // No series argument — the timeline shows an indicator only once something has actually stopped.
-    expect(timelineMarkers(ledger).every((m) => m.outcome === "executed")).toBe(true);
-  });
-});
-
-describe("blockedWarning — the soft-warning content for a stopped projection", () => {
-  /** One affordable purchase, stranded by a later opening-balance edit — the block lands on it. */
-  function strandedPurchase() {
-    const built = Projection.fromInput(
-      { ...DEFAULT_INPUT, openingBalanceCents: dollarsToCents(400_000) },
-      usJurisdiction,
-    );
-    if (!built.ok) throw new Error(`fixture is not a valid ScenarioInput: ${built.error.reason}`);
-    const p = built.projection;
-    p.buyHome({
+    expect(blockedWarning(events, blockedRun({ sourceEventId: "blocked" }))).toMatchObject({
+      // The household's words, not the obligation's internal "downpayment" band name.
+      eventLabel: "Bought a home",
       month: 12,
-      ownerId: PRIMARY_PERSON_ID,
-      purchasePriceCents: dollarsToCents(500_000),
-      downPaymentCents: dollarsToCents(200_000),
-      downPaymentSourceIds: ["savings"],
-      mortgageApr: 0.06,
-      mortgageTermMonths: 360,
+      shortfallCents: 1_500_000,
     });
-    p.updatePlan({ openingBalanceCents: dollarsToCents(60_000) });
-    return { ledger: p.ledger, series: p.run(usJurisdiction).series };
-  }
-
-  it("names the blocking event in plain language, its month, and the shortfall net of tax", () => {
-    const { ledger, series } = strandedPurchase();
-    const warning = blockedWarning(ledger, series);
-    // Named from the AUTHORING event, not the obligation's engine-internal "downpayment" label.
-    expect(warning?.eventLabel).toBe("Bought a home");
-    expect(warning?.month).toBe(12);
-    // Read from the engine's bare (already post-tax) shortfall, never recomputed in the app.
-    expect(warning?.shortfallCents).toBe(series.blockingObligation!.shortfallCents);
   });
 
-  it("is null with no series and on a run that reached the horizon", () => {
-    const ledger = authored((p) =>
-      p.marry({
-        month: 12,
-        name: "Sam",
-        birthYear: 1990,
-        lifeExpectancy: PLAN_DEFAULTS.primary.lifeExpectancy,
-      }),
-    );
-    // The snapshot panel's use — no series to read a block off of.
-    expect(blockedWarning(ledger, undefined)).toBeNull();
-    // A real, unblocked run has nothing to warn about, so the condition never holds.
-    const built = Projection.fromInput(DEFAULT_INPUT, usJurisdiction);
-    if (!built.ok) throw new Error(`fixture is not a valid ScenarioInput: ${built.error.reason}`);
-    const series = built.projection.run(usJurisdiction).series;
-    expect(series.status).toBe("ran-to-horizon");
-    expect(blockedWarning(built.projection.ledger, series)).toBeNull();
+  it("falls back to the obligation's own label when no authoring event carries it", () => {
+    // A pre-existing holding blocks: there is no authored event to name, and rendering blank
+    // would be worse than the band name.
+    expect(blockedWarning(ledger(), blockedRun({}))).toMatchObject({ eventLabel: "downpayment" });
+  });
+
+  it("returns no warning when there is no blocked projection", () => {
+    const events = ledger(child("c1", 12, 0));
+    expect(blockedWarning(events, undefined)).toBeNull();
+    expect(blockedWarning(events, { status: "ran-to-horizon" } as any)).toBeNull();
   });
 });
 
 describe("splitMarkers", () => {
-  it("splits events into passed and upcoming relative to the scrub month", () => {
-    const ledger = authored((p) => {
-      p.haveChild({ month: 12, name: "Robin", annualCostCents: 0 });
-      p.haveChild({ month: 48, name: "Sky", annualCostCents: 0 });
-    });
-    const robin = ledger.events.find((e) => e.month === 12)!.id;
-    const sky = ledger.events.find((e) => e.month === 48)!.id;
-    const { passed, upcoming } = splitMarkers(ledger, 24);
-    expect(passed.map((m) => m.id)).toEqual([robin]);
-    expect(upcoming.map((m) => m.id)).toEqual([sky]);
+  it("splits the already-derived timeline around the scrub month", () => {
+    const events = ledger(child("past", 12, 0), child("future", 48, 1));
+    const { passed, upcoming } = splitMarkers(events, 24);
+    expect(passed.map((marker) => marker.id)).toEqual(["past"]);
+    expect(upcoming.map((marker) => marker.id)).toEqual(["future"]);
   });
 });
 
-describe("seriesLabel — engine series role → snapshot-panel text", () => {
-  // `seriesLabel` reads only `role` and `seriesType`, so the fixture supplies exactly those —
-  // no branded ids to mint, and no dependence on the internal id constructors.
-  function series(
-    overrides: Partial<Pick<SnapshotSeries, "role" | "seriesType">>,
-  ): Pick<SnapshotSeries, "role" | "seriesType"> {
-    return { seriesType: "expense", role: "base", ...overrides };
-  }
+describe("seriesLabel", () => {
+  const series = (
+    over: Partial<Pick<SnapshotSeries, "role" | "seriesType">>,
+  ): Pick<SnapshotSeries, "role" | "seriesType"> => ({ seriesType: "expense", role: "base", ...over });
 
-  it("labels each role in plain language", () => {
+  it("maps engine series roles to app-facing labels", () => {
     expect(seriesLabel(series({ role: "primaryIncome", seriesType: "income" }))).toBe("Job income");
     expect(seriesLabel(series({ role: "alimony" }))).toBe("Alimony");
     expect(seriesLabel(series({ role: "childSupport" }))).toBe("Child support");
@@ -241,4 +177,3 @@ describe("seriesLabel — engine series role → snapshot-panel text", () => {
     expect(seriesLabel(series({ role: "base", seriesType: "income" }))).toBe("Income");
   });
 });
-

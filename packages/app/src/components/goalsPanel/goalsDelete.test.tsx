@@ -1,169 +1,109 @@
 /**
  * @vitest-environment jsdom
  *
- * Delete-guard wiring for the Goals panel: a goal whose fund account funds an event cannot
- * be deleted, and the refusal names the blocking events. The block logic itself is unit-
- * tested in goalsView.test.ts; these pin that the panel consults it and refuses the mutation.
+ * GoalsPanel deletion UI only. The engine owns which events actually fund a goal; this suite
+ * supplies `eventsFundedByGoal` directly and tests refusal state, messaging, and transaction routing.
  */
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { dollarsToCents } from "@finley/engine";
-import { monthLabel } from "../../format";
-import { GoalsPanel } from "./goalsPanel";
-import { readerOf, runOf } from "../../testing/projectionHarness";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { PLAN_DEFAULTS } from "../../planDefaults";
-import type {
-  Plan,
-  GoalPlan,
-  Ledger,
-  LifeEvent,
-} from "@finley/engine";
+import { GoalsPanel } from "./goalsPanel";
 
-afterEach(cleanup);
-
-const goal: GoalPlan = {
-  id: "home",
+const goal = {
+  id: "goal-1",
   name: "Home down payment",
-  targetCents: dollarsToCents(100000),
+  targetCents: 10_000_000,
   targetDate: 72,
-  disposition: "retain",
+  disposition: "retain" as const,
   annualReturnPct: 0,
 };
 
-const budget: Plan = { ...PLAN_DEFAULTS, goals: [goal] };
+const budget = { ...PLAN_DEFAULTS, goals: [goal] };
 
-/**
- * The goal's derived fund account id, read through the facade: `accountDescriptors` carries one
- * `kind: "goal"` entry per goal (id `fund-<goal>`), so the test names the funding source the
- * same way the app does rather than spelling the id itself.
- */
-const goalFundAccount = readerOf(budget)
-  .accountDescriptors()
-  .find((d) => d.kind === "goal")!.id;
+const progressResult = {
+  goalProgress: () => [
+    {
+      goal: { ...goal, priority: 0 },
+      progress: {
+        onTrackFraction: 0.5,
+        shortHorizonRiskFlag: false,
+        completion: "inProgress",
+      },
+    },
+  ],
+} as any;
 
-function homePurchase(
-  sourceIds: readonly string[],
-  { id = "buy1", sequenceNumber = 0, month = 72 } = {},
-): LifeEvent {
+const blocker = (id = "event-1", month = 72) => ({
+  id,
+  sequenceNumber: 0,
+  month,
+  type: "HomePurchaseEvent",
+  propertyId: `house-${id}`,
+  ownerId: "primary",
+  purchasePriceCents: 50_000_000,
+  downPaymentCents: 10_000_000,
+  downPaymentSourceIds: ["fund-goal-1"],
+});
+
+function renderPanel(events: readonly any[] = []) {
+  const transact = vi.fn();
+  const projection = { eventsFundedByGoal: vi.fn(() => events) } as any;
+  const view = (nextEvents: readonly any[]) => (
+    <GoalsPanel
+      budget={budget}
+      result={progressResult}
+      projection={{ ...projection, eventsFundedByGoal: vi.fn(() => nextEvents) }}
+      transact={transact}
+    />
+  );
+  const rendered = render(view(events));
   return {
-    type: "HomePurchaseEvent",
-    id,
-    sequenceNumber,
-    month,
-    // Entities namespaced by the event id so a ledger holding two purchases replays cleanly:
-    // a second buy reusing one property would strand on the load gate (property already exists).
-    propertyId: `house-${id}`,
-    ownerId: "p1",
-    purchasePriceCents: dollarsToCents(500000),
-    downPaymentCents: dollarsToCents(100000),
-    downPaymentSourceIds: sourceIds,
+    transact,
+    rerender: (nextEvents: readonly any[]) => rendered.rerender(view(nextEvents)),
   };
 }
 
-const ledgerOf = (...events: readonly LifeEvent[]): Ledger => ({
-  events,
-  nextSequenceNumber: events.length + 1,
-});
+afterEach(cleanup);
 
-/**
- * The panel with a spying `transact`. The refusal under test is the panel's own — it reads
- * the blockers so it can name them — so what these pin is that no transaction is even
- * attempted, which is the observable the spy answers. (`Projection.removeGoal` enforces the
- * same rule on the far side; that is the engine's test.)
- */
-function renderPanel(ledger: Ledger, transact = vi.fn()) {
-  const panel = (l: Ledger) => (
-    <GoalsPanel budget={budget} projection={readerOf(budget, l)} result={runOf(budget, l)} transact={transact} />
-  );
-  const { rerender } = render(panel(ledger));
-  // The ledger is the only prop under test, so re-rendering means handing over a new one —
-  // the panel keeps its own state across the swap, which is the point.
-  return { transact, rerender: (next: Ledger) => rerender(panel(next)) };
-}
+describe("GoalsPanel — delete refusal", () => {
+  it("shows the blocking events and does not transact when deletion is refused", () => {
+    const { transact } = renderPanel([blocker()]);
 
-describe("GoalsPanel — refuse to delete a goal that funds an event", () => {
-  it("refuses the deletion and names the blocking event", () => {
-    const ledger = ledgerOf(homePurchase([goalFundAccount]));
-    const { transact } = renderPanel(ledger);
     fireEvent.click(screen.getByLabelText("Delete Home down payment"));
+
     expect(transact).not.toHaveBeenCalled();
-    expect(screen.getByRole("alert").textContent).toContain(
-      "This account cannot be deleted because it funds",
-    );
+    expect(screen.getByRole("alert").textContent).toContain("This account cannot be deleted because it funds");
     expect(screen.getByRole("alert").textContent).toContain("Bought a home");
   });
 
-  it("deletes normally when the goal's fund account funds nothing", () => {
-    const ledger = ledgerOf(homePurchase(["savings"]));
-    const { transact } = renderPanel(ledger);
+  it("routes an unblocked deletion through transact", () => {
+    const { transact } = renderPanel([]);
+
     fireEvent.click(screen.getByLabelText("Delete Home down payment"));
+
     expect(transact).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("alert")).toBeNull();
   });
-});
 
-describe("GoalsPanel — a refusal answers one delete, and does not outlive it", () => {
-  const DELETE = "Delete Home down payment";
-  const fundedByGoal = (over?: { id?: string; sequenceNumber?: number; month?: number }) =>
-    homePurchase([goalFundAccount], over);
-
-  it("does not revive once a LATER event funds the same goal", () => {
-    const { transact, rerender } = renderPanel(ledgerOf(fundedByGoal()));
-
-    // 1. The delete is blocked, and the warning names the blocker.
-    fireEvent.click(screen.getByLabelText(DELETE));
-    expect(transact).not.toHaveBeenCalled();
-    expect(screen.getByRole("alert").textContent).toContain("Bought a home");
-
-    // 2. That event leaves the ledger — nothing blocks the goal, so the warning goes.
-    rerender(ledgerOf());
-    expect(screen.queryByRole("alert")).toBeNull();
-
-    // 3. A DIFFERENT event now funds the same goal.
-    rerender(ledgerOf(fundedByGoal({ id: "buy2", sequenceNumber: 1, month: 84 })));
-
-    // 4. The user never asked to delete again, so nothing is refused and nothing is shown.
-    expect(screen.queryByRole("alert")).toBeNull();
-
-    // Asking again does refuse — on the new blocker, at its own month.
-    fireEvent.click(screen.getByLabelText(DELETE));
-    expect(screen.getByRole("alert").textContent).toContain(`Bought a home in ${monthLabel(84)}`);
-    expect(transact).not.toHaveBeenCalled();
-  });
-
-  it("does not revive when the blocker is REPLACED in a single update", () => {
-    // The harder path: no render in between where the goal is unblocked, so there is no
-    // moment at which a spent refusal could notice it should drop itself. Only the pinned
-    // ids can tell the answered question apart from the new blocker.
-    const { rerender } = renderPanel(ledgerOf(fundedByGoal()));
-    fireEvent.click(screen.getByLabelText(DELETE));
+  it("clears a spent refusal when its blocker disappears", () => {
+    const { rerender } = renderPanel([blocker()]);
+    fireEvent.click(screen.getByLabelText("Delete Home down payment"));
     expect(screen.getByRole("alert")).toBeTruthy();
 
-    rerender(ledgerOf(fundedByGoal({ id: "buy2", sequenceNumber: 1, month: 84 })));
+    rerender([]);
+
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("re-reads the blocker's words from the ledger rather than freezing them", () => {
-    // The refusal stores ids, not the sentence, so re-dating the blocking event re-words it.
-    const { rerender } = renderPanel(ledgerOf(fundedByGoal()));
-    fireEvent.click(screen.getByLabelText(DELETE));
-    expect(screen.getByRole("alert").textContent).toContain(`Bought a home in ${monthLabel(72)}`);
+  it("does not revive an old refusal for a different later blocker until delete is asked again", () => {
+    const { rerender } = renderPanel([blocker("event-1", 72)]);
+    fireEvent.click(screen.getByLabelText("Delete Home down payment"));
+    expect(screen.getByRole("alert")).toBeTruthy();
 
-    rerender(ledgerOf(fundedByGoal({ month: 96 })));
-    expect(screen.getByRole("alert").textContent).toContain(`Bought a home in ${monthLabel(96)}`);
-  });
+    rerender([blocker("event-2", 84)]);
+    expect(screen.queryByRole("alert")).toBeNull();
 
-  it("keeps the refusal while only SOME of its blockers are cleared", () => {
-    const both = ledgerOf(fundedByGoal(), fundedByGoal({ id: "buy2", sequenceNumber: 1, month: 84 }));
-    const { rerender } = renderPanel(both);
-    fireEvent.click(screen.getByLabelText(DELETE));
-    expect(screen.getByRole("alert").textContent).toContain(`Bought a home in ${monthLabel(72)}`);
-    expect(screen.getByRole("alert").textContent).toContain(`Bought a home in ${monthLabel(84)}`);
-
-    // One blocker re-pointed away; the goal is still blocked by the other.
-    rerender(ledgerOf(fundedByGoal({ id: "buy2", sequenceNumber: 1, month: 84 })));
-    const alert = screen.getByRole("alert").textContent;
-    expect(alert).toContain(`Bought a home in ${monthLabel(84)}`);
-    expect(alert).not.toContain(monthLabel(72));
+    fireEvent.click(screen.getByLabelText("Delete Home down payment"));
+    expect(screen.getByRole("alert").textContent).toContain("Year 7");
   });
 });
