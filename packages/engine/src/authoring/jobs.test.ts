@@ -249,4 +249,37 @@ describe("job authoring — the continuation selection", () => {
 
     expect(removeProjectionJob(chosen, doomedId).scenario.plan.primary.continuationJobId).toBe(keptId);
   });
+
+  it("leaves a stated selection alone when another job is added", () => {
+    // The stability guarantee, and the reason the initialization rule runs only where nothing
+    // has been stated: a new job — including one that rule would have preferred — must not
+    // silently move which employment the retirement answer leans on. A household that answered
+    // "None" has answered; adding a job is not them changing their mind.
+    const { state: withFirst, result: firstId } = addProjectionJob(
+      emptyState(),
+      PRIMARY_PERSON_ID as PersonId,
+      longRunningJob,
+    );
+    const statedNone = setProjectionContinuationJob(
+      withFirst,
+      nullJurisdiction,
+      PRIMARY_PERSON_ID as PersonId,
+      null,
+    );
+    expect(statedNone.scenario.plan.primary.continuationJobId).toBeNull();
+
+    const grown = addProjectionJob(statedNone, PRIMARY_PERSON_ID as PersonId, longRunningJob);
+    expect(grown.state.scenario.plan.primary.jobs).toHaveLength(2);
+    expect(grown.state.scenario.plan.primary.continuationJobId).toBeNull();
+
+    // And the same for a selection naming an actual job, not only for a stated None.
+    const chosen = setProjectionContinuationJob(
+      withFirst,
+      nullJurisdiction,
+      PRIMARY_PERSON_ID as PersonId,
+      firstId,
+    );
+    const alsoGrown = addProjectionJob(chosen, PRIMARY_PERSON_ID as PersonId, longRunningJob);
+    expect(alsoGrown.state.scenario.plan.primary.continuationJobId).toBe(firstId);
+  });
 });

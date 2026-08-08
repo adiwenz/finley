@@ -24,7 +24,6 @@ import {
 } from "../jobsPanel.testUtils";
 
 
-
 describe("JobsPanel — listing", () => {
   it("lists the default job with its salary and its authored span", () => {
     render(<Harness />);
@@ -199,11 +198,10 @@ describe("JobsPanel — the months of a job that are not household income", () =
     // used to keep the first five on the books silently.
     render(<Harness events={[partnerJoining([samsJob()], 60), separatingAt(180)]} />);
 
-    expect(samsUncounted()).toEqual([
-      [0, 60],
-      [180, 300],
-    ]);
-    // Two hatches, two sentences — one per end, neither standing for the other.
+    // TWO hatches, and two sentences — one per end, neither standing for the other. Where each
+    // interval falls is `householdJob.test.ts` (`resolveJobPayDisplay`); that there are two of
+    // them rather than one trailing suffix is what this panel got wrong.
+    expect(samsUncounted()).toHaveLength(2);
     expect(screen.getByText(/was not yet part of the household/)).toBeTruthy();
     expect(screen.getByText(/was no longer part of the household/)).toBeTruthy();
   });

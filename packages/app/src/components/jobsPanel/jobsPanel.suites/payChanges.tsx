@@ -31,7 +31,6 @@ import {
 } from "../jobsPanel.testUtils";
 
 
-
 describe("JobsPanel — permanent pay changes", () => {
   // A pay change lands on `payChanges`, not the starting salary, so the headline stays
   // $5,000/mo while the change moves pay — showing only the headline hides it.
@@ -279,18 +278,14 @@ describe("JobsPanel — authoring a job's pay history", () => {
       "Your history runs to $5,000/mo by now",
     );
     expect(screen.getByTestId("seam-note").textContent).toContain("Today’s pay wins from here on");
-    // The chart says it too, as a shape. Recharts draws nothing in jsdom, so the step is
-    // asserted through the data mirror the chart renders beside it.
-    expect(screen.getByTestId("pay-chart-seam").textContent).toBe(
-      String(dollarsToCents(6667) - dollarsToCents(5000)),
-    );
+    // That there IS a step, and how big, is `job.payPath.test.ts` ("measures the month-0 step
+    // rather than closing it", "reports no step when the history lands exactly on today's pay").
 
     fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
     enterNumber(spin(/Monthly salary now/i), "5000");
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    // Anchors agreed: no annotation left.
     expect(screen.queryByTestId("seam-note")).toBeNull();
-    // Anchors agreed: no step to draw, and no annotation left on the chart either.
-    expect(screen.getByTestId("pay-chart-seam").textContent).toBe("0");
   });
 
   it("asks nothing about 'now' for a job that ended before it", () => {
@@ -362,8 +357,10 @@ describe("JobsPanel — authoring a job's pay history", () => {
     enterNumber(spin(/Start age/i), "33");
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
 
-    expect(authored().plan.primary.jobs[0].payChanges).toBeUndefined();
-    // Named, not merely counted — the user can put back whichever one still applies.
+    // That the changes are DROPPED, and named, is owned twice below this layer:
+    // `planPeople.test.ts` ("drops the changes a later start age strands, and names them") and
+    // `jobEditing.test.ts` ("drops the changes now before the start, and names them"). What is
+    // this panel's alone is that the user is TOLD, in words, on the surface they edited from.
     expect(screen.getByText(/One pay change now fell before this job starts.*age 30/)).toBeTruthy();
   });
 

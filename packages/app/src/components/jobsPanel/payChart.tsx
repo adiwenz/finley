@@ -62,13 +62,12 @@ import {
   YAxis,
 } from "recharts";
 import {
-  applyJobIncomeOverridesAt,
-  payChangeEffectiveMonth,
   type JobIncomeOverride,
   type JobPayChange,
   type JobPayPath,
   type JobPaySpan,
 } from "@finley/engine";
+import { payChartOneOffMarks, payChartRows } from "./payChartRows";
 import { formatDollars } from "../../format";
 import { monthAtOwnerAge, ownerAgeAtMonth } from "../../planPeople";
 import styles from "./jobsPanel.module.css";
@@ -181,57 +180,14 @@ export function PayChart({
    * squeezes BOTH into a sub-pixel band and makes the pair unreachable. That is what once made
    * "now" the one month the tooltip would not stop on.
    */
-  const months = new Set<number>();
-  for (let month = firstMonth; month <= lastMonth; month += 3) months.add(month);
-  const keyMonths = [
-    firstMonth,
-    lastMonth,
-    0, // "now" — the seam, and the whole reason this chart exists
-    path.span.startMonth,
-    path.span.endMonthExclusive,
-    ...payChanges.map(payChangeEffectiveMonth),
-    // A one-month adjustment needs BOTH its own month and the one after it. Its own, because
-    // the quarterly backbone would miss two months in three; the one after, because
-    // `stepAfter` holds a sample until the next one — without it the bonus would be drawn as
-    // lasting a whole quarter. The pair is what makes the spike exactly one month wide. This
-    // is the one place the "no neighbouring samples" rule above is deliberately broken, and
-    // the cost it warns about (a sub-pixel band that is hard to hover) is what a one-month
-    // event honestly is.
-    ...incomeOverrides.flatMap((o) => [o.month, o.month + 1]),
-  ];
-  for (const month of keyMonths) {
-    if (month >= firstMonth && month <= lastMonth) months.add(month);
-  }
   /**
-   * A one-month adjustment rides the pay series itself, so the shaded region briefly rises and
-   * falls back — the same way a bonus reads on the household income charts, where a month that
-   * pays more is simply drawn taller.
-   *
-   * The staircase can carry it because the sampling above pins the month AND its successor: the
-   * spike is one month wide, which is a blip and not a raise-then-cut. What makes that safe is
-   * the width, not a separate series — a bonus held for a quarter would be a lie about a rate,
-   * and a bonus held for a month is the truth about a payment.
-   *
-   * `adjusted` rides along so the tooltip can say "this month" instead of "/mo" on exactly
-   * those months: the height is a payment there, not a salary.
-   *
-   * Several adjustments may share a month. They are folded through the engine's own
-   * {@link applyJobIncomeOverridesAt}, so the spike is drawn at what the projection pays rather
-   * than at whichever one the chart happened to look at last.
+   * The sampling policy and the fold both live in `payChartRows.ts`, where they are testable
+   * without a browser — which months are worth plotting is this chart's own contract, and the
+   * one part of it that has nothing to do with SVG. `adjusted` rides along so the tooltip can
+   * say "this month" instead of "/mo" on exactly those months: the height is a payment there,
+   * not a salary.
    */
-  const adjustedMonths = new Set(incomeOverrides.map((o) => o.month));
-  const rows = [...months]
-    .sort((a, b) => a - b)
-    .map((month) => {
-      const standing = path.monthlyCentsAt(month);
-      return {
-        month,
-        // The whole stack, not one of them: a month may carry several adjustments, and the
-        // engine folds them in order. Drawing only the last would understate a double bonus.
-        pay: applyJobIncomeOverridesAt(standing, incomeOverrides, month),
-        adjusted: adjustedMonths.has(month),
-      };
-    });
+  const rows = payChartRows({ firstMonth, lastMonth, path, payChanges, incomeOverrides });
   const peak = Math.max(...rows.map((r) => r.pay), 1);
   /** Ages worth naming; both ends, plus whatever this job does. */
   const tickMonths = [...new Set([minAge, startAge, currentAge, endAge, maxAge])]
@@ -288,7 +244,7 @@ export function PayChart({
       {/* Same reason: what the one-off marks are drawn AT, so a test can read the months and
           the totals rather than the SVG that jsdom never produces. */}
       <output data-testid="pay-chart-one-offs" hidden>
-        {JSON.stringify(rows.filter((r) => r.adjusted).map((r) => [r.month, r.pay]))}
+        {JSON.stringify(payChartOneOffMarks(rows))}
       </output>
       {/* And the same for the hatches: a `<pattern>` fill inside Recharts is nothing jsdom can
           be asked about, so each interval is stated where a test can read it. The months only —

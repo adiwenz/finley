@@ -95,6 +95,74 @@ three orders of magnitude faster than the same behaviour through a rendered pane
 `mainState.test.tsx` case renders the whole `App` and costs 1–5s. Render a panel only when the
 assertion is genuinely about the DOM.
 
+### Test ownership
+
+Speed is the symptom; ownership is the rule. **Write a test at the lowest abstraction that owns
+the behaviour**, and nowhere else:
+
+> Engine tests prove financial and domain truth.
+> App Node tests prove engine-output → UI-model transformations.
+> App jsdom tests prove rendering, interaction, and correct calls across the UI boundary.
+> **App tests must not independently re-prove domain behaviour the engine already owns.**
+
+**The engine owns** financial calculation, simulation and event-execution semantics, authoring
+invariants, job and pay semantics, retirement solving, household membership, tax, obligation
+execution, identity and id minting, domain validation, and projection results. If a rule is
+already proved in `@finley/engine`, do not prove it again in `@finley/app`.
+
+So: the engine already proves *a one-month bonus adds to wages and is taxed as wages*. An app
+React test must not author a bonus, run a real projection, and assert the resulting figure. It
+may prove that clicking **Apply** sends the right authoring operation, and that a bonus in the
+model renders as a row.
+
+**App Node tests own** transformations that are presentational but need no browser: projection →
+chart series, engine outcome → timeline presentation, obligation flows → spending bands,
+retirement result → display model, job data → editor state, month selection → displayed values,
+formatting, grouping, sorting, and mapping engine statuses to UI statuses. Prefer a pure function
+and a Node test. The existing owners are `incomeChartData`, `incomeChartModel`, `perLineBudget`,
+`monthEdit`, `taxesByMonth`, `payChartRows`, `jobEditing`, `jobOwners`, `ledgerView`,
+`retirementView`, `goalsView`.
+
+> **If an assertion would still make sense in a world without React, it does not belong in
+> jsdom.** `expect(chartRow["debt:loan-1"]).toBe(50_000)` and
+> `expect(viewModel.blockedEvents[0].status).toBe("blocked")` are data assertions, not DOM ones.
+
+**App jsdom tests own** what actually needs the browser: a control renders with its label and
+value; a component renders the view model it is given; a click invokes the right public
+operation; an input sends the right value; a refusal is displayed; an editor stays open after a
+refused write; save/cancel/delete; focus and accessibility; conditional controls appearing and
+disappearing; interaction changing visible state; hook behaviour that depends on React's
+lifecycle or batching; and the integration of a few components. `expect(screen.getByRole("button",
+{ name: "Remove" })).toBeVisible()` genuinely needs jsdom.
+
+**Thin integration coverage is allowed, and wanted.** Keep a few tests proving the layers are
+wired together — but keep them thin. If the engine proves the loan payment is $500/mo, and an
+app Node test proves a $500 obligation becomes a debt band, the React test only has to prove the
+debt band renders. It must not reconstruct the loan, amortize it, run the simulator, rebuild the
+chart model, and assert `$500` again.
+
+> A behaviour gets **one exhaustive suite at the layer that owns its semantics**, plus the
+> minimum integration coverage at the boundaries that transform or render it.
+
+**Delete duplication; do not relocate it.** When taking a semantic assertion out of a jsdom test:
+check whether the engine already proves it, then whether an app Node test already proves the
+presentation transformation. If either does, **delete** it. Write a new Node test only when a
+real transformation contract is genuinely uncovered. Do not mechanically convert every deleted
+jsdom assertion into a new Node one.
+
+**Test public abstractions directly.** Do not export or test an internal helper merely so a test
+can reach it — cover it through the public behaviour of whatever owns it. Deliberately public
+engine functions may have focused direct tests.
+
+**Before writing an app test that runs a real simulation, ask:** *what bug could this catch that
+the engine test plus the app model test could not?* If you cannot name a concrete integration
+failure, do not write it. The anti-pattern to avoid is a test that renders `App`, fills a form,
+authors domain state, runs the simulator, computes tax, builds a report, builds a chart model,
+renders the chart, reads a hidden JSON mirror, and asserts an engine rule — every bug in that
+chain fails one giant test, and the failure names nothing. Split it three ways instead, so a math
+bug fails an engine test, a presentation bug fails a Node test, and a wiring bug fails a jsdom
+test.
+
 ## Not product code
 
 `.claude/`, `.codex/`, `.sandcastle/`, `ralph/`, `docs/agents/` are tooling and agent

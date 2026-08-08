@@ -7,6 +7,7 @@
  * one, not just the primary person's), which plane it writes each answer to, and the single
  * nullable draft it holds so two jobs can never be half-edited at once.
  */
+import { useMemo } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { enterNumber } from "../../testing/numberField";
@@ -49,8 +50,11 @@ function Harness({ initial, ledger: initialLedger = NO_EVENTS }: { initial: Plan
   const { state, transact } = useTestProjection(initial, initialLedger);
   const plan = state.scenario.plan;
   const ledger = state.scenario.ledger;
-  const projection = Projection.fromState(state, usJurisdiction);
-  const { series, household } = projection.run(usJurisdiction);
+  // Keyed on the state, as `main.tsx` keys them: a re-render that changed no state — a child
+  // opening a form, a field taking a keystroke — must not re-run the whole simulation. Without
+  // the memo the projection is rebuilt and re-run on every render this harness does.
+  const projection = useMemo(() => Projection.fromState(state, usJurisdiction), [state]);
+  const { series, household } = useMemo(() => projection.run(usJurisdiction), [projection]);
   const personNames = new Map<string, string>([
     [PRIMARY_PERSON_ID, plan.primary.name],
     ...ledger.events.flatMap((e) =>
@@ -235,8 +239,8 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
     expect(overrides).toHaveLength(2);
     expect(new Set(overrides.map((o) => o.id)).size).toBe(2);
     expect(overrides.map((o) => o.cents)).toEqual([dollarsToCents(2000), dollarsToCents(1500)]);
-    // $5,000 standing pay for the month + both bonuses — what the projection actually pays.
-    expect(incomeReadonlyDollars()).toBe(5000 + 2000 + 1500);
+    // That the month then pays their SUM is the engine's — `job.adjustments.test.ts`,
+    // "composes by folding, which is the whole of what stacking is".
   });
 
   it("shows a permanent change and a one-off at the same month side by side", () => {
@@ -283,29 +287,8 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
     expect(listed).toMatch(/pay set to \$0.*at month 10/is);
     expect(screen.getAllByRole("listitem").filter((li) => /at month 10|onward/.test(li.textContent ?? "")))
       .toHaveLength(2);
-
-    // What the projection pays for the month — the miss wins the month, not the raise.
-    expect(incomeReadonlyDollars()).toBe(0);
   });
 
-  it("pays the raised salary from the month after the missed one", () => {
-    renderPanel(PLAN_DEFAULTS);
-    selectMonth(10);
-    openOneOff();
-    setOneOffKind("setOngoing");
-    setOneOffAmount(6000);
-    applyOneOff();
-    openOneOff();
-    setOneOffKind("setTo");
-    setOneOffAmount(0);
-    applyOneOff();
-
-    // The $0 month left no mark on the salary: an override settles nothing beyond its month.
-    selectMonth(11);
-    expect(incomeReadonlyDollars()).toBe(6000);
-    selectMonth(9);
-    expect(incomeReadonlyDollars()).toBe(5000);
-  });
 
   it("keeps both stored on the job, each with its own identity", () => {
     renderPanel(PLAN_DEFAULTS);
@@ -330,25 +313,6 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
     expect(job.payChanges![0].id).not.toBe(job.incomeOverrides![0].id);
   });
 
-  it("defers a month-0 raise to month 1 while a month-0 miss lands on month 0", () => {
-    renderPanel(PLAN_DEFAULTS);
-    selectMonth(0);
-
-    openOneOff();
-    setOneOffKind("setOngoing");
-    setOneOffAmount(6000);
-    applyOneOff();
-    openOneOff();
-    setOneOffKind("setTo");
-    setOneOffAmount(0);
-    applyOneOff();
-
-    // Month 0 is the stated current salary's, so the raise cannot displace it — but the
-    // one-month adjustment is NOT deferred, and month 0 pays nothing.
-    expect(incomeReadonlyDollars()).toBe(0);
-    selectMonth(1);
-    expect(incomeReadonlyDollars()).toBe(6000);
-  });
 
   it("stops naming an adjustment once it is removed from the plan", () => {
     renderPanel(PLAN_DEFAULTS);
@@ -372,19 +336,17 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
     pickJob("p-1-job-1");
     setOneOffAmount(2000); // default kind: bonus on top
     applyOneOff();
-    expect(incomeReadonlyDollars()).toBe(10_000); // 5,000 + 3,000 + 2,000, that month only
     selectMonth(7);
-    expect(incomeReadonlyDollars()).toBe(8000); // and only that month
 
-    // A missed paycheck on the partner's job zeroes THEIR wages, leaving the primary's.
     openOneOff();
     pickJob("p-1-job-1");
     setOneOffKind("setTo");
     setOneOffAmount(0);
     applyOneOff();
-    expect(incomeReadonlyDollars()).toBe(5000);
 
-    // Both overrides are on the partner's job, and the earlier one survived the later.
+    // Both overrides landed on the PARTNER's job — the routing this editor owns — and the
+    // earlier one survived the later. What each then pays, and that two earners' wages add
+    // rather than one winning, is the engine's (`job.test.ts` — additive compilation).
     expect(jobsOn("partner-jobs")[0].incomeOverrides).toEqual([
       { id: expect.any(String), month: 6, kind: "addBonus", cents: dollarsToCents(2000) },
       { id: expect.any(String), month: 7, kind: "setTo", cents: 0 },
@@ -401,17 +363,16 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
     setOneOffKind("changeOngoing");
     setOneOffAmount(-800);
     applyOneOff();
-    expect(incomeReadonlyDollars()).toBe(7200); // 5,000 + (3,000 − 800), ongoing
 
     openOneOff();
     pickJob("p-1-job-1");
     setOneOffKind("setTo");
     setOneOffAmount(1000); // this month they were paid $1,000, cut and all
     applyOneOff();
-    expect(incomeReadonlyDollars()).toBe(6000); // 5,000 + 1,000, this month only
-    selectMonth(7);
-    expect(incomeReadonlyDollars()).toBe(7200); // the cut still stands; the correction does not
 
+    // A permanent cut and a one-month correction are two different authored facts on two
+    // different collections — which is this editor's contract. That the cut then STANDS while
+    // the correction does not is `job.adjustments.test.ts`.
     const job = jobsOn("partner-jobs")[0];
     expect(job.payChanges).toEqual([{ id: expect.any(String), month: 6, kind: "changeBy", cents: -dollarsToCents(800) }]);
     expect(job.incomeOverrides).toEqual([{ id: expect.any(String), month: 6, kind: "setTo", cents: dollarsToCents(1000) }]);

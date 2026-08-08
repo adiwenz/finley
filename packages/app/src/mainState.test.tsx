@@ -8,7 +8,6 @@ import { render, screen, fireEvent, act, cleanup, within } from "@testing-librar
 import { enterNumber } from "./testing/numberField";
 import { App } from "./main";
 import * as engine from "@finley/engine";
-import { dollarsToCents } from "@finley/engine";
 import { presetById, presetState } from "./presets";
 
 beforeAll(() => {
@@ -36,12 +35,10 @@ describe("App — initial values", () => {
 });
 
 describe("App — event ledger", () => {
-  it("no longer offers 'Added an expense' — recurring spend lives in Base + Adjustments", () => {
-    render(<App />);
-    const menu = screen.getByLabelText("What happened?");
-    const labels = within(menu).getAllByRole("option").map((o) => o.textContent);
-    expect(labels).not.toContain("Added an expense");
-  });
+  // Which events the picker offers, and the gate on separating from somebody who has not
+  // joined yet, are `AddEventForm`'s own — both live in `addEventForm/subForms.test.tsx`
+  // now, where reading a `<select>` costs a form render instead of twelve panels and a
+  // solved retirement.
 
   it("adds an event, reprojecting the single state through the facade", () => {
     // The app holds one `ProjectionState` and reads it through a `Projection` rebuilt on every
@@ -84,28 +81,6 @@ describe("App — event ledger", () => {
     });
 
     expect(screen.queryAllByText("Remove")).toHaveLength(0);
-  });
-
-  it("only offers partners already in the household by the separation month", () => {
-    render(<App />);
-
-    // Partner joins in Year 5 (month 60).
-    fireEvent.change(screen.getByLabelText("What happened?"), {
-      target: { value: "RelationshipEvent" },
-    });
-    fireEvent.change(screen.getByLabelText("When"), { target: { value: "60" } });
-    fireEvent.click(screen.getByText("Add event"));
-
-    // Switch to Separation. Its month defaults to Year 0 — before the partnership.
-    fireEvent.change(screen.getByLabelText("What happened?"), {
-      target: { value: "SeparationEvent" },
-    });
-    expect(screen.queryByLabelText("From")).toBeNull();
-    expect(screen.getByText(/No partner in the household as of Year 0/)).toBeTruthy();
-
-    // Move the separation to Year 5, where the partner exists.
-    fireEvent.change(screen.getByLabelText("When"), { target: { value: "60" } });
-    expect(screen.getByLabelText("From")).toBeTruthy();
   });
 
   it("carries a partner's own job through every surface, and edits it from the Jobs panel", () => {
@@ -298,16 +273,10 @@ describe("App — starter simulations", () => {
       target: { value: "student-loan" },
     });
 
-    // Riley's $3,000 budget — health among its lines now, not a plan field beside it — PLUS
-    // the seed loan's scheduled payment (~$500/mo on $45k at 6% over 10 years): the Base
-    // panel charts the whole scenario, not the bare plan.
-    const riley = presetState(presetById("student-loan")).scenario.plan;
-    const rileyBudget = riley.budgetLines.reduce(
-      (sum, l) =>
-        sum + (l.target.kind === "expense" && l.amountSource.kind === "literal" ? l.amountSource.monthlyCents : 0),
-      0,
-    );
-    expect(spendingNeed()).toBeGreaterThan(rileyBudget + dollarsToCents(400));
+    // The integration, and only the integration: loading a scenario reaches the chart's
+    // spending need. WHAT that need is made of — "expenses + scheduled liability payments" — is
+    // `incomeChartData.test.ts`; what the loan's payment comes to is the engine's
+    // (`simulate.obligations.test.ts`). Re-amortizing $45k here would prove none of it twice.
     expect(spendingNeed()).not.toBe(withoutLoan);
   });
 
@@ -323,14 +292,14 @@ describe("App — starter simulations", () => {
     const servicedRow = JSON.parse(
       screen.getByTestId("perline-second-row").textContent || "{}",
     ) as Record<string, number>;
-    // Both band keys come off the built scenario: the engine minted the loan's liability id and
-    // every budget line id, so the chart's series names are read, never assumed.
+    // The band key comes off the built scenario: the engine minted the loan's liability id, so
+    // the chart's series name is read, never assumed. That a liability BANDS at all, at its
+    // scheduled amount and beside the budget lines, is `perLineBudget.test.ts` ("bands every
+    // kind of spending, tagged for drawing and for editability") — what is asserted here is
+    // that loading a scenario carries its loan through to the graph.
     const riley = presetState(presetById("student-loan")).scenario;
     const loan = riley.ledger.events.find((e) => e.type === "LoanEvent");
-    const housing = riley.plan.budgetLines.find((l) => l.label === "Housing");
-    expect(servicedRow[`debt:${loan!.id}`]).toBeGreaterThan(dollarsToCents(400));
-    // And the budget lines are unchanged by its arrival.
-    expect(servicedRow[`line:${housing!.id}`]).toBeGreaterThan(0);
+    expect(servicedRow[`debt:${loan!.id}`]).toBeGreaterThan(0);
   });
 
   it("swaps back to a plan-only scenario, clearing the prior seed timeline", () => {
@@ -464,5 +433,30 @@ describe("App — budget edits", () => {
     expect(
       lastState?.scenario.plan.budgetLines.find((l) => l.label === "Housing")?.overrides,
     ).toHaveLength(1);
+  });
+});
+
+/** The `<details>` a section's heading sits in — what `open` is actually asserted against. */
+const sectionOf = (title: string): HTMLDetailsElement =>
+  screen.getByRole("heading", { name: title }).closest("details") as HTMLDetailsElement;
+
+describe("App — which sections open by default", () => {
+  it("collapses Budget & accounts and Goals, and leaves the live panels open", () => {
+    render(<App />);
+    expect(sectionOf("Budget & accounts").open).toBe(false);
+    expect(sectionOf("Goals").open).toBe(false);
+    // The panels that answer "what is happening" are not disclosures at all — asserted so a
+    // later change cannot quietly fold the whole column away.
+    expect(screen.getByRole("heading", { name: /Jobs & income/i }).closest("details")).toBeNull();
+    expect(screen.getByRole("heading", { name: /Add to timeline/i }).closest("details")).toBeNull();
+  });
+
+  it("still authors through the collapsed panels once opened — nothing was removed", () => {
+    render(<App />);
+    const budget = sectionOf("Budget & accounts");
+    budget.open = true;
+    // The panel's own controls are intact inside it; only the heading moved into the summary.
+    expect(within(budget).getByLabelText(/Life expectancy/i)).toBeTruthy();
+    expect(within(budget).getByLabelText(/Savings return/i)).toBeTruthy();
   });
 });

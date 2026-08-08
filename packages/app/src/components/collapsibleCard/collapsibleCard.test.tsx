@@ -1,21 +1,16 @@
 /**
  * @vitest-environment jsdom
  *
- * The card that opens and closes, and the two panels mounted in one — settings the user
- * consults rather than watches, so the column is not spent on them by default.
+ * The card that opens and closes — this component and nothing else.
+ *
+ * WHICH of the app's sections are disclosures, and which open by default, is a fact about the
+ * App shell rather than about this card, and is pinned in `mainState.test.tsx` beside the rest
+ * of App's own behaviour. Keeping it here meant a component test mounting the entire
+ * application — and paying for a whole projection — to assert a layout decision made elsewhere.
  */
-import { describe, it, expect, beforeAll, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup, within } from "@testing-library/react";
-import { App } from "../../main";
 import { CollapsibleCard } from "./collapsibleCard";
-
-beforeAll(() => {
-  globalThis.ResizeObserver ??= class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  };
-});
 
 afterEach(cleanup);
 
@@ -43,26 +38,5 @@ describe("CollapsibleCard", () => {
     expect(summary).toBeTruthy();
     section.open = true;
     expect(section.open).toBe(true);
-  });
-});
-
-describe("App — which sections open by default", () => {
-  it("collapses Budget & accounts and Goals, and leaves the live panels open", () => {
-    render(<App />);
-    expect(sectionOf("Budget & accounts").open).toBe(false);
-    expect(sectionOf("Goals").open).toBe(false);
-    // The panels that answer "what is happening" are not disclosures at all — asserted so a
-    // later change cannot quietly fold the whole column away.
-    expect(screen.getByRole("heading", { name: /Jobs & income/i }).closest("details")).toBeNull();
-    expect(screen.getByRole("heading", { name: /Add to timeline/i }).closest("details")).toBeNull();
-  });
-
-  it("still authors through the collapsed panels once opened — nothing was removed", () => {
-    render(<App />);
-    const budget = sectionOf("Budget & accounts");
-    budget.open = true;
-    // The panel's own controls are intact inside it; only the heading moved into the summary.
-    expect(within(budget).getByLabelText(/Life expectancy/i)).toBeTruthy();
-    expect(within(budget).getByLabelText(/Savings return/i)).toBeTruthy();
   });
 });

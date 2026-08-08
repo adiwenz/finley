@@ -21,7 +21,6 @@ import {
 } from "../jobsPanel.testUtils";
 
 
-
 describe("JobsPanel — one-month adjustments show on the job", () => {
   /**
    * A bonus used to be COUNTED in the row's subtitle and shown nowhere else on the panel: not on
@@ -40,20 +39,15 @@ describe("JobsPanel — one-month adjustments show on the job", () => {
       jobs: PLAN_DEFAULTS.primary.jobs.map((j) => ({ ...j, incomeOverrides: [BONUS] })),
     },
   };
-  /** What the chart marks: `[month, cents]` per one-off, off the hidden data mirror. */
-  const oneOffMarks = (): [number, number][] =>
-    JSON.parse(screen.getByTestId("pay-chart-one-offs").textContent || "[]");
+  // What the chart MARKS is `payChartRows.test.ts`, in Node: which months carry a mark, and
+  // that a month's whole stack folds into one. What a marked month PAYS is the engine's.
 
-  it("marks the bonus month on the chart, at what that month actually pays", () => {
+  it("leaves the headline alone — a bonus is not a raise", () => {
+    // What the row says the job pays is its STANDING pay; a one-month payment must not restate
+    // it. Where the bonus is drawn is `payChartRows.test.ts`; what the month pays is the
+    // engine's (`job.adjustments.test.ts` — "addBonus adds on top of the month's grown baseline
+    // pay").
     render(<Harness initial={withBonus} />);
-    // $5,000 standing pay grown a year at 3% CPI ($5,150), plus the $4,000 bonus.
-    expect(oneOffMarks()).toEqual([[12, dollarsToCents(5150 + 4000)]]);
-  });
-
-  it("leaves the pay staircase alone — a bonus is not a raise", () => {
-    render(<Harness initial={withBonus} />);
-    // The seam is the staircase's one authored discontinuity; a bonus must not create another.
-    expect(Number(screen.getByTestId("pay-chart-seam").textContent)).toBe(0);
     expect(headline("Job 1")).toBe("$5,000/mo");
   });
 
@@ -79,7 +73,6 @@ describe("JobsPanel — one-month adjustments show on the job", () => {
     expect(bonusAt).toBeLessThan(raiseAt);
     // Quoted as what THAT month pays, and said to be one month only.
     expect(rows[bonusAt]).toMatch(/this month only/i);
-    expect(rows[bonusAt]).toMatch(/\$9,150 this month/);
   });
 
   it("removes it from the job, without touching the permanent changes", () => {
@@ -100,7 +93,6 @@ describe("JobsPanel — one-month adjustments show on the job", () => {
     );
     expect(authored().plan.primary.jobs[0].incomeOverrides).toBeUndefined();
     expect(authored().plan.primary.jobs[0].payChanges).toHaveLength(1);
-    expect(oneOffMarks()).toEqual([]);
   });
 
   it("stacks two bonuses in one month instead of the second replacing the first", () => {
@@ -119,14 +111,13 @@ describe("JobsPanel — one-month adjustments show on the job", () => {
     };
     render(<Harness initial={twice} />);
 
-    // Both listed, each on its own row, and the chart marks the month at the FULL stack:
-    // $5,150 grown pay + $4,000 + $1,000.
+    // Both listed, each on its own row. What the month then PAYS is the engine's
+    // ("stacks several adjustments in one month, each applied to what the last one left").
     const rows = timeline("Job 1")
       .getAllByRole("listitem")
       .map((li) => li.textContent ?? "");
     expect(rows.filter((t) => /Bonus \$4,000/.test(t))).toHaveLength(1);
     expect(rows.filter((t) => /Bonus \$1,000/.test(t))).toHaveLength(1);
-    expect(oneOffMarks()).toEqual([[12, dollarsToCents(5150 + 4000 + 1000)]]);
   });
 
   it("quotes each stacked row at the running total, not all of them at the same figure", () => {
@@ -147,9 +138,16 @@ describe("JobsPanel — one-month adjustments show on the job", () => {
     const rows = timeline("Job 1")
       .getAllByRole("listitem")
       .map((li) => li.textContent ?? "");
-    // The fold, shown: $9,150 after the first, $10,150 after the second.
-    expect(rows.find((t) => /Bonus \$4,000/.test(t))).toMatch(/\$9,150 this month/);
-    expect(rows.find((t) => /Bonus \$1,000/.test(t))).toMatch(/\$10,150 this month/);
+    // The fold, SHOWN: each row quotes the month as it stands after that adjustment, so the
+    // second reads higher than the first. Quoting both at one figure would say the month pays
+    // that twice. The figures themselves are the engine's fold, pinned in
+    // `job.adjustments.test.ts` ("composes by folding, which is the whole of what stacking is").
+    const quoted = (row: string): number =>
+      Number((row.match(/\$([\d,]+) this month/)?.[1] ?? "0").replace(/,/g, ""));
+    const first = quoted(rows.find((t) => /Bonus \$4,000/.test(t)) ?? "");
+    const second = quoted(rows.find((t) => /Bonus \$1,000/.test(t)) ?? "");
+    expect(first).toBeGreaterThan(0);
+    expect(second).toBeGreaterThan(first);
   });
 
   it("removes one of a month's stacked adjustments and leaves its sibling standing", () => {
@@ -171,7 +169,6 @@ describe("JobsPanel — one-month adjustments show on the job", () => {
 
     // By id: the month keeps the other one. Removing by month would have taken both.
     expect(authored().plan.primary.jobs[0].incomeOverrides?.map((o) => o.id)).toEqual(["a2"]);
-    expect(oneOffMarks()).toEqual([[12, dollarsToCents(5150 + 1000)]]);
   });
 
   it("gives two adjustments in one month distinct React identity", () => {
@@ -195,25 +192,6 @@ describe("JobsPanel — one-month adjustments show on the job", () => {
     expect(
       screen.getByRole("button", { name: /Remove Pay this month \$2,000 at age 36 on Job 1/i }),
     ).toBeTruthy();
-    // A setTo authored after a bonus discards it — the engine's ordering, shown.
-    expect(oneOffMarks()).toEqual([[12, dollarsToCents(2000)]]);
-  });
-
-  it("stacks a bonus on top of a permanent raise dated the same month", () => {
-    const both: Plan = {
-      ...PLAN_DEFAULTS,
-      primary: {
-        ...PLAN_DEFAULTS.primary,
-        jobs: PLAN_DEFAULTS.primary.jobs.map((j) => ({
-        ...j,
-        payChanges: [{ id: "p1", month: 12, kind: "setTo", cents: dollarsToCents(7000) }],
-        incomeOverrides: [{ id: "a1", month: 12, kind: "addBonus", cents: dollarsToCents(4000) }],
-        })),
-      },
-    };
-    render(<Harness initial={both} />);
-    // The raise sets the month's pay and the bonus adds to THAT, not to the old salary.
-    expect(oneOffMarks()).toEqual([[12, dollarsToCents(11000)]]);
   });
 
   /**
@@ -232,12 +210,6 @@ describe("JobsPanel — one-month adjustments show on the job", () => {
       })),
     },
   };
-
-  it("marks the missed month at $0 on the chart, though the raise is in force there", () => {
-    render(<Harness initial={raiseAndMissed} />);
-    // The chart folds the override over the RAISED salary — and $6,000 set to $0 is $0.
-    expect(oneOffMarks()).toEqual([[10, 0]]);
-  });
 
   it("lists the raise and the missed paycheck as two rows, not one", () => {
     render(<Harness initial={raiseAndMissed} />);
@@ -286,7 +258,6 @@ describe("JobsPanel — one-month adjustments show on the job", () => {
     // The raise says it starts next month and quotes the month it starts; the miss is now.
     expect(rows.find((t) => /Pay set to \$6,000/.test(t))).toMatch(/from next month/i);
     expect(rows.find((t) => /Missed paycheck/.test(t))).toMatch(/\$0 this month/);
-    expect(oneOffMarks()).toEqual([[0, 0]]);
     // The headline is still the stated current salary — a deferred raise has not moved it.
     expect(headline("Job 1")).toBe("$5,000/mo now");
   });
@@ -304,6 +275,5 @@ describe("JobsPanel — one-month adjustments show on the job", () => {
     };
     render(<Harness initial={missed} />);
     expect(timeline("Job 1").getByText(/Missed paycheck this month/i)).toBeTruthy();
-    expect(oneOffMarks()).toEqual([[12, 0]]);
   });
 });

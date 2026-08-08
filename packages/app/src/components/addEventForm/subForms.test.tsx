@@ -11,15 +11,17 @@
  * "restore my value" affordance as `jobForm`'s open-ended `endAge`.
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import { enterNumber } from "../../testing/numberField";
-import type { Projection, ProjectionResult } from "@finley/engine";
+import type { Ledger, Projection, ProjectionResult } from "@finley/engine";
+import { AddEventForm } from "./addEventForm";
 import { LoanForm } from "./loanForm";
 import { SeparationForm } from "./separationForm";
 import { ChildForm } from "./childForm";
 import { HomePurchaseForm } from "./homePurchaseForm";
 import type { EventOf } from "./formControls";
 import { PLAN_DEFAULTS } from "../../planDefaults";
+import { START_YEAR } from "../../config";
 import { readerOf, runOf } from "../../testing/projectionHarness";
 
 afterEach(cleanup);
@@ -449,5 +451,72 @@ describe("sub-forms — editing something already true on day one", () => {
       mortgageTermMonths: 360,
       mortgageBalanceCents: 240_000_00,
     });
+  });
+});
+
+/**
+ * The card ABOVE the sub-forms: which events it offers, and the one gate it owns rather than
+ * delegating — a separation needs somebody to separate from at the month chosen.
+ *
+ * Both used to run through `render(<App />)` in `mainState.test.tsx`, which mounted twelve
+ * panels and solved a retirement to read a `<select>`. Nothing about either is App's: the
+ * option list is this component's, and `membersAt` is the engine's (`household.test.ts`).
+ * What is left here is that the form asks the run rather than deciding for itself.
+ */
+describe("AddEventForm — the type picker", () => {
+  /** A partner joining at `month`, in the public serialized shape a saved plan restores from. */
+  const partnerJoiningAt = (month: number): Ledger => ({
+    events: [
+      {
+        id: "r1",
+        sequenceNumber: 0,
+        type: "RelationshipEvent",
+        month,
+        person: {
+          id: "p-1",
+          name: "Sam",
+          birthYear: START_YEAR - 40,
+          lifeExpectancy: 85,
+          benefitClaimingAge: 67,
+          jobs: [],
+        },
+      },
+    ],
+    nextSequenceNumber: 1,
+  });
+
+  const renderCard = (ledger: Ledger = { events: [], nextSequenceNumber: 0 }) =>
+    render(
+      <AddEventForm
+        result={runOf(PLAN_DEFAULTS, ledger)}
+        funding={readerOf(PLAN_DEFAULTS, ledger).funding()}
+        defaultMonth={0}
+        horizonMonths={660}
+        onAdd={vi.fn()}
+      />,
+    );
+
+  it("no longer offers 'Added an expense' — recurring spend lives in Base + Adjustments", () => {
+    renderCard();
+    const menu = screen.getByLabelText("What happened?");
+    expect(within(menu).getAllByRole("option").map((o) => o.textContent)).not.toContain(
+      "Added an expense",
+    );
+  });
+
+  it("only offers partners already in the household by the separation month", () => {
+    renderCard(partnerJoiningAt(60));
+
+    // The card opens at Year 0 — before the partnership — so there is nobody to name, and it
+    // says so rather than offering an empty picker.
+    fireEvent.change(screen.getByLabelText("What happened?"), {
+      target: { value: "SeparationEvent" },
+    });
+    expect(screen.queryByLabelText("From")).toBeNull();
+    expect(screen.getByText(/No partner in the household as of Year 0/)).toBeTruthy();
+
+    // Moving the separation to Year 5 re-asks the run, and now there is somebody.
+    fireEvent.change(screen.getByLabelText("When"), { target: { value: "60" } });
+    expect(screen.getByLabelText("From")).toBeTruthy();
   });
 });

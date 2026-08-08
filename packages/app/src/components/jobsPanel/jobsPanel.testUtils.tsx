@@ -61,7 +61,12 @@ export function Harness({
   const budget = state.scenario.plan;
   const ledger = state.scenario.ledger;
   const projection = useMemo(() => Projection.fromState(state, usJurisdiction), [state]);
-  const household = useMemo(() => projection.run(usJurisdiction).household, [projection]);
+  // ONE authored run, the way `main.tsx` does it: the household roster and the pay display the
+  // chart draws are two reads off the same result. Running the simulation once per read — which
+  // this harness used to do — modelled an app that does not exist, and doubled the engine work
+  // behind every gesture in these suites (measured: 6.9s → 5.6s of test time across them).
+  const authoredRun = useMemo(() => projection.run(usJurisdiction), [projection]);
+  const household = authoredRun.household;
   // A real preview run — the resolved household a stop-working candidate produces — rather
   // than a hand-built stand-in, so these tests exercise the same engine path the app does.
   // The run the charts read: the preview when the toggle is on, the authored pass otherwise —
@@ -69,9 +74,9 @@ export function Harness({
   const chartRun = useMemo(
     () =>
       previewStopAge === null
-        ? projection.run(usJurisdiction)
+        ? authoredRun
         : projection.runAtStopWorkingAge(usJurisdiction, previewStopAge),
-    [projection, previewStopAge],
+    [projection, authoredRun, previewStopAge],
   );
 
   return (

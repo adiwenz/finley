@@ -22,7 +22,6 @@ import {
   partnerJoining,
 } from "../jobsPanel.testUtils";
 
-
 /**
  * The continuation job as an authoring control. What selecting one MEANS is pinned in the engine
  * (`retirementSolver.test.ts`); these pin only that the Jobs panel asks the question once per
@@ -131,8 +130,10 @@ describe("JobsPanel — 'If your plan required working longer than expected…'"
     fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
     fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
 
+    // That adding a job leaves a stated selection alone is the engine's, pinned in
+    // `authoring/jobs.test.ts` ("leaves a stated selection alone when another job is added").
+    // What this owns is that the PICKER does not drift off the answer while the list grows.
     expect(authored().plan.primary.jobs).toHaveLength(2);
-    expect(authored().plan.primary.continuationJobId).toBeNull();
     expect(picker().value).toBe("");
   });
 
@@ -144,7 +145,9 @@ describe("JobsPanel — 'If your plan required working longer than expected…'"
 
     fireEvent.click(screen.getByRole("button", { name: /Delete Consulting/i }));
 
-    expect(authored().plan.primary.continuationJobId).toBeNull();
+    // The clearing itself is `authoring/jobs.test.ts` ("clears a selection when the job it named
+    // is removed, on either plane"); what the panel owes is a picker that follows it back to
+    // None rather than showing a choice that no longer exists.
     expect(picker().value).toBe("");
   });
 
