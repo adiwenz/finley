@@ -177,7 +177,6 @@ describe("Projection root — one root for standing + ledger writes", () => {
     const p = freshProjection();
     const before = p.state;
     // A structural fault refuses it — the down-payment source names an account that does not exist.
-    // (Affordability is no longer a refusal, §9/§13, so an unaffordable purchase would commit.)
     expect(() =>
       p.buyHome({
         month: 12,

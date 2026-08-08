@@ -67,7 +67,7 @@ describe("HomePurchaseForm — soft DTI warning", () => {
 // The ordered down-payment source picker: the payment drains the accounts the user picks, in
 // the order picked (it was once hardcoded to "savings"). These pin what the control SHOWS —
 // the engine's own pool and after-tax coverage — so the advisory names the same shortfall the
-// projection will block on when an uncovered purchase is authored.
+// authoring gate would refuse the purchase on.
 
 describe("HomePurchaseForm — down-payment source picker", () => {
   it("lists each fundable account with what it holds at that month", () => {
