@@ -16,7 +16,7 @@ import { setJobMonthlyIncome } from "../../testing/planFixtures";
 import { HomePurchaseForm } from "./homePurchaseForm";
 import { readerOf, runOf } from "../../testing/projectionHarness";
 
-const noop = () => {};
+const noop = () => { };
 
 function render(budget: Plan, month = 0) {
   // The facade funding read runs under the app's own jurisdiction, so what the form renders is
@@ -91,7 +91,7 @@ describe("HomePurchaseForm — down-payment source picker", () => {
 
   it("states the shortfall against the SELECTED accounts, not total net worth", () => {
     // $10,000 cash savings against a $60,000 down payment, said while the user is still editing —
-    // the advisory that precedes the projection block, not a submit-time refusal (there is none).
+    // the advisory that shows the same shortfall before the authoring gate refuses the purchase.
     const html = render(PLAN_DEFAULTS);
     expect(html).toContain("$50,000 short");
   });
