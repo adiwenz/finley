@@ -717,21 +717,23 @@ describe("Projection root — authoring validates against the construction-time 
     mortgageTermMonths: 360,
   };
 
-  it("refuses a buyHome the validation jurisdiction's §4.5 tax gate rejects", () => {
-    // Under a capital-gains jurisdiction the funded gain grosses the draw up past the balance,
-    // so the gate blocks — the false-accept this change closes.
+  it("accepts a buyHome whose tax makes it unaffordable, and blocks the projection on it", () => {
+    // Under a capital-gains jurisdiction the funded gain grosses the draw up past the balance.
+    // Affordability is no longer a refusal (§9, §13): the purchase is authored, and the block
+    // surfaces when the draw runs under that same jurisdiction.
     const p = nestProjection(flatCapitalGains(0.5));
-    expect(() => p.buyHome(buyFromNest)).toThrow(/tax/i);
-    expect(p.ledger.events).toHaveLength(0);
+    expect(() => p.buyHome(buyFromNest)).not.toThrow();
+    expect(p.ledger.events).toHaveLength(1);
+    expect(p.run(flatCapitalGains(0.5)).series.status).toBe("blocked");
   });
 
-  it("accepts the same buyHome when constructed against nullJurisdiction", () => {
-    // No tax, so the balance nets in full and the down payment clears — the path that made the
-    // weaker check invisible before, now reachable only by asking for it explicitly.
+  it("runs the same buyHome to the horizon under nullJurisdiction — no tax, so it clears", () => {
+    // No tax, so the balance nets in full and the down payment clears rather than blocking.
     const p = nestProjection(nullJurisdiction);
     expect(() => p.buyHome(buyFromNest)).not.toThrow();
     // One event: the mortgage rides inside the purchase, minted as a dependent artifact.
     expect(p.ledger.events).toHaveLength(1);
+    expect(p.run(nullJurisdiction).series.status).toBe("ran-to-horizon");
   });
 
   it("keeps run(jurisdiction) independent of the authoring jurisdiction", () => {
@@ -783,8 +785,9 @@ describe("Projection.retirement — the whole question, one search", () => {
   it("dates a BLOCK as an age, the mirror of dating the solved age as a month", () => {
     // Months and ages are one clock read two ways, and it is this package's clock: a caller that
     // converted the blocked month itself would be re-deriving where "now" sits on a plan it can
-    // only see the outside of. Authored affordable, then stranded by lowering the opening balance
-    // — the §4.5 gate refuses an unaffordable purchase up front, so a block has to be made this way.
+    // only see the outside of. Authored affordable, then stranded by lowering the opening balance —
+    // a plan edit strands an accepted purchase, which is how a block arises now that affordability
+    // is not refused up front.
     const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
     p.updatePlan({ openingBalanceCents: dollarsToCents(500000) });
     p.buyHome({

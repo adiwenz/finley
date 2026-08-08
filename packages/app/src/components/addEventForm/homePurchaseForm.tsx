@@ -134,8 +134,9 @@ export function HomePurchaseForm({
     [funding, sourceIds, draft.down, draft.month],
   );
 
-  // SOFT warning: never gates `submit`. The only hard block, down-payment coverage, is
-  // enforced in the engine event handler.
+  // SOFT warning: never gates `submit`. Down-payment coverage is no longer a refusal either —
+  // an uncovered purchase is authored and surfaces as a blocked projection; the picker's coverage
+  // line is the advisory that reports the same shortfall while the user is still editing.
   const dti = result.assessHomePurchase({
     month: draft.month,
     purchasePriceCents: dollarsToCents(draft.price),

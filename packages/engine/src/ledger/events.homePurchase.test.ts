@@ -107,6 +107,30 @@ function addFinanced(
   );
 }
 
+/**
+ * The funding-availability REPORTER for a candidate purchase — the shared gross-up the simulator
+ * uses, resolved against the ledger so far. Affordability is no longer a refusal (§9, §13), so the
+ * same calculation now REPORTS a shortfall (the picker warns on it, the projection blocks when the
+ * draw runs) rather than gating authoring. These tests pin the calculation at that reporter.
+ */
+function affordabilityOf(
+  ledger: Ledger,
+  base: LedgerBaseConfig,
+  event: NewLifeEvent,
+  jurisdiction: Jurisdiction = nullJurisdiction,
+) {
+  const buy = event as unknown as {
+    downPaymentSourceIds: string[];
+    downPaymentCents: number;
+    month: number;
+  };
+  return fundingLookup(ledger, base, jurisdiction).availabilityAt(
+    buy.downPaymentSourceIds,
+    buy.downPaymentCents,
+    buy.month,
+  );
+}
+
 describe("HomePurchaseEvent", () => {
   it("creates a property, its mortgage, and a down-payment outflow", () => {
     const base = baseWith(10_000_000); // $100k liquid
@@ -240,41 +264,40 @@ describe("HomePurchaseEvent", () => {
   });
 });
 
-describe("HomePurchaseEvent — down-payment hard block", () => {
-  it("blocks the purchase when liquid funds cannot cover the down payment", () => {
-    const base = baseWith(5_000_000); // $50k < $60k down
-    const result = addEvent(emptyLedger, base, purchase({ month: 1 }));
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.conflict).toMatch(/down payment/);
-  });
-
-  it("allows the purchase when liquid funds cover the down payment", () => {
-    const base = baseWith(6_000_000); // exactly $60k
-    const result = addEvent(emptyLedger, base, purchase({ month: 1 }));
-    expect(result.ok).toBe(true);
-  });
-
-  it("hard-blocks on any shortfall — one cent short still fails the gate", () => {
-    const base = baseWith(DOWN - 1);
-    const result = addEvent(emptyLedger, base, purchase({ month: 1 }));
-    expect(result.ok).toBe(false);
-  });
-
-  it("quotes dollars, not raw cents, and says why other balances don't count", () => {
+describe("HomePurchaseEvent — affordability is reported, not refused", () => {
+  it("accepts an unaffordable down payment and blocks the projection on it", () => {
+    // $50k < $60k down. The refusal is gone (§9, §13): the purchase is authored, and the block
+    // surfaces when the draw runs — stating the shortfall rather than stopping the authoring.
     const base = baseWith(5_000_000);
     const result = addEvent(emptyLedger, base, purchase({ month: 1 }));
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.conflict).toContain("$60,000");
-      expect(result.conflict).toContain("$50,000");
-      expect(result.conflict).not.toMatch(/¢|\d{7}/);
-      expect(result.conflict).toMatch(/goal funds|retirement|brokerage/);
-    }
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const series = buildProjection(interpretLedger(result.ledger, base), base, nullJurisdiction);
+    expect(series.status).toBe("blocked");
+    expect(series.blockingObligation?.shortfallCents).toBe(DOWN - 5_000_000);
+  });
+
+  it("reports the shortfall the picker warns on — selected liquid funds net of tax", () => {
+    const base = baseWith(5_000_000);
+    const avail = affordabilityOf(emptyLedger, base, purchase({ month: 1 }));
+    expect(avail.availableCents).toBe(5_000_000);
+    expect(avail.shortfallCents).toBe(DOWN - 5_000_000);
+  });
+
+  it("reports no shortfall when liquid funds cover the down payment", () => {
+    const base = baseWith(6_000_000); // exactly $60k
+    expect(addEvent(emptyLedger, base, purchase({ month: 1 })).ok).toBe(true);
+    expect(affordabilityOf(emptyLedger, base, purchase({ month: 1 })).shortfallCents).toBe(0);
+  });
+
+  it("reports a shortfall on any gap — one cent short is still short", () => {
+    const base = baseWith(DOWN - 1);
+    expect(affordabilityOf(emptyLedger, base, purchase({ month: 1 })).shortfallCents).toBe(1);
   });
 
   it("never counts credit as a down-payment source", () => {
     const base = baseWith(5_000_000);
-    // Credit is not liquid.
+    // Credit is a liability, not a liquid account — a card in the ledger changes nothing.
     const withCard = addWithBase(emptyLedger, base, {
       id: "card",
       type: "LoanEvent",
@@ -286,8 +309,7 @@ describe("HomePurchaseEvent — down-payment hard block", () => {
       apr: 0.2,
       creditLimitCents: 50_000_000,
     } as NewLifeEvent);
-    const result = addEvent(withCard, base, purchase({ month: 1 }));
-    expect(result.ok).toBe(false);
+    expect(affordabilityOf(withCard, base, purchase({ month: 1 })).shortfallCents).toBe(DOWN - 5_000_000);
   });
 });
 
@@ -332,19 +354,17 @@ describe("HomePurchaseEvent — §4.5 gate counts selected liquid goal funds", (
     expect(result.ok).toBe(true);
   });
 
-  it("names the selected goal buckets it counted when the gate still blocks", () => {
+  it("names the selected goal buckets it counted when it reports a shortfall", () => {
     // $30k savings + $20k cash emergency fund = $50k liquid < $60k down.
     const base = baseWithGoalFund(3_000_000, {
       label: "Emergency fund",
       cents: 2_000_000,
       liquid: true,
     });
-    const result = addEvent(emptyLedger, base, purchase({ month: 1, downPaymentSourceIds: BOTH_SOURCES }));
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.conflict).toContain("Emergency fund");
-      expect(result.conflict).toContain("$50,000"); // the counted selected total
-    }
+    const avail = affordabilityOf(emptyLedger, base, purchase({ month: 1, downPaymentSourceIds: BOTH_SOURCES }));
+    expect(avail.shortfallCents).toBeGreaterThan(0);
+    expect(avail.availableCents).toBe(5_000_000); // the counted selected total, net of tax
+    expect(avail.sources.map((s) => s.label)).toContain("Emergency fund");
   });
 
   it("still excludes an illiquid goal fund even when it is selected", () => {
@@ -354,35 +374,29 @@ describe("HomePurchaseEvent — §4.5 gate counts selected liquid goal funds", (
       cents: 4_000_000,
       liquid: false,
     });
-    const result = addEvent(emptyLedger, base, purchase({ month: 1, downPaymentSourceIds: BOTH_SOURCES }));
-    expect(result.ok).toBe(false);
+    const avail = affordabilityOf(emptyLedger, base, purchase({ month: 1, downPaymentSourceIds: BOTH_SOURCES }));
+    expect(avail.availableCents).toBe(3_000_000);
+    expect(avail.shortfallCents).toBe(DOWN - 3_000_000);
   });
 
   it("falls back to the account id when a counted bucket has an empty label", () => {
-    // $30k + $15k = $45k < $60k, so the gate blocks and lists both.
     const base = baseWithGoalFund(3_000_000, { label: "", cents: 1_500_000, liquid: true });
-    const result = addEvent(emptyLedger, base, purchase({ month: 1, downPaymentSourceIds: BOTH_SOURCES }));
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.conflict).toContain("goal-emergency ($15,000)");
-      expect(result.conflict).not.toContain("()");
-    }
+    const avail = affordabilityOf(emptyLedger, base, purchase({ month: 1, downPaymentSourceIds: BOTH_SOURCES }));
+    // An empty label is reported as the account id, never blank.
+    expect(avail.sources.map((s) => s.label)).toContain("goal-emergency");
+    expect(avail.sources.every((s) => s.label !== "")).toBe(true);
   });
 
-  it("states a total that equals the sum of the buckets it lists", () => {
-    // $30k + $15k = $45k: the stated total derives from the buckets it itemises.
+  it("reports available as the sum of the liquid buckets it lists", () => {
+    // $30k + $15k = $45k: both cash, so net available is exactly their sum.
     const base = baseWithGoalFund(3_000_000, {
       label: "Emergency fund",
       cents: 1_500_000,
       liquid: true,
     });
-    const result = addEvent(emptyLedger, base, purchase({ month: 1, downPaymentSourceIds: BOTH_SOURCES }));
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.conflict).toContain("$45,000"); // the stated total
-      expect(result.conflict).toContain("savings ($30,000)");
-      expect(result.conflict).toContain("Emergency fund ($15,000)");
-    }
+    const avail = affordabilityOf(emptyLedger, base, purchase({ month: 1, downPaymentSourceIds: BOTH_SOURCES }));
+    expect(avail.availableCents).toBe(4_500_000);
+    expect(avail.sources.reduce((sum, s) => sum + s.balanceCents, 0)).toBe(4_500_000);
   });
 });
 
@@ -666,24 +680,23 @@ describe("HomePurchaseEvent — ordered multi-source down payment", () => {
     expect(m3.accountBalancesCents.savings).toBe(2_000_000);
   });
 
-  it("hard-blocks a multi-source shortfall, naming every selected source and the total", () => {
-    // Combined selected balance $50k < $60k down, so the gate blocks and itemises both.
+  it("reports a multi-source shortfall, naming every selected source and its balance", () => {
+    // Combined selected balance $50k < $60k down, so the reporter itemises both.
     const base = baseWithAccounts([
       liquidAcct("savings", 3_000_000),
       liquidAcct("brokerage", 2_000_000, 0, "Brokerage"),
     ]);
-    const result = addEvent(
+    const avail = affordabilityOf(
       emptyLedger,
       base,
       purchase({ month: 1, downPaymentSourceIds: ["savings", "brokerage"] }),
     );
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.conflict).toContain("$60,000"); // the down payment
-      expect(result.conflict).toContain("$50,000"); // combined selected balance
-      expect(result.conflict).toContain("savings ($30,000)");
-      expect(result.conflict).toContain("Brokerage ($20,000)");
-    }
+    expect(avail.availableCents).toBe(5_000_000);
+    expect(avail.shortfallCents).toBe(DOWN - 5_000_000);
+    expect(avail.sources).toEqual([
+      { id: "savings", label: "savings", balanceCents: 3_000_000 },
+      { id: "brokerage", label: "Brokerage", balanceCents: 2_000_000 },
+    ]);
   });
 });
 
@@ -895,33 +908,22 @@ describe("HomePurchaseEvent — investment-funded down payment is taxed", () => 
   });
 });
 
-describe("HomePurchaseEvent — §4.5 gate sizes on down payment + tax", () => {
-  it("blocks when a selected investment source covers the down payment but not the tax on it", () => {
+describe("HomePurchaseEvent — the reporter sizes on down payment + tax", () => {
+  it("reports a shortfall when a selected investment source covers the down payment but not its tax", () => {
     // $50k basis grown 24 months at 10%/yr clears $60k pre-tax; the tax on the gain does not.
     const base = baseWithAccounts([liquidAcct("brokerage", 5_000_000, 0.1)]);
-    // Allowed with no tax: the block is the tax, not insufficiency.
-    const allowed = addEvent(
-      emptyLedger,
-      base,
-      purchase({ month: 24, downPaymentSourceIds: ["brokerage"] }),
-      nullJurisdiction,
-    );
-    expect(allowed.ok).toBe(true);
+    const buy = purchase({ month: 24, downPaymentSourceIds: ["brokerage"] });
+    // No tax: the pre-tax proceeds cover it, so no shortfall — the gap is the tax, not insufficiency.
+    expect(affordabilityOf(emptyLedger, base, buy, nullJurisdiction).shortfallCents).toBe(0);
 
-    const blocked = addEvent(
-      emptyLedger,
-      base,
-      purchase({ month: 24, downPaymentSourceIds: ["brokerage"] }),
-      flatCapitalGains(0.2),
-    );
-    expect(blocked.ok).toBe(false);
-    if (!blocked.ok) expect(blocked.conflict).toMatch(/tax/i);
+    const taxed = affordabilityOf(emptyLedger, base, buy, flatCapitalGains(0.2));
+    expect(taxed.shortfallCents).toBeGreaterThan(0);
+    expect(taxed.taxed).toBe(true);
   });
 
   it("prices the gain MARGINALLY over the owner's other income, not standalone", () => {
-    // Same brokerage, same down payment: affordable with no other income, unaffordable once a
-    // wage pushes the gain into the taxed band. Only a gate reading the owner's other income
-    // can tell these apart.
+    // Same brokerage, same down payment: covered with no other income, short once a wage pushes the
+    // gain into the taxed band. Only a report reading the owner's other income tells these apart.
     const wage = new SimCashFlowSeries(0, dollarsToCents(15_000), { type: "fixed" }, { baselineUnit: "monthly" });
     const accounts = () => [liquidAcct("savings", 0), liquidAcct("brokerage", 5_000_000, 0.1)];
     const jur = bracketedCapitalGains(dollarsToCents(15_000), 0.4); // $15k/mo threshold, 40% above
@@ -939,12 +941,12 @@ describe("HomePurchaseEvent — §4.5 gate sizes on down payment + tax", () => {
     };
     const buy = purchase({ month: 24, downPaymentSourceIds: ["brokerage"] });
 
-    // No other income: the ~$10k gain sits below the $15k threshold → untaxed → affordable.
-    expect(addEvent(emptyLedger, withoutWage, buy, jur).ok).toBe(true);
+    // No other income: the ~$10k gain sits below the $15k threshold → untaxed → covered.
+    expect(affordabilityOf(emptyLedger, withoutWage, buy, jur).shortfallCents).toBe(0);
     // The wage stacks the gain above the threshold → taxed → proceeds no longer cover it.
-    const blocked = addEvent(emptyLedger, withWage, buy, jur);
-    expect(blocked.ok).toBe(false);
-    if (!blocked.ok) expect(blocked.conflict).toMatch(/tax/i);
+    const short = affordabilityOf(emptyLedger, withWage, buy, jur);
+    expect(short.shortfallCents).toBeGreaterThan(0);
+    expect(short.taxed).toBe(true);
   });
 });
 
@@ -952,7 +954,7 @@ describe("HomePurchaseEvent — §4.5 gate sizes on down payment + tax", () => {
 // the first's realized gain under the second. The gate must price a candidate over that stacked
 // base, not the pre-funding one.
 
-describe("HomePurchaseEvent — §4.5 gate stacks a sibling draw in the same month", () => {
+describe("HomePurchaseEvent — the reporter stacks a sibling draw in the same month", () => {
   // Each brokerage: $50k basis grown 24 months at 10%/yr → ~$60,021, a ~$10,021 gain. Alone it
   // sits under the $15k threshold, untaxed, exactly covering the $60,000 down payment. Purchase
   // at month 23: months[23] holds those 24 flow-months of growth now that month 0 is processed.
@@ -969,7 +971,7 @@ describe("HomePurchaseEvent — §4.5 gate stacks a sibling draw in the same mon
     downPaymentSourceIds: ["brokerage-b"],
   });
 
-  it("blocks the second purchase, whose gain the first purchase pushes over the threshold", () => {
+  it("reports the second purchase short, its gain stacked under the first purchase's", () => {
     const jur = jurisdiction();
     const base = twoBrokerages();
     const first = addEvent(
@@ -981,16 +983,16 @@ describe("HomePurchaseEvent — §4.5 gate stacks a sibling draw in the same mon
     expect(first.ok).toBe(true);
     if (!first.ok) return;
 
-    // The sim resolves this AFTER its sibling, stacking that ~$10k gain underneath: this gain
+    // The reporter prices this AFTER its sibling, stacking that ~$10k gain underneath: this gain
     // crosses the threshold and leaves the brokerage short of $60,000.
-    const second = addEvent(first.ledger, base, secondPurchase, jur);
-    expect(second.ok).toBe(false);
-    if (!second.ok) expect(second.conflict).toMatch(/tax/i);
+    const second = affordabilityOf(first.ledger, base, secondPurchase, jur);
+    expect(second.shortfallCents).toBeGreaterThan(0);
+    expect(second.taxed).toBe(true);
   });
 
-  it("accepts that same second purchase when it has no sibling (the block IS the stacking)", () => {
+  it("reports that same second purchase covered when it has no sibling (the gap IS the stacking)", () => {
     // The control: identical but for the sibling.
-    expect(addEvent(emptyLedger, twoBrokerages(), secondPurchase, jurisdiction()).ok).toBe(true);
+    expect(affordabilityOf(emptyLedger, twoBrokerages(), secondPurchase, jurisdiction()).shortfallCents).toBe(0);
   });
 });
 
@@ -1024,31 +1026,30 @@ describe("HomePurchaseEvent — sibling explicit draws resolve in event sequence
     expect(m3.propertyValuesCents.house2).toBe(PRICE);
   });
 
-  it("gates the second purchase on the first sibling's remainder, not the pre-funding balance", () => {
+  it("prices the second purchase on the first sibling's remainder, not the pre-funding balance", () => {
     // Both purchases draw the SAME account, sized so the two $60k downs fit to the cent ($120k).
-    // The second's gate must see the first sibling's $60k already gone — the post-funding balance
-    // seam the sim resolves the second against.
+    // The second must be priced with the first sibling's $60k already gone — the post-funding
+    // balance seam the sim resolves the second against.
     const exact = baseWithAccounts([liquidAcct("a", 12_000_000)]);
     const withFirst = addWithBase(emptyLedger, exact, purchase({ month: 3, downPaymentSourceIds: ["a"] }));
-    const second = addEvent(
+    const second = affordabilityOf(
       withFirst,
       exact,
       purchase({ id: "buy2", month: 3, propertyId: "house2", downPaymentSourceIds: ["a"] }),
     );
-    expect(second.ok).toBe(true);
+    expect(second.shortfallCents).toBe(0);
 
     // One cent short of covering both: the first still funds, but the second is priced on the
-    // $59,999 it left and blocked. A gate reading the pre-funding $120k would wrongly accept it —
-    // gate == sim on the event-sequence axis.
+    // $59,999 it left and reports short. Reading the pre-funding $120k would wrongly show it
+    // covered — reporter == sim on the event-sequence axis.
     const short = baseWithAccounts([liquidAcct("a", 12_000_000 - 1)]);
     const shortWithFirst = addWithBase(emptyLedger, short, purchase({ month: 3, downPaymentSourceIds: ["a"] }));
-    const blocked = addEvent(
+    const blocked = affordabilityOf(
       shortWithFirst,
       short,
       purchase({ id: "buy2", month: 3, propertyId: "house2", downPaymentSourceIds: ["a"] }),
     );
-    expect(blocked.ok).toBe(false);
-    if (!blocked.ok) expect(blocked.conflict).toMatch(/down payment/);
+    expect(blocked.shortfallCents).toBe(1);
   });
 });
 

@@ -148,10 +148,12 @@ export interface InterpretContext {
   /** The default rate for `inflationLinked` growth. */
   readonly annualInflationRate: number;
   /**
-   * The affordability check every money-out event's gate shares, resolved against a projection
-   * of the ledger *so far* by the SAME ordered gross-up the simulator runs ({@link
-   * import("../projection/fundingDrawStep").resolveOrderedFundingDraw}), so a gate blocks
-   * exactly when the sim would fall short.
+   * The shared funding-availability REPORTER, resolved against a projection of the ledger *so far*
+   * by the SAME ordered gross-up the simulator runs ({@link
+   * import("../projection/fundingDrawStep").resolveOrderedFundingDraw}). It once gated the
+   * home-purchase down payment; affordability is no longer a refusal (§9, §13), so no handler reads
+   * it today. It remains injected as the reporter a preview or a future advisory would consult —
+   * the same calculation, now reporting rather than blocking.
    *
    * Present only on the authoring path ({@link addEvent}); `undefined` during ordinary
    * interpretation and undo, when handlers skip projection-dependent checks.

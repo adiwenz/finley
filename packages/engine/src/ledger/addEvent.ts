@@ -155,8 +155,9 @@ export function fundingLookup(
 }
 
 /**
- * Base facts plus `fundingAvailabilityAt`, from one projection of the pre-candidate ledger.
- * Every money-out event's affordability gate fires through this alone.
+ * Base facts plus the `fundingAvailabilityAt` reporter, from one projection of the pre-candidate
+ * ledger. No handler gates on it any more (§9, §13) — it is carried for a preview or advisory to
+ * consult, the shared availability calculation reporting rather than blocking.
  */
 function addEventContext(
   ledger: Ledger,

@@ -1010,13 +1010,15 @@ describe("Projection root — the counter floors ids it did not mint", () => {
     const p = freshProjection();
     const before = p.state;
 
+    // A structural fault (an unknown down-payment source), not affordability — affordability is no
+    // longer a refusal (§9/§13), so only a genuinely invalid transaction is rejected here.
     expect(() =>
       p.buyHome({
         month: 12,
         ownerId: P1,
         purchasePriceCents: dollarsToCents(500000),
         downPaymentCents: dollarsToCents(400000),
-        downPaymentSourceIds: ["savings"],
+        downPaymentSourceIds: ["no-such-account"],
         mortgageApr: 6,
         mortgageTermMonths: 360,
       }),

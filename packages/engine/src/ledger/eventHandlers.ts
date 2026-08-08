@@ -58,15 +58,6 @@ function holdingMonthFault(month: number): string | null {
     : null;
 }
 
-/** Whole dollars for a conflict message — conflicts are read by a person, not the engine. */
-function dollars(cents: number): string {
-  return (cents / 100).toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  });
-}
-
 /** Owner must be a known household member (present at some point). */
 function ownerExists(state: InterpretState, ownerId: string): boolean {
   return state.personsById.has(asPersonId(ownerId));
@@ -300,34 +291,13 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     if (event.downPaymentCents < 0 || event.downPaymentCents > event.purchasePriceCents) {
       return fail(event, `down payment must be between 0 and the purchase price`);
     }
-    // HARD BLOCK (§4.5): the down payment must be coverable from the SELECTED liquid sources
-    // at the purchase month, NET of the capital-gains tax liquidating them owes.
-    // `fundingAvailabilityAt` runs the SAME ordered gross-up the simulator does against a
-    // projection of the ledger so far — draining the selected sources in the user's order,
-    // taxing each sale marginally over the owner's other income that month — so the gate
-    // blocks exactly when the sim would fall short. A selected source that is not a liquid
-    // account (illiquid, or empty) contributes 0. It exists only on the authoring path;
-    // absent it (ordinary replay/undo) this check is skipped — replay never re-litigates
-    // an accepted purchase.
-    const affordability = context.fundingAvailabilityAt?.(
-      event.downPaymentSourceIds,
-      event.downPaymentCents,
-      event.month,
-    );
-    if (affordability !== undefined && affordability.shortfallCents > 0) {
-      // Name the SELECTED sources and what each holds, flagging when capital-gains tax bit
-      // into the coverage — otherwise the total and the printed balances agree exactly.
-      const counted = affordability.sources
-        .map((s) => `${s.label} (${dollars(s.balanceCents)})`)
-        .join(", ");
-      const taxNote = affordability.taxed
-        ? " (after the capital-gains tax on liquidating the selected investment sources)"
-        : "";
-      return fail(
-        event,
-        `down payment of ${dollars(event.downPaymentCents)} exceeds the ${dollars(affordability.availableCents)} available from the selected sources${taxNote} at month ${event.month}. Selected sources: ${counted}. Only these accounts fund the purchase — other balances (retirement, illiquid goal funds) do not count, and credit is never a source, so total net worth can exceed the down payment while this still fails.`,
-      );
-    }
+    // Affordability is NO LONGER a refusal (§9, §13). An unaffordable down payment is accepted and
+    // authored; the projection reports it as blocked, classifying the gap and offering alternatives
+    // (see `classifyFundingFailure`). Refusing here is what stopped a planning tool from modelling
+    // the plan, and the preview warning preserves the same information at the same moment. The
+    // shared availability calculation survives as a REPORTER — `fundingLookup.availabilityAt`, still
+    // exposed through `Projection.funding()` — but it gates nothing. Only structural faults above
+    // (missing source, out-of-range down payment) still refuse.
     return ok;
   },
   apply(event, state, context) {

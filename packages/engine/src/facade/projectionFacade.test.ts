@@ -176,14 +176,15 @@ describe("Projection root — one root for standing + ledger writes", () => {
   it("a refused ledger transaction leaves the state and the id counter untouched", () => {
     const p = freshProjection();
     const before = p.state;
-    // Down payment far exceeds any liquid balance → hard block refuses it.
+    // A structural fault refuses it — the down-payment source names an account that does not exist.
+    // (Affordability is no longer a refusal, §9/§13, so an unaffordable purchase would commit.)
     expect(() =>
       p.buyHome({
         month: 12,
         ownerId: P1,
         purchasePriceCents: dollarsToCents(500000),
         downPaymentCents: dollarsToCents(400000),
-        downPaymentSourceIds: ["savings"],
+        downPaymentSourceIds: ["no-such-account"],
         mortgageApr: 6,
         mortgageTermMonths: 360,
       }),
