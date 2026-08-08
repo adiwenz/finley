@@ -134,9 +134,10 @@ export function HomePurchaseForm({
     [funding, sourceIds, draft.down, draft.month],
   );
 
-  // SOFT warning: never gates `submit`. Down-payment coverage is no longer a refusal either —
-  // an uncovered purchase is authored and surfaces as a blocked projection; the picker's coverage
-  // line is the advisory that reports the same shortfall while the user is still editing.
+  // SOFT warning: never gates `submit` — that's the DTI advisory, a separate concern from
+  // down-payment coverage. Coverage itself DOES still gate: an uncovered selection refuses at
+  // `submit` (the engine's hard block), and the picker's coverage line — read off this same
+  // `availability` — is what lets the user see and fix that before they try.
   const dti = result.assessHomePurchase({
     month: draft.month,
     purchasePriceCents: dollarsToCents(draft.price),

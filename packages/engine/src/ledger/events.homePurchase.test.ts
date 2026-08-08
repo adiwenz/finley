@@ -108,10 +108,11 @@ function addFinanced(
 }
 
 /**
- * The funding-availability REPORTER for a candidate purchase — the shared gross-up the simulator
- * uses, resolved against the ledger so far. Affordability is no longer a refusal (§9, §13), so the
- * same calculation now REPORTS a shortfall (the picker warns on it, the projection blocks when the
- * draw runs) rather than gating authoring. These tests pin the calculation at that reporter.
+ * The funding-availability calculation for a candidate purchase — the shared gross-up the
+ * simulator uses, resolved against the ledger so far. The SAME calculation both gates a newly
+ * authored purchase (`homePurchase.check`, via `fundingAvailabilityAt`) and reports coverage to
+ * the picker while the user is still editing; these tests pin it directly at the reporter, apart
+ * from the gate that reads it.
  */
 function affordabilityOf(
   ledger: Ledger,
@@ -264,19 +265,74 @@ describe("HomePurchaseEvent", () => {
   });
 });
 
-describe("HomePurchaseEvent — affordability is reported, not refused", () => {
-  it("accepts an unaffordable down payment and blocks the projection on it", () => {
-    // $50k < $60k down. The refusal is gone (§9, §13): the purchase is authored, and the block
-    // surfaces when the draw runs — stating the shortfall rather than stopping the authoring.
+describe("HomePurchaseEvent — down-payment hard block", () => {
+  it("refuses a newly authored purchase when the selected sources cannot cover the down payment", () => {
+    // $50k < $60k down, and nothing else eligible exists — the household's only liquid account
+    // IS the selection, so the whole eligible pool falls exactly as short.
     const base = baseWith(5_000_000);
     const result = addEvent(emptyLedger, base, purchase({ month: 1 }));
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const series = buildProjection(interpretLedger(result.ledger, base), base, nullJurisdiction);
-    expect(series.status).toBe("blocked");
-    expect(series.blockingObligation?.shortfallCents).toBe(DOWN - 5_000_000);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.conflict).toMatch(/down payment/);
   });
 
+  it("allows the purchase when liquid funds cover the down payment", () => {
+    const base = baseWith(6_000_000); // exactly $60k
+    expect(addEvent(emptyLedger, base, purchase({ month: 1 })).ok).toBe(true);
+  });
+
+  it("blocks on any shortfall — one cent short still refuses", () => {
+    const base = baseWith(DOWN - 1);
+    expect(addEvent(emptyLedger, base, purchase({ month: 1 })).ok).toBe(false);
+  });
+
+  it("quotes dollars, not raw cents, and explains that eligible sources together fall short when nothing else is eligible", () => {
+    const base = baseWith(5_000_000);
+    const result = addEvent(emptyLedger, base, purchase({ month: 1 }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.conflict).toContain("$60,000");
+      expect(result.conflict).toContain("$50,000");
+      expect(result.conflict).not.toMatch(/¢|\d{7}/);
+      expect(result.conflict).toMatch(/eligible funding sources together can cover/);
+    }
+  });
+
+  it("names an alternative eligible account instead of refusing blind, when one exists", () => {
+    // $30k savings selected + a $40k liquid emergency fund NOT selected: the money is there, just
+    // not in the chosen account, so the refusal must say so and name where it is.
+    const base = baseWithGoalFund(3_000_000, {
+      label: "Emergency fund",
+      cents: 4_000_000,
+      liquid: true,
+    });
+    const result = addEvent(emptyLedger, base, purchase({ month: 1, downPaymentCents: 5_000_000 }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.conflict).toMatch(/other eligible accounts could cover it/i);
+      expect(result.conflict).toContain("Emergency fund");
+    }
+  });
+
+  it("never counts credit as a down-payment source", () => {
+    const base = baseWith(5_000_000);
+    // Credit is not liquid.
+    const withCard = addWithBase(emptyLedger, base, {
+      id: "card",
+      type: "LoanEvent",
+      month: 0,
+      liabilityId: "cc1",
+      ownerId: "p1",
+      kind: "creditCard",
+      openingBalanceCents: 0,
+      apr: 0.2,
+      creditLimitCents: 50_000_000,
+    } as NewLifeEvent);
+    const result = addEvent(withCard, base, purchase({ month: 1 }));
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe("HomePurchaseEvent — availabilityAt reporter (shared by the gate and the UI advisory)", () => {
   it("reports the shortfall the picker warns on — selected liquid funds net of tax", () => {
     const base = baseWith(5_000_000);
     const avail = affordabilityOf(emptyLedger, base, purchase({ month: 1 }));

@@ -40,7 +40,7 @@ export function BlockedWarning({ warning }: { warning: BlockedWarningView }) {
       ) : (
         <>
           {lead}
-          can’t be funded: no eligible account can cover it, and it falls{" "}
+          can’t be funded: the eligible funding sources together can’t cover it, and it falls{" "}
           {formatDollars(warning.shortfallCents)} short after the tax on selling what you have.
           Retirement accounts aren’t eligible for a purchase like this, so a balance held there
           doesn’t change it. This isn’t a judgement about what you can manage — it’s that no

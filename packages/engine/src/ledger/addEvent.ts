@@ -18,6 +18,8 @@ import {
   type TaxableByOwner,
   type TaxableByCategory,
 } from "../projection/fundingDrawStep";
+import { classifyFundingFailure, type EligibleAccountState, type FundingFailure } from "../projection/fundingFailure";
+import type { FundingTreatment } from "../projection/fundingEligibility";
 import { nullJurisdiction, type Jurisdiction, type JurisdictionContext } from "../jurisdiction/jurisdiction";
 
 // simulate.ts / report.ts hold the same local constant. Only bracket indexing reads it, so
@@ -41,6 +43,19 @@ export interface FundingLookup {
     amountCents: number,
     month: number,
   ) => FundingAvailability;
+  /**
+   * Why the selected sources would fall short, classified against the WHOLE eligible pool —
+   * `funding-configuration` when eligible money exists elsewhere, `no-eligible-source-suffices`
+   * when it doesn't. Built over the exact same {@link resolveOrderedFundingDraw} pricing as
+   * `availabilityAt` (its `selectedSources*Cents` are that call's own figures, not recomputed),
+   * so the gate and the classifier can never disagree about what the selection delivers.
+   */
+  readonly failureAt: (
+    treatment: FundingTreatment,
+    sourceIds: readonly string[],
+    amountCents: number,
+    month: number,
+  ) => FundingFailure;
 }
 
 /**
@@ -86,11 +101,15 @@ export function fundingLookup(
     return pool.sort((a, b) => b.balanceCents - a.balanceCents);
   };
 
-  const availabilityAt = (
-    sourceIds: readonly string[],
-    amountCents: number,
-    month: number,
-  ): FundingAvailability => {
+  // Balance, basis, and jurisdiction context at the seam a candidate draw resolves against —
+  // after this month's explicit draws, before decumulation. Since the reorder, decumulation
+  // runs AFTER the candidate, so its end-of-month drain must not count against the candidate's
+  // sources; the flow view exports the pre-decumulation figures for exactly this read. The
+  // `opening` snapshot (month ≤ 0) carries no flows and already holds pre-decumulation
+  // balances, so it falls back to the end-of-month maps — which for the opening snapshot ARE
+  // the starting balances. Shared by `availabilityAt` and `failureAt` so both price a draw
+  // over identically the same seam.
+  const contextAt = (month: number) => {
     const m = monthAt(month);
     const ctx: JurisdictionContext = { year: startYear + Math.floor(Math.max(0, month) / 12) };
     // A candidate appended now is last in ledger order, so the sim resolves it against
@@ -100,18 +119,19 @@ export function fundingLookup(
     for (const [ownerId, byCategory] of Object.entries(baseRecord)) {
       taxableByOwner.set(ownerId, { ...(byCategory as TaxableByCategory) });
     }
-
-    // Balance and basis at the seam the candidate resolves against — after this month's explicit
-    // draws, before decumulation. Since the reorder, decumulation runs AFTER the candidate, so
-    // its end-of-month drain must not count against the candidate's sources; the flow view
-    // exports the pre-decumulation figures for exactly this read. The `opening` snapshot (month
-    // ≤ 0) carries no flows and already holds pre-decumulation balances, so it falls back to the
-    // end-of-month maps — which for the opening snapshot ARE the starting balances.
     const balanceOf = (id: string): number =>
       (m?.flows?.accountBalancesAfterFundingCents?.[id] ?? m?.accountBalancesCents[id] ?? 0) as number;
     const basisOf = (id: string): number =>
       (m?.flows?.accountBasisAfterFundingCents?.[id] ?? m?.accountBasisCents[id] ?? 0) as number;
+    return { ctx, taxableByOwner, balanceOf, basisOf };
+  };
 
+  /** The selected sources as `resolveOrderedFundingDraw` reads them, at `month`'s seam. */
+  const selectedSources = (
+    sourceIds: readonly string[],
+    balanceOf: (id: string) => number,
+    basisOf: (id: string) => number,
+  ) => {
     const named: FundingSourceBalance[] = [];
     const fundingSources: FundingSourceState[] = [];
     for (const id of sourceIds) {
@@ -130,6 +150,16 @@ export function fundingLookup(
         });
       }
     }
+    return { named, fundingSources };
+  };
+
+  const availabilityAt = (
+    sourceIds: readonly string[],
+    amountCents: number,
+    month: number,
+  ): FundingAvailability => {
+    const { ctx, taxableByOwner, balanceOf, basisOf } = contextAt(month);
+    const { named, fundingSources } = selectedSources(sourceIds, balanceOf, basisOf);
 
     const { perSource, netDeliveredCents, shortfallCents } = resolveOrderedFundingDraw(
       amountCents,
@@ -151,22 +181,66 @@ export function fundingLookup(
     };
   };
 
-  return { sourcesAt, availabilityAt };
+  const failureAt = (
+    treatment: FundingTreatment,
+    sourceIds: readonly string[],
+    amountCents: number,
+    month: number,
+  ): FundingFailure => {
+    const { ctx, taxableByOwner, balanceOf, basisOf } = contextAt(month);
+    const { fundingSources } = selectedSources(sourceIds, balanceOf, basisOf);
+
+    // Price the selection over a COPY: the classifier below prices its own probes (the whole
+    // eligible pool, then each alternative) over the UNMUTATED base, mirroring how a blocked
+    // draw's own gains never stack (`resolveFundingDraws`) — the selection failed, so nothing
+    // it would have sold is booked.
+    const probe: TaxableByOwner = new Map();
+    for (const [ownerId, byCategory] of taxableByOwner) probe.set(ownerId, { ...byCategory });
+    const selected = resolveOrderedFundingDraw(amountCents, fundingSources, jurisdiction, ctx, probe);
+    const selectedTaxCents = selected.perSource.reduce((sum, s) => sum + s.taxCents, 0);
+
+    const accounts: EligibleAccountState[] = liquidAccounts.map((a) => ({
+      id: a.id,
+      ownerId: a.ownerId,
+      category: a.taxProfile.withdrawalCategory,
+      balanceCents: balanceOf(a.id),
+      basisCents: basisOf(a.id),
+      label: labelById.get(a.id) ?? a.id,
+      liquid: true,
+    }));
+
+    return classifyFundingFailure({
+      treatment,
+      requiredCents: amountCents,
+      selectedSourceIds: sourceIds,
+      selectedSourcesAvailableCents: selected.netDeliveredCents,
+      selectedSourcesTaxCents: selectedTaxCents,
+      accounts,
+      jurisdiction,
+      ctx,
+      taxableByOwner,
+    });
+  };
+
+  return { sourcesAt, availabilityAt, failureAt };
 }
 
 /**
- * Base facts plus the `fundingAvailabilityAt` reporter, from one projection of the pre-candidate
- * ledger. No handler gates on it any more (§9, §13) — it is carried for a preview or advisory to
- * consult, the shared availability calculation reporting rather than blocking.
+ * Base facts plus the funding-availability gate and classifier, from ONE projection of the
+ * pre-candidate ledger — `homePurchase.check` reads both to refuse an unaffordable down payment
+ * and explain why.
  */
 function addEventContext(
   ledger: Ledger,
   base: LedgerBaseConfig,
   jurisdiction: Jurisdiction,
 ): InterpretContext {
+  const funding = fundingLookup(ledger, base, jurisdiction);
   return {
     ...contextFrom(base),
-    fundingAvailabilityAt: fundingLookup(ledger, base, jurisdiction).availabilityAt,
+    fundingAvailabilityAt: funding.availabilityAt,
+    fundingFailureAt: funding.failureAt,
+    fundingSourcesAt: funding.sourcesAt,
   };
 }
 

@@ -717,14 +717,13 @@ describe("Projection root — authoring validates against the construction-time 
     mortgageTermMonths: 360,
   };
 
-  it("accepts a buyHome whose tax makes it unaffordable, and blocks the projection on it", () => {
-    // Under a capital-gains jurisdiction the funded gain grosses the draw up past the balance.
-    // Affordability is no longer a refusal (§9, §13): the purchase is authored, and the block
-    // surfaces when the draw runs under that same jurisdiction.
+  it("refuses a buyHome whose tax makes it unaffordable at authoring time", () => {
+    // Under a capital-gains jurisdiction the funded gain grosses the draw up past the balance —
+    // the down-payment gate prices the SAME gross-up the simulator would, so it refuses before
+    // the event ever lands rather than authoring a purchase the sim would later have to block.
     const p = nestProjection(flatCapitalGains(0.5));
-    expect(() => p.buyHome(buyFromNest)).not.toThrow();
-    expect(p.ledger.events).toHaveLength(1);
-    expect(p.run(flatCapitalGains(0.5)).series.status).toBe("blocked");
+    expect(() => p.buyHome(buyFromNest)).toThrow(/down payment/);
+    expect(p.ledger.events).toHaveLength(0);
   });
 
   it("runs the same buyHome to the horizon under nullJurisdiction — no tax, so it clears", () => {

@@ -299,7 +299,7 @@ describe("blocked-purchase warnings — the two failure cases produce different 
   it("states the eligibility fact without insolvency language for a no-eligible block", () => {
     const { warning, html } = warningHtml(noEligible());
     expect(warning.kind).toBe("no-eligible-source-suffices");
-    expect(html).toContain("no eligible account can cover it");
+    expect(html).toContain("eligible funding sources together can’t cover it");
     expect(html.toLowerCase()).not.toContain("afford");
     expect(html.toLowerCase()).not.toContain("insolven");
   });
