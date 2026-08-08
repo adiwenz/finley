@@ -159,23 +159,11 @@ describe("Projection root — horizon spans to the LONGEST-LIVED member, not the
       return Projection.fromState(lowered, nullJurisdiction);
     };
 
-    it("BEFORE either death: Sam leaves, and the run stops at the primary's own expectancy", () => {
-      expect(monthsOf(strandedAt(300))).toBe(PRIMARY_HORIZON);
-      // Right up to the last month it can still happen.
-      expect(monthsOf(strandedAt(PRIMARY_HORIZON - 1))).toBe(PRIMARY_HORIZON);
-    });
-
-    it("EXACTLY AT the first death: too late to happen, so Sam's tail stays in the run", () => {
-      // Month 540 is the first month the primary is gone — there is no couple left to dissolve,
-      // so the separation is not an event in either life and Sam is covered to their own 660.
-      expect(monthsOf(strandedAt(PRIMARY_HORIZON))).toBe(SAM_REACH);
-    });
-
-    it("AFTER the first death: same answer — Sam never left while alive", () => {
-      expect(monthsOf(strandedAt(600))).toBe(SAM_REACH);
-      // Including a separation stranded past Sam's OWN death, which is doubly moot.
-      expect(monthsOf(strandedAt(700))).toBe(SAM_REACH);
-    });
+    // The rule's own boundary sweep — before, exactly at, and after the first death — is pinned
+    // directly against `memberHorizonReach` in `job/memberHorizonReach.test.ts`; that module's
+    // own docstring names this file as the place callers are checked, not the rule re-derived.
+    // What stays here is that the run's OWN last month and the retirement panel's anchor, two
+    // separate consumers of the shared helper, agree at every one of those same boundary points.
 
     it("agrees with the anchor the panel names, at every point around the boundary", () => {
       // The reason the rule lives in one shared helper. The run's last month and the age the panel
@@ -201,44 +189,8 @@ describe("Projection root — horizon spans to the LONGEST-LIVED member, not the
       expect(monthsOf(strandedAt((2085 - 2026) * 12, 84))).toBe((2080 - 2026) * 12);
     });
 
-    it("is symmetric — a separation after the PARTNER's death is equally moot", () => {
-      // Sam is OLDER (born 1976) and so dies 2061, before the primary's 2071, with the separation
-      // stranded at 2065. Sam's own reach is below the primary's, so the horizon is unchanged —
-      // but the reason is that Sam never left, not that they did, and the binding death here is
-      // the PARTNER's rather than the primary's.
-      const authored = freshProjection();
-      authored.updatePlan({ lifeExpectancy: 100 });
-      const partnerId = authored.marry({
-        month: 12,
-        name: "Sam",
-        birthYear: 1976,
-        lifeExpectancy: 95,
-      });
-      authored.separate({ month: (2065 - 2026) * 12, partnerPersonId: partnerId });
-      const state = JSON.parse(JSON.stringify(authored.toState())) as ProjectionState;
-      const lowered = {
-        ...state,
-        scenario: {
-          ...state.scenario,
-          plan: {
-            ...state.scenario.plan,
-            primary: {
-              ...state.scenario.plan.primary,
-              lifeExpectancy: samplePlan.primary.lifeExpectancy,
-            },
-          },
-          ledger: {
-            ...state.scenario.ledger,
-            events: state.scenario.ledger.events.map((e) =>
-              e.type === "RelationshipEvent"
-                ? { ...e, person: { ...e.person, lifeExpectancy: samplePlan.primary.lifeExpectancy } }
-                : e,
-            ),
-          },
-        },
-      } as ProjectionState;
-      expect(monthsOf(Projection.fromState(lowered, nullJurisdiction))).toBe(PRIMARY_HORIZON);
-    });
+    // The symmetric case — the binding death is the PARTNER's rather than the primary's — is
+    // pinned the same way, directly against `memberHorizonReach`.
   });
 });
 
@@ -754,13 +706,6 @@ describe("Projection root — authoring validates against the construction-time 
 // off the pass already in hand rather than provoking another.
 
 describe("Projection.retirement — the whole question, one search", () => {
-  const CURRENT_AGE = SAMPLE_START_YEAR - samplePlan.primary.birthYear;
-
-  const covered = mockJurisdiction({
-    publicHealthCoverageAge: 65,
-    healthCostBenchmarkMonthlyCents: () => dollarsToCents(1000),
-  });
-
   const outlookOf = (plan: typeof samplePlan, jurisdiction = nullJurisdiction) =>
     Projection.fromState(stateOf(plan), nullJurisdiction).retirement(jurisdiction);
 
@@ -773,73 +718,10 @@ describe("Projection.retirement — the whole question, one search", () => {
     expect(outlookOf(samplePlan).solution.plannedWorkStopAge).toBe(60);
   });
 
-  it("dates the full-retirement age in months from now, for a chart's reference line", () => {
-    const outlook = outlookOf(samplePlan);
-    const age = outlook.solution.fullRetirementAge;
-    expect(age).not.toBeNull();
-    expect(outlook.fullRetirementMonth).toBe((age! - CURRENT_AGE) * 12);
-  });
-
-  it("dates a BLOCK as an age, the mirror of dating the solved age as a month", () => {
-    // Months and ages are one clock read two ways, and it is this package's clock: a caller that
-    // converted the blocked month itself would be re-deriving where "now" sits on a plan it can
-    // only see the outside of. Authored affordable, then stranded by lowering the opening balance
-    // — the §4.5 gate refuses an unaffordable purchase up front, so a block has to be made this way.
-    const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
-    p.updatePlan({ openingBalanceCents: dollarsToCents(500000) });
-    p.buyHome({
-      month: 24,
-      ownerId: P1,
-      purchasePriceCents: dollarsToCents(600000),
-      downPaymentCents: dollarsToCents(400000),
-      downPaymentSourceIds: ["savings"],
-      mortgageApr: 6,
-      mortgageTermMonths: 360,
-    });
-    p.updatePlan({ openingBalanceCents: dollarsToCents(1000) });
-
-    const series = p.run(nullJurisdiction).series;
-    expect(series.status).toBe("blocked");
-    const outlook = p.retirement(nullJurisdiction);
-    expect(outlook.solution.blocked).toBe(true);
-    // Two years out on a plan aged 40 → 42, floored to whole years like every reported age.
-    expect(outlook.blockedAtAge).toBe(CURRENT_AGE + 2);
-  });
-
-  it("states no blocked age for a projection that was never blocked", () => {
-    expect(outlookOf(samplePlan).blockedAtAge).toBeNull();
-  });
-
-  it("flags a health gap only when the SOLVED age lands before the coverage age", () => {
-    // The sample plan solves to 60. With $600/mo authored against a $1,000/mo benchmark that
-    // is a 5-year gap — measured off the search's answer, not off any figure the plan states.
-    const flag = outlookOf(samplePlan, covered).earlyRetireeHealth;
-    expect(flag.gapYears).toBe(5);
-    expect(flag.shortfallMonthlyCents).toBe(dollarsToCents(400));
-
-    // A coverage age the household already clears closes the window, whatever the line says.
-    const coversEarly = mockJurisdiction({
-      publicHealthCoverageAge: 55,
-      healthCostBenchmarkMonthlyCents: () => dollarsToCents(1000),
-    });
-    expect(outlookOf(samplePlan, coversEarly).earlyRetireeHealth.gapYears).toBe(0);
-    // A jurisdiction naming no coverage age has no window to be early for.
-    expect(outlookOf(samplePlan).earlyRetireeHealth.gapYears).toBe(0);
-  });
-
-  it("raises no health gap for a household that can never retire", () => {
-    // No solved age is not an early one. Flagging here would warn about a retirement the plan
-    // cannot take, which is exactly what measuring against a pinned age used to do.
-    const broke = {
-      ...samplePlan,
-      openingBalanceCents: 0,
-      primary: { ...samplePlan.primary, jobs: [] },
-    };
-    const outlook = outlookOf(broke, covered);
-    expect(outlook.solution.fullRetirementAge).toBeNull();
-    expect(outlook.earlyRetireeHealth.flagged).toBe(false);
-    expect(outlook.earlyRetireeHealth.gapYears).toBe(0);
-  });
+  // The month/age conversions (`fullRetirementMonth`, `blockedAtAge`) and the early-retiree
+  // health flag are `buildRetirementOutlook`'s own arithmetic, pinned directly against it in
+  // `retirement/retirementOutlook.test.ts`. What stays here is that `Projection.retirement`
+  // actually calls through to it and that a run stays a separate question from a search.
 
   it("leaves run() alone — a simulation is not a search", () => {
     const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
@@ -1307,13 +1189,3 @@ describe("every person-scoped stream ends at its own person's death", () => {
     expect(r.series.months[SAM_DEATH - 1]!.flows!.expensesCents).toBe(2_631_197);
   });
 });
-
-/**
- * `setContinuationJob` as the npm API surface — the one write that names a PERSON rather than a
- * job, and therefore the one that has to settle a plane from a person id instead of taking the
- * caller's word for it.
- *
- * The state function underneath is covered in `authoring/jobs.test.ts`. What is asserted here is
- * the contract a package consumer actually holds: one method for both planes, reads that answer
- * with what was written, and refusals that leave the handle usable.
- */

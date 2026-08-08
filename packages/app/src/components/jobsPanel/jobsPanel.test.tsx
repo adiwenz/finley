@@ -176,63 +176,12 @@ describe("JobsPanel — listing", () => {
     expect(Number(spin(/End age/i).value)).toBe(65); // the authored end, untouched by the preview
   });
 
-  it("runs the CONTINUATION job on to a later preview age, and leaves the others alone", () => {
-    // Job 1 is the one being worked today and Job 2 starts at 48, so with nobody having opened
-    // the picker the initialization rule names Job 1 — "continue working" means the work they
-    // are actually doing. Previewing "retire at 76" therefore carries Job 1 to 76 and leaves
-    // Job 2 ending exactly where it was authored to.
-    //
-    // Which job that is comes from the selection and never from the dates. The rule this
-    // replaced took the LAST-ending job, so this same plan used to extend Job 2 instead — an
-    // answer that reads plausibly here and is wrong wherever the later job is a fixed term.
-    render(
-      <Harness
-        initial={{
-          ...PLAN_DEFAULTS,
-          primary: {
-            ...PLAN_DEFAULTS.primary,
-            jobs: [
-              { ...PLAN_DEFAULTS.primary.jobs[0]!, endYear: START_YEAR + 13 }, // ends at age 48
-              {
-                ...PLAN_DEFAULTS.primary.jobs[0]!,
-                id: `${PLAN_DEFAULTS.primary.jobs[0]!.id}-second`,
-                startYear: START_YEAR + 13,
-                endYear: START_YEAR + 35, // to age 70
-              },
-            ],
-          },
-        }}
-        previewStopAge={76}
-      />,
-    );
-    expect(
-      screen.getByRole("img", { name: /Monthly pay across Job 1, from age 18 to 76,/i }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("img", { name: /Monthly pay across Job 2, from age 48 to 70,/i }),
-    ).toBeTruthy();
-  });
-
-  it("caps a fixed-term job's chart at the preview age too — never extends past it, but never lets one outlast the boundary either", () => {
-    render(
-      <Harness
-        initial={{
-          ...PLAN_DEFAULTS,
-          primary: {
-            ...PLAN_DEFAULTS.primary,
-            jobs: [{ ...PLAN_DEFAULTS.primary.jobs[0]!, endYear: START_YEAR + 45 }], // authored to age 80
-          },
-        }}
-        previewStopAge={76}
-      />,
-    );
-    expect(
-      screen.getByRole("img", { name: /Monthly pay across Job 1, from age 18 to 76,/i }),
-    ).toBeTruthy();
-    // The authored span — what Edit shows and would save — is untouched.
-    fireEvent.click(screen.getByRole("button", { name: /Edit Job 1/i }));
-    expect(Number(spin(/End age/i).value)).toBe(80);
-  });
+  // Which job a preview EXTENDS, and where the extension is bounded, are the retirement
+  // solver's own contract — pinned end to end in `retirementSolver.test.ts` ("which job a later
+  // candidate age continues") and, for the membership/paid-window geometry a chart draws,
+  // directly on `resolveJobPayDisplay` in `householdJob.test.ts`. What belongs here is only that
+  // this panel draws whatever the engine resolved, which the single-job cap above and the
+  // never-pays case below already establish.
 
   it("empties the chart of a job the preview never pays — one starting after the previewed stop-working age", () => {
     // Authored: work to 75, with a second open-ended job picked up at 70. Previewed: stop at
@@ -1558,7 +1507,10 @@ describe("JobsPanel — 'If your plan required working longer than expected…'"
  *
  * The intervals are the ENGINE's: `ProjectionResult.jobPayDisplay`, resolved against whichever
  * run the charts are showing. Nothing below is computed on this side, which is why previewing
- * needs no rule of its own.
+ * needs no rule of its own. The geometry itself — which stretches come out hatched for every
+ * join/separation shape — is pinned directly on `resolveJobPayDisplay` in `householdJob.test.ts`;
+ * what these tests own is that the panel renders that resolution (both sentences, both preview
+ * and authored) rather than a rule of its own.
  */
 describe("JobsPanel — the months of a job that are not household income", () => {
   const separatingAt = (month: number): NewLifeEvent => ({
@@ -1584,29 +1536,6 @@ describe("JobsPanel — the months of a job that are not household income", () =
   /** Sam's job, running the partner's 40 to 65 — months 0 to 300 from "now". */
   const samsJob = () => partnerJob(5000);
 
-  it("hatches the months before the owner joined, and only those", () => {
-    // Sam joins at month 60 holding a job already five years old. The first five years are
-    // employment this household never collected, and nothing about the job's end is unusual.
-    render(<Harness events={[partnerJoining([samsJob()], 60)]} />);
-
-    expect(samsUncounted()).toEqual([[0, 60]]);
-    expect(uncountedByCard()[0]).toEqual([]); // Alex's own job, counted throughout
-    expect(
-      screen.getByText(/not household income because Sam was not yet part of the household/),
-    ).toBeTruthy();
-  });
-
-  it("hatches the months after the owner left, and only those", () => {
-    render(<Harness events={[partnerJoining([samsJob()]), separatingAt(120)]} />);
-
-    expect(samsUncounted()).toEqual([[120, 300]]);
-    expect(
-      screen.getByText(/not household income because Sam was no longer part of the household/),
-    ).toBeTruthy();
-    // The job itself is untouched — this is a reading of the plan, never an edit to it.
-    expect(partnerJobs()[0]!.endYear).toBe(START_YEAR - 40 + 65);
-  });
-
   it("hatches BOTH ends for a job that outlasts a join and a separation", () => {
     // The case a single trailing suffix could not express: joined at 60, gone at 180, holding
     // the job from 0 to 300. Ten of those twenty-five years are this household's; the panel
@@ -1622,9 +1551,10 @@ describe("JobsPanel — the months of a job that are not household income", () =
     expect(screen.getByText(/was no longer part of the household/)).toBeTruthy();
   });
 
-  it("hatches the whole span of a job the household is never paid for", () => {
-    // Sam leaves at month 12 and the job does not start until month 60. Every month of it is
-    // employment, and none of it is ever this household's.
+  it("words the hatch differently when no month was ever paid — neither 'yet' nor 'no longer'", () => {
+    // The one sentence with no paid window to sit beside: a job the household never collected a
+    // cent of. The geometry that produces this case (`paidSpan === null`) is pinned directly on
+    // `resolveJobPayDisplay`; what is the panel's own is choosing this wording over the other two.
     render(
       <Harness
         events={[
@@ -1633,10 +1563,6 @@ describe("JobsPanel — the months of a job that are not household income", () =
         ]}
       />,
     );
-
-    expect(samsUncounted()).toEqual([[60, 300]]);
-    // With no paid months at all there is nothing for the gap to sit before or after, so the
-    // sentence claims neither — it says only what is true of every month of the job.
     expect(screen.getByText(/not household income during this period/)).toBeTruthy();
     expect(screen.queryByText(/part of the household/)).toBeNull();
   });

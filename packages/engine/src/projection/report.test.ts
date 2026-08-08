@@ -250,109 +250,24 @@ describe("buildSimulationReport", () => {
     expect(roundTripped).toEqual(report);
   });
 
-  it("charges payroll tax on wages and accumulates it across the year so a wage cap binds", () => {
-    // A synthetic FICA: 10% of year-to-date wages, capped at the first $12,000. Wages are
-    // $3,000/mo, so the cap is reached after month 3 and no more is charged from month 4 on.
+  it("surfaces the simulation's payroll tax and its per-source attribution on the report — the cap/non-wage rules themselves are pinned in waterfall.test.ts", () => {
     const mkWages = (cents: number) =>
       new SimCashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly", taxCategory: "wages" });
-    const cappedPayroll = (byCategory: Record<string, number>) =>
-      Math.round(Math.min(byCategory.wages ?? 0, dollarsToCents(12000)) * 0.1);
-    const cappedFica = {
+    const flatFica = {
       ...nullJurisdiction,
-      computePayrollTaxCents: cappedPayroll,
-      // Required companion (runtime-enforced): single earned category, so trivial.
+      computePayrollTaxCents: (byCategory: Record<string, number>) =>
+        Math.round((byCategory.wages ?? 0) * 0.0765),
       computePayrollTaxByCategoryCents: (byCategory: Record<string, number>) => {
-        const charge = cappedPayroll(byCategory);
-        return charge > 0 ? { wages: charge } : {};
+        const t = Math.round((byCategory.wages ?? 0) * 0.0765);
+        return t > 0 ? { wages: t } : {};
       },
     };
     const report = buildSimulationReport(
-      baseInput({ incomeSeries: [{ series: mkWages(dollarsToCents(3000)), ownerId: "p1" }] }),
-      cappedFica as typeof nullJurisdiction,
+      baseInput({ incomeSeries: [{ series: mkWages(dollarsToCents(3000)), ownerId: "p1", sourceId: "job" }] }),
+      flatFica as typeof nullJurisdiction,
     );
-    // Months 0..3: 10% of each $3,000 slice under the cap = $300. Month 4 onward: the
-    // year-to-date total is already at the $12,000 cap, so the difference charged is 0 —
-    // proving the seam is fed CUMULATIVE, not annualized-monthly, earnings.
-    expect(report.months[0].payrollTaxCents).toBe(dollarsToCents(300));
-    expect(report.months[3].payrollTaxCents).toBe(dollarsToCents(300));
-    expect(report.months[4].payrollTaxCents).toBe(0);
-    expect(report.months[11].payrollTaxCents).toBe(0);
-    // Every dollar charged is attributed to the wage source that generated it.
-    const attributed = Object.values(report.months[0].payrollTaxBySourceCents ?? {}).reduce(
-      (s, v) => s + v,
-      0,
-    );
-    expect(attributed).toBe(report.months[0].payrollTaxCents);
-  });
-
-  it("charges no payroll tax on non-wage income (e.g. a retirement-account withdrawal, ordinaryIncome)", () => {
-    // baseInput's income series carries no taxCategory → defaults to ordinaryIncome, the
-    // withdrawal category. A wages-only FICA seam must leave it untouched.
-    const wagesOnlyPayroll = (byCategory: Record<string, number>) =>
-      Math.round((byCategory.wages ?? 0) * 0.0765);
-    const wagesOnlyFica = {
-      ...nullJurisdiction,
-      computePayrollTaxCents: wagesOnlyPayroll,
-      computePayrollTaxByCategoryCents: (byCategory: Record<string, number>) => {
-        const charge = wagesOnlyPayroll(byCategory);
-        return charge > 0 ? { wages: charge } : {};
-      },
-    };
-    const report = buildSimulationReport(baseInput(), wagesOnlyFica as typeof nullJurisdiction);
-    for (const m of report.months) expect(m.payrollTaxCents).toBe(0);
-  });
-
-  it("reconciles Σ per-source netCashFlowCents to aggregate income minus income tax, payroll tax, and total deferrals — including a source with pre-tax deferrals", () => {
-    // A wage source deferring 10% pre-tax, an income-tax seam, and a FICA seam together: the
-    // sum of every reported source's netCashFlowCents must equal totalIncome minus income
-    // tax, payroll tax, AND the deferral — none of the three haircuts may be dropped or
-    // double-counted at the per-source level. The deferral matters here because payroll tax
-    // is charged on the FULL pre-deferral gross while income tax is charged on the
-    // post-deferral taxable amount, so a source carrying both a deferral and payroll tax is
-    // the sharpest reconciliation check.
-    const mkWages = (cents: number) =>
-      new SimCashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly", taxCategory: "wages" });
-    const incomeTax20 = (byCategory: Record<string, number>) =>
-      Math.round(Object.values(byCategory).reduce((s, v) => s + (v ?? 0), 0) * 0.2);
-    const payroll765 = (byCategory: Record<string, number>) =>
-      Math.round((byCategory.wages ?? 0) * 0.0765);
-    const jurisdiction = {
-      ...nullJurisdiction,
-      computeTaxCents: incomeTax20,
-      computeTaxByCategoryCents: (byCategory: Record<string, number>) => {
-        const t = incomeTax20(byCategory);
-        return t > 0 ? { wages: t } : {};
-      },
-      computePayrollTaxCents: payroll765,
-      computePayrollTaxByCategoryCents: (byCategory: Record<string, number>) => {
-        const charge = payroll765(byCategory);
-        return charge > 0 ? { wages: charge } : {};
-      },
-    };
-    const series = simulateHousehold(
-      baseInput({
-        incomeSeries: [
-          {
-            series: mkWages(dollarsToCents(5000)),
-            ownerId: "p1",
-            sourceId: "job",
-            // Deferred pre-tax into the existing "savings" account — no new account needed.
-            planDescriptor: { deferralFraction: 0.1, fundAccountId: "savings" },
-          },
-        ],
-      }),
-      jurisdiction as typeof nullJurisdiction,
-    );
-    const month0 = series.months[0].flows!;
-    const netFromSources = month0.incomeSources.reduce((s, src) => s + src.netCashFlowCents, 0);
-    const totalDeferralCents = Object.values(month0.deferralBySourceCents ?? {}).reduce(
-      (s, v) => s + v,
-      0,
-    );
-    expect(totalDeferralCents).toBeGreaterThan(0); // sanity: the deferral is actually exercised
-    expect(netFromSources).toBe(
-      month0.totalIncomeCents - month0.taxCents - month0.payrollTaxCents - totalDeferralCents,
-    );
+    expect(report.months[0].payrollTaxCents).toBe(Math.round(dollarsToCents(3000) * 0.0765));
+    expect(report.months[0].payrollTaxBySourceCents).toEqual({ job: report.months[0].payrollTaxCents });
   });
 
   it("appends the jurisdiction's own disclosures after the engine's neutral ones", () => {

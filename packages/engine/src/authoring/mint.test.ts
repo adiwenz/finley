@@ -18,6 +18,38 @@ import { dollarsToCents } from "../money/cashFlowSeries";
 
 const P1 = "p1" as PersonId;
 
+/** A goal and a budget line, minted-shaped, the way a restored plan carries them. */
+function planWith(overrides: { goalId?: string; lineId?: string } = {}) {
+  const { goalId, lineId } = overrides;
+  return {
+    ...samplePlan,
+    primary: { ...samplePlan.primary, jobs: [] },
+    goals: goalId
+      ? [
+          {
+            id: goalId,
+            name: "Car",
+            targetCents: dollarsToCents(30000),
+            targetDate: 36,
+            disposition: "retain" as const,
+            annualReturnPct: 3,
+          },
+        ]
+      : [],
+    budgetLines: lineId
+      ? [
+          {
+            id: lineId,
+            label: "Rent",
+            target: { kind: "expense" as const },
+            amountSource: { kind: "literal" as const, monthlyCents: dollarsToCents(2000) },
+            category: "needs" as const,
+          },
+        ]
+      : [],
+  };
+}
+
 /** A minted-looking job id is what a restored scenario carries and the counter must step past. */
 function jobNamed(id: string): Job {
   return {
@@ -149,5 +181,148 @@ describe("the floor reads adjustment ids too", () => {
     const job = restored.scenario.plan.primary.jobs[0]!;
     expect(job.payChanges?.map((c) => c.id)).toEqual(["adjustment-9"]);
     expect(job.incomeOverrides?.map((o) => o.id)).toEqual(["adjustment-14"]);
+  });
+});
+
+describe("the floor reads every plan collection, not only jobs", () => {
+  it("steps past a goal id and a budget-line id, each in their own collection", () => {
+    const state = stateOf(planWith({ goalId: "goal-7", lineId: "line-5" }));
+    expect(seqFloor(state.scenario, state.nextSeq)).toBe(8);
+  });
+});
+
+describe("the floor reads the ledger's own sequence numbers", () => {
+  it("steps past an event's sequenceNumber even when nextSequenceNumber understates it", () => {
+    // A restored ledger whose own bookkeeping field lags the event it already holds — the
+    // shape a hand-edited or stale serialization takes.
+    const state: ProjectionState = {
+      ...stateOf(planWith()),
+      scenario: {
+        ...stateOf(planWith()).scenario,
+        ledger: {
+          events: [
+            {
+              id: "loan-1",
+              type: "LoanEvent",
+              month: 6,
+              sequenceNumber: 4,
+              kind: "auto",
+              liabilityId: "loan-1",
+              ownerId: P1,
+              openingBalanceCents: dollarsToCents(20_000),
+              apr: 5,
+              termMonths: 60,
+            },
+          ],
+          nextSequenceNumber: 1,
+        },
+      },
+    };
+    expect(seqFloor(state.scenario, state.nextSeq)).toBeGreaterThan(4);
+  });
+});
+
+describe("the floor reads a HomePurchaseEvent's embedded mortgage id, not just the property id", () => {
+  it("steps past both ids the event carries", () => {
+    const base = stateOf(planWith());
+    const state: ProjectionState = {
+      ...base,
+      scenario: {
+        ...base.scenario,
+        ledger: {
+          events: [
+            {
+              id: "home-1",
+              type: "HomePurchaseEvent",
+              month: 6,
+              sequenceNumber: 0,
+              propertyId: "home-1",
+              ownerId: P1,
+              purchasePriceCents: dollarsToCents(400_000),
+              downPaymentCents: 0,
+              downPaymentSourceIds: [],
+              mortgage: {
+                liabilityId: "mortgage-2",
+                openingBalanceCents: dollarsToCents(240_000),
+                apr: 0.05,
+                termMonths: 240,
+              },
+            },
+          ],
+          nextSequenceNumber: 1,
+        },
+      },
+    };
+    // Unfloored, the next mint would reissue "mortgage-2" — the property id alone is not enough.
+    expect(seqFloor(state.scenario, state.nextSeq)).toBe(3);
+  });
+});
+
+describe("the floor ignores an id-shaped suffix past MAX_SAFE_INTEGER", () => {
+  it("cannot be walked past a number the counter could never count to", () => {
+    // Honouring the suffix would set a floor `mint` can never reach — incrementing a non-safe
+    // integer is a no-op, so every later mint would hand out the SAME id forever.
+    const state = stateHolding("job-9007199254740993");
+    expect(seqFloor(state.scenario, state.nextSeq)).toBe(state.nextSeq);
+  });
+
+  it("ignores it on the ledger side too, where the id sits in a real id field", () => {
+    const base = stateOf(planWith());
+    const state: ProjectionState = {
+      ...base,
+      scenario: {
+        ...base.scenario,
+        ledger: {
+          events: [
+            {
+              id: "loan-9007199254740993",
+              type: "LoanEvent",
+              month: 6,
+              sequenceNumber: 0,
+              kind: "auto",
+              liabilityId: "loan-9007199254740993",
+              ownerId: P1,
+              openingBalanceCents: dollarsToCents(20_000),
+              apr: 5,
+              termMonths: 60,
+            },
+          ],
+          nextSequenceNumber: 1,
+        },
+      },
+    };
+    expect(seqFloor(state.scenario, state.nextSeq)).toBe(state.nextSeq);
+  });
+});
+
+describe("the floor reads named id fields, not every string it can reach", () => {
+  it("ignores a mint-shaped string sitting in a NAME field, not an id field", () => {
+    // `childName` is a person's words. A scan over every string in the ledger would read
+    // "goal-50000" as a counter reading and advance the mint by fifty thousand on the strength
+    // of a name that merely looks minted.
+    const base = stateOf(planWith());
+    const state: ProjectionState = {
+      ...base,
+      scenario: {
+        ...base.scenario,
+        ledger: {
+          events: [
+            {
+              id: "child-1",
+              type: "ChildEvent",
+              month: 12,
+              sequenceNumber: 0,
+              childId: "child-1",
+              childName: "goal-50000",
+              birthMonth: 12,
+              annualCostCents: 0,
+            },
+          ],
+          nextSequenceNumber: 1,
+        },
+      },
+    };
+    // Only the two named id fields (`id`, `childId`) move the floor — the name is inert.
+    expect(seqFloor(state.scenario, state.nextSeq)).toBe(2);
   });
 });

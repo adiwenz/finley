@@ -10,11 +10,10 @@ import { samplePlan, stateOf, SAMPLE_START_YEAR } from "../testing/samplePlan";
 import { nullJurisdiction } from "../jurisdiction/jurisdiction";
 import { dollarsToCents } from "../money/cashFlowSeries";
 import { withLedger } from "../plan/scenario";
-import { emptyLedger, type Ledger } from "../ledger/ledger";
+import { type Ledger } from "../ledger/ledger";
 import { type LifeEvent } from "../ledger/eventTypes";
 import { type PersonId } from "../job/job";
-import { P1, freshProjection, JOB_END_YEAR, plainJob, partnerEvent, expenseLine, carGoalInput } from "../testing/projectionFacadeFixtures";
-import { PRE_NOW_MONTH } from "../projection/nowMarker";
+import { P1, freshProjection, JOB_END_YEAR, plainJob, partnerEvent, expenseLine } from "../testing/projectionFacadeFixtures";
 
 describe("Projection root — creating writes mint deterministic ids", () => {
   it("mints a monotonic sequence id and returns it", () => {
@@ -143,28 +142,11 @@ describe("Projection root — creating writes mint deterministic ids", () => {
 });
 
 describe("Projection root — one counter across both planes, across a round trip", () => {
-  it("never reissues a partner job's id after a state round trip", () => {
-    const authored = freshProjection();
-    const partnerId = authored.marry({ month: 24, name: "Sam", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy }) as PersonId;
-    const partnerJobId = authored.addPartnerJob(partnerId, plainJob);
-    const planJobId = authored.addJob(P1, plainJob);
-
-    // Out through the serialization boundary and back — a fresh handle, no memory of what
-    // the first one issued beyond what the state itself carries.
-    const reloaded = Projection.fromState(
-      JSON.parse(JSON.stringify(authored.toState())) as ProjectionState,
-      nullJurisdiction,
-    );
-
-    const held = new Set([partnerId, partnerJobId, planJobId]);
-    const minted = [
-      reloaded.addPartnerJob(partnerId, plainJob),
-      reloaded.addJob(P1, plainJob),
-      reloaded.marry({ month: 36, name: "Kim", birthYear: 1990, lifeExpectancy: samplePlan.primary.lifeExpectancy }),
-    ];
-    for (const id of minted) expect(held.has(id)).toBe(false);
-    expect(new Set(minted).size).toBe(minted.length);
-  });
+  // The floor's own arithmetic — that it steps past every minted id a restored scenario holds,
+  // job-nested adjustments and partner-event-nested jobs included, and never reissues one — is
+  // pinned directly against `seqFloor`/`withNormalizedCounters` in `authoring/mint.test.ts`. What
+  // stays here is what only the full handle can show: identity survives the actual serialization
+  // boundary, and an entity is still addressable by the same id afterwards.
 
   it("carries every adjustment id through a state round trip, unchanged", () => {
     const authored = freshProjection();
@@ -191,58 +173,6 @@ describe("Projection root — one counter across both planes, across a round tri
     // And removal still finds exactly one of them on the far side.
     reloaded.removeJobIncomeOverride(jobId, first);
     expect(reloaded.plan.primary.jobs[0]?.incomeOverrides?.map((o) => o.id)).toEqual([second]);
-  });
-
-  it("never reissues an adjustment id to a new adjustment after a round trip", () => {
-    const authored = freshProjection();
-    const jobId = authored.addJob(P1, plainJob);
-    const held = new Set([
-      authored.addJobIncomeOverride(jobId, { month: 6, kind: "addBonus", cents: 100 }),
-      authored.addJobPayChange(jobId, { month: 12, kind: "setTo", cents: 100 }),
-    ]);
-
-    const reloaded = Projection.fromState(
-      JSON.parse(JSON.stringify(authored.toState())) as ProjectionState,
-      nullJurisdiction,
-    );
-
-    // A reissued id would make the new bonus and the restored one the same row to every
-    // surface, and removing either would take both.
-    const minted = reloaded.addJobIncomeOverride(jobId, { month: 6, kind: "addBonus", cents: 200 });
-    expect(held.has(minted)).toBe(false);
-    expect(reloaded.plan.primary.jobs[0]?.incomeOverrides).toHaveLength(2);
-  });
-
-  it("steps past a partner job an imported scenario already holds", () => {
-    // The hazard the old per-owner scheme left open: an id shape the counter's floor does not
-    // recognize is an id the next mint can hand out a second time. `job-9` is recognized.
-    //
-    // The id arrives by IMPORT, which is now the only way one can: no authoring path lets a
-    // caller name a job, so `fromState` is exactly what the floor exists for.
-    const seeded = freshProjection();
-    const partnerId = seeded.marry({ month: 24, name: "Sam", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy }) as PersonId;
-    const state = seeded.toState();
-    const imported: ProjectionState = {
-      ...state,
-      scenario: withLedger(state.scenario, {
-        ...state.scenario.ledger,
-        events: state.scenario.ledger.events.map((e) =>
-          e.type === "RelationshipEvent"
-            ? {
-                ...e,
-                person: {
-                  ...e.person,
-                  jobs: [{ ...plainJob, id: "job-9", ownerId: partnerId }],
-                },
-              }
-            : e,
-        ),
-      }),
-    };
-
-    const reloaded = Projection.fromState(imported, nullJurisdiction);
-    expect(reloaded.addPartnerJob(partnerId, plainJob)).toBe("job-10");
-    expect(reloaded.addJob(P1, plainJob)).toBe("job-11");
   });
 
   it("keeps the counter monotonic while writes alternate between the planes", () => {
@@ -313,191 +243,14 @@ describe("Projection root — restoring a timeline that already holds ids", () =
     expect(p.ledger.events.map((e) => e.id)).toEqual([newChildId]);
   });
 
-  it("clears a sequence number a restored ledger would otherwise hand out twice", () => {
-    // A ledger whose own `nextSequenceNumber` violates the Ledger invariant — it is not above
-    // every event's `sequenceNumber`. This is the malformed-persisted-state case: unfloored,
-    // `addEvent` would stamp 3, then 4, and the 4 would collide with the restored event.
-    const p = Projection.fromState(
-      stateOf({ ...samplePlan, primary: { ...samplePlan.primary, jobs: [] }, budgetLines: [] }, {
-        events: [
-          {
-            id: "restored-loan",
-            type: "LoanEvent",
-            month: 6,
-            sequenceNumber: 4,
-            kind: "auto",
-            liabilityId: "restored-loan",
-            ownerId: P1,
-            openingBalanceCents: dollarsToCents(20_000),
-            apr: 5,
-            termMonths: 60,
-          },
-        ],
-        nextSequenceNumber: 3,
-      }),
-      nullJurisdiction,
-    );
-
-    const loanId = p.takeLoan({
-      month: 12,
-      ownerId: P1,
-      kind: "studentLoan",
-      openingBalanceCents: dollarsToCents(5_000),
-      apr: 4,
-      termMonths: 24,
-    });
-
-    const seqs = p.ledger.events.map((e) => e.sequenceNumber);
-    expect(new Set(seqs).size).toBe(seqs.length);
-    expect(p.ledger.events.find((e) => e.id === loanId)?.sequenceNumber).toBeGreaterThan(4);
-  });
-
-  it("reads named id fields, not every string it can reach", () => {
-    // `childName` is a person's words. A scan over every string in the ledger would read
-    // "goal-50000" as a counter reading and advance the mint by fifty thousand on the
-    // strength of a name.
-    const p = Projection.fromState(
-      stateOf({ ...samplePlan, primary: { ...samplePlan.primary, jobs: [] }, budgetLines: [], goals: [] }, {
-        events: [
-          {
-            id: "restored-child",
-            type: "ChildEvent",
-            month: 12,
-            sequenceNumber: 0,
-            childId: "restored-child",
-            childName: "room-50000",
-            birthMonth: 12,
-            annualCostCents: 0,
-          },
-          {
-            id: "restored-child-2",
-            type: "ChildEvent",
-            month: 18,
-            sequenceNumber: 1,
-            childId: "restored-child-2",
-            // Mint-SHAPED and a real minted kind — still a name, still ignored.
-            childName: "goal-50000",
-            birthMonth: 18,
-            annualCostCents: 0,
-          },
-        ],
-        nextSequenceNumber: 2,
-      }),
-      nullJurisdiction,
-    );
-
-    // Only the two sequence numbers moved the floor, so the next goal is goal-2, not goal-50001.
-    expect(p.addGoal(carGoalInput)).toBe("goal-2");
-  });
-
-  it("floors the counter past a restored HomePurchaseEvent's embedded mortgage id, not just the property id", () => {
-    // The embedded mortgage's liability id is authored, minted the same as any other id — so a
-    // restored ledger holding one must step the counter past it exactly like it does for the
-    // property id beside it, or the next mint hands out an id this scenario already carries.
-    const p = Projection.fromState(
-      stateOf({ ...samplePlan, goals: [] }, {
-        events: [
-          {
-            id: "home-1",
-            type: "HomePurchaseEvent",
-            month: PRE_NOW_MONTH,
-            sequenceNumber: 0,
-            propertyId: "home-1",
-            ownerId: P1,
-            purchasePriceCents: dollarsToCents(400_000),
-            downPaymentCents: 0,
-            downPaymentSourceIds: [],
-            mortgage: {
-              liabilityId: "mortgage-2",
-              openingBalanceCents: dollarsToCents(240_000),
-              apr: 0.05,
-              termMonths: 240,
-            },
-          },
-        ],
-        nextSequenceNumber: 1,
-      }),
-      nullJurisdiction,
-    );
-
-    // Unfloored, the next home purchase would mint "home-1" (colliding with the restored property)
-    // and then "mortgage-2" (colliding with the restored mortgage). Floored past both, it lands
-    // clear of everything the restored ledger already holds. Kept modest so the point stays
-    // identity, not affordability.
-    const newHomeId = p.buyHome({
-      month: 6,
-      ownerId: P1,
-      purchasePriceCents: dollarsToCents(50_000),
-      downPaymentCents: dollarsToCents(10_000),
-      downPaymentSourceIds: ["savings"],
-      mortgageApr: 6,
-      mortgageTermMonths: 360,
-    });
-    expect(newHomeId).not.toBe("home-1");
-    const newEvent = p.ledger.events.find((e) => e.id === newHomeId);
-    const newMortgageId =
-      newEvent?.type === "HomePurchaseEvent" ? newEvent.mortgage?.liabilityId : undefined;
-    expect(newMortgageId).not.toBe("mortgage-2");
-
-    // Every id in the scenario — property and mortgage alike — is still distinct.
-    const liabilityIds = p.run(nullJurisdiction).household.liabilities.map((l) => l.id);
-    expect(new Set(liabilityIds).size).toBe(liabilityIds.length);
-  });
+  // The floor's numeric edge cases — a restored ledger's `nextSequenceNumber` understating a
+  // live event, a mint-shaped string sitting in a name field rather than an id field, and a
+  // HomePurchaseEvent's embedded mortgage id — are pinned directly against `seqFloor` in
+  // `authoring/mint.test.ts`. `p.reviseTransaction`/`removeTransaction` addressability above is
+  // what only the full handle can show.
 });
 
 describe("Projection root — fromState restores a plan and its timeline together", () => {
-  it("carries the timeline and floors both counters past the ids it already holds", () => {
-    // State that arrives already built: a plan holding `job-4`, a ledger whose event holds
-    // `loan-2` at sequence number 2, and — the reason normalization is not optional — a
-    // `nextSeq` and a `nextSequenceNumber` that both understate what the state contains. This
-    // is the shape a hand-edited or stale serialization takes, and `fromState` is the only
-    // door it can come through.
-    const state: ProjectionState = {
-      scenario: {
-        plan: {
-          ...samplePlan,
-          goals: [],
-          budgetLines: [],
-          primary: { ...samplePlan.primary, jobs: [{ ...plainJob, id: "job-4", ownerId: P1 }] },
-        },
-        ledger: {
-          events: [
-            {
-              id: "loan-2",
-              type: "LoanEvent" as const,
-              month: 6,
-              sequenceNumber: 2,
-              kind: "auto" as const,
-              liabilityId: "loan-2",
-              ownerId: P1,
-              openingBalanceCents: dollarsToCents(20000),
-              apr: 5,
-              termMonths: 60,
-            },
-          ],
-          nextSequenceNumber: 0,
-        },
-      },
-      startYear: SAMPLE_START_YEAR,
-      nextSeq: 1,
-      version: CURRENT_FORMAT_VERSION,
-    };
-
-    const p = Projection.fromState(state, nullJurisdiction);
-
-    // The restored event survived the construction — unlike `fromInput`, which authors from a
-    // document and always starts from an empty ledger.
-    expect(p.ledger.events.map((e) => e.id)).toEqual(["loan-2"]);
-    // The id floor cleared `job-4`, so the next mint is `job-5` — not `job-1`, which the
-    // state's own `nextSeq` would have handed out on top of a live id.
-    expect(p.addJob(P1, plainJob)).toBe("job-5");
-    // One shared counter: the sequence side was lifted to that same floor, so the next append
-    // lands at or above 5 — well clear of the restored event still sitting at 2.
-    const eventId = p.takeLoan({ month: 12, ownerId: P1, kind: "studentLoan", openingBalanceCents: dollarsToCents(1000), apr: 4, termMonths: 24 });
-    const appended = p.ledger.events.find((e) => e.id === eventId);
-    expect(appended?.sequenceNumber).toBeGreaterThanOrEqual(5);
-  });
-
   it("keeps every id and event across a round trip, and never lowers a counter", () => {
     const authored = freshProjection();
     authored.addJob(P1, plainJob);
@@ -526,24 +279,8 @@ describe("Projection root — fromState restores a plan and its timeline togethe
     );
   });
 
-  it("is idempotent from the second trip on, so restoring cannot walk a counter upward", () => {
-    // The catch-up above happens once. If it repeated, every reload would inflate the counters
-    // a little further — so this is the property that makes the raise safe rather than a drift.
-    const authored = freshProjection();
-    authored.addJob(P1, plainJob);
-    authored.takeLoan({
-      month: 6,
-      ownerId: P1,
-      kind: "studentLoan",
-      openingBalanceCents: dollarsToCents(20000),
-      apr: 5,
-      termMonths: 60,
-    });
-
-    const once = Projection.fromState(authored.toState(), nullJurisdiction).toState();
-    const twice = Projection.fromState(once, nullJurisdiction).toState();
-    expect(twice).toEqual(once);
-  });
+  // Idempotence of the same catch-up — that a second reload cannot walk either counter further
+  // upward — is pinned directly against `withNormalizedCounters` in `authoring/mint.test.ts`.
 });
 
 describe("Projection root — importing a pre-built ledger rejects one that will not replay", () => {
@@ -632,23 +369,10 @@ describe("Projection root — importing a pre-built ledger rejects one that will
     expect(message).toBe(
       'Projection: cannot load — event "bogus-1" (Frobnicate) fails — unknown event type',
     );
-  });
-
-  it("rejects an unknown event type as a load error, not a raw TypeError", () => {
-    // The handler lookup returns `undefined` for an unregistered discriminant; calling `.check`
-    // on it threw a TypeError that named neither the event nor the plan.
-    const base = freshProjection().toState();
-    const state: ProjectionState = {
-      ...base,
-      scenario: withLedger(base.scenario, unknownType),
-    };
-    expect(() => Projection.fromState(state, nullJurisdiction)).not.toThrow(TypeError);
-    expect(() => Projection.fromState(state, nullJurisdiction)).toThrow(
-      /cannot load — event "bogus-1" \(Frobnicate\) fails — unknown event type/,
-    );
-
-    // `fromState` is the only import path left, so covering it covers every way an unknown
-    // type can arrive.
+    // Regression: the handler lookup used to return `undefined` for an unregistered
+    // discriminant, and calling `.check` on it threw a raw TypeError naming neither the event
+    // nor the plan — a load error, not a crash.
+    expect(thrown).not.toBeInstanceOf(TypeError);
   });
 });
 
@@ -808,108 +532,10 @@ describe("Projection root — the id counter starts clear of the plan it is give
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("takes the floor from every plan collection, not just the one it is minting into", () => {
-    const p = Projection.fromState(stateOf(planWith({
-          jobs: [jobAt("job-3")],
-          goals: [{
-            id: "goal-7",
-            name: "Car",
-            targetCents: dollarsToCents(30000),
-            targetDate: 36,
-            disposition: "retain",
-            annualReturnPct: 3,
-          }],
-          budgetLines: [{ ...expenseLine, id: "line-5" }],
-        })), nullJurisdiction);
-
-    // One counter across all kinds, so the highest id in ANY collection sets the floor.
-    expect(p.addJob(P1, plainJob)).toBe("job-8");
-    expect(p.addBudgetLine(expenseLine)).toBe("line-9");
-  });
-
-  it("counts ids nested inside a restored partner's own jobs", () => {
-    const p = Projection.fromState(
-      stateOf(planWith({}), {
-        events: [
-        {
-          id: "person-4",
-          type: "RelationshipEvent",
-          month: 24,
-          sequenceNumber: 0,
-          person: {
-            id: "person-4",
-            name: "Partner",
-            birthYear: 1988,
-            lifeExpectancy: 85,
-            benefitClaimingAge: 67,
-            // A partner's jobs live ON their event — a floor reading only the event's own
-            // fields would hand `job-9` straight back out.
-            jobs: [jobAt("job-9")],
-          },
-        },
-        ],
-        nextSequenceNumber: 1,
-      }),
-      nullJurisdiction,
-    );
-
-    expect(p.addJob(P1, plainJob)).toBe("job-10");
-  });
-
-  it("ignores an id-shaped suffix past MAX_SAFE_INTEGER, and still mints uniquely", () => {
-    // Past 2^53 `Number` rounds, so honouring the suffix would set a floor the counter can
-    // never pass — and incrementing a non-safe integer is a no-op, so the mint would hand out
-    // the SAME id forever. Ignoring it is both safe and correct: `mint` cannot have issued a
-    // number it cannot count to.
-    const p = Projection.fromState(stateOf(planWith({ jobs: [jobAt("job-9007199254740993")] })), nullJurisdiction);
-
-    const first = p.addJob(P1, plainJob);
-    const second = p.addJob(P1, plainJob);
-    expect(first).toBe("job-1");
-    expect(second).toBe("job-2");
-    expect(first).not.toBe(second);
-    const ids = p.plan.primary.jobs.map((j) => j.id);
-    expect(new Set(ids).size).toBe(ids.length);
-
-    // Same guard on the ledger side, where the id sits in a real id field of a restored event.
-    const q = Projection.fromState(
-      stateOf(planWith({}), {
-        events: [
-          {
-            id: "loan-9007199254740993",
-            type: "LoanEvent",
-            month: 6,
-            sequenceNumber: 0,
-            kind: "auto",
-            liabilityId: "loan-9007199254740993",
-            ownerId: P1,
-            openingBalanceCents: dollarsToCents(20_000),
-            apr: 5,
-            termMonths: 60,
-          },
-        ],
-        nextSequenceNumber: 1,
-      }),
-      nullJurisdiction,
-    );
-
-    const a = q.takeLoan({ month: 12, ownerId: P1, kind: "studentLoan", openingBalanceCents: dollarsToCents(1_000), apr: 4, termMonths: 24 });
-    const b = q.takeLoan({ month: 18, ownerId: P1, kind: "studentLoan", openingBalanceCents: dollarsToCents(1_000), apr: 4, termMonths: 24 });
-    expect(a).not.toBe(b);
-    const eventIds = q.ledger.events.map((e) => e.id);
-    expect(new Set(eventIds).size).toBe(eventIds.length);
-  });
-
-  it("never walks the counter backwards, however little the restored state admits to", () => {
-    const p = Projection.fromState(stateOf(planWith({ jobs: [jobAt("job-6")] })), nullJurisdiction);
-    expect(p.addJob(P1, plainJob)).toBe("job-7");
-
-    // Restoring a state that UNDERSTATES its counter must not release ids already spent —
-    // neither the plan's `job-6` nor the `job-7` just minted. `stateOf` seeds `nextSeq: 1`,
-    // so this is that case exactly: the floor is read off what the state holds, not trusted.
-    const reloaded = Projection.fromState(stateOf(p.plan), nullJurisdiction);
-    expect(reloaded.addJob(P1, plainJob)).toBe("job-8");
-  });
+  // The floor's own reach — across every plan collection, into a partner's nested jobs, capped
+  // at MAX_SAFE_INTEGER, and never decreasing — is pinned directly against `seqFloor` in
+  // `authoring/mint.test.ts`. What stays here is that a live handle still addresses the right
+  // entity once the counter has advanced past a restored id.
 
   it("still addresses the right entity after the counter has been advanced", () => {
     const p = Projection.fromState(stateOf(planWith({ jobs: [jobAt("job-1")] })), nullJurisdiction);
@@ -931,63 +557,10 @@ describe("Projection root — the id counter starts clear of the plan it is give
  * introduces a whole event, or an imported state (covered in the round-trip suite above).
  */
 describe("Projection root — the counter floors ids it did not mint", () => {
-  it("mints from one counter across every kind, so two things never share a number", () => {
-    const p = freshProjection();
-    const ids = [
-      p.addGoal(carGoalInput),
-      p.addJob(P1, plainJob),
-      p.addBudgetLine(expenseLine),
-      p.takeLoan({
-        month: 6,
-        ownerId: P1,
-        kind: "studentLoan",
-        openingBalanceCents: dollarsToCents(20000),
-        apr: 5,
-        termMonths: 60,
-      }),
-    ];
-    // Distinct, and each says what it names — one counter, so the numbers never repeat.
-    expect(ids).toEqual(["goal-1", "job-2", "line-3", "loan-4"]);
-  });
-
-  /** A handle over a plan that already holds a job named elsewhere — the import case. */
-  const importedHolding = (jobId: string) =>
-    Projection.fromState(stateOf({
-          ...samplePlan,
-          goals: [],
-          budgetLines: [],
-          primary: { ...samplePlan.primary, jobs: [{ ...plainJob, id: jobId, ownerId: P1 }] },
-        }), nullJurisdiction);
-
-  it("leaves the counter alone for an imported id it could not have minted", () => {
-    const p = importedHolding("external-payroll-job");
-    // Not a shape `mint` produces, so no id it goes on to issue can collide with it and
-    // nothing is spent stepping over it.
-    expect(p.addJob(P1, plainJob)).toBe("job-1");
-  });
-
-  it("ignores an imported suffix past MAX_SAFE_INTEGER, and still mints uniquely", () => {
-    const p = importedHolding("job-9007199254740993");
-
-    const a = p.addJob(P1, plainJob);
-    const b = p.addJob(P1, plainJob);
-    // Honouring the suffix would have set a floor the counter cannot pass — and incrementing
-    // a non-safe integer is a no-op, so every later mint would return the SAME id.
-    expect(a).toBe("job-1");
-    expect(b).toBe("job-2");
-    const ids = p.plan.primary.jobs.map((j) => j.id);
-    expect(new Set(ids).size).toBe(ids.length);
-  });
-
-  it("steps over an imported id of minted shape rather than reissuing it", () => {
-    const p = importedHolding("job-2");
-    // `job-2` is one of ours, so the counter must clear it — minting 1 then 2 would hand out
-    // an id the plan already holds.
-    const second = p.addJob(P1, plainJob);
-    expect(second).toBe("job-3");
-    const ids = p.plan.primary.jobs.map((j) => j.id);
-    expect(new Set(ids).size).toBe(ids.length);
-  });
+  // Minting sharing one counter across kinds is already pinned above ("shares ONE counter
+  // across kinds"); leaving the counter alone for a non-mint-shaped import, ignoring a suffix
+  // past MAX_SAFE_INTEGER, and stepping over an imported id of minted shape are all pinned
+  // directly against `seqFloor` in `authoring/mint.test.ts`.
 
   it("has nothing to floor after a revision, because a revision introduces no id", () => {
     const p = freshProjection();
@@ -1062,125 +635,14 @@ describe("Projection root — transact wraps one write over plain state", () => 
     expect(result).toBeUndefined();
     expect(state.scenario.plan.primary.jobs[0]?.salary.startingSalaryCents).toBe(dollarsToCents(108000));
   });
-
-  it("floors the counter on ids the imported state already carries", () => {
-    // The handle is built through the flooring path, so a write inside the transaction mints
-    // clear of a `job-5` the imported state already holds rather than colliding with it.
-    const seeded: ProjectionState = {
-      startYear: SAMPLE_START_YEAR,
-      nextSeq: 1,
-      version: CURRENT_FORMAT_VERSION,
-      scenario: {
-        plan: {
-          ...samplePlan,
-          primary: { ...samplePlan.primary, jobs: [{ ...plainJob, id: "job-5", ownerId: P1 }] },
-          budgetLines: [],
-          goals: [],
-        },
-        ledger: emptyLedger,
-      },
-    };
-
-    const { result } = Projection.transact(seeded, nullJurisdiction, (p) => p.addJob(P1, plainJob));
-    expect(result).toBe("job-6");
-  });
 });
 
 describe("Projection root — id counter round-trips through serialization", () => {
-  it("a reloaded plan continues the sequence without collision", () => {
-    const p = freshProjection();
-    p.addJob(P1, plainJob); // job-1
-    p.addBudgetLine(expenseLine); // line-2 → nextSeq now 3
-
-    const snapshot = JSON.parse(JSON.stringify(p.toJSON()));
-    const reloaded = Projection.fromState(snapshot, nullJurisdiction);
-
-    // The counter survived: the next mint is 3, not a colliding 1.
-    expect(reloaded.state.nextSeq).toBe(3);
-    expect(reloaded.addGoal({
-      name: "Trip",
-      targetCents: dollarsToCents(5000),
-      targetDate: 12,
-      disposition: "retain",
-      annualReturnPct: 2,
-    })).toBe("goal-3");
-    expect(reloaded.state.scenario.plan.primary.jobs).toHaveLength(1);
-    expect(reloaded.state.scenario.plan.budgetLines).toHaveLength(1);
-  });
-
-  it("normalizes counters a serialized state got wrong", () => {
-    // The least trustworthy input the API takes: a state that has been through JSON, and may
-    // have been hand-edited or written by a build whose counters meant something else. Both
-    // counters here are stale — `nextSeq` 1 against a `job-5`, and `nextSequenceNumber` 1
-    // against an event already at 8.
-    const stale: ProjectionState = {
-      startYear: SAMPLE_START_YEAR,
-      nextSeq: 1,
-      version: CURRENT_FORMAT_VERSION,
-      scenario: {
-        plan: {
-          ...samplePlan,
-          goals: [],
-          budgetLines: [],
-          primary: {
-            ...samplePlan.primary,
-            jobs: [
-              {
-                id: "job-5",
-                ownerId: P1,
-                startYear: SAMPLE_START_YEAR,
-                endYear: JOB_END_YEAR,
-                salary: { startingSalaryCents: dollarsToCents(100000), currentSalaryCents: dollarsToCents(100000), realGrowthPct: 0 },
-              },
-            ],
-          },
-        },
-        ledger: {
-          events: [
-            {
-              id: "imported-loan",
-              type: "LoanEvent",
-              month: 6,
-              sequenceNumber: 8,
-              kind: "auto",
-              liabilityId: "imported-loan",
-              ownerId: P1,
-              openingBalanceCents: dollarsToCents(20_000),
-              apr: 5,
-              termMonths: 60,
-            },
-          ],
-          nextSequenceNumber: 1,
-        },
-      },
-    };
-
-    const p = Projection.fromState(stale, nullJurisdiction);
-
-    // Trusting `nextSeq: 1` would have minted `job-5` a second time.
-    const jobId = p.addJob(P1, plainJob);
-    expect(jobId).not.toBe("job-5");
-    const jobIds = p.plan.primary.jobs.map((j) => j.id);
-    expect(new Set(jobIds).size).toBe(jobIds.length);
-
-    // Trusting `nextSequenceNumber: 1` would have stamped the next event 1, then 2 — and the
-    // ledger already holds 8, so the log would have carried two events at one number before
-    // long. The floor is taken from the whole state, so it clears the sequence AND `job-5`.
-    const loanId = p.takeLoan({
-      month: 12,
-      ownerId: P1,
-      kind: "studentLoan",
-      openingBalanceCents: dollarsToCents(5_000),
-      apr: 4,
-      termMonths: 24,
-    });
-    const added = p.ledger.events.find((e) => e.id === loanId);
-    expect(added?.sequenceNumber).toBeGreaterThan(8);
-    const seqs = p.ledger.events.map((e) => e.sequenceNumber);
-    expect(new Set(seqs).size).toBe(seqs.length);
-    const eventIds = p.ledger.events.map((e) => e.id);
-    expect(new Set(eventIds).size).toBe(eventIds.length);
-  });
+  // The floor arithmetic behind a reload — normalizing a serialized state whose counters
+  // understate what it holds, and settling after one pass so a repeated reload cannot drift —
+  // is pinned directly against `withNormalizedCounters` in `authoring/mint.test.ts`. What stays
+  // here is that a reload never renumbers what is already authored, and the JSON-protocol
+  // aliasing `toJSON`/`toState` share.
 
   it("only ever raises a counter, never renumbers what is already authored", () => {
     const p = freshProjection();
@@ -1204,22 +666,6 @@ describe("Projection root — id counter round-trips through serialization", () 
     );
     expect(reloaded.ledger.events.map((e) => e.id)).toEqual(
       before.scenario.ledger.events.map((e) => e.id),
-    );
-  });
-
-  it("settles after one normalization — reloading repeatedly does not drift", () => {
-    // Idempotence is what makes a save/load cycle safe to repeat: if each pass could raise
-    // the counters again, a plan reopened daily would climb without ever being edited.
-    const p = freshProjection();
-    p.addJob(P1, plainJob);
-    p.marry({ month: 24, name: "Partner", birthYear: 1988, lifeExpectancy: samplePlan.primary.lifeExpectancy });
-
-    const once = Projection.fromState(JSON.parse(JSON.stringify(p.toJSON())), nullJurisdiction).toJSON();
-    const twice = Projection.fromState(JSON.parse(JSON.stringify(once)), nullJurisdiction).toJSON();
-
-    expect(twice.nextSeq).toBe(once.nextSeq);
-    expect(twice.scenario.ledger.nextSequenceNumber).toBe(
-      once.scenario.ledger.nextSequenceNumber,
     );
   });
 
