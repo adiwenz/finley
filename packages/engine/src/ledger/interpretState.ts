@@ -20,6 +20,8 @@ import type {
 import type { Child, SeriesBaseline, SeriesRole } from "./eventTypes";
 import type { AccountTransfer, LiabilityTransfer } from "./transfers";
 import type { FinancialObligation } from "../projection/financialObligation";
+import type { FundingFailure } from "../projection/fundingFailure";
+import type { FundingTreatment } from "../projection/fundingEligibility";
 
 export interface PersonMembership {
   readonly person: Person;
@@ -148,10 +150,11 @@ export interface InterpretContext {
   /** The default rate for `inflationLinked` growth. */
   readonly annualInflationRate: number;
   /**
-   * The affordability check every money-out event's gate shares, resolved against a projection
-   * of the ledger *so far* by the SAME ordered gross-up the simulator runs ({@link
-   * import("../projection/fundingDrawStep").resolveOrderedFundingDraw}), so a gate blocks
-   * exactly when the sim would fall short.
+   * The shared funding-availability calculation, resolved against a projection of the ledger *so
+   * far* by the SAME ordered gross-up the simulator runs ({@link
+   * import("../projection/fundingDrawStep").resolveOrderedFundingDraw}). Gates the home-purchase
+   * down payment (`homePurchase.check`) and is exposed to a preview/advisory unchanged — the gate
+   * and the UI can never disagree about what a selection delivers.
    *
    * Present only on the authoring path ({@link addEvent}); `undefined` during ordinary
    * interpretation and undo, when handlers skip projection-dependent checks.
@@ -161,4 +164,28 @@ export interface InterpretContext {
     amountCents: Cents,
     month: number,
   ) => FundingAvailability;
+  /**
+   * Why a shortfall the gate above found would happen: `funding-configuration` when eligible
+   * money sits in an account the household didn't select, `no-eligible-source-suffices` when
+   * the whole eligible pool still falls short. Priced over the same seam as
+   * `fundingAvailabilityAt` — its `selectedSources*Cents` figures come from that exact call, not
+   * a second calculation — so the refusal message can name an alternative without the gate and
+   * the classifier ever pricing the selection differently. Advisory only: the engine recommends,
+   * it never substitutes a source for the one the household named.
+   *
+   * Present only on the authoring path ({@link addEvent}); `undefined` during ordinary
+   * interpretation and undo.
+   */
+  readonly fundingFailureAt?: (
+    treatment: FundingTreatment,
+    sourceIds: readonly string[],
+    amountCents: Cents,
+    month: number,
+  ) => FundingFailure;
+  /**
+   * The household's liquid funding pool at `month`, largest balance first — labels for
+   * `fundingFailureAt`'s `alternativeSources`, which carry only an `accountId`. Present only on
+   * the authoring path ({@link addEvent}).
+   */
+  readonly fundingSourcesAt?: (month: number) => readonly FundingSourceBalance[];
 }

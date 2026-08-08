@@ -18,6 +18,7 @@ import type { SimState } from "./runState";
 import type { IncomeSourceMonth } from "./waterfall";
 import { attributeExplicitObligation, type ResolvedFunding } from "./resolvedFunding";
 import type { FinancialObligation } from "./financialObligation";
+import { classifyFundingFailure, type FundingFailure, type EligibleAccountState } from "./fundingFailure";
 
 export type TaxableByCategory = Partial<Record<TaxCategory, Cents>>;
 /** The month's taxable base, per owner — the context a gross-up differences tax over. */
@@ -89,8 +90,8 @@ export function toTaxableRecord(taxableByOwner: TaxableByOwner): Record<string, 
  * gain stacked onto it, so a second taxable source from the same owner is taxed on top of
  * the first — hence this MUTATES `taxableByOwner` (pass a copy to probe).
  *
- * Shared with the §4.5 affordability gate, so the gate blocks exactly when the sim would
- * fall short.
+ * Shared with the affordability reporter (`fundingLookup.availabilityAt`), so the reported
+ * shortfall matches exactly what the sim would fall short by.
  */
 export function resolveOrderedFundingDraw(
   amountCents: Cents,
@@ -211,6 +212,12 @@ export interface FundingBlock {
   /** What the named sources delivered net of tax — `required − shortfall`. */
   readonly availableCents: Cents;
   readonly shortfallCents: Cents;
+  /**
+   * Why the draw fell short: eligible money sits elsewhere (a funding-configuration mistake) or
+   * nothing eligible suffices. Classified against the household's whole account pool at this
+   * month, priced through the same gross-up as the draw itself — advisory, never a reassignment.
+   */
+  readonly fundingFailure: FundingFailure;
 }
 
 /**
@@ -229,8 +236,9 @@ export interface FundingBlock {
  * on this complete set; only the FIRST shortfall is reported as the {@link FundingBlock}, since a
  * later draw was never priced and so has no shortfall to state.
  *
- * The gross-up is {@link resolveOrderedFundingDraw}, the one definition the §4.5 gate shares — so
- * an accepted purchase never lands short here, and a stranded one blocks identically.
+ * The gross-up is {@link resolveOrderedFundingDraw}, the one definition the affordability reporter
+ * (`fundingLookup.availabilityAt`) shares — so the shortfall a preview reports is exactly the one a
+ * stranded purchase blocks on here.
  *
  * `taxableByOwner` is NOT mutated: a working copy is threaded across draws, stacking each applied
  * draw's gain onto the next, and comes back as `taxableByOwnerAfter`. A blocked draw's gain is
@@ -295,11 +303,36 @@ export function resolveFundingDraws(
     );
     if (shortfallCents > 0) {
       // The block. Omit this draw and everything after it — no state moves, no attribution.
+      // Classify WHY against the whole account pool at this month's balances, priced over the
+      // running taxable base (`working`, before this never-applied draw). The classifier copies
+      // the base per probe, so `working` is not disturbed. Only asset acquisitions reach this
+      // filter, so the treatment is that; a treatment field would be threaded here otherwise.
+      const accountPool: EligibleAccountState[] = state.accounts.map((a) => ({
+        id: a.id,
+        ownerId: a.ownerId,
+        category: a.taxProfile.withdrawalCategory,
+        balanceCents: state.assetBalances.get(a.id) ?? 0,
+        basisCents: Math.max(0, state.basisByAccount.get(a.id) ?? 0),
+        liquid: a.liquid,
+        label: a.label ?? a.id,
+      }));
+      const fundingFailure = classifyFundingFailure({
+        treatment: "asset-acquisition",
+        requiredCents: obligation.amountCents,
+        selectedSourceIds: orderedAccountIds,
+        selectedSourcesAvailableCents: obligation.amountCents - shortfallCents,
+        selectedSourcesTaxCents: perSource.reduce((sum, s) => sum + s.taxCents, 0),
+        accounts: accountPool,
+        jurisdiction,
+        ctx,
+        taxableByOwner: working,
+      });
       block = {
         obligation,
         requiredCents: obligation.amountCents,
         availableCents: obligation.amountCents - shortfallCents,
         shortfallCents,
+        fundingFailure,
       };
       // Every draw from here on is omitted, not just this one: none of their money moves, so none
       // of their events may originate an artifact. Reported as a set separate from `block`, which

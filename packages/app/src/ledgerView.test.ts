@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Projection, PRIMARY_PERSON_ID, dollarsToCents, nullJurisdiction } from "@finley/engine";
+import { Projection, PRIMARY_PERSON_ID, dollarsToCents, nullJurisdiction, ref } from "@finley/engine";
 import type { Ledger, SnapshotSeries } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { stateOf } from "./testing/projectionHarness";
@@ -180,6 +180,64 @@ describe("blockedWarning — the soft-warning content for a stopped projection",
     return { ledger: p.ledger, series: p.run(usJurisdiction).series };
   }
 
+  /**
+   * The selected savings account is stranded below the down payment, but a contribution-funded
+   * cash goal ("House fund") holds far more — money exists elsewhere, so the block is a
+   * funding-configuration mistake and the goal is offered as an alternative.
+   */
+  function fundingConfigurationPurchase() {
+    const built = Projection.fromInput(
+      {
+        ...DEFAULT_INPUT,
+        jobs: [
+          {
+            ...DEFAULT_INPUT.jobs![0],
+            salary: {
+              startingSalaryCents: dollarsToCents(500_000),
+              currentSalaryCents: dollarsToCents(500_000),
+              realGrowthPct: 0,
+            },
+          },
+        ],
+        goals: [
+          {
+            ref: ref("houseFund"),
+            name: "House fund",
+            targetCents: dollarsToCents(500_000),
+            targetDate: 24,
+            disposition: "retain",
+            accountType: "cash",
+            annualReturnPct: 1,
+          },
+        ],
+        budgetLines: [
+          ...(DEFAULT_INPUT.budgetLines ?? []),
+          {
+            label: "House fund savings",
+            category: "savings",
+            amountSource: { kind: "literal", monthlyCents: dollarsToCents(20_000) },
+            target: { kind: "account", accountRef: ref("houseFund"), taxTreatment: "postTax" },
+          },
+        ],
+        openingBalanceCents: dollarsToCents(300_000),
+      },
+      usJurisdiction,
+    );
+    if (!built.ok) throw new Error(`fixture is not a valid ScenarioInput: ${built.error.reason}`);
+    const p = built.projection;
+    p.buyHome({
+      month: 6,
+      ownerId: PRIMARY_PERSON_ID,
+      purchasePriceCents: dollarsToCents(120_000),
+      downPaymentCents: dollarsToCents(60_000),
+      downPaymentSourceIds: ["savings"],
+      mortgageApr: 0.06,
+      mortgageTermMonths: 360,
+    });
+    p.updatePlan({ openingBalanceCents: dollarsToCents(120_000) });
+    return { ledger: p.ledger, series: p.run(usJurisdiction).series, funding: p.funding() };
+  }
+
   it("names the blocking event in plain language, its month, and the shortfall net of tax", () => {
     const { ledger, series } = strandedPurchase();
     const warning = blockedWarning(ledger, series);
@@ -188,6 +246,28 @@ describe("blockedWarning — the soft-warning content for a stopped projection",
     expect(warning?.month).toBe(12);
     // Read from the engine's bare (already post-tax) shortfall, never recomputed in the app.
     expect(warning?.shortfallCents).toBe(series.blockingObligation!.shortfallCents);
+  });
+
+  it("reports no-eligible-source-suffices when only the stranded liquid account remains", () => {
+    const { ledger, series } = strandedPurchase();
+    const warning = blockedWarning(ledger, series);
+    // The default plan holds one funded liquid account; stranded, nothing eligible can cover it.
+    expect(warning?.kind).toBe("no-eligible-source-suffices");
+  });
+
+  it("reports funding-configuration and names the eligible alternative account, with its label", () => {
+    const { ledger, series, funding } = fundingConfigurationPurchase();
+    const warning = blockedWarning(ledger, series, funding);
+    expect(warning?.kind).toBe("funding-configuration");
+    if (warning?.kind !== "funding-configuration") throw new Error("expected funding-configuration");
+    // The engine offers the goal by accountId; the view resolves it to the human label via the pool.
+    expect(warning.alternativeSources.map((a) => a.label)).toContain("House fund");
+    // The advised amount is the engine's own net-of-tax available, surfaced not recomputed.
+    const engineAlt = series.blockingObligation!.fundingFailure;
+    if (engineAlt.kind !== "funding-configuration") throw new Error("engine disagreed");
+    expect(warning.alternativeSources.map((a) => a.availableCents)).toEqual(
+      engineAlt.alternativeSources.map((a) => a.availableCents),
+    );
   });
 
   it("is null with no series and on a run that reached the horizon", () => {

@@ -11,6 +11,7 @@ import type { SimGoal } from "../goal/goal";
 import type { BudgetLine } from "../budget/budgetLine";
 import type { FinancialObligation, ObligationId, ObligationSource } from "./financialObligation";
 import type { ResolvedFunding } from "./resolvedFunding";
+import type { FundingFailure } from "./fundingFailure";
 import type {
   PlanDescriptor,
   SharedContributionScheme,
@@ -189,7 +190,7 @@ export interface ProjectionMonthFlows {
   /**
    * The month's taxable base, per owner by tax category, **including gains this month's
    * funding draws already realized** — what a FURTHER draw would be taxed on top of. The
-   * §4.5 affordability gate prices a would-be sale over the same base the simulation will;
+   * affordability reporter prices a would-be sale over the same base the simulation will;
    * the pre-funding base under-prices the second of two same-month draws.
    *
    * `{}` for an owner with no taxable income. Optional: the simulator attaches it after
@@ -202,13 +203,13 @@ export interface ProjectionMonthFlows {
    * Per-account balances (and their matching {@link accountBasisAfterFundingCents}) at the
    * post-explicit-draw, pre-decumulation seam — the state a newly authored money-out event,
    * last in ledger order, actually resolves against. Since the reorder, explicit draws run
-   * before decumulation, so end-of-month `accountBalancesCents` is TOO LATE for the gate:
+   * before decumulation, so end-of-month `accountBalancesCents` is TOO LATE for the reporter:
    * decumulation and this month's compounding have both moved it. Reading these instead is
-   * what keeps the gate's shortfall equal to the sim's — a candidate whose source
+   * what keeps the reporter's shortfall equal to the sim's — a candidate whose source
    * decumulation would later drain still sees the full balance it draws from first.
    *
    * Keyed like `accountBalancesCents`. Optional: attached after `buildFlows`, absent on the
-   * `opening` snapshot (where the gate already reads pre-decumulation balances directly).
+   * `opening` snapshot (where the reporter already reads pre-decumulation balances directly).
    */
   readonly accountBalancesAfterFundingCents?: Readonly<Record<string, Cents>>;
   /** Basis companion to {@link accountBalancesAfterFundingCents}; untaxed gain is `balance − basis`. */
@@ -346,6 +347,12 @@ export interface BlockedObligation {
   readonly availableCents: Cents;
   /** `requiredCents − availableCents`, always > 0. */
   readonly shortfallCents: Cents;
+  /**
+   * Why the draw fell short — a {@link FundingFailure}, telling the household whether eligible
+   * money sits elsewhere (re-point the funding) or nothing eligible suffices (the purchase is out
+   * of eligible reach, which is NOT insolvency). The app's warning copy branches on its `kind`.
+   */
+  readonly fundingFailure: FundingFailure;
   /**
    * Where a presentation-only blocked marker sits: the blocked month's genuine net worth dropped
    * by the shortfall, so the missing capital reads as a visible gap. NOT a net worth and never a

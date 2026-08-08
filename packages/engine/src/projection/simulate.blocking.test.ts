@@ -38,6 +38,30 @@ function savings(openingCents: number): SimAccount {
   });
 }
 
+/** A second liquid cash account (basis == balance ⇒ no tax), NOT named by the down-payment draw. */
+function liquidAside(id: string, openingCents: number): SimAccount {
+  return new SimAccount({
+    id,
+    ownerId: "p1",
+    liquid: true,
+    taxProfile: CAPITAL_GAINS_TAX_PROFILE,
+    openingBalanceCents: openingCents,
+    initialAnnualRate: 0,
+  });
+}
+
+/** An illiquid retirement account — held by the household but never eligible for an asset purchase. */
+function retirementAccount(openingCents: number): SimAccount {
+  return new SimAccount({
+    id: "401k",
+    ownerId: "p1",
+    liquid: false,
+    taxProfile: CAPITAL_GAINS_TAX_PROFILE,
+    openingBalanceCents: openingCents,
+    initialAnnualRate: 0,
+  });
+}
+
 /** The property half of a financed home purchase caused by event `buy1`. */
 const house: SimProperty = {
   id: "house1",
@@ -414,6 +438,59 @@ describe("per-obligation resolution — simulateHousehold()'s own obligationOutc
       status: "executed",
       sourceEventId: "buy1",
     });
+  });
+
+  it("classifies the block as funding-configuration when eligible money sits elsewhere", () => {
+    // $50k savings named for an $80k down payment falls short, but a $100k liquid brokerage the
+    // draw never named could cover it: the selection is the problem, not the household's balance.
+    const series = run({
+      accounts: [savings(5_000_000), liquidAside("brokerage", 10_000_000)],
+      properties: [house],
+      liabilities: [mortgage()],
+      fundingDraws: [downPayment(DOWN)],
+    });
+
+    const failure = series.blockingObligation?.fundingFailure;
+    expect(failure?.kind).toBe("funding-configuration");
+    if (failure?.kind !== "funding-configuration") throw new Error("expected funding-configuration");
+    expect(failure.selectedSourcesAvailableCents).toBe(5_000_000);
+    expect(failure.shortfallCents).toBe(DOWN - 5_000_000);
+    // The named savings account is not "elsewhere"; only the untouched brokerage is offered.
+    expect(failure.alternativeSources).toEqual([{ accountId: "brokerage", availableCents: 10_000_000 }]);
+  });
+
+  it("classifies as no-eligible-source-suffices when only illiquid retirement wealth remains", () => {
+    // $50k liquid, $2M retirement: obviously wealthy, yet nothing eligible for an asset acquisition
+    // can cover the $80k down payment — and this is NOT insolvency.
+    const series = run({
+      accounts: [savings(5_000_000), retirementAccount(200_000_000)],
+      properties: [house],
+      liabilities: [mortgage()],
+      fundingDraws: [downPayment(DOWN)],
+    });
+
+    const failure = series.blockingObligation?.fundingFailure;
+    expect(failure?.kind).toBe("no-eligible-source-suffices");
+    if (failure?.kind !== "no-eligible-source-suffices") throw new Error("expected no-eligible");
+    expect(failure.eligibleAvailableCents).toBe(5_000_000);
+    expect(failure.eligibleTaxCents).toBe(0);
+    expect(failure.shortfallCents).toBe(DOWN - 5_000_000);
+  });
+
+  it("never reorders or substitutes the selected sources — the draw's own figures are untouched", () => {
+    // The classifier only reports alternatives; the block still states exactly what the NAMED
+    // savings account delivered, and the household keeps every cent the blocked draw did not move.
+    const series = run({
+      accounts: [savings(5_000_000), liquidAside("brokerage", 10_000_000)],
+      properties: [house],
+      liabilities: [mortgage()],
+      fundingDraws: [downPayment(DOWN)],
+    });
+
+    expect(series.blockingObligation?.availableCents).toBe(5_000_000);
+    expect(series.blockingObligation?.shortfallCents).toBe(DOWN - 5_000_000);
+    expect(series.months[BLOCK_MONTH].accountBalancesCents.savings).toBe(5_000_000);
+    expect(series.months[BLOCK_MONTH].accountBalancesCents.brokerage).toBe(10_000_000);
   });
 
   it("gives automatic obligations no outcome — only explicit draws are tracked", () => {

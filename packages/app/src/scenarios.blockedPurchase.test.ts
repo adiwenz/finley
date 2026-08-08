@@ -20,12 +20,15 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { Projection, PRIMARY_PERSON_ID, dollarsToCents } from "@finley/engine";
+import { renderToStaticMarkup } from "react-dom/server";
+import { createElement } from "react";
+import { Projection, PRIMARY_PERSON_ID, dollarsToCents, ref } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { DEFAULT_INPUT } from "./planDefaults";
 import { START_YEAR } from "./config";
 import { retirementView } from "./retirementView";
 import { blockedWarning, timelineMarkers } from "./ledgerView";
+import { BlockedWarning } from "./components/blockedWarning/blockedWarning";
 import { buildNetWorthChartData } from "./components/netWorthChart/netWorthChartData";
 import { toAxisX } from "./components/monthAxis";
 
@@ -192,5 +195,116 @@ describe("a purchase stranded by a later edit — what the projection does with 
     const outcome = new Map(timelineMarkers(p.ledger, series).map((m) => [m.id, m.outcome]));
     expect(outcome.get(stranded)).toBe("blocked");
     expect(outcome.get(later)).toBe("not-reached");
+  });
+});
+
+/**
+ * The two failure cases, end to end and side by side. Both reach a block through the same authoring
+ * path — an affordable purchase stranded by a later edit — but one household keeps eligible money in
+ * an account it did not name (funding-configuration) and the other has only its stranded liquid
+ * account left (no-eligible-source-suffices). The rendered warning must tell them apart: name the
+ * alternative in the first, and withhold any affordability verdict in the second.
+ */
+describe("blocked-purchase warnings — the two failure cases produce different guidance", () => {
+  /** A funded cash goal ("House fund") the down payment never names, so eligible money sits aside. */
+  function fundingConfiguration() {
+    const built = Projection.fromInput(
+      {
+        ...DEFAULT_INPUT,
+        jobs: [
+          {
+            ...DEFAULT_INPUT.jobs![0],
+            salary: {
+              startingSalaryCents: dollarsToCents(500_000),
+              currentSalaryCents: dollarsToCents(500_000),
+              realGrowthPct: 0,
+            },
+          },
+        ],
+        goals: [
+          {
+            ref: ref("houseFund"),
+            name: "House fund",
+            targetCents: dollarsToCents(500_000),
+            targetDate: 24,
+            disposition: "retain",
+            accountType: "cash",
+            annualReturnPct: 1,
+          },
+        ],
+        budgetLines: [
+          ...(DEFAULT_INPUT.budgetLines ?? []),
+          {
+            label: "House fund savings",
+            category: "savings",
+            amountSource: { kind: "literal", monthlyCents: dollarsToCents(20_000) },
+            target: { kind: "account", accountRef: ref("houseFund"), taxTreatment: "postTax" },
+          },
+        ],
+        openingBalanceCents: dollarsToCents(300_000),
+      },
+      usJurisdiction,
+    );
+    if (!built.ok) throw new Error(`fixture invalid: ${built.error.reason}`);
+    const p = built.projection;
+    p.buyHome({
+      month: 6,
+      ownerId: PRIMARY_PERSON_ID,
+      purchasePriceCents: dollarsToCents(120_000),
+      downPaymentCents: dollarsToCents(60_000),
+      downPaymentSourceIds: ["savings"],
+      mortgageApr: 0.06,
+      mortgageTermMonths: 360,
+    });
+    p.updatePlan({ openingBalanceCents: dollarsToCents(120_000) });
+    return p;
+  }
+
+  /** The default plan holds one funded liquid account; stranded, nothing eligible can cover it. */
+  function noEligible() {
+    const built = Projection.fromInput(
+      { ...DEFAULT_INPUT, openingBalanceCents: dollarsToCents(400_000) },
+      usJurisdiction,
+    );
+    if (!built.ok) throw new Error(`fixture invalid: ${built.error.reason}`);
+    const p = built.projection;
+    p.buyHome({
+      month: 12,
+      ownerId: PRIMARY_PERSON_ID,
+      purchasePriceCents: dollarsToCents(500_000),
+      downPaymentCents: dollarsToCents(200_000),
+      downPaymentSourceIds: ["savings"],
+      mortgageApr: 0.06,
+      mortgageTermMonths: 360,
+    });
+    p.updatePlan({ openingBalanceCents: dollarsToCents(60_000) });
+    return p;
+  }
+
+  function warningHtml(p: Projection) {
+    const series = p.run(usJurisdiction).series;
+    const warning = blockedWarning(p.ledger, series, p.funding());
+    if (warning === null) throw new Error("expected a blocked warning");
+    return { warning, html: renderToStaticMarkup(createElement(BlockedWarning, { warning })) };
+  }
+
+  it("names the alternative account for a funding-configuration block", () => {
+    const { warning, html } = warningHtml(fundingConfiguration());
+    expect(warning.kind).toBe("funding-configuration");
+    // The eligible account the household did not name is surfaced by its human label.
+    expect(html).toContain("House fund");
+    expect(html).toContain("Re-point the funding");
+  });
+
+  it("states the eligibility fact without insolvency language for a no-eligible block", () => {
+    const { warning, html } = warningHtml(noEligible());
+    expect(warning.kind).toBe("no-eligible-source-suffices");
+    expect(html).toContain("eligible funding sources together can’t cover it");
+    expect(html.toLowerCase()).not.toContain("afford");
+    expect(html.toLowerCase()).not.toContain("insolven");
+  });
+
+  it("renders visibly different warnings for the two households", () => {
+    expect(warningHtml(fundingConfiguration()).html).not.toBe(warningHtml(noEligible()).html);
   });
 });

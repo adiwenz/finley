@@ -5,7 +5,7 @@
  * engine's job, see `snapshotAt` in @finley/engine.
  */
 
-import type { Cents, Ledger, LifeEvent, ProjectionSeries, SnapshotSeries } from "@finley/engine";
+import type { Cents, FundingLookup, Ledger, LifeEvent, ProjectionSeries, SnapshotSeries } from "@finley/engine";
 import { formatDollars } from "./format";
 
 export interface EventSummary {
@@ -141,15 +141,33 @@ export function timelineMarkers(ledger: Ledger, series?: OutcomeSource): Timelin
     }));
 }
 
-/** The soft-warning's content: the event that stopped the projection, when, and by how much. */
-export interface BlockedWarningView {
+/** One eligible account the household could re-point funding to, with its net-of-tax available. */
+export interface AlternativeSourceView {
+  /** The account's human label, resolved from the funding pool — falls back to its id. */
+  readonly label: string;
+  readonly availableCents: Cents;
+}
+
+/**
+ * The soft-warning's content. Everything shared sits on the base; the failure `kind` decides which
+ * remedy the copy states — re-point the funding (money exists elsewhere) versus no eligible
+ * account can cover it (which is NOT insolvency).
+ */
+export type BlockedWarningView = {
   /** The blocking event in the household's own words ("Bought a home"), not the obligation's id. */
   readonly eventLabel: string;
   /** The month it was scheduled for — {@link ProjectionSeries.blockedAtMonth}. */
   readonly month: number;
   /** The funding gap, net of the capital-gains tax liquidating the named sources owes. */
   readonly shortfallCents: Cents;
-}
+} & (
+  | {
+      readonly kind: "funding-configuration";
+      /** Eligible accounts the user did not select that could cover the obligation. Advisory. */
+      readonly alternativeSources: readonly AlternativeSourceView[];
+    }
+  | { readonly kind: "no-eligible-source-suffices" }
+);
 
 /** The projection fields the warning reads — just the block, never a balance or a later month. */
 type WarningSource = Pick<ProjectionSeries, "status" | "blockingObligation">;
@@ -160,14 +178,17 @@ type WarningSource = Pick<ProjectionSeries, "status" | "blockingObligation">;
  * engine-internal band namespace ("downpayment"), whereas the household authored "Bought a home".
  * Same event→outcome join the timeline's indicators use; here it recovers one plain-language name.
  *
- * The month and shortfall come straight off `blockingObligation` — the gap is the engine's bare,
- * already-post-tax figure, never recomputed here (classifying it is a later slice). Falls back to
- * the obligation's own label only if the authoring event cannot be found, so the warning still
- * names something rather than rendering blank.
+ * The month, shortfall, and the funding failure come straight off `blockingObligation` — every
+ * figure is the engine's bare, already-post-tax number, never recomputed here. The eligibility
+ * verdict and the alternatives are the engine's too; the view's only added work is resolving each
+ * alternative's `accountId` to a human label through `funding.sourcesAt` (the same liquid pool the
+ * picker shows), falling back to the id when no `funding` handle is supplied (e.g. the snapshot
+ * panel, which never renders a funding-configuration alternative).
  */
 export function blockedWarning(
   ledger: Ledger,
   series: WarningSource | undefined,
+  funding?: Pick<FundingLookup, "sourcesAt">,
 ): BlockedWarningView | null {
   if (series === undefined || series.status !== "blocked") return null;
   const blocking = series.blockingObligation;
@@ -176,10 +197,23 @@ export function blockedWarning(
     blocking.sourceEventId === undefined
       ? undefined
       : ledger.events.find((e) => e.id === blocking.sourceEventId);
-  return {
+  const base = {
     eventLabel: event !== undefined ? summarizeEvent(event).label : blocking.label,
     month: blocking.month,
     shortfallCents: blocking.shortfallCents,
+  };
+  const failure = blocking.fundingFailure;
+  if (failure.kind === "no-eligible-source-suffices") {
+    return { ...base, kind: "no-eligible-source-suffices" };
+  }
+  const labelById = new Map((funding?.sourcesAt(blocking.month) ?? []).map((s) => [s.id, s.label]));
+  return {
+    ...base,
+    kind: "funding-configuration",
+    alternativeSources: failure.alternativeSources.map((a) => ({
+      label: labelById.get(a.accountId) ?? a.accountId,
+      availableCents: a.availableCents,
+    })),
   };
 }
 

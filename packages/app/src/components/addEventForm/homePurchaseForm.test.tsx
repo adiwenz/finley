@@ -16,7 +16,7 @@ import { setJobMonthlyIncome } from "../../testing/planFixtures";
 import { HomePurchaseForm } from "./homePurchaseForm";
 import { readerOf, runOf } from "../../testing/projectionHarness";
 
-const noop = () => {};
+const noop = () => { };
 
 function render(budget: Plan, month = 0) {
   // The facade funding read runs under the app's own jurisdiction, so what the form renders is
@@ -66,8 +66,8 @@ describe("HomePurchaseForm — soft DTI warning", () => {
 
 // The ordered down-payment source picker: the payment drains the accounts the user picks, in
 // the order picked (it was once hardcoded to "savings"). These pin what the control SHOWS —
-// the engine's own pool and after-tax coverage — so the form cannot promise what §4.5 would
-// refuse.
+// the engine's own pool and after-tax coverage — so the advisory names the same shortfall the
+// authoring gate would refuse the purchase on.
 
 describe("HomePurchaseForm — down-payment source picker", () => {
   it("lists each fundable account with what it holds at that month", () => {
@@ -90,8 +90,8 @@ describe("HomePurchaseForm — down-payment source picker", () => {
   });
 
   it("states the shortfall against the SELECTED accounts, not total net worth", () => {
-    // $10,000 cash savings against a $60,000 down payment, said while the user is still
-    // editing rather than letting them submit into the §4.5 block.
+    // $10,000 cash savings against a $60,000 down payment, said while the user is still editing —
+    // the advisory that shows the same shortfall before the authoring gate refuses the purchase.
     const html = render(PLAN_DEFAULTS);
     expect(html).toContain("$50,000 short");
   });

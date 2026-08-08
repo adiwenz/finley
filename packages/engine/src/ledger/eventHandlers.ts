@@ -34,6 +34,7 @@ import {
 } from "../plan/ids";
 import { PRE_NOW_MONTH, isPreExisting } from "../projection/nowMarker";
 import { assetAcquisitionObligation } from "../projection/financialObligation";
+import type { FundingFailure } from "../projection/fundingFailure";
 
 export interface EventHandler<E extends LifeEvent> {
   check(event: E, state: InterpretState, context: InterpretContext): ValidationResult;
@@ -58,6 +59,11 @@ function holdingMonthFault(month: number): string | null {
     : null;
 }
 
+/** Owner must be a known household member (present at some point). */
+function ownerExists(state: InterpretState, ownerId: string): boolean {
+  return state.personsById.has(asPersonId(ownerId));
+}
+
 /** Whole dollars for a conflict message — conflicts are read by a person, not the engine. */
 function dollars(cents: number): string {
   return (cents / 100).toLocaleString("en-US", {
@@ -67,9 +73,43 @@ function dollars(cents: number): string {
   });
 }
 
-/** Owner must be a known household member (present at some point). */
-function ownerExists(state: InterpretState, ownerId: string): boolean {
-  return state.personsById.has(asPersonId(ownerId));
+/**
+ * The down-payment refusal, phrased from the classification: `funding-configuration` names the
+ * eligible account(s) elsewhere that could cover it — the fix is to re-point the funding, not to
+ * find more money — while `no-eligible-source-suffices` states that the combined eligible pool,
+ * not just the selection, falls short. Neither branch calls it insolvency: retirement and other
+ * ineligible balances are excluded on purpose, so total net worth can exceed the down payment
+ * while this still refuses.
+ */
+function fundingFailureMessage(
+  event: HomePurchaseEvent,
+  failure: FundingFailure,
+  labelById: ReadonlyMap<string, string>,
+): string {
+  const amount = `down payment of ${dollars(event.downPaymentCents)}`;
+  if (failure.kind === "funding-configuration") {
+    const taxNote =
+      failure.selectedSourcesTaxCents > 0
+        ? " (after the capital-gains tax on liquidating the selected investment sources)"
+        : "";
+    const alternatives = failure.alternativeSources
+      .map((s) => `${labelById.get(s.accountId) ?? s.accountId} (${dollars(s.availableCents)} available)`)
+      .join(", ");
+    return (
+      `${amount} exceeds the ${dollars(failure.selectedSourcesAvailableCents)} available from the ` +
+      `selected sources${taxNote} at month ${event.month}. Other eligible accounts could cover it: ` +
+      `${alternatives}. Re-point the funding to one of those or lower the amount — only the selected ` +
+      `accounts fund this purchase, and nothing is moved for you.`
+    );
+  }
+  const taxNote =
+    failure.eligibleTaxCents > 0 ? " (after the capital-gains tax on liquidating them)" : "";
+  return (
+    `${amount} exceeds what the eligible funding sources together can cover ` +
+    `(${dollars(failure.eligibleAvailableCents)} available${taxNote}) at month ${event.month}. ` +
+    `Retirement accounts and other ineligible balances do not count, and credit is never a ` +
+    `source, so total net worth can exceed the down payment while this still fails.`
+  );
 }
 
 const relationship: EventHandler<RelationshipEvent> = {
@@ -283,8 +323,8 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
       }
     }
     // A holding (a home already owned at "now") opens at its current value with no acquisition:
-    // it names no funding source, draws no down payment, and skips the §4.5 gate below. Only a
-    // purchase authored during the plan (`month ≥ 0`) funds and gates. Everything above — owner,
+    // it names no funding source, draws no down payment, and skips the down-payment checks below.
+    // Only a purchase authored during the plan (`month ≥ 0`) funds. Everything above — owner,
     // securing-liability, and positive-value checks — applies to both.
     if (isPreExisting(event.month)) {
       return ok;
@@ -300,23 +340,40 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     if (event.downPaymentCents < 0 || event.downPaymentCents > event.purchasePriceCents) {
       return fail(event, `down payment must be between 0 and the purchase price`);
     }
-    // HARD BLOCK (§4.5): the down payment must be coverable from the SELECTED liquid sources
-    // at the purchase month, NET of the capital-gains tax liquidating them owes.
-    // `fundingAvailabilityAt` runs the SAME ordered gross-up the simulator does against a
-    // projection of the ledger so far — draining the selected sources in the user's order,
-    // taxing each sale marginally over the owner's other income that month — so the gate
-    // blocks exactly when the sim would fall short. A selected source that is not a liquid
-    // account (illiquid, or empty) contributes 0. It exists only on the authoring path;
-    // absent it (ordinary replay/undo) this check is skipped — replay never re-litigates
-    // an accepted purchase.
+    // HARD BLOCK: the down payment must be coverable from the SELECTED liquid sources at the
+    // purchase month, NET of the capital-gains tax liquidating them owes. `fundingAvailabilityAt`
+    // runs the SAME ordered gross-up the simulator does against a projection of the ledger so far
+    // — draining the selected sources in the user's order, taxing each sale marginally over the
+    // owner's other income that month — so the gate blocks exactly when the sim would fall short.
+    // A selected source that is not a liquid account (illiquid, or empty) contributes 0. It exists
+    // only on the authoring path; absent it (ordinary replay/undo) this check is skipped — replay
+    // never re-litigates an accepted purchase.
+    //
+    // The refusal itself is never a substitution: `fundingFailureAt` (the same eligibility seam
+    // and classifier the blocked-projection warning uses, see `classifyFundingFailure`) only
+    // explains WHY — naming an eligible account that could cover it when one exists — so the
+    // household can re-point the funding themselves. Nothing here reorders, substitutes, or
+    // liquidates on their behalf.
     const affordability = context.fundingAvailabilityAt?.(
       event.downPaymentSourceIds,
       event.downPaymentCents,
       event.month,
     );
     if (affordability !== undefined && affordability.shortfallCents > 0) {
-      // Name the SELECTED sources and what each holds, flagging when capital-gains tax bit
-      // into the coverage — otherwise the total and the printed balances agree exactly.
+      const failure = context.fundingFailureAt?.(
+        "asset-acquisition",
+        event.downPaymentSourceIds,
+        event.downPaymentCents,
+        event.month,
+      );
+      if (failure !== undefined) {
+        const labelById = new Map(
+          (context.fundingSourcesAt?.(event.month) ?? []).map((s) => [s.id, s.label]),
+        );
+        return fail(event, fundingFailureMessage(event, failure, labelById));
+      }
+      // No classifier available (should not happen on the authoring path, which always injects
+      // one alongside `fundingAvailabilityAt`) — fall back to naming just the selected sources.
       const counted = affordability.sources
         .map((s) => `${s.label} (${dollars(s.balanceCents)})`)
         .join(", ");

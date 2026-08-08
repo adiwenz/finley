@@ -134,8 +134,10 @@ export function HomePurchaseForm({
     [funding, sourceIds, draft.down, draft.month],
   );
 
-  // SOFT warning: never gates `submit`. The only hard block, down-payment coverage, is
-  // enforced in the engine event handler.
+  // SOFT warning: never gates `submit` — that's the DTI advisory, a separate concern from
+  // down-payment coverage. Coverage itself DOES still gate: an uncovered selection refuses at
+  // `submit` (the engine's hard block), and the picker's coverage line — read off this same
+  // `availability` — is what lets the user see and fix that before they try.
   const dti = result.assessHomePurchase({
     month: draft.month,
     purchasePriceCents: dollarsToCents(draft.price),
