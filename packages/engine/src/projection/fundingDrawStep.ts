@@ -90,8 +90,8 @@ export function toTaxableRecord(taxableByOwner: TaxableByOwner): Record<string, 
  * gain stacked onto it, so a second taxable source from the same owner is taxed on top of
  * the first — hence this MUTATES `taxableByOwner` (pass a copy to probe).
  *
- * Shared with the §4.5 affordability gate, so the gate blocks exactly when the sim would
- * fall short.
+ * Shared with the affordability reporter (`fundingLookup.availabilityAt`), so the reported
+ * shortfall matches exactly what the sim would fall short by.
  */
 export function resolveOrderedFundingDraw(
   amountCents: Cents,
@@ -236,8 +236,9 @@ export interface FundingBlock {
  * on this complete set; only the FIRST shortfall is reported as the {@link FundingBlock}, since a
  * later draw was never priced and so has no shortfall to state.
  *
- * The gross-up is {@link resolveOrderedFundingDraw}, the one definition the §4.5 gate shares — so
- * an accepted purchase never lands short here, and a stranded one blocks identically.
+ * The gross-up is {@link resolveOrderedFundingDraw}, the one definition the affordability reporter
+ * (`fundingLookup.availabilityAt`) shares — so the shortfall a preview reports is exactly the one a
+ * stranded purchase blocks on here.
  *
  * `taxableByOwner` is NOT mutated: a working copy is threaded across draws, stacking each applied
  * draw's gain onto the next, and comes back as `taxableByOwnerAfter`. A blocked draw's gain is

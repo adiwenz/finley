@@ -274,8 +274,8 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
       }
     }
     // A holding (a home already owned at "now") opens at its current value with no acquisition:
-    // it names no funding source, draws no down payment, and skips the §4.5 gate below. Only a
-    // purchase authored during the plan (`month ≥ 0`) funds and gates. Everything above — owner,
+    // it names no funding source, draws no down payment, and skips the down-payment checks below.
+    // Only a purchase authored during the plan (`month ≥ 0`) funds. Everything above — owner,
     // securing-liability, and positive-value checks — applies to both.
     if (isPreExisting(event.month)) {
       return ok;
