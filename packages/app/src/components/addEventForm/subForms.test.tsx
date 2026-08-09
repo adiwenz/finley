@@ -19,8 +19,6 @@ import { SeparationForm } from "./separationForm";
 import { ChildForm } from "./childForm";
 import { HomePurchaseForm } from "./homePurchaseForm";
 import type { EventOf } from "./formControls";
-import { PLAN_DEFAULTS } from "../../planDefaults";
-import { readerOf, runOf } from "../../testing/projectionHarness";
 
 afterEach(cleanup);
 
@@ -52,6 +50,20 @@ const withPartner = {
 
 const spin = (name: RegExp | string) =>
   screen.getByRole("spinbutton", { name }) as HTMLInputElement;
+
+const resultStub = {
+  assessHomePurchase: () => ({
+    assessment: { frontEndRatio: 0, backEndRatio: 0, frontEndExceeded: false, backEndExceeded: false },
+    monthlyMortgageCents: 0,
+    monthlyGrossCents: 0,
+    exceeded: false,
+  }),
+} as unknown as ProjectionResult;
+
+const fundingStub = {
+  sourcesAt: () => [],
+  availabilityAt: () => ({ shortfallCents: 0, availableCents: 0, taxCents: 0, taxed: false, sources: [] }),
+} as any;
 
 describe("LoanForm — kind gates the term", () => {
   it("drops the term field for a revolving credit card, and restores the typed term when switched back", () => {
@@ -293,8 +305,8 @@ describe("sub-forms — editing an existing event", () => {
         defaultMonth={0}
         horizonMonths={660}
         onAdd={vi.fn()}
-        result={runOf(PLAN_DEFAULTS)}
-        funding={readerOf(PLAN_DEFAULTS).funding()}
+        result={resultStub}
+        funding={fundingStub}
         edit={{ event: HOME, onRevise }}
       />,
     );
@@ -419,8 +431,8 @@ describe("sub-forms — editing something already true on day one", () => {
         defaultMonth={0}
         horizonMonths={660}
         onAdd={vi.fn()}
-        result={runOf(PLAN_DEFAULTS)}
-        funding={readerOf(PLAN_DEFAULTS).funding()}
+        result={resultStub}
+        funding={fundingStub}
         edit={{ event: OWNED_HOME, onRevise }}
       />,
     );

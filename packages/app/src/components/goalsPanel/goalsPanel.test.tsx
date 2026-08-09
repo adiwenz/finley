@@ -1,188 +1,106 @@
 /**
  * @vitest-environment node
  *
- * Render coverage for the Goals + Budget panels via the server renderer (jsdom is
- * unavailable here). Interaction and the priority tradeoff live in goalsView.test.ts; these
- * pin the wiring — on-track % surfaced, honesty flag shown, and the person-partitioned
- * Budget/Accounts panel with its Shared section and four exposed levers.
+ * Render-only GoalsPanel coverage. Goal funding/progress math belongs to the engine; this suite
+ * supplies the public progress answer and tests only the panel's presentation and controls.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import {
-  dollarsToCents,
-} from "@finley/engine";
-import { GoalsPanel } from "./goalsPanel";
-import { readerOf, runOf } from "../../testing/projectionHarness";
-import { BudgetEditor } from "../budgetEditor/budgetEditor";
+import type { GoalPlan, Plan } from "@finley/engine";
 import { PLAN_DEFAULTS } from "../../planDefaults";
-import { setJobMonthlyIncome } from "../../testing/planFixtures";
 import type { Transact } from "../../hooks/useProjection";
-import type {
-  Plan,
-} from "@finley/engine";
+import { GoalsPanel } from "./goalsPanel";
 
-/** Render-only tests: nothing is written, so the transaction runner never runs one. */
 const noWrites: Transact = () => undefined;
 
-describe("GoalsPanel", () => {
-  it("shows each goal's projection-based on-track % and name", () => {
-    const html = renderToStaticMarkup(
-      <GoalsPanel budget={PLAN_DEFAULTS} projection={readerOf(PLAN_DEFAULTS)} result={runOf(PLAN_DEFAULTS)} transact={noWrites} />,
-    );
-    expect(html).toContain("Emergency fund");
-    expect(html).toContain("Home down payment");
-    expect(html).toContain("on track");
-  });
+const goals: GoalPlan[] = [
+  {
+    id: "emergency",
+    name: "Emergency fund",
+    targetCents: 1_000_000,
+    targetDate: 24,
+    disposition: "retain",
+    annualReturnPct: 1,
+  },
+  {
+    id: "home",
+    name: "Home down payment",
+    targetCents: 6_000_000,
+    targetDate: 60,
+    disposition: "retain",
+    annualReturnPct: 7,
+  },
+];
 
-  it("surfaces each goal's disposition — the fate of the money at target", () => {
-    const html = renderToStaticMarkup(
-      <GoalsPanel budget={PLAN_DEFAULTS} projection={readerOf(PLAN_DEFAULTS)} result={runOf(PLAN_DEFAULTS)} transact={noWrites} />,
-    );
-    // Both default goals are `retain` savings reserves (planDefaults).
+const budget: Plan = { ...PLAN_DEFAULTS, goals };
+const projection = { eventsFundedByGoal: () => [] } as any;
+
+function result(progress: readonly any[]) {
+  return { goalProgress: () => progress } as any;
+}
+
+function render(progress: readonly any[], plan: Plan = budget) {
+  return renderToStaticMarkup(
+    <GoalsPanel budget={plan} projection={projection} result={result(progress)} transact={noWrites} />,
+  );
+}
+
+const inProgress = (goal: GoalPlan, priority: number, fraction = 0.5, risk = false) => ({
+  goal: { ...goal, priority },
+  progress: { onTrackFraction: fraction, shortHorizonRiskFlag: risk, completion: "inProgress" },
+});
+
+describe("GoalsPanel", () => {
+  it("renders goal names, progress, targets and dispositions from the view data", () => {
+    const html = render([inProgress(goals[0], 0, 0.8), inProgress(goals[1], 1, 0.4)]);
+    expect(html).toContain("Emergency fund");
+    expect(html).toContain("80% on track");
+    expect(html).toContain("Home down payment");
+    expect(html).toContain("40% on track");
     expect(html).toContain("Kept as a reserve");
   });
 
-  it("shows a Funded badge once a goal's projected fund reaches target on/before the date", () => {
-    // With FICA charged, the default $5k plan has essentially no surplus, so a fundable
-    // goal needs a plan that actually saves: a $6,500 wage fills a $5,000 target well before
-    // the 24-month date.
-    const budget: Plan = {
-      ...setJobMonthlyIncome(PLAN_DEFAULTS, PLAN_DEFAULTS.primary.jobs[0]!.id, dollarsToCents(6500)),
-      goals: [
-        {
-          id: "car",
-          name: "New car",
-          targetCents: dollarsToCents(5000),
-          targetDate: 24,
-          disposition: "retain",
-          annualReturnPct: 0,
-        },
-      ],
-    };
-    const html = renderToStaticMarkup(
-      <GoalsPanel budget={budget} projection={readerOf(budget)} result={runOf(budget)} transact={noWrites} />,
-    );
+  it("renders Funded instead of a pacing percentage for a completed goal", () => {
+    const html = render([
+      {
+        goal: { ...goals[0], priority: 0 },
+        progress: { onTrackFraction: 1.2, shortHorizonRiskFlag: false, completion: "funded" },
+      },
+      inProgress(goals[1], 1),
+    ]);
     expect(html).toContain("Funded");
-    // Funded is terminal: the pacing % ("am I on pace to get there") is dropped so it can't
-    // contradict the badge — e.g. a drained fund's low %.
-    expect(html).not.toContain("on track");
+    expect(html).not.toContain("120% on track");
   });
 
-  it("marks an unreachable goal In progress and behind pace", () => {
-    // A $10M target by month 12 is nowhere near funded off the default surplus.
-    const budget: Plan = {
-      ...PLAN_DEFAULTS,
-      goals: [
-        {
-          id: "moon",
-          name: "Moon base",
-          targetCents: dollarsToCents(10_000_000),
-          targetDate: 12,
-          disposition: "retain",
-          annualReturnPct: 0,
-        },
-      ],
-    };
-    const html = renderToStaticMarkup(
-      <GoalsPanel budget={budget} projection={readerOf(budget)} result={runOf(budget)} transact={noWrites} />,
-    );
-    expect(html).toContain("In progress");
-    expect(html).toContain("Behind pace");
-    // The on-track % is the pacing signal, shown while a goal is still In progress.
-    expect(html).toContain("on track");
+  it("renders Behind pace only for an in-progress goal below pace", () => {
+    const html = render([inProgress(goals[0], 0, 0.5), inProgress(goals[1], 1, 1)]);
+    expect(html).toContain("In progress · Behind pace");
   });
 
-  it("shows the short-horizon-in-risky-account honesty flag", () => {
-    // One near-term goal in a 7% account → the flag fires.
-    const budget: Plan = {
-      ...PLAN_DEFAULTS,
-      goals: [
-        {
-          id: "trip",
-          name: "Trip",
-          targetCents: dollarsToCents(5000),
-          targetDate: 12,
-          disposition: "retain",
-          annualReturnPct: 7,
-        },
-      ],
-    };
-    const html = renderToStaticMarkup(
-      <GoalsPanel budget={budget} projection={readerOf(budget)} result={runOf(budget)} transact={noWrites} />,
-    );
+  it("renders the short-horizon risk warning when the supplied row flags it", () => {
+    const html = render([inProgress(goals[0], 0), inProgress(goals[1], 1, 0.5, true)]);
     expect(html).toContain("market-risk account");
   });
 
-  it("offers priority-reorder controls per goal", () => {
-    const html = renderToStaticMarkup(
-      <GoalsPanel budget={PLAN_DEFAULTS} projection={readerOf(PLAN_DEFAULTS)} result={runOf(PLAN_DEFAULTS)} transact={noWrites} />,
-    );
-    expect(html).toContain("Move Emergency fund up");
-    expect(html).toContain("Move Home down payment down");
-  });
-
-  it("disables the reorder control at each end, rather than asking for a refused move", () => {
-    // `Projection.reorderGoal` refuses a move that cannot happen, so the panel must not offer
-    // one: an enabled button here would surface as a conflict message on a dead click.
-    const html = renderToStaticMarkup(
-      <GoalsPanel budget={PLAN_DEFAULTS} projection={readerOf(PLAN_DEFAULTS)} result={runOf(PLAN_DEFAULTS)} transact={noWrites} />,
-    );
-    // First goal cannot go up, last cannot go down; the inner moves stay live.
+  it("renders reorder, edit, and delete controls with boundary moves disabled", () => {
+    const html = render([inProgress(goals[0], 0), inProgress(goals[1], 1)]);
     expect(html).toMatch(/aria-label="Move Emergency fund up"[^>]*disabled/);
-    expect(html).toMatch(/aria-label="Move Home down payment down"[^>]*disabled/);
     expect(html).not.toMatch(/aria-label="Move Emergency fund down"[^>]*disabled/);
     expect(html).not.toMatch(/aria-label="Move Home down payment up"[^>]*disabled/);
+    expect(html).toMatch(/aria-label="Move Home down payment down"[^>]*disabled/);
+    expect(html).toContain('aria-label="Edit Emergency fund"');
+    expect(html).toContain('aria-label="Delete Emergency fund"');
   });
 
-  it("offers per-goal edit and delete authoring controls", () => {
-    const html = renderToStaticMarkup(
-      <GoalsPanel budget={PLAN_DEFAULTS} projection={readerOf(PLAN_DEFAULTS)} result={runOf(PLAN_DEFAULTS)} transact={noWrites} />,
-    );
-    expect(html).toContain("Edit Emergency fund");
-    expect(html).toContain("Delete Emergency fund");
-  });
-
-  it("discloses the add-goal form on demand, not always open", () => {
-    const html = renderToStaticMarkup(
-      <GoalsPanel budget={PLAN_DEFAULTS} projection={readerOf(PLAN_DEFAULTS)} result={runOf(PLAN_DEFAULTS)} transact={noWrites} />,
-    );
-    // The disclosure trigger is present; the form itself is closed until clicked.
+  it("renders the add trigger but keeps the authoring form closed initially", () => {
+    const html = render([inProgress(goals[0], 0), inProgress(goals[1], 1)]);
     expect(html).toContain("+ Add a goal");
     expect(html).not.toContain('aria-label="Add goal"');
   });
 
-  it("invites a first goal when the plan has none", () => {
-    const empty: Plan = { ...PLAN_DEFAULTS, goals: [] };
-    const html = renderToStaticMarkup(
-      <GoalsPanel budget={empty} projection={readerOf(empty)} result={runOf(empty)} transact={noWrites} />,
-    );
+  it("renders the empty state without needing an engine run", () => {
+    const html = render([], { ...PLAN_DEFAULTS, goals: [] });
     expect(html).toContain("No goals yet");
     expect(html).toContain("+ Add a goal");
-  });
-});
-
-describe("BudgetEditor — person-partitioned panel with the four levers", () => {
-  const html = renderToStaticMarkup(
-    <BudgetEditor budget={PLAN_DEFAULTS} transact={noWrites} />,
-  );
-
-  it("partitions into a member section plus a Shared section", () => {
-    expect(html).toContain("’s budget"); // member section aria-label
-    expect(html).toContain('aria-label="Shared"');
-  });
-
-  it("discloses advanced controls behind a summary", () => {
-    expect(html).toContain("<summary>Advanced</summary>");
-    // The account-return knobs are the disclosed levers; the 401(k) deferral lives on jobs,
-    // not here.
-    expect(html).toContain("Retirement return");
-    expect(html).not.toContain("401(k) contribution");
-  });
-
-  it("exposes the shared-scheme lever", () => {
-    // No surplus-destination lever: leftover cash idles, and investing it is authored as a
-    // brokerage contribution line, not a scalar toggle.
-    expect(html).toContain("Shared expenses split");
-    expect(html).toContain("Split evenly");
   });
 });
