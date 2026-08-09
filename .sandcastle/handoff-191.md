@@ -5,19 +5,25 @@ green one at a time. Read `gh issue view 191` and `docs/projection-blocking-desi
 §6–§7 for the spec.
 
 **My breakdown (whole issue):**
-1. **Eligibility seam** — DONE (this commit). `getEligibleFundingSources` now admits credit
-   cards for `expense`, excludes them for `asset-acquisition`.
-2. **Credit funding primitive** — TODO. Widen the ordered draw so a `credit` source borrows
-   against headroom (`availableCredit = creditLimit − balance`, clamp ≥0) with no sale, no
-   basis, no tax; `perSource` gains a `kind`. See design §7 ("Widen `resolveOrderedFundingDraw`
-   to a discriminated source"). This is called out as the riskiest change in the epic.
+1. **Eligibility seam** — DONE. `getEligibleFundingSources` admits credit cards for `expense`,
+   excludes them for `asset-acquisition`.
+2. **Credit funding primitive** — DONE. `resolveOrderedFundingDraw` now takes a discriminated
+   `FundingSourceState` (`AccountFundingSource | CreditFundingSource`); a credit source borrows
+   against headroom (`creditLimitCents − balanceCents`, clamp ≥0; null limit = unbounded), no
+   sale/basis/gain/tax, stacks nothing on the owner base. `ResolvedFundingSource` gained a
+   required `kind: "account" | "credit"` (credit sets `category: "taxExempt"`, gain/tax/… = 0).
 3. **Failure / availability reporting** — TODO. Credit in `alternativeSources` for an
    `expense` (never `asset-acquisition`); availability = remaining headroom, no gross-up; no
    capital-gains tax introduced. `fundingLookup.sourcesAt` must report a card's headroom
-   (`limit − balance`) from `liabilityBalancesCents`, not an asset balance.
+   (`limit − balance`) from `liabilityBalancesCents`, not an asset balance. `EligibleAccountState`
+   currently `extends AccountFundingSource` — Part 3 must widen the classifier pool to accept
+   credit candidates (it is asset-only today; credit cards are never added to it yet).
 4. **Simulator execution** — TODO. A credit draw increases the corresponding liability balance
    (the borrow IS the funding action — no cash minted first). Skip the synthetic shortfall card
-   (`SYNTHETIC_CARD_ID`) as a pickable source everywhere.
+   (`SYNTHETIC_CARD_ID`) as a pickable source everywhere. `resolveFundingDraws` still filters
+   `treatment === "asset-acquisition"` and its source list carries no credit sources yet — a
+   credit `FundingSourceState` (`kind:"credit"`, with `creditLimitCents`) must be built from
+   `state.liabilities` / `liabilityBalancesCents` where sources are assembled.
 5. **UI** — TODO. Picker offers credit for expenses only, greys a card whose headroom cannot
    cover the draw (like a $0 account) and one with no entered limit, and makes the borrowing
    consequence clear. `packages/app/src/components/addEventForm/fundingSourcePicker.tsx`,

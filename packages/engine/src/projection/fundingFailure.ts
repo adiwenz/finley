@@ -20,13 +20,17 @@ import type { Cents } from "../money/money";
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
 import {
   resolveOrderedFundingDraw,
+  type AccountFundingSource,
   type FundingSourceState,
   type TaxableByOwner,
 } from "./fundingDrawStep";
 import { getEligibleFundingSources, type FundingTreatment } from "./fundingEligibility";
 
-/** A household account as the classifier reads it: a funding source plus its eligibility fact. */
-export interface EligibleAccountState extends FundingSourceState {
+/**
+ * A household account as the classifier reads it: an account funding source plus its eligibility
+ * fact. The pool it classifies against is asset accounts today; credit joins it in a later slice.
+ */
+export interface EligibleAccountState extends AccountFundingSource {
   readonly liquid: boolean;
 }
 

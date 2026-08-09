@@ -5,10 +5,12 @@
  * ordered source list — because the split is balance-dependent. Here it is taken, with the
  * pro-rata basis accounting of {@link import("./withdrawal").buildWithdrawalSources}.
  *
- * The draw is grossed up so what remains after capital-gains tax still covers the payment,
+ * An account draw is grossed up so what remains after capital-gains tax still covers the payment,
  * and the gain routes through the tax chokepoint (`allocateMonth`) as a net-neutral source.
  * A purchase funded from an appreciated source therefore lowers net worth by the tax paid;
- * a cash source (basis == balance) conserves it.
+ * a cash source (basis == balance) conserves it. A credit source instead borrows against the
+ * card's headroom with no sale and no tax — the discriminated {@link FundingSourceState} lets both
+ * walk the one ordered list, so the user's authored order is honoured and never reshuffled.
  */
 
 import type { Cents } from "../money/money";
@@ -27,7 +29,13 @@ export type TaxableByOwner = Map<string, TaxableByCategory>;
 /** Backstop on the gross-up climb; a realistic draw converges in about a dozen steps. */
 const GROSS_UP_ITERATIONS = 1_000;
 
-export interface FundingSourceState {
+/**
+ * An account source: liquidated and grossed up over the capital-gains tax the sale induces, with a
+ * pro-rata basis split. `kind` is optional so the many asset-only source literals across the engine
+ * need no `"account"` tag; absent → an account.
+ */
+export interface AccountFundingSource {
+  readonly kind?: "account";
   readonly id: string;
   readonly ownerId: string;
   readonly category: TaxCategory;
@@ -36,20 +44,42 @@ export interface FundingSourceState {
   readonly label?: string;
 }
 
-export interface ResolvedFundingSource {
+/**
+ * A credit source: the draw BORROWS against the card's remaining headroom rather than selling
+ * anything. `balanceCents` is the amount currently owed and `creditLimitCents` the borrowing
+ * ceiling (`null` = unbounded), so available credit is `creditLimitCents − balanceCents` clamped at
+ * zero. No sale means no basis, no realized gain, and no tax — the borrow itself is the funding
+ * action, and it never grosses up or stacks onto the owner's taxable base.
+ */
+export interface CreditFundingSource {
+  readonly kind: "credit";
   readonly id: string;
   readonly ownerId: string;
+  readonly balanceCents: Cents;
+  readonly creditLimitCents: Cents | null;
+  readonly label?: string;
+}
+
+/** A source the ordered draw walks: an asset account it sells, or a credit line it borrows on. */
+export type FundingSourceState = AccountFundingSource | CreditFundingSource;
+
+export interface ResolvedFundingSource {
+  /** Which kind of source delivered this slice — an account sale or a credit borrow. */
+  readonly kind: "account" | "credit";
+  readonly id: string;
+  readonly ownerId: string;
+  /** The account's withdrawal tax category; `"taxExempt"` for a credit borrow, which realizes none. */
   readonly category: TaxCategory;
   readonly label?: string;
-  /** Sold from the account, grossed up over its own tax. */
+  /** Sold from the account and grossed up over its own tax; for credit, the amount borrowed. */
   readonly grossCents: Cents;
-  /** Realized taxable gain within `grossCents`. */
+  /** Realized taxable gain within `grossCents` — always 0 for a credit borrow. */
   readonly gainCents: Cents;
-  /** Marginal tax the gain induced over the running owner base. */
+  /** Marginal tax the gain induced over the running owner base — always 0 for a credit borrow. */
   readonly taxCents: Cents;
-  /** `grossCents − gainCents`. */
+  /** `grossCents − gainCents`; the whole borrow for credit, which realizes no gain. */
   readonly principalCents: Cents;
-  /** What reached the purchase — `grossCents − taxCents`. */
+  /** What reached the purchase — `grossCents − taxCents`; equal to `grossCents` for credit. */
   readonly netDeliveredCents: Cents;
 }
 
@@ -84,11 +114,15 @@ export function toTaxableRecord(taxableByOwner: TaxableByOwner): Record<string, 
 }
 
 /**
- * Resolve an ordered draw of `amountCents` across `sources` without mutating account state:
- * sell enough from each in turn that the net (after the tax the sale induces) covers the
- * remainder, floored at what it holds. Tax is differenced over `taxableByOwner` and each
- * gain stacked onto it, so a second taxable source from the same owner is taxed on top of
- * the first — hence this MUTATES `taxableByOwner` (pass a copy to probe).
+ * Resolve an ordered draw of `amountCents` across `sources` without mutating account state. Each
+ * source is taken in turn until the remainder is covered: an account source sells enough that the
+ * net (after the tax the sale induces) covers the remainder, floored at what it holds; a credit
+ * source borrows the remainder against its headroom (`limit − balance`, clamped at zero), tax-free.
+ * Both walk the ONE ordered list — a `[brokerage, visa]` list sells then borrows, never reordered.
+ *
+ * Account tax is differenced over `taxableByOwner` and each gain stacked onto it, so a second
+ * taxable source from the same owner is taxed on top of the first — hence this MUTATES
+ * `taxableByOwner` (pass a copy to probe). A credit borrow realizes nothing and stacks nothing.
  *
  * Shared with the affordability reporter (`fundingLookup.availabilityAt`), so the reported
  * shortfall matches exactly what the sim would fall short by.
@@ -108,6 +142,35 @@ export function resolveOrderedFundingDraw(
 
   for (const source of sources) {
     if (remaining <= 0) break;
+
+    // Credit borrows against headroom instead of selling. `availableCredit = limit − balance`
+    // clamped at zero; a null limit is unbounded, so it covers whatever remains. No sale means no
+    // basis, no gain, no tax, and nothing stacked onto the owner base — the borrow is delivered in
+    // full and IS the funding action. A maxed card (headroom ≤ 0) is skipped exactly as a $0
+    // account is, so it never lands as a zero source.
+    if (source.kind === "credit") {
+      const headroom =
+        source.creditLimitCents === null
+          ? remaining
+          : Math.max(0, source.creditLimitCents - source.balanceCents);
+      const borrowed = Math.min(remaining, headroom);
+      if (borrowed <= 0) continue;
+      remaining -= borrowed;
+      perSource.push({
+        kind: "credit",
+        id: source.id,
+        ownerId: source.ownerId,
+        category: "taxExempt",
+        label: source.label,
+        grossCents: borrowed,
+        gainCents: 0,
+        taxCents: 0,
+        principalCents: borrowed,
+        netDeliveredCents: borrowed,
+      });
+      continue;
+    }
+
     const balance = source.balanceCents;
     if (balance <= 0) continue;
     const { id, ownerId, category, label } = source;
@@ -149,6 +212,7 @@ export function resolveOrderedFundingDraw(
     const netDelivered = gross - tax;
     remaining -= netDelivered;
     perSource.push({
+      kind: "account",
       id,
       ownerId,
       category,
