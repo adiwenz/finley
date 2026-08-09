@@ -21,6 +21,8 @@ import type { IncomeSourceMonth } from "./waterfall";
 import { attributeExplicitObligation, type ResolvedFunding } from "./resolvedFunding";
 import type { FinancialObligation } from "./financialObligation";
 import { classifyFundingFailure, type FundingFailure, type EligibleAccountState } from "./fundingFailure";
+import type { FundingTreatment } from "./fundingEligibility";
+import { RevolvingCard, SYNTHETIC_CARD_ID } from "../liability/liability";
 
 export type TaxableByCategory = Partial<Record<TaxCategory, Cents>>;
 /** The month's taxable base, per owner — the context a gross-up differences tax over. */
@@ -327,14 +329,14 @@ export function resolveFundingDraws(
 
   // This month's draws, in resolution order, materialized BEFORE any is priced: a block has to name
   // not just the draw that fell short but every draw after it that consequently never ran, and that
-  // tail is only knowable from the whole list. A funding draw is an explicitly-funded asset
-  // acquisition: `explicit` names the accounts to drain (an automatic obligation has none — the
-  // waterfall funds it), and `asset-acquisition` is what makes it a draw that books a gain band plus
-  // a net-neutral tax band. Both fields gate resolution; the `sourceId` below is the bands'
-  // namespace. Anything filtered out here is not a draw at all, so a block never omits it.
+  // tail is only knowable from the whole list. A funding draw is any EXPLICITLY-funded obligation:
+  // `explicit` names the sources to drain in order (an automatic obligation has none — the waterfall
+  // funds it). Both an asset acquisition (a home down payment) and an expense (a one-time spend) can
+  // be explicit; the difference is only whether it buys an asset or reduces net worth outright, which
+  // the balance moves below already express. Anything filtered out here is not a draw at all, so a
+  // block never omits it.
   const draws = state.fundingDraws.filter(
-    (o) =>
-      o.month === month && o.funding.kind === "explicit" && o.treatment === "asset-acquisition",
+    (o) => o.month === month && o.funding.kind === "explicit",
   );
 
   for (const [index, obligation] of draws.entries()) {
@@ -344,15 +346,36 @@ export function resolveFundingDraws(
     const sources: FundingSourceState[] = [];
     for (const sourceId of orderedAccountIds) {
       const account = state.accounts.find((a) => a.id === sourceId);
-      if (account === undefined) continue;
-      sources.push({
-        id: sourceId,
-        ownerId: account.ownerId,
-        category: account.taxProfile.withdrawalCategory,
-        balanceCents: state.assetBalances.get(sourceId) ?? 0,
-        basisCents: Math.max(0, state.basisByAccount.get(sourceId) ?? 0),
-        label: account.label ?? sourceId,
-      });
+      if (account !== undefined) {
+        sources.push({
+          kind: "account",
+          id: sourceId,
+          ownerId: account.ownerId,
+          category: account.taxProfile.withdrawalCategory,
+          balanceCents: state.assetBalances.get(sourceId) ?? 0,
+          basisCents: Math.max(0, state.basisByAccount.get(sourceId) ?? 0),
+          label: account.label ?? sourceId,
+        });
+        continue;
+      }
+      // A named credit card borrows against its headroom instead of selling. The synthetic
+      // shortfall card is an internal cascade artifact and is never authorable as a source, so it
+      // is skipped even if its id somehow appears. `balanceCents` here is the amount owed, from the
+      // authoritative liability map, so headroom is priced over the debt as it stands this month.
+      const cardCandidate = state.liabilities.find(
+        (l): l is RevolvingCard =>
+          l instanceof RevolvingCard && l.id === sourceId && l.id !== SYNTHETIC_CARD_ID,
+      );
+      if (cardCandidate !== undefined) {
+        sources.push({
+          kind: "credit",
+          id: sourceId,
+          ownerId: cardCandidate.ownerId,
+          balanceCents: state.liabilityBalances.get(sourceId) ?? 0,
+          creditLimitCents: cardCandidate.creditLimitCents,
+          label: sourceId,
+        });
+      }
     }
     // Probe against a COPY of the running taxable base: a blocked draw must not stack its partial
     // gains onto `working`, since it never sells anything.
@@ -367,21 +390,41 @@ export function resolveFundingDraws(
     );
     if (shortfallCents > 0) {
       // The block. Omit this draw and everything after it — no state moves, no attribution.
-      // Classify WHY against the whole account pool at this month's balances, priced over the
+      // Classify WHY against the whole eligible pool at this month's balances, priced over the
       // running taxable base (`working`, before this never-applied draw). The classifier copies
-      // the base per probe, so `working` is not disturbed. Only asset acquisitions reach this
-      // filter, so the treatment is that; a treatment field would be threaded here otherwise.
-      const accountPool: EligibleAccountState[] = state.accounts.map((a) => ({
-        id: a.id,
-        ownerId: a.ownerId,
-        category: a.taxProfile.withdrawalCategory,
-        balanceCents: state.assetBalances.get(a.id) ?? 0,
-        basisCents: Math.max(0, state.basisByAccount.get(a.id) ?? 0),
-        liquid: a.liquid,
-        label: a.label ?? a.id,
-      }));
+      // the base per probe, so `working` is not disturbed. The pool carries both asset accounts and
+      // real credit cards; eligibility (keyed on the obligation's treatment) then admits cards only
+      // for an expense, so a stranded spend can be told "an unselected card could cover this" while
+      // a stranded down payment never is. Explicit obligations are only ever expense or
+      // asset-acquisition (a debt payment is always automatic), so the treatment narrows to those.
+      const accountPool: EligibleAccountState[] = [
+        ...state.accounts.map((a) => ({
+          kind: "account" as const,
+          id: a.id,
+          ownerId: a.ownerId,
+          category: a.taxProfile.withdrawalCategory,
+          balanceCents: state.assetBalances.get(a.id) ?? 0,
+          basisCents: Math.max(0, state.basisByAccount.get(a.id) ?? 0),
+          liquid: a.liquid,
+        })),
+        ...state.liabilities
+          .filter(
+            (l): l is RevolvingCard => l instanceof RevolvingCard && l.id !== SYNTHETIC_CARD_ID,
+          )
+          .map((c) => ({
+            kind: "credit" as const,
+            id: c.id,
+            ownerId: c.ownerId,
+            balanceCents: state.liabilityBalances.get(c.id) ?? 0,
+            creditLimitCents: c.creditLimitCents,
+            liquid: false as const,
+            credit: true as const,
+          })),
+      ];
+      const treatment: FundingTreatment =
+        obligation.treatment === "expense" ? "expense" : "asset-acquisition";
       const fundingFailure = classifyFundingFailure({
-        treatment: "asset-acquisition",
+        treatment,
         requiredCents: obligation.amountCents,
         selectedSourceIds: orderedAccountIds,
         selectedSourcesAvailableCents: obligation.amountCents - shortfallCents,
@@ -410,16 +453,17 @@ export function resolveFundingDraws(
     }
     // Fundable: commit the probe's taxable base, then apply the balance moves.
     for (const [ownerId, byCategory] of probe) working.set(ownerId, byCategory);
-    // Attribution mirrors the money exactly: each drained account (a zero-gross source touched
-    // nothing) becomes one `account` source carrying its own withdrawal breakdown, and Σ net
-    // delivered is the obligation's funded amount. Recorded off the same `perSource` the balance
-    // moves below read, so the record and the ledger cannot diverge.
+    // Attribution mirrors the money exactly: each source (a zero-gross one touched nothing) becomes
+    // one record source — an account carrying its withdrawal breakdown, a credit borrow carrying its
+    // `kind` and amount alone — and Σ net delivered is the obligation's funded amount. Recorded off
+    // the same `perSource` the balance moves below read, so the record and the ledger cannot diverge.
     resolvedFunding.push(
       attributeExplicitObligation(
         obligation,
         perSource
           .filter((s) => s.grossCents > 0)
           .map((s) => ({
+            kind: s.kind,
             accountId: s.id,
             grossWithdrawnCents: s.grossCents,
             principalCents: s.principalCents,
@@ -433,6 +477,16 @@ export function resolveFundingDraws(
 
     for (const s of perSource) {
       if (s.grossCents <= 0) continue;
+
+      // A credit borrow raises the card's owed balance by the amount drawn. No asset is sold, so
+      // no basis moves, nothing surfaces as a savings drawdown, and it books no gain or tax band —
+      // the debt increase IS the funding, and the card's normal interest/payment mechanics then
+      // carry the new balance forward through `advanceLiabilities`.
+      if (s.kind === "credit") {
+        state.liabilityBalances.set(s.id, (state.liabilityBalances.get(s.id) ?? 0) + s.grossCents);
+        continue;
+      }
+
       state.assetBalances.set(s.id, (state.assetBalances.get(s.id) ?? 0) - s.grossCents);
       state.basisByAccount.set(
         s.id,

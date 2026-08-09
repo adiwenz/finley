@@ -203,6 +203,8 @@ function orderedLayers(supply: FundingSupplyPlan): Layer[] {
  * `withdrawal.netDeliveredCents` — the two agree by construction, never by a separate reconcile.
  */
 export interface ExplicitDrawSource {
+  /** An account sale carries a withdrawal breakdown; a credit borrow carries none. */
+  readonly kind: "account" | "credit";
   readonly accountId: string;
   readonly grossWithdrawnCents: Cents;
   readonly principalCents: Cents;
@@ -212,29 +214,34 @@ export interface ExplicitDrawSource {
 }
 
 /**
- * Attribute an explicitly-funded obligation to the accounts it named. It drains its own ordered
- * accounts instead of the shared supply, so every source is `kind: "account"` and none is ever
- * income — the SAME record shape the automatic branch emits, so a consumer reads `kind` and never
- * parses ids to tell the two branches apart. `fundedCents` is Σ net delivered; whatever the named
- * accounts could not cover is left as `shortfallCents` (the money is not rationed onto credit —
- * that only arrives in a later slice).
+ * Attribute an explicitly-funded obligation to the sources it named — an account it sold or a card
+ * it borrowed on, in the authored draw order. Each carries the same `kind` discriminant the
+ * automatic branch emits, so a consumer reads `kind` and never parses ids to tell the branches
+ * apart. An account source carries the resolver's withdrawal breakdown; a credit borrow realizes
+ * nothing, so it carries none (mirroring the cascade's credit layer). `fundedCents` is Σ net
+ * delivered; whatever the named sources could not cover is left as `shortfallCents` — the engine
+ * never substitutes an unnamed source to close it.
  */
 export function attributeExplicitObligation(
   obligation: FinancialObligation,
   drawSources: readonly ExplicitDrawSource[],
 ): ResolvedFunding {
-  const sources: ResolvedFundingSource[] = drawSources.map((s): ResolvedFundingSource => ({
-    kind: "account",
-    sourceId: s.accountId,
-    amountCents: s.netDeliveredCents,
-    withdrawal: {
-      grossWithdrawnCents: s.grossWithdrawnCents,
-      principalCents: s.principalCents,
-      realizedGainCents: s.realizedGainCents,
-      taxCents: s.taxCents,
-      netDeliveredCents: s.netDeliveredCents,
-    },
-  }));
+  const sources: ResolvedFundingSource[] = drawSources.map((s): ResolvedFundingSource =>
+    s.kind === "credit"
+      ? { kind: "credit", sourceId: s.accountId, amountCents: s.netDeliveredCents }
+      : {
+          kind: "account",
+          sourceId: s.accountId,
+          amountCents: s.netDeliveredCents,
+          withdrawal: {
+            grossWithdrawnCents: s.grossWithdrawnCents,
+            principalCents: s.principalCents,
+            realizedGainCents: s.realizedGainCents,
+            taxCents: s.taxCents,
+            netDeliveredCents: s.netDeliveredCents,
+          },
+        },
+  );
   const fundedCents = sources.reduce((total, s) => total + s.amountCents, 0);
   return {
     obligationId: obligation.id,
