@@ -1,8 +1,15 @@
 /**
  * The elective-limit scan's own mechanics, held apart from any jurisdiction's real numbers: the
  * limit here is a flat mock figure, so every case is about WHICH MONTHS are counted and at WHAT
- * PAY, which is the whole of what moved into the engine. The app's suite runs the same scan
- * against the real US limits and catch-up bands.
+ * PAY, and WHOSE they are — which is the whole of what moved into the engine. A flat limit is
+ * what makes those readable: every figure below is the authored pay, so a crossing is arithmetic
+ * and never an artefact of how a jurisdiction indexes or bands its limit.
+ *
+ * The real US limits and their age-banded catch-ups are pinned where they live, in
+ * `rules/contributionLimits.test.ts`; that they are read per person at that person's age is
+ * pinned in `projection/simulate.allocation.test.ts`. Neither this suite nor those assert the
+ * composition — the scan run against the real 2026 elective limit — which the app's deleted
+ * scenario suite used to own and only `jobsPanel`'s nudge case now touches.
  *
  * Three of these could not be written while this lived in the app, because the app's copy
  * decided the answers itself: it read a job's authored `endYear` for the years worked, its own
@@ -177,6 +184,74 @@ describe("firstDeferralLimitCrossing", () => {
     // Without the raise the same job never crosses at all.
     const flat = deferringJob("j1", "p1", 30, 65, 36_000);
     expect(firstDeferralLimitCrossing(scenarioOf(flatPlan([flat])), CTX)).toBeNull();
+  });
+
+  it("says nothing where nothing is deferred, whether elected at 0 or not elected at all", () => {
+    // `deferralFractionOf` treats a missing deferral and a 0% one as the same elected rate, so
+    // the scan must not distinguish them either. Distinct from the no-limit case above: here the
+    // jurisdiction states a limit and there is simply nothing being deferred toward it. The pay
+    // would cross several times over at any positive rate.
+    const unelected = deferringJob("j1", "p1", 30, 65, 96_000, { deferral: undefined });
+    expect(firstDeferralLimitCrossing(scenarioOf(flatPlan([unelected])), CTX)).toBeNull();
+
+    const zero = deferringJob("j1", "p1", 30, 65, 96_000, {
+      deferral: { deferralFraction: 0, fundAccountId: RETIREMENT_ID },
+    });
+    expect(firstDeferralLimitCrossing(scenarioOf(flatPlan([zero])), CTX)).toBeNull();
+  });
+
+  it("sums ONE person's concurrent jobs before comparing with their limit", () => {
+    // The limit is the person's, not the job's: $24k at 50% is $12k, under the $20k limit, and
+    // a scan comparing job by job would report no crossing at all. Held together they defer
+    // $24k against one limit, and the reported figure is the sum rather than either job's share.
+    const first = deferringJob("j1", "p1", 30, 65, 24_000);
+    const second = deferringJob("j2", "p1", 30, 65, 24_000);
+
+    const crossing = firstDeferralLimitCrossing(scenarioOf(flatPlan([first, second])), CTX);
+    expect(crossing).not.toBeNull();
+    expect(crossing!.year).toBe(START_YEAR);
+    expect(crossing!.annualDeferralCents).toBe(dollarsToCents(24_000));
+
+    // Either job alone stays under, so it is the summing that crosses and not one of them.
+    expect(firstDeferralLimitCrossing(scenarioOf(flatPlan([first])), CTX)).toBeNull();
+  });
+
+  it("never pools two people — each stays inside a limit of their own", () => {
+    // The same $24k total deferral as the case above, split across two earners instead of two
+    // jobs. Pooling it into one household figure would cross; the limit is per person, so
+    // neither $12k half comes near the $20k each is measured against.
+    const partner = partnerHolding([deferringJob("pj", "p2", 30, 65, 24_000)]);
+    const scenario = withPartner(flatPlan([deferringJob("j1", "p1", 30, 65, 24_000)]), partner);
+
+    expect(firstDeferralLimitCrossing(scenario, CTX)).toBeNull();
+  });
+
+  it("reports the EARLIEST crossing across members, and resolves a tie by join order", () => {
+    // Both cross on their own pay — $96k at 50% is $48k — but in different years, and the
+    // disclosure names one. Scanning members in join order and keeping the earliest means the
+    // partner's later crossing cannot displace the primary's.
+    const early = deferringJob("j1", "p1", 45, 65, 96_000);
+    const late = partnerHolding([deferringJob("pj", "p2", 50, 65, 96_000)]);
+    const crossing = firstDeferralLimitCrossing(withPartner(flatPlan([early]), late), CTX);
+    expect(crossing!.year).toBe(BIRTH_YEAR + 45);
+    expect(crossing!.personName).toBe(samplePlan.primary.name);
+
+    // The reverse ordering, to pin that this is "earliest" and not "the primary always wins".
+    const partnerFirst = partnerHolding([deferringJob("pj", "p2", 45, 65, 96_000)]);
+    const later = deferringJob("j1", "p1", 50, 65, 96_000);
+    const partnerCrossing = firstDeferralLimitCrossing(
+      withPartner(flatPlan([later]), partnerFirst),
+      CTX,
+    );
+    expect(partnerCrossing!.year).toBe(BIRTH_YEAR + 45);
+    expect(partnerCrossing!.personName).toBe("Partner");
+
+    // Same year for both: the tie goes to the member who was here first, so a household never
+    // sees the answer flip on which of two equal crossings happened to be scanned last.
+    const tied = partnerHolding([deferringJob("pj", "p2", 45, 65, 96_000)]);
+    const tieCrossing = firstDeferralLimitCrossing(withPartner(flatPlan([early]), tied), CTX);
+    expect(tieCrossing!.year).toBe(BIRTH_YEAR + 45);
+    expect(tieCrossing!.personName).toBe(samplePlan.primary.name);
   });
 
   it("charges a part-year at the months it actually paid, not at a whole year of it", () => {

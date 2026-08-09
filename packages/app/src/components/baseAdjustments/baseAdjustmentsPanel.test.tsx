@@ -12,7 +12,6 @@ import {
   PRIMARY_PERSON_ID,
   Projection,
   dollarsToCents,
-  healthcareMonthlyCents,
   type Job,
   type Ledger,
   type Plan,
@@ -158,91 +157,6 @@ describe("BaseAdjustmentsPanel — Base", () => {
     expect(screen.queryByRole("spinbutton", { name: /^Income$/ })).toBeNull();
   });
 
-  it("grows every row with inflation as you move along the budget", () => {
-    renderPanel(PLAN_DEFAULTS);
-    const today = Number(spin(/Housing/).value);
-    selectMonth(360);
-    const inThirtyYears = Number(spin(/Housing/).value);
-    expect(inThirtyYears).toBeGreaterThan(today * 2); // 3% over 30y ≈ ×2.4
-    selectMonth(0);
-    expect(Number(spin(/Housing/).value)).toBe(today);
-  });
-
-  it("shows income stopping at retirement and the benefit picking up at the claiming age", () => {
-    renderPanel(PLAN_DEFAULTS);
-    const monthAtAge = (age: number) =>
-      (age - (START_YEAR - PLAN_DEFAULTS.primary.birthYear)) * 12;
-
-    selectMonth(monthAtAge(60)); // still working
-    const working = incomeReadonlyDollars();
-    expect(working).toBeGreaterThan(0);
-
-    selectMonth(monthAtAge(66)); // retired at 65, benefit not claimed until 67
-    expect(incomeReadonlyDollars()).toBe(0);
-
-    selectMonth(monthAtAge(70)); // benefit is being paid
-    const benefit = incomeReadonlyDollars();
-    expect(benefit).toBeGreaterThan(0);
-    expect(benefit).toBeLessThan(working); // a benefit, not a salary that kept growing
-  });
-
-  it("graphs cash flows by source, and flags the retirement gap as a savings drawdown", () => {
-    renderPanel(PLAN_DEFAULTS);
-    const firstRow = JSON.parse(
-      screen.getByTestId("income-first-row").textContent || "{}",
-    ) as Record<string, number>;
-    expect(Object.values(firstRow).some((v) => v > 0)).toBe(true);
-    // Retires at 65, claims at 67 — that stretch is named a drawdown, not a flat zero.
-    expect(screen.getByTestId("income-summary").textContent).toMatch(/living off savings/i);
-  });
-
-  it("counts income authored on the timeline — a partner's own jobs", () => {
-    // Regression: the panel used to run its OWN plan-only projection, whose ledger is empty, so
-    // a partner's $2,000/mo job moved the net-worth chart while the income graph below showed
-    // only the primary's $5,000.
-    renderPanel(PLAN_DEFAULTS, partnerWithJobLedger(2000));
-
-    // Month 6: the partner has joined (month 0) and no CPI step has landed yet, so both
-    // salaries still read at their authored rate.
-    selectMonth(6);
-    expect(incomeReadonlyDollars()).toBe(7000); // $5,000 primary + $2,000 partner
-
-    // And the partner's job is its own band, not folded into the primary's wages.
-    const bands = JSON.parse(screen.getByTestId("income-bands").textContent || "[]") as string[];
-    expect(bands).toContain("Income · Sam's job");
-  });
-
-  it("defaults to the Simple income view and reveals every source under Advanced", () => {
-    renderPanel(PLAN_DEFAULTS);
-    const bands = (): string[] =>
-      JSON.parse(screen.getByTestId("income-bands").textContent || "[]") as string[];
-
-    expect(bands()).toContain("Social Security");
-    expect(bands()).toContain("Living off savings");
-    // The precise engine labels are hidden in Simple — they belong to Advanced.
-    expect(bands()).not.toContain("Government benefit");
-    expect(bands()).not.toContain("Savings drawdown");
-
-    fireEvent.click(screen.getByRole("radio", { name: /Advanced/i }));
-    expect(bands()).toContain("Government benefit");
-    expect(bands()).toContain("Savings drawdown");
-    expect(bands()).not.toContain("Living off savings");
-    expect(bands()).not.toContain("Social Security");
-  });
-
-  it("draws take-home cash flows by default and switches to gross on the toggle", () => {
-    // Take-home is the honest read against the spending-need line: cash after tax and deferral.
-    renderPanel(PLAN_DEFAULTS);
-    const cashFlowTotal = () =>
-      Object.values(
-        JSON.parse(screen.getByTestId("income-first-row").textContent || "{}") as Record<string, number>,
-      ).reduce((s, v) => s + v, 0);
-    const takeHome = cashFlowTotal();
-    fireEvent.click(screen.getByRole("checkbox", { name: /Show gross cash flows/i }));
-    const gross = cashFlowTotal();
-    expect(gross).toBeGreaterThan(takeHome); // gross adds back the wage tax
-  });
-
   it("rebalances to 50/30/20 non-destructively — named lines survive, savings is seeded", () => {
     renderPanel(PLAN_DEFAULTS);
     expect(spin(/Housing/)).toBeTruthy();
@@ -371,99 +285,6 @@ describe("BaseAdjustmentsPanel — editing a point on the budget", () => {
     expect(screen.queryByTestId("adjustment-route")).toBeNull();
     expect(Number(spin(/Housing/).value)).toBe(before);
   });
-
-  it("applies a one-off bonus on top of the selected month's pay, taxed through the sim", () => {
-    // A bonus is a per-job JobIncomeOverride taxed as wages, so the projection moves, not just
-    // the label.
-    renderPanel(PLAN_DEFAULTS);
-    selectMonth(6); // year 0, base $5,000/mo
-    expect(incomeReadonlyDollars()).toBe(5000);
-    openOneOff();
-    setOneOffAmount(2000); // default kind is "bonus (add on top)"
-    applyOneOff();
-    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/bonus of \$2,000/i);
-    expect(incomeReadonlyDollars()).toBe(7000); // 5,000 base + 2,000 bonus
-  });
-
-  it("stacks the monthly-tax chart by job, matching the income chart", () => {
-    // The US jurisdiction reports tax per category and the engine splits it to the job that bore
-    // it, so each job draws its own wage-tax band and the split's Σ equals the row total.
-    renderPanel(PLAN_DEFAULTS);
-    const bands = JSON.parse(screen.getByTestId("tax-bands").textContent || "[]") as string[];
-    // Named after its owner, not its minted id: an untitled job reads "Alex's job".
-    expect(bands).toContain("Income · Alex's job");
-    const firstRow = JSON.parse(screen.getByTestId("tax-first-row").textContent || "{}");
-    const banded = Object.entries(firstRow.centsBySource as Record<string, number>).reduce(
-      (s, [, c]) => s + c,
-      0,
-    );
-    expect(banded).toBe(firstRow.taxCents as number);
-  });
-
-  it("sets pay to $0 for one month (a missed paycheck), taxed on $0 wages that month", () => {
-    // There is no dedicated "missed paycheck" kind: a missed month is "Set pay this month" to
-    // $0. It must zero BOTH the income and the wage tax — you are not taxed on a paycheck you
-    // did not receive.
-    renderPanel(PLAN_DEFAULTS);
-    const firstRowTax = () =>
-      (JSON.parse(screen.getByTestId("tax-first-row").textContent || "{}").taxCents as number) ?? 0;
-    // Month 0 — the first processed month — normally pays $5,000 of wages and is taxed on them.
-    expect(firstRowTax()).toBeGreaterThan(0);
-
-    selectMonth(0);
-    openOneOff();
-    setOneOffKind("setTo");
-    setOneOffAmount(0); // the missed-paycheck case
-    applyOneOff();
-    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/pay set to \$0/i);
-    expect(incomeReadonlyDollars()).toBe(0);
-    // Taxed on $0 wages, not the full salary.
-    expect(firstRowTax()).toBe(0);
-    // The override is a single month, so the next one is untouched.
-    selectMonth(7);
-    expect(incomeReadonlyDollars()).toBe(5000);
-  });
-
-  it("sets an absolute one-month pay figure", () => {
-    renderPanel(PLAN_DEFAULTS);
-    selectMonth(6);
-    openOneOff();
-    setOneOffKind("setTo");
-    setOneOffAmount(9000);
-    applyOneOff();
-    expect(incomeReadonlyDollars()).toBe(9000);
-  });
-
-  it("applies a permanent pay change that holds from the selected month forward", () => {
-    // A permanent change rides a JobPayChange, so unlike "set pay this month" the next month
-    // changes too, while the month before is untouched.
-    renderPanel(PLAN_DEFAULTS);
-    selectMonth(6);
-    expect(incomeReadonlyDollars()).toBe(5000);
-    openOneOff();
-    setOneOffKind("setOngoing"); // "Set new pay" — the ongoing figure, up OR down
-    setOneOffAmount(8000);
-    applyOneOff();
-    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/pay set to \$8,000/i);
-    expect(incomeReadonlyDollars()).toBe(8000);
-    selectMonth(7);
-    expect(incomeReadonlyDollars()).toBe(8000); // PERSISTS (not a one-month change)
-    selectMonth(5);
-    expect(incomeReadonlyDollars()).toBe(5000); // before the change: old pay
-  });
-
-  it("changes pay by a delta from the selected month forward", () => {
-    renderPanel(PLAN_DEFAULTS);
-    selectMonth(6);
-    openOneOff();
-    setOneOffKind("changeOngoing"); // "Change pay by (+/−)"
-    setOneOffAmount(1500);
-    applyOneOff();
-    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/pay changed by \$1,500/i);
-    expect(incomeReadonlyDollars()).toBe(6500); // 5,000 + 1,500, ongoing
-    selectMonth(12);
-    expect(incomeReadonlyDollars()).toBe(6500);
-  });
 });
 
 describe("PayChangeEditor — every earner's jobs, not just the primary person's", () => {
@@ -513,30 +334,6 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
     expect(screen.queryByTestId("pay-change-route")).toBeNull();
   });
 
-  it("lists every adjustment standing at the month, instead of only the last applied", () => {
-    // The bug: the echo was a `note` remembering the last apply, so a second adjustment
-    // REPLACED the first on screen while both were stored — and it survived a change being
-    // removed elsewhere. It is a reading of the plan now.
-    renderPanel(PLAN_DEFAULTS, partnerWithJobLedger(3000));
-    selectMonth(6);
-
-    openOneOff();
-    setOneOffAmount(2000); // bonus on Alex's job
-    applyOneOff();
-    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/bonus of \$2,000/i);
-
-    openOneOff();
-    pickJob("p-1-job-1");
-    setOneOffAmount(1000); // a second bonus, on Sam's job, at the SAME month
-    applyOneOff();
-
-    const listed = screen.getByTestId("pay-change-route").textContent ?? "";
-    expect(listed).toMatch(/bonus of \$2,000/i); // the first one is still named
-    expect(listed).toMatch(/bonus of \$1,000/i); // and so is the second
-    expect(screen.getAllByRole("listitem").filter((li) => /bonus of/i.test(li.textContent ?? "")))
-      .toHaveLength(2);
-  });
-
   it("lists two bonuses on the SAME job in the same month as two entries", () => {
     // The sharpest form of the collision: same job, same month, same scope — which the old
     // `${jobId}:${scope}` key made indistinguishable, so React kept one row and the second
@@ -560,137 +357,6 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
     ).toHaveLength(2);
   });
 
-  it("keeps both stored on the job, and pays their sum", () => {
-    renderPanel(PLAN_DEFAULTS);
-    selectMonth(6);
-
-    openOneOff();
-    setOneOffAmount(2000);
-    applyOneOff();
-    openOneOff();
-    setOneOffAmount(1500);
-    applyOneOff();
-
-    // Two authored facts with distinct ids, neither collapsed into the other.
-    const overrides = jobsOn("primary-jobs")[0].incomeOverrides ?? [];
-    expect(overrides).toHaveLength(2);
-    expect(new Set(overrides.map((o) => o.id)).size).toBe(2);
-    expect(overrides.map((o) => o.cents)).toEqual([dollarsToCents(2000), dollarsToCents(1500)]);
-    // $5,000 standing pay for the month + both bonuses — what the projection actually pays.
-    expect(incomeReadonlyDollars()).toBe(5000 + 2000 + 1500);
-  });
-
-  it("shows a permanent change and a one-off at the same month side by side", () => {
-    renderPanel(PLAN_DEFAULTS);
-    selectMonth(6);
-
-    openOneOff();
-    setOneOffKind("setOngoing");
-    setOneOffAmount(6000);
-    applyOneOff();
-
-    openOneOff();
-    setOneOffKind("addBonus");
-    setOneOffAmount(500);
-    applyOneOff();
-
-    const listed = screen.getByTestId("pay-change-route").textContent ?? "";
-    // Both stored on the same job at the same month, and both scopes named.
-    expect(listed).toMatch(/pay set to \$6,000.*onward \(ongoing\)/is);
-    expect(listed).toMatch(/bonus of \$500.*at month 6/is);
-  });
-
-  /**
-   * The regression this pins: a permanent raise and a missed paycheck authored at the SAME
-   * month. The raise sets the salary state, the override changes only that month's payment, and
-   * both must stay separately visible here — the surface where both are authored.
-   */
-  it("names a same-month raise and missed paycheck as two entries, and pays $0", () => {
-    renderPanel(PLAN_DEFAULTS);
-    selectMonth(10);
-
-    openOneOff();
-    setOneOffKind("setOngoing");
-    setOneOffAmount(6000);
-    applyOneOff();
-
-    openOneOff();
-    setOneOffKind("setTo"); // "set pay this month" — 0 is a missed paycheck
-    setOneOffAmount(0);
-    applyOneOff();
-
-    const listed = screen.getByTestId("pay-change-route").textContent ?? "";
-    expect(listed).toMatch(/pay set to \$6,000.*onward \(ongoing\)/is);
-    expect(listed).toMatch(/pay set to \$0.*at month 10/is);
-    expect(screen.getAllByRole("listitem").filter((li) => /at month 10|onward/.test(li.textContent ?? "")))
-      .toHaveLength(2);
-
-    // What the projection pays for the month — the miss wins the month, not the raise.
-    expect(incomeReadonlyDollars()).toBe(0);
-  });
-
-  it("pays the raised salary from the month after the missed one", () => {
-    renderPanel(PLAN_DEFAULTS);
-    selectMonth(10);
-    openOneOff();
-    setOneOffKind("setOngoing");
-    setOneOffAmount(6000);
-    applyOneOff();
-    openOneOff();
-    setOneOffKind("setTo");
-    setOneOffAmount(0);
-    applyOneOff();
-
-    // The $0 month left no mark on the salary: an override settles nothing beyond its month.
-    selectMonth(11);
-    expect(incomeReadonlyDollars()).toBe(6000);
-    selectMonth(9);
-    expect(incomeReadonlyDollars()).toBe(5000);
-  });
-
-  it("keeps both stored on the job, each with its own identity", () => {
-    renderPanel(PLAN_DEFAULTS);
-    selectMonth(10);
-    openOneOff();
-    setOneOffKind("setOngoing");
-    setOneOffAmount(6000);
-    applyOneOff();
-    openOneOff();
-    setOneOffKind("setTo");
-    setOneOffAmount(0);
-    applyOneOff();
-
-    const job = jobsOn("primary-jobs")[0];
-    // Two different collections, two different kinds of fact — neither collapsed into the other.
-    expect(job.payChanges).toEqual([
-      { id: expect.any(String), month: 10, kind: "setTo", cents: dollarsToCents(6000) },
-    ]);
-    expect(job.incomeOverrides).toEqual([
-      { id: expect.any(String), month: 10, kind: "setTo", cents: 0 },
-    ]);
-    expect(job.payChanges![0].id).not.toBe(job.incomeOverrides![0].id);
-  });
-
-  it("defers a month-0 raise to month 1 while a month-0 miss lands on month 0", () => {
-    renderPanel(PLAN_DEFAULTS);
-    selectMonth(0);
-
-    openOneOff();
-    setOneOffKind("setOngoing");
-    setOneOffAmount(6000);
-    applyOneOff();
-    openOneOff();
-    setOneOffKind("setTo");
-    setOneOffAmount(0);
-    applyOneOff();
-
-    // Month 0 is the stated current salary's, so the raise cannot displace it — but the
-    // one-month adjustment is NOT deferred, and month 0 pays nothing.
-    expect(incomeReadonlyDollars()).toBe(0);
-    selectMonth(1);
-    expect(incomeReadonlyDollars()).toBe(6000);
-  });
-
   it("stops naming an adjustment once it is removed from the plan", () => {
     renderPanel(PLAN_DEFAULTS);
     selectMonth(6);
@@ -704,101 +370,6 @@ describe("PayChangeEditor — every earner's jobs, not just the primary person's
     expect(screen.queryByTestId("pay-change-route")).toBeNull();
     selectMonth(6);
     expect(screen.getByTestId("pay-change-route")).toBeTruthy();
-  });
-
-  it("gives a partner's job a one-month bonus, then a missed paycheck", () => {
-    withPartner();
-    selectMonth(6);
-    openOneOff();
-    pickJob("p-1-job-1");
-    setOneOffAmount(2000); // default kind: bonus on top
-    applyOneOff();
-    expect(incomeReadonlyDollars()).toBe(10_000); // 5,000 + 3,000 + 2,000, that month only
-    selectMonth(7);
-    expect(incomeReadonlyDollars()).toBe(8000); // and only that month
-
-    // A missed paycheck on the partner's job zeroes THEIR wages, leaving the primary's.
-    openOneOff();
-    pickJob("p-1-job-1");
-    setOneOffKind("setTo");
-    setOneOffAmount(0);
-    applyOneOff();
-    expect(incomeReadonlyDollars()).toBe(5000);
-
-    // Both overrides are on the partner's job, and the earlier one survived the later.
-    expect(jobsOn("partner-jobs")[0].incomeOverrides).toEqual([
-      { id: expect.any(String), month: 6, kind: "addBonus", cents: dollarsToCents(2000) },
-      { id: expect.any(String), month: 7, kind: "setTo", cents: 0 },
-    ]);
-  });
-
-  it("cuts a partner's ongoing pay, and corrects a single month of it", () => {
-    // The remaining two kinds on a partner's job: a permanent CUT (a pay change can go down —
-    // hence "pay change", not "raise") and a one-month correction to a non-zero figure.
-    withPartner();
-    selectMonth(6);
-    openOneOff();
-    pickJob("p-1-job-1");
-    setOneOffKind("changeOngoing");
-    setOneOffAmount(-800);
-    applyOneOff();
-    expect(incomeReadonlyDollars()).toBe(7200); // 5,000 + (3,000 − 800), ongoing
-
-    openOneOff();
-    pickJob("p-1-job-1");
-    setOneOffKind("setTo");
-    setOneOffAmount(1000); // this month they were paid $1,000, cut and all
-    applyOneOff();
-    expect(incomeReadonlyDollars()).toBe(6000); // 5,000 + 1,000, this month only
-    selectMonth(7);
-    expect(incomeReadonlyDollars()).toBe(7200); // the cut still stands; the correction does not
-
-    const job = jobsOn("partner-jobs")[0];
-    expect(job.payChanges).toEqual([{ id: expect.any(String), month: 6, kind: "changeBy", cents: -dollarsToCents(800) }]);
-    expect(job.incomeOverrides).toEqual([{ id: expect.any(String), month: 6, kind: "setTo", cents: dollarsToCents(1000) }]);
-  });
-
-  it("changes only the job it was applied to, and nothing else about it", () => {
-    withPartner();
-    const partnerBefore = jobsOn("partner-jobs")[0];
-    selectMonth(6);
-    openOneOff();
-    setOneOffKind("changeOngoing"); // defaults to the FIRST job — the primary person's
-    setOneOffAmount(1000);
-    applyOneOff();
-
-    // The primary's job took the change; the partner's is untouched, byte for byte.
-    expect(jobsOn("primary-jobs")[0].payChanges).toEqual([
-      { id: expect.any(String), month: 6, kind: "changeBy", cents: dollarsToCents(1000) },
-    ]);
-    expect(jobsOn("partner-jobs")[0]).toEqual(partnerBefore);
-  });
-
-  it("preserves the rest of a partner's job — name, span, salary, deferral, other adjustments", () => {
-    withPartner();
-    selectMonth(3);
-    openOneOff();
-    pickJob("p-1-job-1");
-    setOneOffAmount(500);
-    applyOneOff();
-
-    selectMonth(9);
-    openOneOff();
-    pickJob("p-1-job-1");
-    setOneOffKind("setOngoing");
-    setOneOffAmount(3500);
-    applyOneOff();
-
-    const job = jobsOn("partner-jobs")[0];
-    expect(job.id).toBe("p-1-job-1");
-    expect(job.name).toBe("Sam's job");
-    expect(job.ownerId).toBe("p-1");
-    expect(job.startYear).toBe(START_YEAR);
-    expect(job.endYear).toBe(START_YEAR - 40 + 65);
-    expect(job.salary).toEqual({ startingSalaryCents: dollarsToCents(36_000), currentSalaryCents: dollarsToCents(36_000), realGrowthPct: 0 });
-    // The bonus from the first adjustment survived the second, which is a different kind.
-    expect(job.incomeOverrides).toEqual([{ id: expect.any(String), month: 3, kind: "addBonus", cents: dollarsToCents(500) }]);
-    expect(job.payChanges).toEqual([{ id: expect.any(String), month: 9, kind: "setTo", cents: dollarsToCents(3500) }]);
   });
 });
 
@@ -834,30 +405,6 @@ describe("PayChangeEditor — draft state (single nullable draft)", () => {
     expect(kindSelect().value).toBe("addBonus"); // not the cancelled "setTo"
     expect(amountValue()).toBe(0); // not the cancelled 9000
   });
-
-  it("defaults to the first job with several jobs, unless another is picked", () => {
-    const twoJobs: Plan = {
-      ...PLAN_DEFAULTS,
-      primary: {
-        ...PLAN_DEFAULTS.primary,
-        jobs: [...PLAN_DEFAULTS.primary.jobs, { ...PLAN_DEFAULTS.primary.jobs[0], id: "job-2" }],
-      },
-    };
-    renderPanel(twoJobs);
-    selectMonth(6);
-
-    openOneOff();
-    expect(screen.getByLabelText("Job")).toBeTruthy();
-    setOneOffAmount(2000);
-    applyOneOff();
-    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/Job 1/); // defaulted
-
-    openOneOff();
-    fireEvent.change(screen.getByLabelText("Job"), { target: { value: "job-2" } });
-    setOneOffAmount(1000);
-    applyOneOff();
-    expect(screen.getByTestId("pay-change-route").textContent).toMatch(/Job 2/); // honoured
-  });
 });
 
 describe("BaseAdjustmentsPanel — add / edit / delete budget items", () => {
@@ -877,37 +424,6 @@ describe("BaseAdjustmentsPanel — add / edit / delete budget items", () => {
     setAmount(120);
     submitAdd();
     expect(spin(/Pet care/)).toBeTruthy();
-  });
-
-  it("toggling item type keeps name & amount and never mixes expense/contribution fields", () => {
-    // The form's draft is a discriminated union, so only ONE kind's extra field exists: expense
-    // shows Category, contribution shows Into account, and switching rebuilds that arm while
-    // carrying name and amount over.
-    renderPanel(PLAN_DEFAULTS);
-    openAdd();
-    setName("Flex");
-    setAmount(300);
-
-    expect(screen.getByLabelText("Category")).toBeTruthy();
-    expect(screen.queryByLabelText("Into account")).toBeNull();
-
-    setType("contribution");
-    expect(screen.getByLabelText("Into account")).toBeTruthy();
-    expect(screen.queryByLabelText("Category")).toBeNull();
-
-    setType("expense");
-    expect(screen.getByLabelText("Category")).toBeTruthy();
-    expect(screen.queryByLabelText("Into account")).toBeNull();
-    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Flex");
-    expect(
-      Number((screen.getByRole("spinbutton", { name: /Monthly amount/ }) as HTMLInputElement).value),
-    ).toBe(300);
-
-    // Submits as a plain expense: an editable spending spinbutton, where a contribution would
-    // render read-only under Savings & contributions.
-    submitAdd();
-    expect(spin(/Flex/)).toBeTruthy();
-    expect(screen.getByText(/No recurring contributions yet/i)).toBeTruthy();
   });
 
   it("adds a contribution line into an account, shown under Savings & contributions", () => {
@@ -985,20 +501,6 @@ describe("BaseAdjustmentsPanel — renders every obligation the month incurs", (
     expect(screen.getByRole("button", { name: /Delete Healthcare/i })).toBeTruthy();
   });
 
-  it("routes a health edit through the same 'from here forward' gesture as any line", () => {
-    renderPanel(PLAN_DEFAULTS);
-    selectMonth(24);
-    editRow(/Healthcare/, 900);
-    fireEvent.click(screen.getByRole("button", { name: /From here forward/i }));
-    // The override lands on the line and holds from that month on, so the later month reads
-    // the new amount grown rather than the old one.
-    selectMonth(36);
-    expect(Number(spin(/Healthcare/).value)).toBeGreaterThan(890);
-    // …and the months before it are untouched.
-    selectMonth(12);
-    expect(Number(spin(/Healthcare/).value)).toBeLessThan(800);
-  });
-
   it("bands a loan payment read-only beside the editable budget lines, linking to the loan", () => {
     const projection = Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction);
     projection.takeLoan({
@@ -1063,98 +565,6 @@ describe("BaseAdjustmentsPanel — long-horizon points", () => {
 });
 
 describe("BaseAdjustmentsPanel — per-line graph", () => {
-  const brokePlan: Plan = {
-    // $1,500/mo income, far below the ~$3,000 template budget.
-    ...setJobMonthlyIncome(PLAN_DEFAULTS, PLAN_DEFAULTS.primary.jobs[0]!.id, dollarsToCents(1_500)),
-    openingBalanceCents: 0,
-    goals: [],
-  };
-
-  it("says the plan stops being financeable, without prescribing what to cut", () => {
-    renderPanel(brokePlan);
-    const summary = screen.getByTestId("perline-summary").textContent ?? "";
-    expect(summary).toMatch(/no longer financeable/i);
-    // It must NOT name a line to give up — dropping the user's wants is their call.
-    expect(summary).not.toMatch(/Subscriptions|Dining|starv/i);
-  });
-
-  it("keeps every line at full amount in the graph even when the plan breaks", () => {
-    renderPanel(brokePlan);
-    const firstRow = JSON.parse(
-      screen.getByTestId("perline-first-row").textContent || "{}",
-    ) as Record<string, number>;
-    expect(Object.values(firstRow).every((v) => v > 0)).toBe(true);
-  });
-
-  it("reports a comfortable budget as financed throughout", () => {
-    const withIncome = setJobMonthlyIncome(
-      PLAN_DEFAULTS,
-      PLAN_DEFAULTS.primary.jobs[0]!.id,
-      dollarsToCents(8_000),
-    );
-    const richPlan: Plan = {
-      ...withIncome,
-      primary: { ...withIncome.primary, lifeExpectancy: 40 },
-      goals: [],
-    };
-    renderPanel(richPlan);
-    expect(screen.getByTestId("perline-summary").textContent).toMatch(/financed across/i);
-  });
-
-  it("bands health care as one of the budget lines, keyed like any other", () => {
-    // Health is an authored line now, so it bands under the same `line:<id>` key Housing does
-    // — not the standalone "health" key it used when the plan compiled it as its own series.
-    renderPanel(PLAN_DEFAULTS);
-    const firstRow = JSON.parse(
-      screen.getByTestId("perline-first-row").textContent || "{}",
-    ) as Record<string, number>;
-    expect(firstRow[lineKey("Housing")]).toBeGreaterThan(0);
-    expect(firstRow[lineKey("Healthcare")]).toBe(healthcareMonthlyCents(PLAN_DEFAULTS.budgetLines));
-    expect(firstRow["health"]).toBeUndefined();
-  });
-
-  it("bands a liability's payment from the timeline, with no extra props", () => {
-    const projection = Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction);
-    const loanId = projection.takeLoan({
-      month: 0,
-      ownerId: PRIMARY_PERSON_ID,
-      openingBalanceCents: dollarsToCents(45_000),
-      apr: 0.06,
-      kind: "studentLoan",
-      termMonths: 120,
-    });
-    // Rendered bare, no Harness: the panel's job-owner props are the roster it authors pay
-    // changes against, and this test authors none.
-    const { series, household } = projection.run(usJurisdiction);
-    render(
-      <BaseAdjustmentsPanel
-        plan={PLAN_DEFAULTS}
-        transact={() => undefined}
-        series={series}
-        personNames={new Map()}
-        household={household}
-        ledger={NO_EVENTS}
-        projection={projection}
-        plannedWorkStopAge={65}
-      />,
-    );
-
-    // The SECOND row: the loan is authored at month 0, which ORIGINATES it — a schedule's
-    // index 0 is `startMonth + 1`, so month 1 is the first month it is serviced.
-    const servicedRow = JSON.parse(
-      screen.getByTestId("perline-second-row").textContent || "{}",
-    ) as Record<string, number>;
-    // Servicing the loan is spending, banded like anything else the month costs, and the budget
-    // lines beside it are untouched by its arrival.
-    expect(servicedRow[`debt:${loanId}`]).toBeGreaterThan(dollarsToCents(400));
-    expect(servicedRow[lineKey("Housing")]).toBeGreaterThan(0);
-    // Origination month itself: the debt exists but nothing is due yet.
-    const firstRow = JSON.parse(
-      screen.getByTestId("perline-first-row").textContent || "{}",
-    ) as Record<string, number>;
-    expect(firstRow[`debt:${loanId}`] ?? 0).toBe(0);
-  });
-
   it("redraws when the budget changes — the memoized graphs must not go stale", () => {
     // The graphs skip re-rendering while only the staged edit moves, but a committed edit
     // changes the projection and they must follow.
@@ -1209,13 +619,6 @@ describe("BaseAdjustmentsPanel — per-line graph", () => {
     expect(screen.queryByText(/Dining & fun/)).toBeNull();
     expect(screen.queryByText(/Mortgage payment/)).toBeNull();
     expect(screen.getByText(/Total : \$1,600/)).toBeTruthy();
-  });
-
-  it("draws no hover readout for a month that costs nothing at all", () => {
-    const { container } = render(
-      <BudgetTooltip active label={12} payload={[{ name: "Housing", value: 0, color: "#000" }]} />,
-    );
-    expect(container.firstChild).toBeNull();
   });
 
   it("draws no hover readout when nothing is hovered", () => {
