@@ -225,7 +225,7 @@ export class AmortizingLoan extends SimLiabilityBase {
 /** Never amortizes; pays the balance-driven minimum. The synthetic shortfall card is one. */
 export class RevolvingCard extends SimLiabilityBase {
   readonly kind = "creditCard";
-  /** null = unbounded. */
+  /** null = no limit entered — funding treats this as zero usable headroom, never as unbounded. */
   readonly creditLimitCents: Cents | null;
 
   constructor(params: {

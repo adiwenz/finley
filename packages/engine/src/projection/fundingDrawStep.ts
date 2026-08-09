@@ -49,9 +49,12 @@ export interface AccountFundingSource {
 /**
  * A credit source: the draw BORROWS against the card's remaining headroom rather than selling
  * anything. `balanceCents` is the amount currently owed and `creditLimitCents` the borrowing
- * ceiling (`null` = unbounded), so available credit is `creditLimitCents − balanceCents` clamped at
- * zero. No sale means no basis, no realized gain, and no tax — the borrow itself is the funding
- * action, and it never grosses up or stacks onto the owner's taxable base.
+ * ceiling — `null` when no limit was entered, which is treated as ZERO usable headroom, never as
+ * unbounded, matching the picker (which greys a limitless card) and the failure classifier's
+ * `capacityOf`. An unbounded card would trivially fund anything and could never block, which would
+ * make coverage advice meaningless. No sale means no basis, no realized gain, and no tax — the
+ * borrow itself is the funding action, and it never grosses up or stacks onto the owner's taxable
+ * base.
  */
 export interface CreditFundingSource {
   readonly kind: "credit";
@@ -119,8 +122,9 @@ export function toTaxableRecord(taxableByOwner: TaxableByOwner): Record<string, 
  * Resolve an ordered draw of `amountCents` across `sources` without mutating account state. Each
  * source is taken in turn until the remainder is covered: an account source sells enough that the
  * net (after the tax the sale induces) covers the remainder, floored at what it holds; a credit
- * source borrows the remainder against its headroom (`limit − balance`, clamped at zero), tax-free.
- * Both walk the ONE ordered list — a `[brokerage, visa]` list sells then borrows, never reordered.
+ * source borrows the remainder against its headroom (`limit − balance`, clamped at zero; a `null`
+ * limit is zero headroom, not unbounded), tax-free. Both walk the ONE ordered list — a
+ * `[brokerage, visa]` list sells then borrows, never reordered.
  *
  * Account tax is differenced over `taxableByOwner` and each gain stacked onto it, so a second
  * taxable source from the same owner is taxed on top of the first — hence this MUTATES
@@ -146,14 +150,15 @@ export function resolveOrderedFundingDraw(
     if (remaining <= 0) break;
 
     // Credit borrows against headroom instead of selling. `availableCredit = limit − balance`
-    // clamped at zero; a null limit is unbounded, so it covers whatever remains. No sale means no
+    // clamped at zero; a null limit (no limit entered) is ZERO headroom, never unbounded — an
+    // unbounded card would trivially cover any remainder and could never block. No sale means no
     // basis, no gain, no tax, and nothing stacked onto the owner base — the borrow is delivered in
-    // full and IS the funding action. A maxed card (headroom ≤ 0) is skipped exactly as a $0
-    // account is, so it never lands as a zero source.
+    // full and IS the funding action. A maxed or limitless card (headroom ≤ 0) is skipped exactly
+    // as a $0 account is, so it never lands as a zero source.
     if (source.kind === "credit") {
       const headroom =
         source.creditLimitCents === null
-          ? remaining
+          ? 0
           : Math.max(0, source.creditLimitCents - source.balanceCents);
       const borrowed = Math.min(remaining, headroom);
       if (borrowed <= 0) continue;

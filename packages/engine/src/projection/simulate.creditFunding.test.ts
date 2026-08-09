@@ -124,4 +124,30 @@ describe("credit as an authored funding source", () => {
     // The engine recommends, never chooses: the unnamed card was not silently borrowed against.
     expect(series.months[SPEND_MONTH].liabilityBalancesCents.visa ?? 0).toBe(0);
   });
+
+  it("blocks a named card's own shortfall rather than partially borrowing — nothing moves", () => {
+    const series = run({
+      accounts: [],
+      // $2k owed on a $10k limit leaves $8k headroom, short of the $12k trip.
+      liabilities: [card("visa", 10_000_00)],
+      fundingDraws: [explicitSpend("trip", 12_000_00, ["visa"])],
+    });
+
+    expect(series.status).toBe("blocked");
+    // Pre-flighted: a draw that falls short applies none of it, not even the $8k headroom.
+    expect(series.months[SPEND_MONTH].liabilityBalancesCents.visa ?? 0).toBe(0);
+  });
+
+  it("never borrows on a card with no entered limit — a null limit is zero headroom, not unlimited", () => {
+    // No `creditLimitCents` at all — the sim-input shape a card with no limit entered compiles to.
+    const noLimitCard = new RevolvingCard({ id: "visa", ownerId: "p1", openingBalanceCents: 0, apr: 0 });
+    const series = run({
+      accounts: [],
+      liabilities: [noLimitCard],
+      fundingDraws: [explicitSpend("trip", 1_000_00, ["visa"])],
+    });
+
+    expect(series.status).toBe("blocked");
+    expect(series.months[SPEND_MONTH].liabilityBalancesCents.visa ?? 0).toBe(0);
+  });
 });

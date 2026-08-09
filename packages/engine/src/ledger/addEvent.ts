@@ -14,6 +14,7 @@ import type { LedgerBaseConfig } from "./ledgerBase";
 import { buildProjection } from "../projection/buildHouseholdInput";
 import {
   resolveOrderedFundingDraw,
+  type CreditFundingSource,
   type FundingSourceState,
   type TaxableByOwner,
   type TaxableByCategory,
@@ -21,6 +22,7 @@ import {
 import { classifyFundingFailure, type EligibleAccountState, type FundingFailure } from "../projection/fundingFailure";
 import type { FundingTreatment } from "../projection/fundingEligibility";
 import { nullJurisdiction, type Jurisdiction, type JurisdictionContext } from "../jurisdiction/jurisdiction";
+import type { HouseholdLiability } from "./household";
 
 // simulate.ts / report.ts hold the same local constant. Only bracket indexing reads it, so
 // an off-by-a-year is immaterial.
@@ -84,7 +86,17 @@ export function fundingLookup(
   const labelById = new Map(liquidAccounts.map((a) => [a.id, a.label || a.id]));
   const ownerById = new Map(liquidAccounts.map((a) => [a.id, a.ownerId]));
   const categoryById = new Map(liquidAccounts.map((a) => [a.id, a.taxProfile.withdrawalCategory]));
-  const projection = buildProjection(interpretLedger(ledger, base), base, jurisdiction);
+  const household = interpretLedger(ledger, base);
+  // A card the household has already taken (via a LoanEvent), keyed for the credit-aware source
+  // resolution below. Its `creditLimitCents` is authored, never `null` — the only way a source
+  // resolves to unbounded/no headroom is through the primitive's own defensive default, never
+  // through data this seam produces.
+  const cardById = new Map<string, Extract<HouseholdLiability, { kind: "creditCard" }>>(
+    household.liabilities
+      .filter((l): l is Extract<HouseholdLiability, { kind: "creditCard" }> => l.kind === "creditCard")
+      .map((c) => [c.id, c]),
+  );
+  const projection = buildProjection(household, base, jurisdiction);
   const last = projection.months.length - 1;
   // A Year-0 purchase draws against the funds on hand right now — the `opening` snapshot;
   // later months read that processed month's end-of-month balances, as before.
@@ -123,18 +135,47 @@ export function fundingLookup(
       (m?.flows?.accountBalancesAfterFundingCents?.[id] ?? m?.accountBalancesCents[id] ?? 0) as number;
     const basisOf = (id: string): number =>
       (m?.flows?.accountBasisAfterFundingCents?.[id] ?? m?.accountBasisCents[id] ?? 0) as number;
-    return { ctx, taxableByOwner, balanceOf, basisOf };
+    // No later step within a month re-touches a card's balance the way decumulation re-touches an
+    // account's (the funding draw is the last thing to move it), so — unlike accounts — the plain
+    // end-of-month figure already reflects every draw resolved so far this month.
+    const liabilityBalanceOf = (id: string): number => (m?.liabilityBalancesCents[id] ?? 0) as number;
+    return { ctx, taxableByOwner, balanceOf, basisOf, liabilityBalanceOf };
   };
 
-  /** The selected sources as `resolveOrderedFundingDraw` reads them, at `month`'s seam. */
+  /**
+   * The selected sources as `resolveOrderedFundingDraw` reads them, at `month`'s seam. An id naming
+   * a card the household has taken resolves to its remaining headroom (`limit − owed`), the SAME
+   * primitive the simulator borrows against — a mixed `[checking, visa]` list here and in
+   * `resolveFundingDraws` price identically, so the gate and the sim can never disagree about what
+   * an explicitly-named card delivers.
+   */
   const selectedSources = (
     sourceIds: readonly string[],
     balanceOf: (id: string) => number,
     basisOf: (id: string) => number,
+    liabilityBalanceOf: (id: string) => number,
   ) => {
     const named: FundingSourceBalance[] = [];
     const fundingSources: FundingSourceState[] = [];
     for (const id of sourceIds) {
+      const card = cardById.get(id);
+      if (card !== undefined) {
+        const owed = liabilityBalanceOf(id);
+        const headroom = Math.max(0, card.creditLimitCents - owed);
+        named.push({ id, label: id, balanceCents: headroom, kind: "credit", limited: true });
+        if (headroom > 0) {
+          const source: CreditFundingSource = {
+            kind: "credit",
+            id,
+            ownerId: card.ownerId,
+            balanceCents: owed,
+            creditLimitCents: card.creditLimitCents,
+            label: id,
+          };
+          fundingSources.push(source);
+        }
+        continue;
+      }
       const label = labelById.get(id) ?? id;
       const balance = balanceOf(id);
       const isLiquidBucket = labelById.has(id) && balance > 0;
@@ -158,8 +199,8 @@ export function fundingLookup(
     amountCents: number,
     month: number,
   ): FundingAvailability => {
-    const { ctx, taxableByOwner, balanceOf, basisOf } = contextAt(month);
-    const { named, fundingSources } = selectedSources(sourceIds, balanceOf, basisOf);
+    const { ctx, taxableByOwner, balanceOf, basisOf, liabilityBalanceOf } = contextAt(month);
+    const { named, fundingSources } = selectedSources(sourceIds, balanceOf, basisOf, liabilityBalanceOf);
 
     const { perSource, netDeliveredCents, shortfallCents } = resolveOrderedFundingDraw(
       amountCents,
@@ -187,8 +228,8 @@ export function fundingLookup(
     amountCents: number,
     month: number,
   ): FundingFailure => {
-    const { ctx, taxableByOwner, balanceOf, basisOf } = contextAt(month);
-    const { fundingSources } = selectedSources(sourceIds, balanceOf, basisOf);
+    const { ctx, taxableByOwner, balanceOf, basisOf, liabilityBalanceOf } = contextAt(month);
+    const { fundingSources } = selectedSources(sourceIds, balanceOf, basisOf, liabilityBalanceOf);
 
     // Price the selection over a COPY: the classifier below prices its own probes (the whole
     // eligible pool, then each alternative) over the UNMUTATED base, mirroring how a blocked
@@ -199,15 +240,32 @@ export function fundingLookup(
     const selected = resolveOrderedFundingDraw(amountCents, fundingSources, jurisdiction, ctx, probe);
     const selectedTaxCents = selected.perSource.reduce((sum, s) => sum + s.taxCents, 0);
 
-    const accounts: EligibleAccountState[] = liquidAccounts.map((a) => ({
-      id: a.id,
-      ownerId: a.ownerId,
-      category: a.taxProfile.withdrawalCategory,
-      balanceCents: balanceOf(a.id),
-      basisCents: basisOf(a.id),
-      label: labelById.get(a.id) ?? a.id,
-      liquid: true,
-    }));
+    // The whole eligible pool the classifier weighs alternatives against — liquid accounts plus
+    // every card the household has taken, mirroring `resolveFundingDraws`' own block-time pool so
+    // an "unselected card could cover this" advisory reads the same from the gate as from a
+    // blocked simulation. `getEligibleFundingSources` (inside the classifier) is what keeps a card
+    // out of an `asset-acquisition`'s alternatives — the pool itself carries both.
+    const accounts: EligibleAccountState[] = [
+      ...liquidAccounts.map((a) => ({
+        id: a.id,
+        ownerId: a.ownerId,
+        category: a.taxProfile.withdrawalCategory,
+        balanceCents: balanceOf(a.id),
+        basisCents: basisOf(a.id),
+        label: labelById.get(a.id) ?? a.id,
+        liquid: true,
+      })),
+      ...[...cardById.values()].map((c) => ({
+        kind: "credit" as const,
+        id: c.id,
+        ownerId: c.ownerId,
+        balanceCents: liabilityBalanceOf(c.id),
+        creditLimitCents: c.creditLimitCents,
+        label: c.id,
+        liquid: false as const,
+        credit: true as const,
+      })),
+    ];
 
     return classifyFundingFailure({
       treatment,

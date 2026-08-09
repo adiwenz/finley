@@ -41,68 +41,14 @@ function freshBase(): TaxableByOwner {
   return new Map();
 }
 
+// Credit-only headroom behavior (borrow in full, cap at headroom, a maxed or limitless card
+// contributing nothing) is exercised through the owning abstractions instead of here — the
+// simulator (`simulate.creditFunding.test.ts`) for what actually gets applied, and the
+// authoring gate (`events.homePurchase.test.ts` — "fundingLookup — credit sources") for what a
+// candidate is told before it runs. What stays here is the one thing neither of those seams can
+// pin: the mixed-order gross-up math, which needs a real tax jurisdiction stub the simulator
+// tests intentionally avoid (`nullJurisdiction`).
 describe("resolveOrderedFundingDraw — credit sources", () => {
-  it("borrows against remaining headroom, tax-free, delivering the borrowed amount in full", () => {
-    const result = resolveOrderedFundingDraw(
-      5_000_00,
-      [creditCard("visa", 2_000_00, 10_000_00)], // headroom 8_000_00
-      gainTaxing,
-      CTX,
-      freshBase(),
-    );
-
-    expect(result.perSource).toHaveLength(1);
-    const visa = result.perSource[0]!;
-    expect(visa.kind).toBe("credit");
-    expect(visa.grossCents).toBe(5_000_00);
-    expect(visa.netDeliveredCents).toBe(5_000_00);
-    expect(visa.gainCents).toBe(0);
-    expect(visa.taxCents).toBe(0);
-    expect(result.netDeliveredCents).toBe(5_000_00);
-    expect(result.shortfallCents).toBe(0);
-  });
-
-  it("caps the borrow at headroom, leaving the remainder as a shortfall", () => {
-    const result = resolveOrderedFundingDraw(
-      12_000_00,
-      [creditCard("visa", 2_000_00, 10_000_00)], // headroom 8_000_00
-      gainTaxing,
-      CTX,
-      freshBase(),
-    );
-
-    expect(result.perSource[0]!.netDeliveredCents).toBe(8_000_00);
-    expect(result.netDeliveredCents).toBe(8_000_00);
-    expect(result.shortfallCents).toBe(4_000_00);
-  });
-
-  it("contributes nothing from a maxed-out card (balance ≥ limit) — headroom clamps at zero", () => {
-    const result = resolveOrderedFundingDraw(
-      5_000_00,
-      [creditCard("visa", 10_000_00, 10_000_00)], // headroom 0
-      gainTaxing,
-      CTX,
-      freshBase(),
-    );
-
-    expect(result.perSource).toHaveLength(0);
-    expect(result.netDeliveredCents).toBe(0);
-    expect(result.shortfallCents).toBe(5_000_00);
-  });
-
-  it("treats a null limit as unbounded, covering any remaining draw", () => {
-    const result = resolveOrderedFundingDraw(
-      5_000_00,
-      [creditCard("visa", 0, null)],
-      gainTaxing,
-      CTX,
-      freshBase(),
-    );
-
-    expect(result.perSource[0]!.netDeliveredCents).toBe(5_000_00);
-    expect(result.shortfallCents).toBe(0);
-  });
-
   it("walks account then credit in one authored-order pass, and credit stacks no gain onto the owner base", () => {
     const base = freshBase();
     const result = resolveOrderedFundingDraw(
