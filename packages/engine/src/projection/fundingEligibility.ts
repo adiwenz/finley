@@ -13,20 +13,26 @@
 /** The treatments that name their own funding sources; `debt-payment` is always the automatic waterfall. */
 export type FundingTreatment = "expense" | "asset-acquisition";
 
-/** The single account fact eligibility reads today. A later slice admits credit cards for `expense`. */
+/**
+ * The two account facts eligibility reads: whether it is a liquid asset account, and whether it is
+ * a revolving credit line. A credit card is never `liquid` (it is a liability, not a spendable
+ * asset), so `credit` is the separate flag that admits it to the `expense` branch. Absent → an
+ * ordinary asset account, so existing asset-only candidates need no `credit` field.
+ */
 export interface EligibilityCandidate {
   readonly liquid: boolean;
+  readonly credit?: boolean;
 }
 
 /**
  * The eligible subset of `accounts` for `treatment`, in input order. Membership is a property of
- * the ACCOUNT, not the month — an emptied liquid account stays eligible (and is reported at $0)
- * so the picker's pool is stable across months.
+ * the ACCOUNT, not the month — an emptied liquid account (or a maxed-out card) stays eligible and
+ * is reported at its capacity so the picker's pool is stable across months. Whether a card can
+ * actually cover a draw is a headroom question the picker greys out on, never an eligibility one.
  *
- * Both current treatments admit exactly the liquid asset accounts: retirement is illiquid and so
- * excluded, and no bank funds a down payment on a card, so `asset-acquisition` would exclude
- * credit even once cards exist. Credit joins the `expense` branch in a later slice; the switch is
- * where that rule lands, which is why the two cases are spelled out despite sharing a body today.
+ * The two treatments differ in exactly one rule: an `expense` admits credit cards, an
+ * `asset-acquisition` does not (no bank funds a down payment on a card). Retirement is illiquid
+ * and excluded from both.
  */
 export function getEligibleFundingSources<A extends EligibilityCandidate>(
   treatment: FundingTreatment,
@@ -34,7 +40,8 @@ export function getEligibleFundingSources<A extends EligibilityCandidate>(
 ): readonly A[] {
   switch (treatment) {
     case "expense":
+      return accounts.filter((a) => a.liquid || a.credit === true);
     case "asset-acquisition":
-      return accounts.filter((a) => a.liquid);
+      return accounts.filter((a) => a.liquid && a.credit !== true);
   }
 }
