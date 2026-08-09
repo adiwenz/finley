@@ -12,18 +12,26 @@ green one at a time. Read `gh issue view 191` and `docs/projection-blocking-desi
    against headroom (`creditLimitCents − balanceCents`, clamp ≥0; null limit = unbounded), no
    sale/basis/gain/tax, stacks nothing on the owner base. `ResolvedFundingSource` gained a
    required `kind: "account" | "credit"` (credit sets `category: "taxExempt"`, gain/tax/… = 0).
-3. **Failure / availability reporting** — TODO. Credit in `alternativeSources` for an
-   `expense` (never `asset-acquisition`); availability = remaining headroom, no gross-up; no
-   capital-gains tax introduced. `fundingLookup.sourcesAt` must report a card's headroom
-   (`limit − balance`) from `liabilityBalancesCents`, not an asset balance. `EligibleAccountState`
-   currently `extends AccountFundingSource` — Part 3 must widen the classifier pool to accept
-   credit candidates (it is asset-only today; credit cards are never added to it yet).
-4. **Simulator execution** — TODO. A credit draw increases the corresponding liability balance
-   (the borrow IS the funding action — no cash minted first). Skip the synthetic shortfall card
-   (`SYNTHETIC_CARD_ID`) as a pickable source everywhere. `resolveFundingDraws` still filters
-   `treatment === "asset-acquisition"` and its source list carries no credit sources yet — a
-   credit `FundingSourceState` (`kind:"credit"`, with `creditLimitCents`) must be built from
-   `state.liabilities` / `liabilityBalancesCents` where sources are assembled.
+3. **Failure classifier — credit alternatives** — DONE. `EligibleAccountState` is now a union
+   (account | credit candidate); `classifyFundingFailure` prices each source at its *capacity*
+   (account balance sold net of tax; card headroom = `limit − owed`, clamp ≥0, tax-free) via a
+   `capacityOf` helper, drops zero/limitless-capacity sources, and offers an unselected credit
+   card in `alternativeSources` for an `expense` (never `asset-acquisition` — eligibility already
+   excludes it). NOTE: the classifier's *capability* is built and unit-tested, but no real caller
+   feeds it credit yet — the account pools in `resolveFundingDraws` (`state.accounts`) and
+   `addEvent.ts` `failureAt` (`liquidAccounts`) are still asset-only. Wiring credit candidates
+   into those pools is part 4's job.
+4. **Simulator execution + reporter wiring** — TODO. (a) A credit draw increases the
+   corresponding liability balance (the borrow IS the funding action — no cash minted first).
+   (b) Build credit `FundingSourceState` (`kind:"credit"`, `creditLimitCents`) from
+   `state.liabilities` / `liabilityBalancesCents` and feed them into `resolveFundingDraws`'s
+   sources and the classifier `accountPool`; likewise `fundingLookup.sourcesAt` must report a
+   card's headroom from `liabilityBalancesCents`, and `failureAt`/`availabilityAt` accept a card
+   as a selected source. (c) Skip the synthetic shortfall card (`SYNTHETIC_CARD_ID`) as pickable
+   everywhere. Open question: `resolveFundingDraws` filters `treatment === "asset-acquisition"`,
+   so there is still no explicit-*expense* funding path — decide whether this slice authors one
+   (CONTEXT "One-Time Spend") or whether AC "an expense can explicitly use a credit account" is
+   met purely through the seams + UI. This is the largest remaining unknown.
 5. **UI** — TODO. Picker offers credit for expenses only, greys a card whose headroom cannot
    cover the draw (like a $0 account) and one with no entered limit, and makes the borrowing
    consequence clear. `packages/app/src/components/addEventForm/fundingSourcePicker.tsx`,

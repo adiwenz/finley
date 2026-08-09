@@ -21,18 +21,22 @@ import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdic
 import {
   resolveOrderedFundingDraw,
   type AccountFundingSource,
+  type CreditFundingSource,
   type FundingSourceState,
   type TaxableByOwner,
 } from "./fundingDrawStep";
 import { getEligibleFundingSources, type FundingTreatment } from "./fundingEligibility";
 
 /**
- * A household account as the classifier reads it: an account funding source plus its eligibility
- * fact. The pool it classifies against is asset accounts today; credit joins it in a later slice.
+ * An eligible funding candidate as the classifier reads it: a priceable {@link FundingSourceState}
+ * plus its eligibility facts. An account carries its balance/basis and is priced as a sale; a
+ * credit card carries its owed balance and limit and is priced as a borrow against headroom. The
+ * `credit`/`liquid` discriminant is what {@link getEligibleFundingSources} reads to admit a card to
+ * the `expense` pool and keep it out of the `asset-acquisition` one.
  */
-export interface EligibleAccountState extends AccountFundingSource {
-  readonly liquid: boolean;
-}
+export type EligibleAccountState =
+  | (AccountFundingSource & { readonly liquid: boolean; readonly credit?: false })
+  | (CreditFundingSource & { readonly liquid: false; readonly credit: true });
 
 /**
  * Why a funding draw could not be met. Both shapes carry tax and a shortfall, both are net of the
@@ -91,23 +95,37 @@ export function classifyFundingFailure(params: {
     taxableByOwner,
   } = params;
 
-  // Largest balance first — the ordering `sourcesAt` reports and the picker shows, so the pool is
-  // priced exactly as the user would draw it. A copy of the base per pricing keeps each probe
-  // independent: the alternatives are each "what if you drew THIS instead", not a running total.
-  const pool = [...getEligibleFundingSources(treatment, accounts)].sort(
-    (a, b) => b.balanceCents - a.balanceCents,
-  );
+  // What a source can contribute: an account's balance (sold, then grossed down by tax), a card's
+  // headroom (limit − owed, clamped ≥0). A card with no entered limit has no bounded capacity and
+  // is treated as unavailable here (mirroring the picker disabling it), so it never covers a
+  // shortfall nor appears as an alternative — an unbounded card would trivially "fund" everything.
+  const capacityOf = (a: EligibleAccountState): Cents =>
+    a.credit === true
+      ? a.creditLimitCents === null
+        ? 0
+        : Math.max(0, a.creditLimitCents - a.balanceCents)
+      : a.balanceCents;
+
+  // Largest capacity first — the ordering `sourcesAt` reports and the picker shows, so the pool is
+  // priced exactly as the user would draw it. Zero-capacity sources (an emptied account, a maxed or
+  // limitless card) are dropped: the primitive would skip them anyway, and a limitless card must
+  // never be fed to it, since it would borrow the whole remainder. A copy of the base per pricing
+  // keeps each probe independent: the alternatives are each "what if you drew THIS instead".
+  const pool = [...getEligibleFundingSources(treatment, accounts)]
+    .filter((a) => capacityOf(a) > 0)
+    .sort((a, b) => capacityOf(b) - capacityOf(a));
   const priceOf = (sources: readonly FundingSourceState[], amountCents: Cents) =>
     resolveOrderedFundingDraw(amountCents, sources, jurisdiction, ctx, copyTaxable(taxableByOwner));
 
   const wholePool = priceOf(pool, requiredCents);
   if (wholePool.shortfallCents <= 0) {
     // Eligible money covers the obligation — the selection is the problem, not the balance. Offer
-    // every eligible account the user didn't already name, at its full net-of-tax available.
+    // every eligible source the user didn't already name, at its full available: an account net of
+    // tax, a card at its headroom (drawing exactly its capacity, so the borrow is never taxed).
     const selected = new Set(selectedSourceIds);
     const alternativeSources = pool
-      .filter((a) => !selected.has(a.id) && a.balanceCents > 0)
-      .map((a) => ({ accountId: a.id, availableCents: priceOf([a], a.balanceCents).netDeliveredCents }));
+      .filter((a) => !selected.has(a.id))
+      .map((a) => ({ accountId: a.id, availableCents: priceOf([a], capacityOf(a)).netDeliveredCents }));
     return {
       kind: "funding-configuration",
       requiredCents,
