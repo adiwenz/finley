@@ -7,11 +7,36 @@
  * Order is drain order, so selecting APPENDS rather than sorts. An empty account is greyed
  * and unpickable, never dropped: dropping it let an account chosen while funded vanish at a
  * later month with its id still selected, uncheckable yet still counted.
+ *
+ * A pool entry may be a credit card (`kind: "credit"`), eligible only where the engine says so —
+ * expenses, never a down payment. Its `balanceCents` is borrowable headroom, and the row states
+ * that paying with it increases the card's debt. A maxed card, or one with no entered limit, is
+ * greyed just as a $0 account is. Eligibility and headroom are the engine's answers, never
+ * recomputed here.
  */
 
 import type { FundingAvailability, FundingSourceBalance } from "@finley/engine";
 import { formatDollars } from "../../format";
 import styles from "./addEventForm.module.css";
+
+/**
+ * The screen-reader label for one source row, distinguishing an account sale from a credit borrow
+ * and stating WHY a row is disabled — a maxed card, a card with no entered limit, and an emptied
+ * account each read differently, so the reason is never left to be inferred from a bare "$0".
+ */
+function rowAriaLabel(
+  source: FundingSourceBalance,
+  { isCredit, noLimit, empty }: { isCredit: boolean; noLimit: boolean; empty: boolean },
+): string {
+  if (isCredit) {
+    if (noLimit) return `${source.label} — no credit limit entered, so it can't be offered`;
+    if (empty) return `${source.label} — no available credit at that time`;
+    return `${source.label} — borrow up to ${formatDollars(source.balanceCents)}, increasing this card's debt`;
+  }
+  return empty
+    ? `${source.label} — nothing available at that time`
+    : `${source.label} — ${formatDollars(source.balanceCents)} available`;
+}
 
 export function FundingSourcePicker({
   pool,
@@ -59,26 +84,35 @@ export function FundingSourcePicker({
         <ul className={styles.sourceList}>
           {pool.map((source) => {
             const order = selected.indexOf(source.id);
+            const isCredit = source.kind === "credit";
+            // A card with no entered limit has unbounded, unofferable headroom; a maxed card (or an
+            // emptied account) has none. Both are listed but disabled, exactly as a $0 account is.
+            const noLimit = isCredit && source.limited === false;
             const empty = source.balanceCents <= 0;
+            const disabled = empty || noLimit;
             return (
               <li key={source.id}>
-                <label className={`${styles.sourceRow} ${empty ? styles.sourceRowEmpty : ""}`}>
+                <label
+                  className={`${styles.sourceRow} ${disabled ? styles.sourceRowEmpty : ""}`}
+                >
                   <input
                     type="checkbox"
                     checked={order >= 0}
-                    disabled={empty}
+                    disabled={disabled}
                     onChange={() => toggle(source.id)}
-                    aria-label={
-                      empty
-                        ? `${source.label} — nothing available at that time`
-                        : `${source.label} — ${formatDollars(source.balanceCents)} available`
-                    }
+                    aria-label={rowAriaLabel(source, { isCredit, noLimit, empty })}
                   />
-                  {/* Drain position — an unchosen account has none. */}
+                  {/* Drain position — an unchosen source has none. */}
                   <span className={styles.sourceOrder} aria-hidden="true">
                     {order >= 0 ? order + 1 : ""}
                   </span>
-                  <span className={styles.sourceName}>{source.label}</span>
+                  <span className={styles.sourceName}>
+                    {source.label}
+                    {/* The consequence a card makes plain: paying with it borrows rather than spends. */}
+                    {isCredit && (
+                      <span className={styles.sourceNote}> — credit, increases this card's debt</span>
+                    )}
+                  </span>
                   <span className={styles.sourceBalance}>{formatDollars(source.balanceCents)}</span>
                 </label>
               </li>

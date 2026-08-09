@@ -60,6 +60,12 @@
   flex: 1 1 auto;
 }
 
+/* The credit-consequence annotation on a card row: quieter than the name, but not a disabled grey. */
+.sourceNote {
+  font-size: 0.85em;
+  opacity: 0.7;
+}
+
 .sourceBalance {
   font-variant-numeric: tabular-nums;
   opacity: 0.85;

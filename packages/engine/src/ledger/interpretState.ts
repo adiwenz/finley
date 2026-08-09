@@ -121,7 +121,16 @@ export function freshState(): InterpretState {
 export interface FundingSourceBalance {
   readonly id: string;
   readonly label: string;
+  /** Available to fund the draw: an account's balance, or a credit card's remaining headroom. */
   readonly balanceCents: Cents;
+  /** Absent → an asset account. `"credit"` → a card whose `balanceCents` is borrowable headroom. */
+  readonly kind?: "account" | "credit";
+  /**
+   * Credit only: whether the card has an entered limit. `false` means no limit was set, so its
+   * headroom is unbounded and it cannot be offered (the picker lists it disabled — a limitless card
+   * could never grey out or block, which would make the coverage advice meaningless).
+   */
+  readonly limited?: boolean;
 }
 
 /**
