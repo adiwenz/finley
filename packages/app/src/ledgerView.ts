@@ -65,6 +65,8 @@ export function summarizeEvent(e: LifeEvent): EventSummary {
         label: "Took out a loan",
         detail: `${KIND_NOUN[e.kind] ?? e.kind}, ${formatDollars(e.openingBalanceCents)}`,
       };
+    case "OneTimeSpendEvent":
+      return { label: e.label, detail: formatDollars(e.amountCents) };
     case "DebtPayoffEvent":
       return { label: "Paid down debt", detail: formatDollars(e.amountCents) };
   }

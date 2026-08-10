@@ -174,6 +174,7 @@ function personScopeOf(event: LifeEvent, primaryId: PersonId): PersonScoped | nu
       return { noun: "home purchase", month: event.month, participants: [event.ownerId as PersonId] };
     case "ChildEvent":
     case "DebtPayoffEvent":
+    case "OneTimeSpendEvent":
       return null;
   }
 }

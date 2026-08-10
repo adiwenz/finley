@@ -20,7 +20,7 @@ import {
   type TaxableByCategory,
 } from "../projection/fundingDrawStep";
 import { classifyFundingFailure, type EligibleAccountState, type FundingFailure } from "../projection/fundingFailure";
-import type { FundingTreatment } from "../projection/fundingEligibility";
+import { getEligibleFundingSources, type FundingTreatment } from "../projection/fundingEligibility";
 import { nullJurisdiction, type Jurisdiction, type JurisdictionContext } from "../jurisdiction/jurisdiction";
 import type { HouseholdLiability } from "./household";
 
@@ -58,6 +58,17 @@ export interface FundingLookup {
     amountCents: number,
     month: number,
   ) => FundingFailure;
+  /**
+   * The pool a PICKER offers for `treatment`: `sourcesAt`'s liquid accounts, plus — for
+   * `"expense"` only — every credit card the household has already taken, at its remaining
+   * headroom (`limit − owed`). `getEligibleFundingSources` is the single rule for which
+   * treatment admits a card, so a picker offering a down payment (`"asset-acquisition"`) never
+   * lists one, exactly as `availabilityAt`/`failureAt` never count one toward it.
+   */
+  readonly eligibleSourcesAt: (
+    treatment: FundingTreatment,
+    month: number,
+  ) => readonly FundingSourceBalance[];
 }
 
 /**
@@ -280,7 +291,31 @@ export function fundingLookup(
     });
   };
 
-  return { sourcesAt, availabilityAt, failureAt };
+  const eligibleSourcesAt = (
+    treatment: FundingTreatment,
+    month: number,
+  ): readonly FundingSourceBalance[] => {
+    const { liabilityBalanceOf } = contextAt(month);
+    const candidates: (FundingSourceBalance & { readonly liquid: boolean; readonly credit?: true })[] = [
+      ...sourcesAt(month).map((a) => ({ ...a, liquid: true as const })),
+      ...[...cardById.values()].map((card) => {
+        const owed = liabilityBalanceOf(card.id);
+        const headroom = Math.max(0, card.creditLimitCents - owed);
+        return {
+          id: card.id,
+          label: card.id,
+          balanceCents: headroom,
+          kind: "credit" as const,
+          limited: true,
+          liquid: false as const,
+          credit: true as const,
+        };
+      }),
+    ];
+    return getEligibleFundingSources(treatment, candidates);
+  };
+
+  return { sourcesAt, availabilityAt, failureAt, eligibleSourcesAt };
 }
 
 /**

@@ -172,3 +172,49 @@ describe("fundingLookup — credit sources", () => {
     expect(series.months[MONTH].liabilityBalancesCents[CARD_ID]).toBe(AMOUNT - OPENING_CASH);
   });
 });
+
+// The picker's pool: `eligibleSourcesAt` is the seam the app's funding-source picker reads, so
+// its membership must match `getEligibleFundingSources` exactly — a credit card offered for an
+// `expense` (a one-time spend), never for an `asset-acquisition` (a down payment).
+
+describe("fundingLookup — eligibleSourcesAt (the picker's pool)", () => {
+  it("lists a taken credit card at its remaining headroom for an expense", () => {
+    const base = baseWithAccounts([liquidAcct("checking", 2_000_00)]);
+    const ledger = addWithBase(
+      emptyLedger,
+      base,
+      cardLoanEvent({ creditLimitCents: 5_000_00, openingBalanceCents: 1_000_00 }),
+    );
+    const pool = fundingLookup(ledger, base, nullJurisdiction).eligibleSourcesAt("expense", 0);
+    expect(pool.map((s) => s.id).sort()).toEqual(["checking", "visa"]);
+    expect(pool.find((s) => s.id === "visa")).toMatchObject({
+      balanceCents: 4_000_00,
+      kind: "credit",
+    });
+  });
+
+  it("never offers a credit card for an asset-acquisition, mirroring the down-payment rule", () => {
+    const base = baseWithAccounts([liquidAcct("checking", 2_000_00)]);
+    const ledger = addWithBase(
+      emptyLedger,
+      base,
+      cardLoanEvent({ creditLimitCents: 5_000_00, openingBalanceCents: 0 }),
+    );
+    const pool = fundingLookup(ledger, base, nullJurisdiction).eligibleSourcesAt(
+      "asset-acquisition",
+      0,
+    );
+    expect(pool.map((s) => s.id)).toEqual(["checking"]);
+  });
+
+  it("reports zero headroom for a maxed card rather than omitting it", () => {
+    const base = baseWithAccounts([]);
+    const ledger = addWithBase(
+      emptyLedger,
+      base,
+      cardLoanEvent({ creditLimitCents: 5_000_00, openingBalanceCents: 5_000_00 }),
+    );
+    const pool = fundingLookup(ledger, base, nullJurisdiction).eligibleSourcesAt("expense", 0);
+    expect(pool.find((s) => s.id === "visa")?.balanceCents).toBe(0);
+  });
+});

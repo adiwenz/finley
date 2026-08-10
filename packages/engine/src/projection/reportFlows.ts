@@ -15,7 +15,6 @@ import type { Cents } from "../money/money";
 import type { IncomeSourceMonth } from "./waterfall";
 import type { ProjectionIncomeSource, ProjectionMonthFlows } from "./simulate.types";
 import {
-  automaticFundingTotal,
   expenseReportingTotal,
   orderObligationsByPriority,
   type FinancialObligation,
@@ -121,13 +120,14 @@ export function buildFlows(
       netCashFlowCents: liquidDrawdownCents,
     });
   }
-  // Every reported total is a derivation of the one obligation list the waterfall consumed, so
-  // the flow view cannot drift from the funded amount. The two named sums split the list on
-  // orthogonal axes (funding kind vs. treatment); the debt rollup is their difference — the
-  // automatically-funded non-expenses — rather than a fresh reduce over the list. All three
-  // coincide with the pre-inversion scalars while every obligation is `funding: automatic`
-  // (this slice) and diverge once explicit funding arrives (Slice #4).
-  const totalObligationsCents = automaticFundingTotal(obligations);
+  // Every reported total is a derivation of the one obligation list the waterfall (and, for an
+  // explicitly-funded expense, the funding-draw step) consumed, so the flow view cannot drift
+  // from the funded amount. `obligations` here holds only `expense` and `debt-payment`
+  // treatments — an `asset-acquisition` draw (a home down payment) is never folded in, so it is
+  // never an expense and never a liability payment either — which is what keeps
+  // `totalObligationsCents` a plain sum equal to `expensesCents + liabilityPaymentsCents` even
+  // once an explicitly-funded one-time spend rides beside the automatic obligations.
+  const totalObligationsCents = obligations.reduce((sum, o) => sum + o.amountCents, 0);
   const expensesCents = expenseReportingTotal(obligations);
   const liabilityPaymentsCents = totalObligationsCents - expensesCents;
 

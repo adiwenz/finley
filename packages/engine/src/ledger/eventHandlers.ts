@@ -15,6 +15,7 @@ import type {
   LifeEvent,
   LifeEventType,
   LoanEvent,
+  OneTimeSpendEvent,
   RelationshipEvent,
   SeparationEvent,
 } from "./eventTypes";
@@ -33,7 +34,7 @@ import {
   type PersonId,
 } from "../plan/ids";
 import { PRE_NOW_MONTH, isPreExisting } from "../projection/nowMarker";
-import { assetAcquisitionObligation } from "../projection/financialObligation";
+import { assetAcquisitionObligation, oneTimeSpendObligation } from "../projection/financialObligation";
 import type { FundingFailure } from "../projection/fundingFailure";
 
 export interface EventHandler<E extends LifeEvent> {
@@ -450,6 +451,55 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
   },
 };
 
+/**
+ * A named source is either a known asset account, or a credit card the household has already
+ * taken (via a `LoanEvent` that landed earlier in replay order). Neither is minted here — both
+ * are looked up against what already exists.
+ */
+function fundingSourceExists(state: InterpretState, context: InterpretContext, id: string): boolean {
+  if (context.accountIds.has(asAccountId(id))) return true;
+  const liability = state.liabilitiesById.get(asLiabilityId(id));
+  return liability !== undefined && liability.kind === "creditCard";
+}
+
+/**
+ * One-Time Spend: never a hard block at authoring — authoring never refuses on affordability —
+ * so `check` is purely structural. The coverage gate is the same one every explicit draw runs
+ * through at simulation time (`resolveFundingDraws`), which blocks the PROJECTION rather than
+ * the append and reports `funding-configuration` or `no-eligible-source-suffices`; the event
+ * stays authored, savable, and replayable either way.
+ */
+const oneTimeSpend: EventHandler<OneTimeSpendEvent> = {
+  check(event, state, context) {
+    if (event.fundingSourceIds.length === 0) {
+      return fail(event, `at least one funding source is required`);
+    }
+    for (const sourceId of event.fundingSourceIds) {
+      if (!fundingSourceExists(state, context, sourceId)) {
+        return fail(event, `funding source "${sourceId}" not found`);
+      }
+    }
+    return ok;
+  },
+  apply(event, state) {
+    // An explicitly-funded expense, drained across the named sources in order and resolved at
+    // simulation time — mirrors the Home Purchase down payment, but `treatment: "expense"` (it
+    // reduces net worth outright) rather than `"asset-acquisition"`. `"onetimespend"` is the
+    // report-band namespace the simulator keys the draw's gain/tax bands off.
+    state.fundingDraws.push(
+      oneTimeSpendObligation({
+        id: event.id,
+        sourceId: "onetimespend",
+        sourceEventId: event.id,
+        month: event.month,
+        amountCents: event.amountCents,
+        orderedAccountIds: event.fundingSourceIds,
+        label: event.label,
+      }),
+    );
+  },
+};
+
 const debtPayoff: EventHandler<DebtPayoffEvent> = {
   check(event, state, context) {
     if (!state.liabilitiesById.has(asLiabilityId(event.liabilityId))) {
@@ -496,6 +546,7 @@ const handlers: HandlerRegistry = {
   ChildEvent: child,
   SeparationEvent: separation,
   HomePurchaseEvent: homePurchase,
+  OneTimeSpendEvent: oneTimeSpend,
   LoanEvent: loan,
   DebtPayoffEvent: debtPayoff,
 };

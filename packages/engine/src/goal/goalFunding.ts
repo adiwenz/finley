@@ -26,6 +26,9 @@ export function eventFundingSourceIds(event: LifeEvent): readonly string[] {
     // Ordered down-payment sources, each emptied before the next.
     case "HomePurchaseEvent":
       return event.downPaymentSourceIds;
+    // Ordered funding sources, each emptied before the next — same drain-order contract.
+    case "OneTimeSpendEvent":
+      return event.fundingSourceIds;
     // The paired outflow: a payoff reduces the liability and drains this account.
     case "DebtPayoffEvent":
       return [event.accountId];

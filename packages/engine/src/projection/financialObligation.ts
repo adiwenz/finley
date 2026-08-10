@@ -300,6 +300,45 @@ export function assetAcquisitionObligation(params: {
 }
 
 /**
+ * An explicitly-funded `expense` obligation: a fixed amount drained from an ordered source list
+ * (a One-Time Spend event) — an outright outflow rather than an asset purchase, so it DOES
+ * reduce net worth beyond any tax on liquidating its sources, and it enters
+ * {@link expenseReportingTotal} like any other expense. Naming its own funding accounts keeps it
+ * out of {@link automaticFundingTotal} — the epic's double-count tripwire — exactly as
+ * {@link assetAcquisitionObligation} keeps a down payment out of it.
+ *
+ * `sourceId` is the report-band namespace shared by every one-time spend (mirroring
+ * `"downpayment"` above); `id` derives from the caller-supplied `id` — the authoring event's own
+ * id — so two spends in one plan never collide. `priority` is inert for the same reason: an
+ * explicit obligation never ranks in the automatic waterfall.
+ */
+export function oneTimeSpendObligation(params: {
+  readonly id: string;
+  readonly sourceId: string;
+  readonly month: number;
+  readonly amountCents: Cents;
+  readonly orderedAccountIds: readonly string[];
+  readonly label: string;
+  /** The spend event this draw funds, so a block can suppress nothing beyond the draw itself. */
+  readonly sourceEventId?: string;
+}): FinancialObligation {
+  return {
+    id: `draw:${params.id}`,
+    sourceId: params.sourceId,
+    ...(params.sourceEventId !== undefined ? { sourceEventId: params.sourceEventId } : {}),
+    month: params.month,
+    amountCents: params.amountCents,
+    treatment: "expense",
+    funding: { kind: "explicit", orderedAccountIds: params.orderedAccountIds },
+    priority: OBLIGATION_PRIORITY.untracked,
+    sourceKind: "untracked",
+    editable: false,
+    label: params.label,
+    category: "other",
+  };
+}
+
+/**
  * Every {@link FinancialObligation} one simulated month must fund, from the same four inputs
  * the spending report reads — so the two lists cannot disagree while both exist. Expense series
  * (budget lines, healthcare, event-spawned streams) are `treatment: "expense"`; a liability's

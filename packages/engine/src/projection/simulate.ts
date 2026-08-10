@@ -375,6 +375,20 @@ export function simulateHousehold(
     advanceLiabilities(state, month, appliedLiabilityPayments, suppressedLiabilityIds);
     advanceProperties(state, month, suppressedPropertyIds);
     const paymentRecords = buildLiabilityPaymentRecords(payments);
+    // An explicit draw whose TREATMENT is `expense` (a One-Time Spend) belongs in the reported
+    // obligation list beside the automatic ones — it must appear in expense reporting at its
+    // full amount (the epic's double-count tripwire), even though it never enters
+    // `automaticFundingCents` above. An `asset-acquisition` draw (a home down payment) is never
+    // an expense and stays out, exactly as before. Blocked or never-reached draws moved no
+    // money this month, so they are excluded the same way `omittedSourceEventIds` suppresses
+    // their other artifacts.
+    const executedExplicitExpenses = state.fundingDraws.filter(
+      (o) =>
+        o.month === month &&
+        o.funding.kind === "explicit" &&
+        o.treatment === "expense" &&
+        (o.sourceEventId === undefined || !omittedEventIds.has(o.sourceEventId)),
+    );
     const bands = buildFlows(
       // The down-payment gain bands are reporting-only: `cashInflowCents` the gain, no
       // waterfall inflow — its tax already rode the net-neutral source through allocation.
@@ -382,7 +396,10 @@ export function simulateHousehold(
       taxCents,
       // The very list the waterfall funded above, re-shaped into the flow record — expenses,
       // debt and per-line rollups all derive from it, so none can drift from the funded amount.
-      obligations,
+      // `resolveFundingAttribution` below skips every non-automatic obligation, so appending the
+      // explicit expenses here cannot double their attribution — `fundingDraw.resolvedFunding`
+      // already recorded it.
+      [...obligations, ...executedExplicitExpenses],
       // The withdrawal channel's liquid-buffer drawdown PLUS a down payment's returned
       // principal (and any cash source's whole draw) — one `savingsDrawdown` source, so a
       // month spent from savings isn't a zero band.
