@@ -296,6 +296,18 @@ export interface PayOffDebtEntry extends EventEntryCommon {
 }
 
 /**
+ * A dated, source-directed cash outflow — see
+ * {@link import("../authoring/oneTimeSpend").OneTimeSpendInput}. Creates no entity, only an
+ * event; `fundingSourceRefs` may name a credit card as well as a cash/investment account.
+ */
+export interface OneTimeSpendEntry extends EventEntryCommon {
+  readonly type: "oneTimeSpend";
+  readonly label: string;
+  readonly amountCents: number;
+  readonly fundingSourceRefs: readonly Ref[];
+}
+
+/**
  * The timeline plane: one entry per `Projection` authoring method, discriminated on `type` with an
  * exhaustiveness check ({@link eventEntryType}) — the set is complete and closed. Several methods
  * share a {@link import("../ledger/eventTypes").LifeEvent} type (`marry`/`startPartnered` both emit
@@ -312,7 +324,8 @@ export type EventEntry =
   | BuyHomeEntry
   | OwnHomeEntry
   | SeparateEntry
-  | PayOffDebtEntry;
+  | PayOffDebtEntry
+  | OneTimeSpendEntry;
 
 /**
  * Exhaustiveness guard over {@link EventEntry}'s discriminant, the same contract
@@ -354,6 +367,7 @@ export function eventEntryType(entry: EventEntry): EventEntry["type"] {
     case "ownHome":
     case "separate":
     case "payOffDebt":
+    case "oneTimeSpend":
       return entry.type;
     default: {
       const exhaustive: never = entry;

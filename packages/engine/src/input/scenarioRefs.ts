@@ -172,6 +172,9 @@ function collectEvent(
       usages.push({ ref: entry.liabilityRef, order, loc });
       usages.push({ ref: entry.accountRef, order, loc });
       return;
+    case "oneTimeSpend":
+      entry.fundingSourceRefs.forEach((ref) => usages.push({ ref, order, loc }));
+      return;
     default: {
       const exhaustive: never = entry;
       return exhaustive;

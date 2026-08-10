@@ -1,6 +1,14 @@
 import { StrictMode, useCallback, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Projection, liabilityKindLabel, planHorizonMonths, SYNTHETIC_CARD_ID } from "@finley/engine";
+import {
+  Projection,
+  assessOneTimeSpendNudge,
+  liabilityKindLabel,
+  planHorizonMonths,
+  SYNTHETIC_CARD_ID,
+  type OneTimeSpendInput,
+  type OneTimeSpendNudge,
+} from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { NetWorthChart } from "./components/netWorthChart/netWorthChart";
 import { NetWorthBreakdownChart } from "./components/netWorthChart/netWorthBreakdownChart";
@@ -105,6 +113,27 @@ export function App() {
     [ledger, editingId],
   );
   const insolventMonth = result.firstInsolventMonth;
+
+  // The One-Time Spend form's post-add nudge (§5): re-project the CURRENT authored ledger with
+  // the draft added, over a throwaway `Projection` that never touches `state`, and compare its
+  // first insolvent month against the authored one's. A refused draft (the shortfall hard block)
+  // answers `null` — the picker's own coverage line already covers that case, so this never
+  // duplicates it as a second warning.
+  const previewOneTimeSpendNudge = useCallback(
+    (input: OneTimeSpendInput): OneTimeSpendNudge | null => {
+      try {
+        const { state: candidate } = Projection.transact(state, usJurisdiction, (p) =>
+          p.oneTimeSpend(input),
+        );
+        const after = Projection.fromState(candidate, usJurisdiction).run(usJurisdiction)
+          .firstInsolventMonth;
+        return assessOneTimeSpendNudge(insolventMonth, after);
+      } catch {
+        return null;
+      }
+    },
+    [state, insolventMonth],
+  );
   // The retirement panel reasons about the SAME scenario the graph draws — plan plus the
   // live ledger — so "when can we retire?" reflects every event the user added (a child, a
   // new expense, a separation), not the bare plan.
@@ -248,6 +277,7 @@ export function App() {
               defaultMonth={Math.floor(scrubMonth / 12) * 12}
               horizonMonths={horizonMonths}
               onAdd={transact}
+              previewNudge={previewOneTimeSpendNudge}
               editing={
                 editingEvent
                   ? { event: editingEvent, onRevise: reviseEvent, onCancel: () => setEditingId(null) }

@@ -4,12 +4,15 @@ import type {
   LifeEvent,
   Projection,
   FundingLookup,
+  OneTimeSpendInput,
+  OneTimeSpendNudge,
   ProjectionResult,
 } from "@finley/engine";
 import { RelationshipForm } from "./relationshipForm";
 import { ChildForm } from "./childForm";
 import { LoanForm } from "./loanForm";
 import { HomePurchaseForm } from "./homePurchaseForm";
+import { OneTimeSpendForm } from "./oneTimeSpendForm";
 import { SeparationForm } from "./separationForm";
 import type { EditingEvent } from "./addEventForm";
 import styles from "./addEventForm.module.css";
@@ -26,6 +29,7 @@ export const EDITABLE_EVENT_TYPES: ReadonlySet<LifeEvent["type"]> = new Set<Life
   "ChildEvent",
   "LoanEvent",
   "HomePurchaseEvent",
+  "OneTimeSpendEvent",
   "SeparationEvent",
 ]);
 
@@ -36,6 +40,7 @@ export function EditEventForm({
   defaultMonth,
   horizonMonths,
   onAdd,
+  previewNudge,
 }: {
   editing: EditingEvent;
   /** Read by the forms that need it — the separation form for the household, the home form's DTI. */
@@ -45,6 +50,8 @@ export function EditEventForm({
   defaultMonth: number;
   horizonMonths: number;
   onAdd: (write: (projection: Projection) => void) => void;
+  /** Unused while editing (the nudge is add-only), carried for a uniform prop set. */
+  previewNudge?: (input: OneTimeSpendInput) => OneTimeSpendNudge | null;
 }) {
   const { event, onRevise, onCancel } = editing;
   const formProps = { defaultMonth, horizonMonths, onAdd };
@@ -62,6 +69,15 @@ export function EditEventForm({
       case "HomePurchaseEvent":
         return (
           <HomePurchaseForm {...formProps} result={result} funding={funding} edit={{ event, onRevise }} />
+        );
+      case "OneTimeSpendEvent":
+        return (
+          <OneTimeSpendForm
+            {...formProps}
+            funding={funding}
+            edit={{ event, onRevise }}
+            previewNudge={previewNudge}
+          />
         );
       case "SeparationEvent":
         return <SeparationForm {...formProps} result={result} edit={{ event, onRevise }} />;

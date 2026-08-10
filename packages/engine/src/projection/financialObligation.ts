@@ -300,6 +300,43 @@ export function assetAcquisitionObligation(params: {
 }
 
 /**
+ * An explicitly-funded `expense` obligation: One-Time Spend's draw. The asset-acquisition
+ * counterpart to {@link assetAcquisitionObligation} — same explicit-funding shape, different
+ * `treatment` — so it enters {@link expenseReportingTotal} at its full amount (an expense, unlike
+ * a down payment) while staying out of {@link automaticFundingTotal} exactly as any explicit draw
+ * does: the double-count tripwire the epic exists to pin.
+ *
+ * `sourceId` is `"spend"`, the report-band namespace every one-time spend shares — the simulator
+ * keys the draw's gain/tax bands off it (`spend:<account>` / `spend-tax:<account>`). `id` derives
+ * from the caller-supplied event id instead, so two spends in one plan never collide on
+ * `draw:spend`.
+ */
+export function oneTimeSpendObligation(params: {
+  readonly id: string;
+  readonly month: number;
+  readonly amountCents: Cents;
+  readonly orderedAccountIds: readonly string[];
+  readonly label: string;
+  /** The spend event this draw funds, so a block can be reported against it. */
+  readonly sourceEventId?: string;
+}): FinancialObligation {
+  return {
+    id: `draw:${params.id}`,
+    sourceId: "spend",
+    ...(params.sourceEventId !== undefined ? { sourceEventId: params.sourceEventId } : {}),
+    month: params.month,
+    amountCents: params.amountCents,
+    treatment: "expense",
+    funding: { kind: "explicit", orderedAccountIds: params.orderedAccountIds },
+    priority: OBLIGATION_PRIORITY.untracked,
+    sourceKind: "untracked",
+    editable: false,
+    label: params.label,
+    category: "other",
+  };
+}
+
+/**
  * Every {@link FinancialObligation} one simulated month must fund, from the same four inputs
  * the spending report reads — so the two lists cannot disagree while both exist. Expense series
  * (budget lines, healthcare, event-spawned streams) are `treatment: "expense"`; a liability's

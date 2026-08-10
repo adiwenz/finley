@@ -26,6 +26,10 @@ export function eventFundingSourceIds(event: LifeEvent): readonly string[] {
     // Ordered down-payment sources, each emptied before the next.
     case "HomePurchaseEvent":
       return event.downPaymentSourceIds;
+    // Ordered draw sources — may include a credit card id, which never names a goal fund
+    // account, so no false reference results from including it here.
+    case "OneTimeSpendEvent":
+      return event.fundingSourceIds;
     // The paired outflow: a payoff reduces the liability and drains this account.
     case "DebtPayoffEvent":
       return [event.accountId];

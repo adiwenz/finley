@@ -5,6 +5,8 @@ import type {
   LifeEvent,
   Projection,
   FundingLookup,
+  OneTimeSpendInput,
+  OneTimeSpendNudge,
   ProjectionResult,
 } from "@finley/engine";
 import { RelationshipForm } from "./relationshipForm";
@@ -12,6 +14,7 @@ import { EditEventForm } from "./editEventForm";
 import { ChildForm } from "./childForm";
 import { LoanForm } from "./loanForm";
 import { HomePurchaseForm } from "./homePurchaseForm";
+import { OneTimeSpendForm } from "./oneTimeSpendForm";
 import { SeparationForm } from "./separationForm";
 import styles from "./addEventForm.module.css";
 
@@ -24,6 +27,7 @@ type EventKind = Extract<
   LifeEvent["type"],
   | "LoanEvent"
   | "HomePurchaseEvent"
+  | "OneTimeSpendEvent"
   | "RelationshipEvent"
   | "ChildEvent"
   | "SeparationEvent"
@@ -32,6 +36,7 @@ type EventKind = Extract<
 const EVENT_KINDS: readonly { value: EventKind; label: string }[] = [
   { value: "LoanEvent", label: "Took out a loan" },
   { value: "HomePurchaseEvent", label: "Bought a home" },
+  { value: "OneTimeSpendEvent", label: "Made a one-time purchase" },
   { value: "RelationshipEvent", label: "Partnered" },
   { value: "ChildEvent", label: "Had a child" },
   { value: "SeparationEvent", label: "Separated" },
@@ -50,6 +55,7 @@ export function AddEventForm({
   defaultMonth,
   horizonMonths,
   onAdd,
+  previewNudge,
   editing,
 }: {
   /**
@@ -66,6 +72,8 @@ export function AddEventForm({
   defaultMonth: number;
   horizonMonths: number;
   onAdd: (write: (projection: Projection) => void) => void;
+  /** The One-Time Spend form's post-add insolvency nudge — see `OneTimeSpendForm`. */
+  previewNudge?: (input: OneTimeSpendInput) => OneTimeSpendNudge | null;
   /**
    * When set, this card revises an existing timeline event instead of authoring a new one —
    * the type picker is hidden (an event's type is fixed) and the matching form opens
@@ -95,6 +103,7 @@ export function AddEventForm({
         defaultMonth={defaultMonth}
         horizonMonths={horizonMonths}
         onAdd={onAdd}
+        previewNudge={previewNudge}
       />
     );
   }
@@ -120,6 +129,9 @@ export function AddEventForm({
       {kind === "LoanEvent" && <LoanForm {...formProps} />}
       {kind === "HomePurchaseEvent" && (
         <HomePurchaseForm {...formProps} result={result} funding={funding} />
+      )}
+      {kind === "OneTimeSpendEvent" && (
+        <OneTimeSpendForm {...formProps} funding={funding} previewNudge={previewNudge} />
       )}
       {kind === "RelationshipEvent" && <RelationshipForm {...formProps} />}
       {kind === "ChildEvent" && <ChildForm {...formProps} />}

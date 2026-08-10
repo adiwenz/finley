@@ -124,6 +124,13 @@ export type TransactionRevision =
       readonly month?: number;
       readonly accountId?: string;
       readonly amountCents?: Cents;
+    }
+  | {
+      readonly type: "oneTimeSpend";
+      readonly month?: number;
+      readonly label?: string;
+      readonly amountCents?: Cents;
+      readonly fundingSourceIds?: readonly string[];
     };
 
 /** The event kind each revision verb addresses — the pairing {@link reviseProjectionTransaction} enforces. */
@@ -134,6 +141,7 @@ const REVISED_EVENT_TYPE: Record<TransactionRevision["type"], LifeEvent["type"]>
   takeLoan: "LoanEvent",
   buyHome: "HomePurchaseEvent",
   payOffDebt: "DebtPayoffEvent",
+  oneTimeSpend: "OneTimeSpendEvent",
 };
 
 /** A rebuilt event, plus the counter it left behind — moved only when the revision minted an id. */
@@ -308,6 +316,18 @@ function revisedEvent(state: ProjectionState, current: LifeEvent, revision: Tran
           month: r.month ?? current.month,
           accountId: r.accountId ?? current.accountId,
           amountCents: r.amountCents ?? current.amountCents,
+        } as NewLifeEvent,
+      };
+    }
+    case "OneTimeSpendEvent": {
+      const r = at("oneTimeSpend");
+      return {
+        next: {
+          ...kept,
+          month: r.month ?? current.month,
+          label: r.label ?? current.label,
+          amountCents: r.amountCents ?? current.amountCents,
+          fundingSourceIds: r.fundingSourceIds ?? current.fundingSourceIds,
         } as NewLifeEvent,
       };
     }

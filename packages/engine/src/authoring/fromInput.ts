@@ -284,6 +284,17 @@ export function interpretScenarioInput(
             }),
           );
           break;
+        case "oneTimeSpend":
+          bind(
+            entry.ref,
+            projection.oneTimeSpend({
+              month: entry.month,
+              label: entry.label,
+              amountCents: entry.amountCents,
+              fundingSourceIds: entry.fundingSourceRefs.map(idFor),
+            }),
+          );
+          break;
         default: {
           const exhaustive: never = entry;
           return exhaustive;

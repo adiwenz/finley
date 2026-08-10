@@ -144,6 +144,30 @@ export interface HomePurchaseEvent extends EventBase {
   readonly originalPriceCents?: Cents;
 }
 
+/**
+ * A dated, source-directed cash outflow: the user names which accounts (and, unlike a down
+ * payment, credit cards) to drain and in what order. Produces exactly one obligation —
+ * `treatment: "expense"`, `funding: { kind: "explicit", orderedAccountIds }` — so it appears in
+ * expense reporting at its full amount but never in the automatic funding total: it is funded by
+ * this explicit drain, not the shared waterfall.
+ *
+ * `amountCents` is NOMINAL at `month`, exactly like Home Purchase's price: a one-time event is a
+ * point-in-time decision the user prices themselves, unlike a recurring stream, which tracks
+ * prices because it is a standing commitment.
+ *
+ * Distinct from Home Purchase, which carries price and mortgage terms this does not; the two
+ * share only the funding machinery (the ordered-drain gate and its block). A shortfall against
+ * the named sources blocks the projection rather than financing itself — see `homePurchase`'s
+ * §4.5 gate for the shared mechanics.
+ */
+export interface OneTimeSpendEvent extends EventBase {
+  readonly type: "OneTimeSpendEvent";
+  readonly label: string;
+  readonly amountCents: Cents;
+  /** Drained in order: each source empties before the next is touched. May include credit cards. */
+  readonly fundingSourceIds: readonly string[];
+}
+
 interface LoanEventCommon extends EventBase, CausedByFields {
   readonly type: "LoanEvent";
   readonly liabilityId: string;
@@ -185,6 +209,7 @@ export type LifeEvent =
   | ChildEvent
   | SeparationEvent
   | HomePurchaseEvent
+  | OneTimeSpendEvent
   | LoanEvent
   | DebtPayoffEvent;
 

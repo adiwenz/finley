@@ -149,6 +149,8 @@ import {
 } from "../authoring/relationships";
 import type { BuyHomeInput, OwnHomeInput } from "../authoring/housing";
 import { applyHomePurchase, applyOwnHome } from "../authoring/housing";
+import type { OneTimeSpendInput } from "../authoring/oneTimeSpend";
+import { applyOneTimeSpend } from "../authoring/oneTimeSpend";
 import type { CarryLoanInput, PayOffDebtInput, TakeLoanInput } from "../authoring/liabilities";
 import { applyCarryLoan, applyDebtPayoff, applyLoan } from "../authoring/liabilities";
 import type { TransactionRevision } from "../authoring/revise";
@@ -507,6 +509,16 @@ export class Projection {
    */
   ownHome(input: OwnHomeInput): string {
     return this.write((state) => applyOwnHome(state, this.validationJurisdiction, input));
+  }
+
+  /**
+   * A dated, source-directed cash outflow — the named sources drain in the given order, a
+   * credit card eligible among them. Subject to the same ordered-drain hard block as
+   * {@link buyHome}'s down payment; authoring never refuses on affordability alone otherwise.
+   * Returns the minted `"spend-N"` id.
+   */
+  oneTimeSpend(input: OneTimeSpendInput): string {
+    return this.write((state) => applyOneTimeSpend(state, this.validationJurisdiction, input));
   }
 
   // Transaction lifecycle

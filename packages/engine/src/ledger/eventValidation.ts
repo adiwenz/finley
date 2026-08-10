@@ -96,6 +96,21 @@ export function validateEventData(event: NewLifeEvent): ValidationResult {
       }
       return { ok: true };
     }
+    case "OneTimeSpendEvent": {
+      if (event.amountCents <= 0) {
+        return bad(event, `amountCents must be > 0 (got ${event.amountCents})`);
+      }
+      if (!event.label) return bad(event, "label must be non-empty");
+      // Distinct and non-empty: a zero-source spend has nothing to drain, and a repeated id
+      // would double-drain one account, mirroring `HomePurchaseEvent.downPaymentSourceIds`.
+      if (!Array.isArray(event.fundingSourceIds) || event.fundingSourceIds.length === 0) {
+        return bad(event, `fundingSourceIds must list at least one funding source`);
+      }
+      if (new Set(event.fundingSourceIds).size !== event.fundingSourceIds.length) {
+        return bad(event, `fundingSourceIds must not repeat a source`);
+      }
+      return { ok: true };
+    }
     case "DebtPayoffEvent":
       return event.amountCents > 0
         ? { ok: true }

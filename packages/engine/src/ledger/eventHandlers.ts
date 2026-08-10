@@ -15,6 +15,7 @@ import type {
   LifeEvent,
   LifeEventType,
   LoanEvent,
+  OneTimeSpendEvent,
   RelationshipEvent,
   SeparationEvent,
 } from "./eventTypes";
@@ -33,7 +34,7 @@ import {
   type PersonId,
 } from "../plan/ids";
 import { PRE_NOW_MONTH, isPreExisting } from "../projection/nowMarker";
-import { assetAcquisitionObligation } from "../projection/financialObligation";
+import { assetAcquisitionObligation, oneTimeSpendObligation } from "../projection/financialObligation";
 import type { FundingFailure } from "../projection/fundingFailure";
 
 export interface EventHandler<E extends LifeEvent> {
@@ -74,19 +75,21 @@ function dollars(cents: number): string {
 }
 
 /**
- * The down-payment refusal, phrased from the classification: `funding-configuration` names the
+ * The explicit-draw refusal, phrased from the classification: `funding-configuration` names the
  * eligible account(s) elsewhere that could cover it — the fix is to re-point the funding, not to
  * find more money — while `no-eligible-source-suffices` states that the combined eligible pool,
  * not just the selection, falls short. Neither branch calls it insolvency: retirement and other
- * ineligible balances are excluded on purpose, so total net worth can exceed the down payment
- * while this still refuses.
+ * ineligible balances are excluded on purpose, so total net worth can exceed the draw while this
+ * still refuses. Shared by Home Purchase's down-payment gate and One-Time Spend's, so the two
+ * events can never phrase the same classification differently.
  */
 function fundingFailureMessage(
-  event: HomePurchaseEvent,
+  amountLabel: string,
+  month: number,
   failure: FundingFailure,
   labelById: ReadonlyMap<string, string>,
 ): string {
-  const amount = `down payment of ${dollars(event.downPaymentCents)}`;
+  const amount = amountLabel;
   if (failure.kind === "funding-configuration") {
     const taxNote =
       failure.selectedSourcesTaxCents > 0
@@ -97,18 +100,18 @@ function fundingFailureMessage(
       .join(", ");
     return (
       `${amount} exceeds the ${dollars(failure.selectedSourcesAvailableCents)} available from the ` +
-      `selected sources${taxNote} at month ${event.month}. Other eligible accounts could cover it: ` +
+      `selected sources${taxNote} at month ${month}. Other eligible accounts could cover it: ` +
       `${alternatives}. Re-point the funding to one of those or lower the amount — only the selected ` +
-      `accounts fund this purchase, and nothing is moved for you.`
+      `accounts fund this, and nothing is moved for you.`
     );
   }
   const taxNote =
     failure.eligibleTaxCents > 0 ? " (after the capital-gains tax on liquidating them)" : "";
   return (
     `${amount} exceeds what the eligible funding sources together can cover ` +
-    `(${dollars(failure.eligibleAvailableCents)} available${taxNote}) at month ${event.month}. ` +
-    `Retirement accounts and other ineligible balances do not count, and credit is never a ` +
-    `source, so total net worth can exceed the down payment while this still fails.`
+    `(${dollars(failure.eligibleAvailableCents)} available${taxNote}) at month ${month}. ` +
+    `Retirement accounts and other ineligible balances do not count unless named, so total net ` +
+    `worth can exceed the amount while this still fails.`
   );
 }
 
@@ -370,7 +373,15 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
         const labelById = new Map(
           (context.fundingSourcesAt?.(event.month) ?? []).map((s) => [s.id, s.label]),
         );
-        return fail(event, fundingFailureMessage(event, failure, labelById));
+        return fail(
+          event,
+          fundingFailureMessage(
+            `down payment of ${dollars(event.downPaymentCents)}`,
+            event.month,
+            failure,
+            labelById,
+          ),
+        );
       }
       // No classifier available (should not happen on the authoring path, which always injects
       // one alongside `fundingAvailabilityAt`) — fall back to naming just the selected sources.
@@ -450,6 +461,86 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
   },
 };
 
+/**
+ * A dated, source-directed cash outflow: drains `fundingSourceIds` in order, a credit card
+ * eligible among them (a real mortgage rule the down payment does not share). Produces exactly
+ * one `expense`/`explicit` obligation — the double-count tripwire (never entering the automatic
+ * waterfall) lives in {@link oneTimeSpendObligation} and {@link automaticFundingTotal}, not here.
+ *
+ * Subject to the same §4.5-shaped gate as Home Purchase's down payment: `fundingAvailabilityAt`
+ * prices the SELECTED sources against the ledger so far, and a shortfall refuses with the same
+ * classifier-driven message — `funding-configuration` or `no-eligible-source-suffices` — naming
+ * an alternative when one exists. Authoring never refuses on affordability alone; this is the
+ * ledger's own down-payment-style hard block for a source list that structurally cannot pay.
+ */
+const oneTimeSpend: EventHandler<OneTimeSpendEvent> = {
+  check(event, state, context) {
+    if (event.fundingSourceIds.length === 0) {
+      return fail(event, `at least one funding source is required`);
+    }
+    for (const sourceId of event.fundingSourceIds) {
+      const isAccount = context.accountIds.has(asAccountId(sourceId));
+      const liability = state.liabilitiesById.get(asLiabilityId(sourceId));
+      const isCreditCard = liability !== undefined && liability.kind === "creditCard";
+      if (!isAccount && !isCreditCard) {
+        return fail(event, `funding source "${sourceId}" not found`);
+      }
+    }
+    // HARD BLOCK, mirroring `homePurchase`'s §4.5 gate: the amount must be coverable from the
+    // SELECTED sources at the spend's month, net of the capital-gains tax liquidating any
+    // appreciated one owes — priced by the SAME ordered gross-up the simulator runs. Present only
+    // on the authoring path; replay and undo skip it, exactly as the down-payment gate does.
+    const affordability = context.fundingAvailabilityAt?.(
+      event.fundingSourceIds,
+      event.amountCents,
+      event.month,
+    );
+    if (affordability !== undefined && affordability.shortfallCents > 0) {
+      const failure = context.fundingFailureAt?.(
+        "expense",
+        event.fundingSourceIds,
+        event.amountCents,
+        event.month,
+      );
+      if (failure !== undefined) {
+        const labelById = new Map(
+          (context.fundingSourcesAt?.(event.month) ?? []).map((s) => [s.id, s.label]),
+        );
+        return fail(
+          event,
+          fundingFailureMessage(`spend of ${dollars(event.amountCents)}`, event.month, failure, labelById),
+        );
+      }
+      // No classifier available (should not happen on the authoring path) — name the selection.
+      const counted = affordability.sources
+        .map((s) => `${s.label} (${dollars(s.balanceCents)})`)
+        .join(", ");
+      const taxNote = affordability.taxed
+        ? " (after the capital-gains tax on liquidating the selected investment sources)"
+        : "";
+      return fail(
+        event,
+        `spend of ${dollars(event.amountCents)} exceeds the ${dollars(affordability.availableCents)} available from the selected sources${taxNote} at month ${event.month}. Selected sources: ${counted}. Only these sources fund this spend, and nothing is moved for you.`,
+      );
+    }
+    return ok;
+  },
+  apply(event, state) {
+    // The sole record of the draw — resolved and reported at simulation time, exactly like Home
+    // Purchase's down payment. `"spend"` is the report-band namespace every one-time spend shares.
+    state.fundingDraws.push(
+      oneTimeSpendObligation({
+        id: event.id,
+        month: event.month,
+        amountCents: event.amountCents,
+        orderedAccountIds: event.fundingSourceIds,
+        label: event.label,
+        sourceEventId: event.id,
+      }),
+    );
+  },
+};
+
 const debtPayoff: EventHandler<DebtPayoffEvent> = {
   check(event, state, context) {
     if (!state.liabilitiesById.has(asLiabilityId(event.liabilityId))) {
@@ -496,6 +587,7 @@ const handlers: HandlerRegistry = {
   ChildEvent: child,
   SeparationEvent: separation,
   HomePurchaseEvent: homePurchase,
+  OneTimeSpendEvent: oneTimeSpend,
   LoanEvent: loan,
   DebtPayoffEvent: debtPayoff,
 };

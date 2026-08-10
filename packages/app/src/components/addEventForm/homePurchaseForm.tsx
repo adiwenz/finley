@@ -65,7 +65,10 @@ export function HomePurchaseForm({
   // Accounts that can actually pay at `month`, largest-first (drain-order friendly); the
   // pool itself also lists accounts holding nothing, which the picker greys out.
   const fundableAt = (month: number) =>
-    funding.sourcesAt(month).filter((s) => s.balanceCents > 0).map((s) => s.id);
+    funding
+      .sourcesAt(month, "asset-acquisition")
+      .filter((s) => s.balanceCents > 0)
+      .map((s) => s.id);
 
   const [draft, setDraft] = useState<HomePurchaseDraft>(() =>
     edit
@@ -120,7 +123,10 @@ export function HomePurchaseForm({
     });
 
   // Both read one projection inside `funding`, so edits re-derive without re-simulating.
-  const pool = useMemo(() => funding.sourcesAt(draft.month), [funding, draft.month]);
+  const pool = useMemo(
+    () => funding.sourcesAt(draft.month, "asset-acquisition"),
+    [funding, draft.month],
+  );
   // The selection actually in play. `setMonth` prunes on the path a user takes, but the pool
   // also moves when `funding` changes (an event elsewhere redraws the same month's balances)
   // and that path has no setter to hook. Filtering here makes it an invariant: what the

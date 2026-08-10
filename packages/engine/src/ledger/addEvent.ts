@@ -39,7 +39,16 @@ const DEFAULT_START_YEAR = 2026;
  * is a property of the ACCOUNT, not the month, so an emptied account is listed at $0.
  */
 export interface FundingLookup {
-  readonly sourcesAt: (month: number) => readonly FundingSourceBalance[];
+  /**
+   * `treatment` decides whether the pool includes credit cards — `"expense"` (One-Time Spend)
+   * does, `"asset-acquisition"` (Home Purchase's down payment) never does, a real mortgage rule.
+   * Defaults to `"expense"`, the broader pool, so a caller that only wants labels (never offering
+   * the picker a card it shouldn't) need not pass one.
+   */
+  readonly sourcesAt: (
+    month: number,
+    treatment?: FundingTreatment,
+  ) => readonly FundingSourceBalance[];
   readonly availabilityAt: (
     sourceIds: readonly string[],
     amountCents: number,
@@ -104,11 +113,29 @@ export function fundingLookup(
     month <= 0 ? projection.opening : projection.months[Math.min(month, last)];
 
   // Whether a listed account can pay is `balanceCents > 0`, the test `availabilityAt` applies.
-  const sourcesAt = (month: number): readonly FundingSourceBalance[] => {
+  // For `"expense"` (One-Time Spend's default), every taken credit card joins the pool at its
+  // remaining headroom — `getEligibleFundingSources`'s rule, applied here rather than re-derived
+  // by the picker. `"asset-acquisition"` (Home Purchase's down payment) never admits one.
+  const sourcesAt = (
+    month: number,
+    treatment: FundingTreatment = "expense",
+  ): readonly FundingSourceBalance[] => {
     const m = monthAt(month);
     const pool: FundingSourceBalance[] = [];
     for (const [id, label] of labelById) {
       pool.push({ id, label, balanceCents: (m?.accountBalancesCents[id] ?? 0) as number });
+    }
+    if (treatment === "expense") {
+      for (const [id, card] of cardById) {
+        const owed = (m?.liabilityBalancesCents[id] ?? 0) as number;
+        pool.push({
+          id,
+          label: id,
+          balanceCents: Math.max(0, card.creditLimitCents - owed),
+          kind: "credit",
+          limited: true,
+        });
+      }
     }
     return pool.sort((a, b) => b.balanceCents - a.balanceCents);
   };
