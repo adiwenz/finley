@@ -15,6 +15,7 @@ import type {
   LifeEvent,
   LifeEventType,
   LoanEvent,
+  OneTimeSpendEvent,
   RelationshipEvent,
   SeparationEvent,
 } from "./eventTypes";
@@ -33,7 +34,10 @@ import {
   type PersonId,
 } from "../plan/ids";
 import { PRE_NOW_MONTH, isPreExisting } from "../projection/nowMarker";
-import { assetAcquisitionObligation } from "../projection/financialObligation";
+import {
+  assetAcquisitionObligation,
+  oneTimeSpendObligation,
+} from "../projection/financialObligation";
 import type { FundingFailure } from "../projection/fundingFailure";
 
 export interface EventHandler<E extends LifeEvent> {
@@ -450,6 +454,52 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
   },
 };
 
+/**
+ * A funding source is either a known liquid account or a credit card carried as a liability —
+ * the same pool {@link fundingDrawStep} resolves a One-Time Spend against. Unlike a home
+ * purchase's down payment (liquid accounts only), a card is eligible here: this is an
+ * `expense`, so credit is one of the pool it may name.
+ */
+function fundingSourceExists(state: InterpretState, context: InterpretContext, sourceId: string): boolean {
+  if (context.accountIds.has(asAccountId(sourceId))) return true;
+  return state.liabilitiesById.get(asLiabilityId(sourceId))?.kind === "creditCard";
+}
+
+const oneTimeSpend: EventHandler<OneTimeSpendEvent> = {
+  check(event, state, context) {
+    if (event.label.trim().length === 0) {
+      return fail(event, `a label is required`);
+    }
+    if (event.amountCents <= 0) {
+      return fail(event, `amount must be positive`);
+    }
+    if (event.fundingSourceIds.length === 0) {
+      return fail(event, `at least one funding source is required`);
+    }
+    for (const sourceId of event.fundingSourceIds) {
+      if (!fundingSourceExists(state, context, sourceId)) {
+        return fail(event, `funding source "${sourceId}" not found`);
+      }
+    }
+    // No affordability gate: authoring never refuses on affordability — a shortfall
+    // blocks the PROJECTION at this event's month instead (`resolveFundingDraws`), and the
+    // event stays authored, savable, and replayable rather than being refused here.
+    return ok;
+  },
+  apply(event, state) {
+    state.fundingDraws.push(
+      oneTimeSpendObligation({
+        id: event.id,
+        label: event.label,
+        sourceEventId: event.id,
+        month: event.month,
+        amountCents: event.amountCents,
+        orderedAccountIds: event.fundingSourceIds,
+      }),
+    );
+  },
+};
+
 const debtPayoff: EventHandler<DebtPayoffEvent> = {
   check(event, state, context) {
     if (!state.liabilitiesById.has(asLiabilityId(event.liabilityId))) {
@@ -498,6 +548,7 @@ const handlers: HandlerRegistry = {
   HomePurchaseEvent: homePurchase,
   LoanEvent: loan,
   DebtPayoffEvent: debtPayoff,
+  OneTimeSpendEvent: oneTimeSpend,
 };
 
 /**

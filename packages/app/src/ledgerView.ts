@@ -67,6 +67,11 @@ export function summarizeEvent(e: LifeEvent): EventSummary {
       };
     case "DebtPayoffEvent":
       return { label: "Paid down debt", detail: formatDollars(e.amountCents) };
+    case "OneTimeSpendEvent":
+      return {
+        label: e.label,
+        detail: `${formatDollars(e.amountCents)}, ${e.fundingSourceIds.length} funding source${e.fundingSourceIds.length === 1 ? "" : "s"}`,
+      };
   }
 }
 
@@ -215,6 +220,55 @@ export function blockedWarning(
       availableCents: a.availableCents,
     })),
   };
+}
+
+/** The projection fields a One-Time Spend soft warning reads — never a balance, only two flags. */
+type InsolvencyWarningSource = Pick<ProjectionSeries, "status" | "blockedAtMonth" | "months">;
+
+/** One authored spend whose plan goes insolvent from some month on — a soft warning, never a block. */
+export interface OneTimeSpendInsolvencyWarningView {
+  readonly eventId: string;
+  /** The spend in the household's own words ("New roof"), not the obligation's report band. */
+  readonly eventLabel: string;
+  readonly month: number;
+  /** The first month, at or after the spend, the plan cannot cover everything it owes. */
+  readonly insolventFromMonth: number;
+}
+
+/**
+ * A post-add **soft warning** (CONTEXT.md's precise term — never a **Nudge**, which proposes a
+ * value change; this proposes nothing), one per authored `OneTimeSpendEvent` whose own draw
+ * resolved (it is not itself the blocking obligation, and the projection reached its month) but
+ * whose plan goes insolvent from some month at or after it. Non-dismissible by construction:
+ * nothing here is ever stored — the caller renders one for every entry this returns, each render
+ * re-derived from the live projection, so it disappears the moment the condition no longer holds
+ * (a smaller amount, a different month, more income) rather than needing to be dismissed.
+ *
+ * Never fires for a spend the projection never reached (authored after a block) or that IS the
+ * block: {@link blockedWarning} already covers that case with its own, distinct copy.
+ */
+export function oneTimeSpendInsolvencyWarnings(
+  ledger: Ledger,
+  series: InsolvencyWarningSource | undefined,
+): OneTimeSpendInsolvencyWarningView[] {
+  if (series === undefined) return [];
+  const warnings: OneTimeSpendInsolvencyWarningView[] = [];
+  for (const event of ledger.events) {
+    if (event.type !== "OneTimeSpendEvent") continue;
+    // Never reached, or itself the reason the projection stopped: `blockedWarning` speaks to that.
+    if (series.status === "blocked" && series.blockedAtMonth !== undefined && event.month >= series.blockedAtMonth) {
+      continue;
+    }
+    const insolventMonth = series.months.find((m) => m.month >= event.month && m.isInsolvent);
+    if (insolventMonth === undefined) continue;
+    warnings.push({
+      eventId: event.id,
+      eventLabel: summarizeEvent(event).label,
+      month: event.month,
+      insolventFromMonth: insolventMonth.month,
+    });
+  }
+  return warnings;
 }
 
 /**

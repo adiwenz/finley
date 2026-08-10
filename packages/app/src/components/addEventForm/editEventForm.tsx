@@ -10,6 +10,7 @@ import { RelationshipForm } from "./relationshipForm";
 import { ChildForm } from "./childForm";
 import { LoanForm } from "./loanForm";
 import { HomePurchaseForm } from "./homePurchaseForm";
+import { OneTimeSpendForm } from "./oneTimeSpendForm";
 import { SeparationForm } from "./separationForm";
 import type { EditingEvent } from "./addEventForm";
 import styles from "./addEventForm.module.css";
@@ -27,6 +28,7 @@ export const EDITABLE_EVENT_TYPES: ReadonlySet<LifeEvent["type"]> = new Set<Life
   "LoanEvent",
   "HomePurchaseEvent",
   "SeparationEvent",
+  "OneTimeSpendEvent",
 ]);
 
 export function EditEventForm({
@@ -65,6 +67,8 @@ export function EditEventForm({
         );
       case "SeparationEvent":
         return <SeparationForm {...formProps} result={result} edit={{ event, onRevise }} />;
+      case "OneTimeSpendEvent":
+        return <OneTimeSpendForm {...formProps} funding={funding} edit={{ event, onRevise }} />;
       default:
         // Unreachable: the timeline only offers Edit for {@link EDITABLE_EVENT_TYPES}.
         return null;

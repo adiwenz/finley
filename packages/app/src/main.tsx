@@ -5,8 +5,9 @@ import { usJurisdiction } from "@finley/rules";
 import { NetWorthChart } from "./components/netWorthChart/netWorthChart";
 import { NetWorthBreakdownChart } from "./components/netWorthChart/netWorthBreakdownChart";
 import { buildNetWorthBreakdown } from "./components/netWorthChart/netWorthBreakdown";
-import { timelineMarkers, blockedWarning } from "./ledgerView";
+import { timelineMarkers, blockedWarning, oneTimeSpendInsolvencyWarnings } from "./ledgerView";
 import { BlockedWarning } from "./components/blockedWarning/blockedWarning";
+import { OneTimeSpendInsolvencyWarning } from "./components/oneTimeSpendWarning/oneTimeSpendInsolvencyWarning";
 import { monthLabel } from "./format";
 import { AddEventForm } from "./components/addEventForm/addEventForm";
 import { EDITABLE_EVENT_TYPES } from "./components/addEventForm/editEventForm";
@@ -98,6 +99,13 @@ export function App() {
   // it names the plan as written, never the retirement preview. `null` until something stops, so
   // its mere presence IS the condition holding — persistence and clearing fall out of the render.
   const blocked = useMemo(() => blockedWarning(ledger, series, funding), [ledger, series, funding]);
+  // Post-add soft warnings: a One-Time Spend that is itself affordable but leaves the plan
+  // insolvent from some later month. Off the AUTHORED run for the same reason `blocked` is;
+  // re-derived every render, so each clears the moment its condition no longer holds.
+  const spendInsolvencyWarnings = useMemo(
+    () => oneTimeSpendInsolvencyWarnings(ledger, series),
+    [ledger, series],
+  );
   // The event the edit surface is bound to, resolved live. Null when nothing is being edited or
   // when the target was removed out from under an open edit — either way the add form is shown.
   const editingEvent = useMemo(
@@ -216,6 +224,9 @@ export function App() {
               </div>
             )}
             {blocked ? <BlockedWarning warning={blocked} /> : null}
+            {spendInsolvencyWarnings.map((warning) => (
+              <OneTimeSpendInsolvencyWarning key={warning.eventId} warning={warning} />
+            ))}
 
             <p className="disclaimer">
               Estimates include federal income tax for a single filer only — no state

@@ -57,6 +57,7 @@ export type {
   HaveExistingChildInput,
 } from "./authoring/relationships";
 export type { BuyHomeInput, HomePurchaseInput, HomePurchaseAssessment } from "./authoring/housing";
+export type { OneTimeSpendInput } from "./authoring/oneTimeSpend";
 export type {
   TakeLoanInput,
   OriginableLoanKind,

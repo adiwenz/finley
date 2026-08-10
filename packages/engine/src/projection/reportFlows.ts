@@ -16,6 +16,7 @@ import type { IncomeSourceMonth } from "./waterfall";
 import type { ProjectionIncomeSource, ProjectionMonthFlows } from "./simulate.types";
 import {
   automaticFundingTotal,
+  debtPaymentTotal,
   expenseReportingTotal,
   orderObligationsByPriority,
   type FinancialObligation,
@@ -121,15 +122,19 @@ export function buildFlows(
       netCashFlowCents: liquidDrawdownCents,
     });
   }
-  // Every reported total is a derivation of the one obligation list the waterfall consumed, so
-  // the flow view cannot drift from the funded amount. The two named sums split the list on
-  // orthogonal axes (funding kind vs. treatment); the debt rollup is their difference — the
-  // automatically-funded non-expenses — rather than a fresh reduce over the list. All three
-  // coincide with the pre-inversion scalars while every obligation is `funding: automatic`
-  // (this slice) and diverge once explicit funding arrives (Slice #4).
+  // `obligations` here is the month's waterfall-funded list PLUS any of this month's resolved
+  // explicit-expense draws (a One-Time Spend) the caller folded in — never an
+  // explicit asset-acquisition (a Home Purchase down payment), which stays off this list
+  // entirely since it is never an expense. `totalObligationsCents` reads only the automatic
+  // slice (what the waterfall actually sized against); `expensesCents` reads expense-treatment
+  // under EITHER funding kind, so an explicit spend counts here without inflating the waterfall
+  // total — the epic's double-count tripwire. `liabilityPaymentsCents` is `debtPaymentTotal`
+  // directly, not `totalObligationsCents − expensesCents`: a debt payment is always automatic in
+  // practice, so the two agree UNLESS an explicit expense is present, when the subtraction would
+  // be wrong by exactly that amount.
   const totalObligationsCents = automaticFundingTotal(obligations);
   const expensesCents = expenseReportingTotal(obligations);
-  const liabilityPaymentsCents = totalObligationsCents - expensesCents;
+  const liabilityPaymentsCents = debtPaymentTotal(obligations);
 
   // Budget-line slice of the list in one pass — this runs 660+ times per projection.
   const lineMonthlyCents: Record<string, Cents> = {};

@@ -30,6 +30,7 @@ const MINTED_KINDS = [
   "loan",
   "home",
   "mortgage",
+  "spend",
 ] as const;
 
 export type MintedKind = (typeof MINTED_KINDS)[number];
@@ -118,6 +119,8 @@ function eventIds(event: LifeEvent): readonly (string | undefined)[] {
       return [...common, event.liabilityId, event.ownerId];
     case "DebtPayoffEvent":
       return [...common, event.liabilityId, event.accountId];
+    case "OneTimeSpendEvent":
+      return [...common, ...event.fundingSourceIds];
     default: {
       const exhaustive: never = event;
       return exhaustive;

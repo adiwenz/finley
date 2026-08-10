@@ -237,8 +237,11 @@ export interface ProjectionMonthFlows {
    */
   readonly obligations: readonly FinancialObligation[];
   /**
-   * Σ `obligations`, and exactly `expensesCents + liabilityPaymentsCents` (pinned by an engine
-   * invariant test).
+   * The automatically-funded slice of `obligations` — what the shared waterfall actually sized
+   * against. Exactly `expensesCents + liabilityPaymentsCents` (pinned by an engine invariant
+   * test) UNLESS `obligations` holds an explicitly-funded expense (a One-Time Spend event):
+   * that counts toward `expensesCents` without counting here, by design — the money already
+   * left through its own named draw, not this waterfall.
    */
   readonly totalObligationsCents: Cents;
   /**

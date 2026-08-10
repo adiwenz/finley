@@ -149,6 +149,8 @@ import {
 } from "../authoring/relationships";
 import type { BuyHomeInput, OwnHomeInput } from "../authoring/housing";
 import { applyHomePurchase, applyOwnHome } from "../authoring/housing";
+import type { OneTimeSpendInput } from "../authoring/oneTimeSpend";
+import { applyOneTimeSpend } from "../authoring/oneTimeSpend";
 import type { CarryLoanInput, PayOffDebtInput, TakeLoanInput } from "../authoring/liabilities";
 import { applyCarryLoan, applyDebtPayoff, applyLoan } from "../authoring/liabilities";
 import type { TransactionRevision } from "../authoring/revise";
@@ -507,6 +509,15 @@ export class Projection {
    */
   ownHome(input: OwnHomeInput): string {
     return this.write((state) => applyOwnHome(state, this.validationJurisdiction, input));
+  }
+
+  /**
+   * A dated, source-directed cash outflow — never refused on affordability. A shortfall against
+   * the named sources blocks the PROJECTION at `input.month` instead of this call, and the event
+   * still lands, authored and replayable. Returns the minted `"spend-N"` id.
+   */
+  spendOnce(input: OneTimeSpendInput): string {
+    return this.write((state) => applyOneTimeSpend(state, this.validationJurisdiction, input));
   }
 
   // Transaction lifecycle

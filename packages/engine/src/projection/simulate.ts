@@ -233,6 +233,25 @@ export function simulateHousehold(
       ),
     );
 
+    // A One-Time Spend is `treatment: "expense"` but `funding: "explicit"` — it
+    // must show in expense reporting at its full amount without inflating the waterfall total
+    // (`automaticFundingCents` above, already fixed). Fold this month's SUCCESSFULLY RESOLVED
+    // (non-omitted) explicit expense draws into the reporting list only — never an explicit
+    // asset-acquisition (a Home Purchase down payment), which stays off this list entirely since
+    // buying an asset is never an expense. `automaticFundingTotal`/`expenseReportingTotal` already
+    // read `funding.kind`/`treatment` to keep the two sums apart once this addition lands.
+    const explicitExpensesThisMonth = state.fundingDraws.filter(
+      (o) =>
+        o.month === month &&
+        o.treatment === "expense" &&
+        o.funding.kind === "explicit" &&
+        (o.sourceEventId === undefined || !omittedEventIds.has(o.sourceEventId)),
+    );
+    const reportedObligations =
+      explicitExpensesThisMonth.length > 0
+        ? [...obligations, ...explicitExpensesThisMonth]
+        : obligations;
+
     // Snapshot balances/basis at THIS seam — after the explicit draws sold their sources, before
     // decumulation liquidates anything — because that is the state a would-be money-out event
     // resolves against. `resolveFundingDraws` has already written the sibling draws; decumulation
@@ -314,7 +333,10 @@ export function simulateHousehold(
       preCascadeObligationShortfallCents - coveredCapacityCents,
     );
     const fundedObligationTotalCents = Math.max(0, automaticFundingCents - unfundedObligationCents);
-    const appliedLiabilityPayments = fundedLiabilityPayments(obligations, fundedObligationTotalCents);
+    const appliedLiabilityPayments = fundedLiabilityPayments(
+      reportedObligations,
+      fundedObligationTotalCents,
+    );
 
     // Per-line funding attribution — a partition of the SAME funded total, in the order the
     // cascade consumed its sources: income cash, liquid drawdown, decumulation, then credit. The
@@ -380,9 +402,10 @@ export function simulateHousehold(
       // waterfall inflow — its tax already rode the net-neutral source through allocation.
       [...incomeSources, ...fundingDraw.gainSources],
       taxCents,
-      // The very list the waterfall funded above, re-shaped into the flow record — expenses,
-      // debt and per-line rollups all derive from it, so none can drift from the funded amount.
-      obligations,
+      // The list the waterfall funded above, PLUS this month's resolved explicit expense draws
+      // (a One-Time Spend) — expenses, debt and per-line rollups all derive from it, so none can
+      // drift from the funded amount, and the explicit slice cannot inflate the waterfall total.
+      reportedObligations,
       // The withdrawal channel's liquid-buffer drawdown PLUS a down payment's returned
       // principal (and any cash source's whole draw) — one `savingsDrawdown` source, so a
       // month spent from savings isn't a zero band.

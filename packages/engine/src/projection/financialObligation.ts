@@ -149,6 +149,22 @@ export function expenseReportingTotal(obligations: readonly FinancialObligation[
 }
 
 /**
+ * What the debt-service rollup reports: the sum of every `debt-payment`-treatment obligation.
+ * A liability's scheduled payment is always automatically funded in practice, so this coincides
+ * with `automaticFundingTotal − expenseReportingTotal` while no obligation is BOTH explicitly
+ * funded and expense-treatment — computed directly, rather than as that difference, so it stays
+ * correct once a One-Time Spend event merges an explicit expense into the same list: that
+ * addition grows `expenseReportingTotal` without growing `automaticFundingTotal`, which would
+ * otherwise make the subtraction go wrong by exactly the explicit expense's amount.
+ */
+export function debtPaymentTotal(obligations: readonly FinancialObligation[]): Cents {
+  return obligations.reduce(
+    (total, o) => (o.treatment === "debt-payment" ? total + o.amountCents : total),
+    0,
+  );
+}
+
+/**
  * The obligation list ordered by {@link FinancialObligation.priority} ascending (see
  * {@link OBLIGATION_PRIORITY} for the ranking itself), ties broken on the stable
  * {@link FinancialObligation.id} — the id tie-break is what stops obligations sharing a tier
@@ -295,6 +311,42 @@ export function assetAcquisitionObligation(params: {
     sourceKind: "untracked",
     editable: false,
     label: params.sourceId,
+    category: "other",
+  };
+}
+
+/**
+ * An explicitly-funded `expense` obligation: a One-Time Spend, drained from an ordered source
+ * list the same way {@link assetAcquisitionObligation} drains a down payment — but `treatment:
+ * "expense"` means it reduces net worth outright rather than buying an asset, so it counts
+ * toward {@link expenseReportingTotal} while {@link automaticFundingTotal} still excludes it
+ * (the double-count tripwire: the explicit draw already moved this money once).
+ *
+ * `sourceId` is `"onetimespend"`, the report-band namespace the simulator keys the draw's
+ * gain/tax bands off (mirroring `"downpayment"`); `id` derives from the caller-supplied event
+ * id, unique per spend and stable across months, so two spends in one plan never collide.
+ */
+export function oneTimeSpendObligation(params: {
+  readonly id: string;
+  readonly label: string;
+  readonly month: number;
+  readonly amountCents: Cents;
+  readonly orderedAccountIds: readonly string[];
+  /** The spend event this draw funds, so a block can suppress nothing beyond itself. */
+  readonly sourceEventId?: string;
+}): FinancialObligation {
+  return {
+    id: `draw:${params.id}`,
+    sourceId: "onetimespend",
+    ...(params.sourceEventId !== undefined ? { sourceEventId: params.sourceEventId } : {}),
+    month: params.month,
+    amountCents: params.amountCents,
+    treatment: "expense",
+    funding: { kind: "explicit", orderedAccountIds: params.orderedAccountIds },
+    priority: OBLIGATION_PRIORITY.untracked,
+    sourceKind: "untracked",
+    editable: false,
+    label: params.label,
     category: "other",
   };
 }

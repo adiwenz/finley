@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Ledger, SnapshotSeries } from "@finley/engine";
 import {
   blockedWarning,
+  oneTimeSpendInsolvencyWarnings,
   seriesLabel,
   splitMarkers,
   summarizeEvent,
@@ -37,8 +38,21 @@ const home = (id: string, month: number, sequenceNumber: number) => ({
   },
 });
 
+const spend = (id: string, month: number, sequenceNumber: number, label = "New roof") => ({
+  id,
+  type: "OneTimeSpendEvent" as const,
+  month,
+  sequenceNumber,
+  label,
+  amountCents: 3_000_000,
+  fundingSourceIds: ["brokerage"],
+});
+
 const ledger = (...events: any[]): Ledger =>
   ({ events, nextSequenceNumber: events.length }) as Ledger;
+
+/** A month entry with just the two fields `oneTimeSpendInsolvencyWarnings` reads. */
+const month = (month: number, isInsolvent = false) => ({ month, isInsolvent }) as any;
 
 describe("summarizeEvent", () => {
   it("turns authored events into timeline language", () => {
@@ -179,6 +193,52 @@ describe("blockedWarning", () => {
     const events = ledger(child("c1", 12, 0));
     expect(blockedWarning(events, undefined)).toBeNull();
     expect(blockedWarning(events, { status: "ran-to-horizon" } as any)).toBeNull();
+  });
+});
+
+describe("oneTimeSpendInsolvencyWarnings", () => {
+  it("fires when the plan goes insolvent from the spend's month on", () => {
+    const series = {
+      status: "ran-to-horizon",
+      months: [month(0), month(6), month(12, true), month(13, true)],
+    } as any;
+    const warnings = oneTimeSpendInsolvencyWarnings(ledger(spend("s1", 6, 0)), series);
+    expect(warnings).toEqual([
+      { eventId: "s1", eventLabel: "New roof", month: 6, insolventFromMonth: 12 },
+    ]);
+  });
+
+  it("is silent when the plan never goes insolvent", () => {
+    const series = { status: "ran-to-horizon", months: [month(0), month(6), month(12)] } as any;
+    expect(oneTimeSpendInsolvencyWarnings(ledger(spend("s1", 6, 0)), series)).toEqual([]);
+  });
+
+  it("is silent for insolvency BEFORE the spend's month — not this event's doing", () => {
+    const series = {
+      status: "ran-to-horizon",
+      months: [month(0, true), month(6, true), month(12, true)],
+    } as any;
+    // Insolvent from month 0, well before the spend at month 12 — the spend cannot be blamed for
+    // insolvency that already existed.
+    expect(oneTimeSpendInsolvencyWarnings(ledger(spend("s1", 12, 0)), series)).toEqual([
+      { eventId: "s1", eventLabel: "New roof", month: 12, insolventFromMonth: 12 },
+    ]);
+  });
+
+  it("is silent for a spend the projection never reached, or that is itself the block", () => {
+    const blockedSeries = {
+      status: "blocked",
+      blockedAtMonth: 12,
+      months: [month(0), month(6), month(12, true)],
+    } as any;
+    // Authored at the blocking month itself.
+    expect(oneTimeSpendInsolvencyWarnings(ledger(spend("s1", 12, 0)), blockedSeries)).toEqual([]);
+    // Authored after the block — never reached.
+    expect(oneTimeSpendInsolvencyWarnings(ledger(spend("s2", 24, 0)), blockedSeries)).toEqual([]);
+  });
+
+  it("returns nothing without a live projection", () => {
+    expect(oneTimeSpendInsolvencyWarnings(ledger(spend("s1", 6, 0)), undefined)).toEqual([]);
   });
 });
 

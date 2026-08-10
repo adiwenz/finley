@@ -35,11 +35,16 @@ const DEFAULT_START_YEAR = 2026;
  * gap is tax, which the verdict reports separately (`taxed`).
  *
  * The pool is every liquid account that could fund a draw (cash goal fund included,
- * retirement excluded, credit never — a liability, not an asset), largest first. Membership
- * is a property of the ACCOUNT, not the month, so an emptied account is listed at $0.
+ * retirement excluded), largest first. Membership is a property of the ACCOUNT, not the
+ * month, so an emptied account is listed at $0. A card the household has taken joins the pool
+ * ONLY when `treatment` is `"expense"` — credit never funds an asset acquisition (a real
+ * mortgage rule) — carrying its remaining headroom (`limit − owed`) rather than a balance.
  */
 export interface FundingLookup {
-  readonly sourcesAt: (month: number) => readonly FundingSourceBalance[];
+  readonly sourcesAt: (
+    month: number,
+    treatment?: FundingTreatment,
+  ) => readonly FundingSourceBalance[];
   readonly availabilityAt: (
     sourceIds: readonly string[],
     amountCents: number,
@@ -104,11 +109,28 @@ export function fundingLookup(
     month <= 0 ? projection.opening : projection.months[Math.min(month, last)];
 
   // Whether a listed account can pay is `balanceCents > 0`, the test `availabilityAt` applies.
-  const sourcesAt = (month: number): readonly FundingSourceBalance[] => {
+  // A card's "balance" here is its remaining HEADROOM, the same figure `selectedSources` prices
+  // a named card at, so the picker and the gate never disagree about what it can deliver.
+  const sourcesAt = (
+    month: number,
+    treatment?: FundingTreatment,
+  ): readonly FundingSourceBalance[] => {
     const m = monthAt(month);
     const pool: FundingSourceBalance[] = [];
     for (const [id, label] of labelById) {
       pool.push({ id, label, balanceCents: (m?.accountBalancesCents[id] ?? 0) as number });
+    }
+    if (treatment === "expense") {
+      for (const [id, card] of cardById) {
+        const owed = (m?.liabilityBalancesCents[id] ?? 0) as number;
+        pool.push({
+          id,
+          label: id,
+          balanceCents: Math.max(0, card.creditLimitCents - owed),
+          kind: "credit",
+          limited: true,
+        });
+      }
     }
     return pool.sort((a, b) => b.balanceCents - a.balanceCents);
   };

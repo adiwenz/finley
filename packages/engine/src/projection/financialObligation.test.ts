@@ -12,6 +12,7 @@ import {
   expenseReportingTotal,
   buildObligations,
   assetAcquisitionObligation,
+  oneTimeSpendObligation,
   obligationLiabilityId,
   orderObligationsByPriority,
   OBLIGATION_PRIORITY,
@@ -110,6 +111,61 @@ describe("financialObligation — the two named sums", () => {
     ];
     expect(expenseReportingTotal(list)).toBe(dollarsToCents(1_400));
     expect(automaticFundingTotal(list)).toBe(dollarsToCents(1_000));
+  });
+});
+
+describe("oneTimeSpendObligation — the double-count tripwire", () => {
+  it("is treatment expense, funded explicitly", () => {
+    const draw = oneTimeSpendObligation({
+      id: "spend-1",
+      label: "New roof",
+      month: 12,
+      amountCents: dollarsToCents(30_000),
+      orderedAccountIds: ["brokerage", "checking"],
+    });
+    expect(draw.treatment).toBe("expense");
+    expect(draw.funding).toEqual({
+      kind: "explicit",
+      orderedAccountIds: ["brokerage", "checking"],
+    });
+  });
+
+  it("counts toward expenseReportingTotal at its full amount, never automaticFundingTotal", () => {
+    // The epic's tripwire: this money already left through the explicit draw, so folding it into
+    // the automatic total would ask the waterfall/decumulation to cover it a second time.
+    const budgetLine = obligation({
+      treatment: "expense",
+      funding: { kind: "automatic" },
+      amountCents: dollarsToCents(2_000),
+    });
+    const spend = oneTimeSpendObligation({
+      id: "spend-1",
+      label: "New roof",
+      month: 12,
+      amountCents: dollarsToCents(30_000),
+      orderedAccountIds: ["brokerage"],
+    });
+    const list = [budgetLine, spend];
+    expect(expenseReportingTotal(list)).toBe(dollarsToCents(32_000));
+    expect(automaticFundingTotal(list)).toBe(dollarsToCents(2_000));
+  });
+
+  it("two spends in one plan never collide on id", () => {
+    const a = oneTimeSpendObligation({
+      id: "spend-1",
+      label: "Roof",
+      month: 12,
+      amountCents: dollarsToCents(30_000),
+      orderedAccountIds: ["brokerage"],
+    });
+    const b = oneTimeSpendObligation({
+      id: "spend-2",
+      label: "Car",
+      month: 24,
+      amountCents: dollarsToCents(20_000),
+      orderedAccountIds: ["brokerage"],
+    });
+    expect(a.id).not.toBe(b.id);
   });
 });
 

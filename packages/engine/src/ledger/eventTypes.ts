@@ -144,6 +144,36 @@ export interface HomePurchaseEvent extends EventBase {
   readonly originalPriceCents?: Cents;
 }
 
+/**
+ * A dated, source-directed cash outflow: the user names which accounts fund it and in what
+ * order, and the amount leaves net worth outright — no asset acquired, no liability retired.
+ * Produces exactly one explicit `treatment: "expense"` obligation (`oneTimeSpendObligation`),
+ * so it shows in expense reporting at its full amount but never enters the automatic funding
+ * total or decumulation gap sizing — it is funded by its own named draw, not the waterfall.
+ *
+ * Distinct from {@link HomePurchaseEvent}, which carries a price and mortgage terms this does
+ * not; the two share only the funding machinery. `amountCents` is NOMINAL at `month` — a
+ * one-time spend is a point-in-time decision the user prices themselves, unlike a recurring
+ * budget line that tracks prices via `inflationLinked` growth.
+ *
+ * Authoring never refuses on affordability: `check` validates structure only (sources exist,
+ * amount positive), never gates on funding — a shortfall blocks the *projection* instead
+ * (`resolveFundingDraws`), and the event stays authored, savable, and replayable.
+ */
+export interface OneTimeSpendEvent extends EventBase {
+  readonly type: "OneTimeSpendEvent";
+  readonly label: string;
+  readonly amountCents: Cents;
+  /**
+   * The accounts (and credit cards) funding the spend, in drain order: each is
+   * emptied — or, for a card, borrowed against up to its headroom — before the next is touched.
+   * Unlike {@link HomePurchaseEvent.downPaymentSourceIds}, credit IS eligible here: this is an
+   * `expense`, not an asset acquisition, and the engine never substitutes a card for the
+   * household's own order, so naming one never spills to the cascade.
+   */
+  readonly fundingSourceIds: readonly string[];
+}
+
 interface LoanEventCommon extends EventBase, CausedByFields {
   readonly type: "LoanEvent";
   readonly liabilityId: string;
@@ -186,7 +216,8 @@ export type LifeEvent =
   | SeparationEvent
   | HomePurchaseEvent
   | LoanEvent
-  | DebtPayoffEvent;
+  | DebtPayoffEvent
+  | OneTimeSpendEvent;
 
 export type LifeEventType = LifeEvent["type"];
 
