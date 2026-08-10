@@ -39,7 +39,16 @@ const DEFAULT_START_YEAR = 2026;
  * is a property of the ACCOUNT, not the month, so an emptied account is listed at $0.
  */
 export interface FundingLookup {
-  readonly sourcesAt: (month: number) => readonly FundingSourceBalance[];
+  /**
+   * The pool at `month`, largest first. `treatment` defaults to `"asset-acquisition"` (liquid
+   * accounts only, matching the Home Purchase down-payment picker); passing `"expense"` appends
+   * every credit card the household has already taken, at its remaining headroom — the pool a
+   * One-Time Spend's source picker reads, per {@link import("../projection/fundingEligibility").getEligibleFundingSources}.
+   */
+  readonly sourcesAt: (
+    month: number,
+    treatment?: FundingTreatment,
+  ) => readonly FundingSourceBalance[];
   readonly availabilityAt: (
     sourceIds: readonly string[],
     amountCents: number,
@@ -104,11 +113,24 @@ export function fundingLookup(
     month <= 0 ? projection.opening : projection.months[Math.min(month, last)];
 
   // Whether a listed account can pay is `balanceCents > 0`, the test `availabilityAt` applies.
-  const sourcesAt = (month: number): readonly FundingSourceBalance[] => {
+  const sourcesAt = (
+    month: number,
+    treatment: FundingTreatment = "asset-acquisition",
+  ): readonly FundingSourceBalance[] => {
     const m = monthAt(month);
     const pool: FundingSourceBalance[] = [];
     for (const [id, label] of labelById) {
       pool.push({ id, label, balanceCents: (m?.accountBalancesCents[id] ?? 0) as number });
+    }
+    // An expense may draw a credit card, priced at its remaining headroom — the same borrow the
+    // simulator would resolve. Never offered for an asset acquisition (no bank funds a down
+    // payment on a card), matching `getEligibleFundingSources`.
+    if (treatment === "expense") {
+      const { liabilityBalanceOf } = contextAt(month);
+      for (const card of cardById.values()) {
+        const headroom = Math.max(0, card.creditLimitCents - liabilityBalanceOf(card.id));
+        pool.push({ id: card.id, label: card.id, balanceCents: headroom, kind: "credit", limited: true });
+      }
     }
     return pool.sort((a, b) => b.balanceCents - a.balanceCents);
   };

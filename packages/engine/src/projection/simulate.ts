@@ -212,6 +212,20 @@ export function simulateHousehold(
     const fundingBase = buildTaxableByOwner(nonWithdrawalSources);
     const fundingDraw = resolveFundingDraws(state, month, jurisdiction, ctx, fundingBase);
     for (const resolved of fundingDraw.resolvedFunding) resolvedObligationIds.add(resolved.obligationId);
+    // A One-Time Spend is `treatment: "expense"` but resolves through the explicit-draw channel
+    // above, not `buildObligations` — so, unlike an automatic expense series, it is absent from
+    // `obligations` unless folded in here. Only draws that actually resolved THIS month (money
+    // moved) count; a blocked or omitted draw never left the household, so it reports nothing.
+    // Kept OUT of `obligations` itself — that list still drives `automaticFundingTotal` and the
+    // liability-payment walk below, neither of which this explicitly-funded expense belongs to —
+    // and folded in only where the flow view reads it, at `buildFlows` below.
+    const resolvedExplicitExpenseObligations = state.fundingDraws.filter(
+      (o) =>
+        o.month === month &&
+        o.funding.kind === "explicit" &&
+        o.treatment === "expense" &&
+        resolvedObligationIds.has(o.id),
+    );
     // An omitted draw suppresses the property and mortgage its authoring event would originate this
     // month — otherwise `advanceProperties`/`advanceLiabilities` would mint a house and a loan with
     // no cash ever leaving, which is the very fabrication blocking exists to stop. Keyed off EVERY
@@ -381,8 +395,10 @@ export function simulateHousehold(
       [...incomeSources, ...fundingDraw.gainSources],
       taxCents,
       // The very list the waterfall funded above, re-shaped into the flow record — expenses,
-      // debt and per-line rollups all derive from it, so none can drift from the funded amount.
-      obligations,
+      // debt and per-line rollups all derive from it, so none can drift from the funded amount —
+      // plus this month's resolved explicit expenses, so a One-Time Spend reports at its full
+      // amount without ever entering the automatic total the waterfall itself was sized against.
+      [...obligations, ...resolvedExplicitExpenseObligations],
       // The withdrawal channel's liquid-buffer drawdown PLUS a down payment's returned
       // principal (and any cash source's whole draw) — one `savingsDrawdown` source, so a
       // month spent from savings isn't a zero band.

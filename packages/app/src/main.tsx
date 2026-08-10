@@ -1,6 +1,12 @@
 import { StrictMode, useCallback, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Projection, liabilityKindLabel, planHorizonMonths, SYNTHETIC_CARD_ID } from "@finley/engine";
+import {
+  Projection,
+  liabilityKindLabel,
+  planHorizonMonths,
+  SYNTHETIC_CARD_ID,
+  type LifeEvent,
+} from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { NetWorthChart } from "./components/netWorthChart/netWorthChart";
 import { NetWorthBreakdownChart } from "./components/netWorthChart/netWorthBreakdownChart";
@@ -98,6 +104,21 @@ export function App() {
   // it names the plan as written, never the retirement preview. `null` until something stops, so
   // its mere presence IS the condition holding — persistence and clearing fall out of the render.
   const blocked = useMemo(() => blockedWarning(ledger, series, funding), [ledger, series, funding]);
+  // Whole-month-feasibility nudges (Slice #5): each already-authored One-Time Spend that cleared
+  // its own funding gate but pushes the plan into insolvency sooner than it would have gone
+  // without it. Advisory, never a block — re-derived from the SAME run the graph draws, by
+  // re-simulating each spend's absence, so it tracks whatever else about the plan has changed.
+  const spendNudges = useMemo(
+    () =>
+      ledger.events
+        .filter((e): e is Extract<LifeEvent, { type: "OneTimeSpendEvent" }> => e.type === "OneTimeSpendEvent")
+        .map((event) => ({ event, nudge: projection.oneTimeSpendNudge(usJurisdiction, event.id) }))
+        .filter(
+          (row): row is { event: Extract<LifeEvent, { type: "OneTimeSpendEvent" }>; nudge: NonNullable<typeof row.nudge> } =>
+            row.nudge !== null,
+        ),
+    [projection, ledger],
+  );
   // The event the edit surface is bound to, resolved live. Null when nothing is being edited or
   // when the target was removed out from under an open edit — either way the add form is shown.
   const editingEvent = useMemo(
@@ -216,6 +237,12 @@ export function App() {
               </div>
             )}
             {blocked ? <BlockedWarning warning={blocked} /> : null}
+            {spendNudges.map(({ event, nudge }) => (
+              <div key={event.id} className="alert alert-amber soft-warning" role="status">
+                <strong>“{event.label}”</strong> is affordable, but it makes your plan insolvent
+                from {monthLabel(nudge.insolventFromMonth)}.
+              </div>
+            ))}
 
             <p className="disclaimer">
               Estimates include federal income tax for a single filer only — no state

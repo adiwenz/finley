@@ -300,6 +300,45 @@ export function assetAcquisitionObligation(params: {
 }
 
 /**
+ * An explicitly-funded `expense` obligation: a fixed amount drained from an ordered source list
+ * (a One-Time Spend event today), reducing net worth outright rather than buying an asset — so,
+ * unlike {@link assetAcquisitionObligation}, it DOES enter {@link expenseReportingTotal} at its
+ * full amount, while staying out of {@link automaticFundingTotal} exactly the same way, since
+ * both read `funding.kind`. This is the sole record of the draw: the simulator resolves and
+ * reports it straight off the obligation.
+ *
+ * `sourceId` is the report-band namespace ("spend"), shared across every One-Time Spend event the
+ * same way Home Purchase's down payments share "downpayment" — `id`, not `sourceId`, is what
+ * keeps two spends from colliding, since it derives from the caller-supplied `id` (the authoring
+ * event's own id).
+ */
+export function explicitExpenseObligation(params: {
+  readonly id: string;
+  readonly sourceId: string;
+  readonly month: number;
+  readonly amountCents: Cents;
+  readonly orderedAccountIds: readonly string[];
+  readonly label: string;
+  /** The event this draw funds, so a block can name it and suppress nothing else it originates. */
+  readonly sourceEventId?: string;
+}): FinancialObligation {
+  return {
+    id: `draw:${params.id}`,
+    sourceId: params.sourceId,
+    ...(params.sourceEventId !== undefined ? { sourceEventId: params.sourceEventId } : {}),
+    month: params.month,
+    amountCents: params.amountCents,
+    treatment: "expense",
+    funding: { kind: "explicit", orderedAccountIds: params.orderedAccountIds },
+    priority: OBLIGATION_PRIORITY.untracked,
+    sourceKind: "untracked",
+    editable: false,
+    label: params.label,
+    category: "other",
+  };
+}
+
+/**
  * Every {@link FinancialObligation} one simulated month must fund, from the same four inputs
  * the spending report reads — so the two lists cannot disagree while both exist. Expense series
  * (budget lines, healthcare, event-spawned streams) are `treatment: "expense"`; a liability's

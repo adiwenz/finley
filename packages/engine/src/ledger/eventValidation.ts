@@ -100,6 +100,18 @@ export function validateEventData(event: NewLifeEvent): ValidationResult {
       return event.amountCents > 0
         ? { ok: true }
         : bad(event, `amountCents must be > 0 (got ${event.amountCents})`);
+    case "OneTimeSpendEvent": {
+      if (event.amountCents <= 0) {
+        return bad(event, `amountCents must be > 0 (got ${event.amountCents})`);
+      }
+      if (!Array.isArray(event.fundingSourceIds) || event.fundingSourceIds.length === 0) {
+        return bad(event, `fundingSourceIds must list at least one funding source`);
+      }
+      if (new Set(event.fundingSourceIds).size !== event.fundingSourceIds.length) {
+        return bad(event, `fundingSourceIds must not repeat a source`);
+      }
+      return { ok: true };
+    }
   }
 }
 

@@ -15,6 +15,7 @@ import type {
   LifeEvent,
   LifeEventType,
   LoanEvent,
+  OneTimeSpendEvent,
   RelationshipEvent,
   SeparationEvent,
 } from "./eventTypes";
@@ -33,7 +34,7 @@ import {
   type PersonId,
 } from "../plan/ids";
 import { PRE_NOW_MONTH, isPreExisting } from "../projection/nowMarker";
-import { assetAcquisitionObligation } from "../projection/financialObligation";
+import { assetAcquisitionObligation, explicitExpenseObligation } from "../projection/financialObligation";
 import type { FundingFailure } from "../projection/fundingFailure";
 
 export interface EventHandler<E extends LifeEvent> {
@@ -477,6 +478,38 @@ const debtPayoff: EventHandler<DebtPayoffEvent> = {
   },
 };
 
+/**
+ * A One-Time Spend never refuses on affordability at authoring time — only that its named
+ * sources are real. A source is either a known account or a credit card the household has
+ * already taken (a `LoanEvent` of kind `creditCard`); anything else is refused by name. Whether
+ * the named sources can actually COVER the amount is a projection-time question — a shortfall
+ * blocks the projection (`resolveFundingDraws`), it never refuses the append.
+ */
+const oneTimeSpend: EventHandler<OneTimeSpendEvent> = {
+  check(event, state, context) {
+    for (const sourceId of event.fundingSourceIds) {
+      if (context.accountIds.has(asAccountId(sourceId))) continue;
+      const liability = state.liabilitiesById.get(asLiabilityId(sourceId));
+      if (liability !== undefined && liability.kind === "creditCard") continue;
+      return fail(event, `funding source "${sourceId}" not found`);
+    }
+    return ok;
+  },
+  apply(event, state) {
+    state.fundingDraws.push(
+      explicitExpenseObligation({
+        id: event.id,
+        sourceId: "spend",
+        sourceEventId: event.id,
+        month: event.month,
+        amountCents: event.amountCents,
+        orderedAccountIds: event.fundingSourceIds,
+        label: event.label,
+      }),
+    );
+  },
+};
+
 function addSeries(state: InterpretState, def: SeriesDef): void {
   state.seriesById.set(def.id, def);
 }
@@ -498,6 +531,7 @@ const handlers: HandlerRegistry = {
   HomePurchaseEvent: homePurchase,
   LoanEvent: loan,
   DebtPayoffEvent: debtPayoff,
+  OneTimeSpendEvent: oneTimeSpend,
 };
 
 /**

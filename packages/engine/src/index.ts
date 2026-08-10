@@ -63,6 +63,7 @@ export type {
   CarryLoanInput,
   PayOffDebtInput,
 } from "./authoring/liabilities";
+export type { SpendOnceInput, SpendInsolvencyNudge } from "./authoring/spending";
 export type { TransactionRevision } from "./authoring/revise";
 
 // The authored model, and the artifacts a run produces.
@@ -130,7 +131,7 @@ export type {
 export { healthcareMonthlyCents } from "./budget/budgetLine";
 export type { Scenario } from "./plan/scenario";
 export type { Ledger } from "./ledger/ledger";
-export type { LifeEvent, NewLifeEvent, RelationshipEvent } from "./ledger/eventTypes";
+export type { LifeEvent, NewLifeEvent, RelationshipEvent, OneTimeSpendEvent } from "./ledger/eventTypes";
 export type { Household } from "./ledger/household";
 export { resolvedJobPaySpan } from "./ledger/household";
 export type { FundingLookup } from "./ledger/addEvent";

@@ -151,6 +151,9 @@ import type { BuyHomeInput, OwnHomeInput } from "../authoring/housing";
 import { applyHomePurchase, applyOwnHome } from "../authoring/housing";
 import type { CarryLoanInput, PayOffDebtInput, TakeLoanInput } from "../authoring/liabilities";
 import { applyCarryLoan, applyDebtPayoff, applyLoan } from "../authoring/liabilities";
+import type { SpendOnceInput } from "../authoring/spending";
+import { applyOneTimeSpend, oneTimeSpendInsolvencyNudge } from "../authoring/spending";
+import type { SpendInsolvencyNudge } from "../authoring/spending";
 import type { TransactionRevision } from "../authoring/revise";
 import { removeProjectionTransaction, reviseProjectionTransaction } from "../authoring/revise";
 import { interpretScenarioInput } from "../authoring/fromInput";
@@ -507,6 +510,27 @@ export class Projection {
    */
   ownHome(input: OwnHomeInput): string {
     return this.write((state) => applyOwnHome(state, this.validationJurisdiction, input));
+  }
+
+  /**
+   * A dated, source-directed cash outflow — the household names which accounts (or a credit
+   * card) fund it and in what order. Never refused for affordability, unlike {@link buyHome}: a
+   * shortfall blocks the PROJECTION at the event's own month instead. Returns the minted
+   * `"spend-N"` id.
+   */
+  spendOnce(input: SpendOnceInput): string {
+    return this.write((state) => applyOneTimeSpend(state, this.validationJurisdiction, input));
+  }
+
+  /**
+   * The post-add nudge for an already-authored One-Time Spend: `null` while it is not on the
+   * ledger, was itself blocked, or the plan was already heading to insolvency at least as early
+   * without it; otherwise the month the plan goes insolvent WITH it on the books. Advisory only —
+   * never a block — and re-derived every call from a fresh pass, so it tracks whatever else has
+   * changed about the plan since the spend was added.
+   */
+  oneTimeSpendNudge(jurisdiction: Jurisdiction, eventId: string): SpendInsolvencyNudge | null {
+    return oneTimeSpendInsolvencyNudge(this.current, jurisdiction, eventId);
   }
 
   // Transaction lifecycle
