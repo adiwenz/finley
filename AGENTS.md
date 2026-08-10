@@ -1,120 +1,155 @@
 # Finley — agent instructions
 
-A browser-based financial life simulator: enter a household's income, expenses, accounts and
-life events; get a month-by-month net-worth projection and a solved retirement year.
+Browser-based financial life simulator: household inputs and life events → month-by-month projection
+and solved retirement year.
 
-## Read these first
+## Start here
 
-1. **`README.md`** — the workspace table, the one-way dependency rule, every `npm` script.
-2. **`packages/engine/src/index.ts`** — the engine's entire public surface, one curated
-   re-export per line with the reason beside it. This is the fastest map in the repo: it says
-   what a caller may name, what is internal, and why nothing that writes is exported.
-3. **`CONTEXT.md`** — the canonical ubiquitous language. **Grep it for the term you need; do
-   not read it front to back.** It is 60+ entries under eight `###` groups. Use its vocabulary,
-   and respect its `_Avoid_` lines.
+Use these as maps, not reading assignments:
 
-## Repo map
+* `README.md` — workspaces, dependency rules, npm scripts.
+* `packages/engine/src/index.ts` — engine public API.
+* `CONTEXT.md` — canonical domain language. Grep only the relevant term; respect `_Avoid_` guidance.
 
-Open-core monorepo, workspaces under `packages/`. Dependency direction is **one-way**
-`app → rules → engine`, and engine purity (no I/O, no app/jurisdiction code) is enforced by
-`scripts/check-engine-purity.mjs` in `npm run check` and CI.
+## Architecture
 
-| Package | Contents |
-|---|---|
-| `@finley/engine` | Pure simulation. Defines the jurisdiction interface; ships a null jurisdiction so it runs standalone. |
-| `@finley/rules` | Jurisdiction implementations (e.g. `US-2026`). Flat directory, one file per tax/benefit rule. |
-| `@finley/app` | UI, persistence, user data. Imports the two public packages. |
+Dependency direction is strictly:
 
-`packages/engine/src` — the bulk of the codebase:
+`app → rules → engine`
 
-| Directory | What lives there |
-|---|---|
-| `facade/` | `Projection` — the **only** public entry point. Every read and write goes through it. |
-| `projection/` | The month-by-month simulator: waterfall, withdrawal, obligations, snapshot/report. |
-| `ledger/` | Life events: add/update/remove, interpret, validation, household. |
-| `authoring/` | The write side — jobs, goals, housing, liabilities, relationships, budget lines. |
-| `plan/` | The authored model (plan, person, account, scenario) and id minting. |
-| `job/` `goal/` `budget/` `liability/` `money/` | Entity types and their own rules. |
-| `compile/` | Plan → projection base. |
-| `retirement/` | The solver, outlook, deferral limits, early-retiree health check. |
-| `jurisdiction/` | The open-core seam, plus `nullJurisdiction`. |
-| `input/` | The declarative, id-free `ScenarioInput` that seed data and presets are written as. |
-| `testing/` | Engine-side fixtures. |
+* `@finley/engine` — pure simulation. No I/O, app code, or jurisdiction-specific logic.
+* `@finley/rules` — jurisdiction implementations.
+* `@finley/app` — UI, persistence, user data.
 
-`packages/app/src` has two layers, and the distinction matters for how you test:
+Engine purity is enforced by `npm run check`.
 
-- `components/` — 13 panel directories (`jobsPanel`, `baseAdjustments`, `budgetEditor`,
-  `goalsPanel`, `retirementPanel`, `netWorthChart`, `timeline`, `startingPositionPanel`, …).
-- Root-level `*View.ts` **view-model modules** (`retirementView`, `goalsView`, `ledgerView`,
-  `fundingView`, `jobEditing`, `presets`, `planDefaults`, …) — plain functions turning a
-  `Projection` into what a panel draws. This is the seam to reach for first.
+### Engine map
 
-## Where to look
+* `facade/` — `Projection`, the only public entry point.
+* `projection/` — simulation, waterfall, withdrawals, obligations, reports.
+* `ledger/` — life events and validation.
+* `authoring/` — write-side operations.
+* `plan/` — authored model and IDs.
+* `compile/` — plan → projection base.
+* `retirement/` — retirement solver.
+* `jurisdiction/` — jurisdiction seam.
+* `input/` — declarative `ScenarioInput`.
+* `testing/` — engine fixtures.
 
-| Task | Start at |
-|---|---|
-| Add or change an authoring gesture | `engine/src/authoring/`, then `engine/src/index.ts` |
-| Change simulation maths | `engine/src/projection/` |
-| Add a tax or benefit rule | `rules/src/` (flat, one file per rule) |
-| Change what a panel draws | the matching `app/src/*View.ts` before `app/src/components/` |
-| Add a life event | `engine/src/ledger/eventTypes.ts` + `eventHandlers.ts` |
-| Change the retirement answer | `engine/src/retirement/` |
+### App map
 
-## Testing & exploration
+Prefer root-level `*View.ts` view-model modules before rendered components. Test through the
+view-model seam unless the behavior is genuinely DOM-specific.
 
-To learn what the engine actually does, observe it through the REPL — `repl.ts`, run with
-`npx tsx repl.ts`, which preloads a live `Projection` — then pin what you observed as a test.
-Never a standalone script that gets written, read once and deleted, and never a language that
-cannot import `@finley/engine`: a Python probe cannot reach the engine, so it only reimplements
-the arithmetic and then confirms its own reimplementation — verification in the commit message,
-nothing verified in fact.
+### Where to start
 
-Not yet knowing the expected value is not licence for a script. Observe the number in the REPL,
-then — once it is known — write the test that asserts it. This is the step `/tdd` refuses to let
-you shortcut by copying output straight into an assertion, so the REPL is where the assertion's
-value is earned.
+| Task              | Start                                                  |
+| ----------------- | ------------------------------------------------------ |
+| Authoring gesture | `engine/src/authoring/`, then `engine/src/index.ts`    |
+| Simulation math   | `engine/src/projection/`                               |
+| Tax/benefit rule  | `rules/src/`                                           |
+| Panel behavior    | matching `app/src/*View.ts`                            |
+| Life event        | `engine/src/ledger/eventTypes.ts` + `eventHandlers.ts` |
+| Retirement answer | `engine/src/retirement/`                               |
 
-### Scope the test run
+## Work efficiently
 
-Tests sit beside their source as `*.test.ts(x)`. **Do not run `npm test` to check one change** —
-it takes ~70s, most of it the app's panel tests, which render a real DOM. Measured:
+Minimize model/tool round trips without sacrificing correctness.
 
-```bash
-npx vitest run packages/engine/src/retirement   # ~5s   — while iterating
-npx vitest run packages/engine                  # ~13s  — 1046 tests, before handing off engine work
-npx vitest run packages/app/src/goalsView.test.ts   # <1s — view-model tests
-npm test                                        # ~70s  — everything; pre-commit only
-npm run check                                   # purity + typecheck + test — the full gate
+### Explore once
+
+* Batch independent reads/searches into the same turn.
+* Prefer the named analogous implementation or repo map over broad exploration.
+* Identify implementation, callers, public surface, and relevant tests before editing.
+* Once ownership is clear, stop broad searching.
+* Do not re-read files without a new specific question.
+* Do not launch an Explore subagent when the path or reference implementation is already clear.
+* Skip task bookkeeping for straightforward work.
+
+### Edit in batches
+
+* Make all already-understood related edits before reassessing.
+* Do not alternate one small edit with one model/tool round trip when multiple changes follow from
+  the same finding.
+* After validation fails, inspect all relevant failures first and fix related failures together.
+* Do not rerun validation after every individual fix.
+* Compare against `main` only when it is genuinely unclear whether a failure is pre-existing.
+
+Preferred workflow:
+
+1. Inspect specification, reference implementation, relevant code, and tests.
+2. Determine the full local change surface.
+3. Make a coherent implementation batch.
+4. Run the narrowest useful validation.
+5. Inspect all relevant failures and fix them as a batch.
+6. Re-run that validator.
+7. Run broader validation once locally stable.
+8. Run `npm run check` once at the end.
+9. Review the final diff.
+
+## Testing
+
+Tests live beside source as `*.test.ts(x)`.
+
+Use the narrowest useful command while iterating:
+
+```bash id="7zgcz0"
+npx vitest run packages/engine/src/retirement
+npx vitest run packages/app/src/goalsView.test.ts
+npx vitest run packages/engine
+npm run typecheck
+npm run check
 ```
 
-`npm run typecheck` alone is ~8s and catches most mistakes.
+Rules:
 
-**Prefer the view-model seam.** A behaviour expressed as a `*View.ts` function tests two to
-three orders of magnitude faster than the same behaviour through a rendered panel —
-`jobEditing.test.ts` runs 16 tests in 27ms; `goalsView.test.ts` 17 in 466ms; a single
-`mainState.test.tsx` case renders the whole `App` and costs 1–5s. Render a panel only when the
-assertion is genuinely about the DOM.
+* Do not use `npm test` or `npm run check` as inner-loop debugging commands.
+* Prefer a relevant test file before package-wide validation.
+* Treat whole-repo `npm run typecheck` as broad validation, not an after-every-edit check.
+* A typecheck run should produce a batch of information: inspect its relevant errors, fix them
+  together, then rerun.
+* Once typecheck passes, do not run it again unless later changes plausibly affect types.
+* Run `npm run check` once after the implementation is stable.
+* If the full check fails, fix using the smallest relevant validator, then rerun the full check.
+* Capture long-command output once and inspect the saved output instead of rerunning the command.
+* Never pipe a live validation command through `head`; save output first.
+* Combine independent shell inspections into one Bash call when safe and readable.
 
-## Not product code
+### Behavioral probes
 
-`.claude/`, `.codex/`, `.sandcastle/`, `ralph/`, `docs/agents/` are tooling and agent
-instructions. Skip them when searching for behaviour — they are a large share of the repo's
-markdown and will dominate a grep for a domain term.
+To learn engine behavior, use `repl.ts` via:
 
-## Agent skills
+```bash id="1q64u0"
+npx tsx repl.ts
+```
 
-### Issue tracker
+Then pin the observed behavior in a test.
 
-GitHub Issues on `adiwenz/finley`, via the `gh` CLI. External pull requests are **not** a
-triage surface. See `docs/agents/issue-tracker.md`.
+Do not create throwaway scripts to reproduce engine arithmetic, especially in languages that
+cannot import `@finley/engine`.
 
-### Triage labels
+### Test at the right abstraction
 
-Two roles only: `ready-for-agent` → **`Sandcastle`**, and `wontfix`. Do not create labels for
-the other canonical roles. See `docs/agents/triage-labels.md`.
+Prefer public behavior over implementation details.
+
+Prefer `*View.ts` tests over rendered panel tests unless the assertion concerns DOM behavior.
+
+## Ignore during product-code search
+
+Skip `.claude/`, `.codex/`, `.sandcastle/`, `ralph/`, and `docs/agents/` when searching for
+application behavior.
+
+## Repo conventions
+
+### Issues
+
+GitHub Issues on `adiwenz/finley`, via `gh`. See `docs/agents/issue-tracker.md`.
+
+### Triage
+
+Only `ready-for-agent` → `Sandcastle` and `wontfix`. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
-Single-context: `CONTEXT.md` at the repo root. **This repo does not use ADRs** — decisions
-live in the spec or PRD issue that produced them, and in the code's doc-comments. See
-`docs/agents/domain.md`.
+`CONTEXT.md` is the single domain-language reference. This repo does not use ADRs. Decisions live
+in the issue/spec/PRD that produced them and in code doc-comments. See `docs/agents/domain.md`.
