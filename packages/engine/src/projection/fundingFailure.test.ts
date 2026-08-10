@@ -40,6 +40,11 @@ function retirement(id: string, balanceCents: number): EligibleAccountState {
   return { id, ownerId: OWNER, category: "ordinaryIncome", balanceCents, basisCents: 0, liquid: false, label: id };
 }
 
+/** A credit card: `balanceOwedCents` is the debt, headroom is `creditLimitCents − balance`. */
+function card(id: string, balanceOwedCents: number, creditLimitCents: number): EligibleAccountState {
+  return { kind: "credit", id, ownerId: OWNER, balanceCents: balanceOwedCents, creditLimitCents, liquid: false, credit: true, label: id };
+}
+
 describe("classifyFundingFailure — funding-configuration", () => {
   it("names an eligible account elsewhere that could cover the obligation", () => {
     const failure = classifyFundingFailure({
@@ -62,6 +67,27 @@ describe("classifyFundingFailure — funding-configuration", () => {
     expect(failure.shortfallCents).toBe(3_000_000);
     // The selected house fund is not "elsewhere"; only the brokerage is offered, at its full balance.
     expect(failure.alternativeSources).toEqual([{ accountId: "brokerage", availableCents: 10_000_000 }]);
+  });
+
+  it("offers an unselected credit card as an expense alternative, at its headroom and tax-free", () => {
+    const failure = classifyFundingFailure({
+      treatment: "expense",
+      requiredCents: 8_000_00,
+      selectedSourceIds: ["cash"],
+      selectedSourcesAvailableCents: 3_000_00,
+      selectedSourcesTaxCents: 0,
+      // Cash covers $3k; the card's $9k headroom ($10k limit − $1k owed) covers the rest.
+      accounts: [cash("cash", 3_000_00), card("visa", 1_000_00, 10_000_00)],
+      jurisdiction: gainTaxing,
+      ctx: CTX,
+      taxableByOwner: NO_BASE,
+    });
+
+    expect(failure.kind).toBe("funding-configuration");
+    if (failure.kind !== "funding-configuration") return;
+    expect(failure.shortfallCents).toBe(5_000_00);
+    // Headroom, not the $1k owed balance, and never taxed.
+    expect(failure.alternativeSources).toEqual([{ accountId: "visa", availableCents: 9_000_00 }]);
   });
 
   it("reports an appreciated alternative's available net of tax — below its balance", () => {
@@ -105,6 +131,27 @@ describe("classifyFundingFailure — no-eligible-source-suffices", () => {
     expect(failure.eligibleAvailableCents).toBe(5_000_000);
     expect(failure.eligibleTaxCents).toBe(0);
     expect(failure.shortfallCents).toBe(3_000_000);
+  });
+
+  it("never offers a credit card for an asset-acquisition — a card's headroom is not eligible", () => {
+    const failure = classifyFundingFailure({
+      treatment: "asset-acquisition",
+      requiredCents: 8_000_00,
+      selectedSourceIds: ["cash"],
+      selectedSourcesAvailableCents: 3_000_00,
+      selectedSourcesTaxCents: 0,
+      // With the card admitted this would be funding-configuration; a down payment excludes it,
+      // so only the $3k cash is eligible and nothing eligible suffices.
+      accounts: [cash("cash", 3_000_00), card("visa", 0, 10_000_00)],
+      jurisdiction: nullJurisdiction,
+      ctx: CTX,
+      taxableByOwner: NO_BASE,
+    });
+
+    expect(failure.kind).toBe("no-eligible-source-suffices");
+    if (failure.kind !== "no-eligible-source-suffices") return;
+    expect(failure.eligibleAvailableCents).toBe(3_000_00);
+    expect(failure.shortfallCents).toBe(5_000_00);
   });
 
   it("prices the eligible pool net of tax — an appreciated source reports its gain's tax", () => {

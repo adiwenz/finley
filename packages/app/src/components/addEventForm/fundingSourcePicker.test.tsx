@@ -117,4 +117,37 @@ describe("FundingSourcePicker", () => {
     renderPicker({ selected: [], currentPool: [] });
     expect(screen.getByText(/plan has no cash or investment account/i)).toBeTruthy();
   });
+
+  it("lists an eligible credit card and makes the borrowing consequence clear", () => {
+    const onChange = renderPicker({
+      selected: [],
+      currentPool: [{ id: "visa", label: "Visa", balanceCents: 900_000, kind: "credit", limited: true }],
+      amountCents: 500_000,
+      currentAvailability: availability({ availableCents: 0, shortfallCents: 500_000 }),
+    });
+    const visa = screen.getByRole("checkbox", { name: /Visa/ }) as HTMLInputElement;
+    expect(visa.disabled).toBe(false);
+    // The row states that paying with the card borrows — increasing its debt.
+    expect(visa.closest("label")?.textContent?.toLowerCase()).toContain("debt");
+    fireEvent.click(visa);
+    expect(onChange).toHaveBeenCalledWith(["visa"]);
+  });
+
+  it("greys a credit card whose headroom cannot cover the draw", () => {
+    renderPicker({
+      selected: [],
+      currentPool: [{ id: "visa", label: "Visa", balanceCents: 0, kind: "credit", limited: true }],
+    });
+    expect((screen.getByRole("checkbox", { name: /Visa/ }) as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it("greys a credit card with no entered limit, and says why", () => {
+    renderPicker({
+      selected: [],
+      currentPool: [{ id: "visa", label: "Visa", balanceCents: 0, kind: "credit", limited: false }],
+    });
+    const visa = screen.getByRole("checkbox", { name: /Visa/ }) as HTMLInputElement;
+    expect(visa.disabled).toBe(true);
+    expect(visa.getAttribute("aria-label")?.toLowerCase()).toContain("limit");
+  });
 });

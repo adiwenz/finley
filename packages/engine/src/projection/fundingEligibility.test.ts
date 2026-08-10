@@ -3,9 +3,9 @@
  * given treatment. The UI never re-implements these rules — it asks here — so the picker and the
  * blocked-projection classifier can never disagree about what counts as a source.
  *
- * Only the rules that exist today are pinned: liquid asset accounts are eligible; retirement
- * (illiquid) accounts are not. Credit cards — eligible for an `expense`, never an
- * `asset-acquisition` — arrive in a later slice and are deliberately unrepresented here.
+ * The rules pinned here: liquid asset accounts are eligible for both treatments; retirement
+ * (illiquid) accounts for neither; credit cards for an `expense` only, never an
+ * `asset-acquisition` (no bank funds a down payment on a card).
  */
 
 import { describe, it, expect } from "vitest";
@@ -14,6 +14,7 @@ import { getEligibleFundingSources } from "./fundingEligibility";
 const checking = { id: "checking", liquid: true } as const;
 const brokerage = { id: "brokerage", liquid: true } as const;
 const retirement = { id: "401k", liquid: false } as const;
+const visa = { id: "visa", liquid: false, credit: true } as const;
 
 describe("getEligibleFundingSources", () => {
   it("excludes retirement (illiquid) accounts for an asset-acquisition", () => {
@@ -21,8 +22,13 @@ describe("getEligibleFundingSources", () => {
     expect(eligible.map((a) => a.id)).toEqual(["checking", "brokerage"]);
   });
 
-  it("admits only liquid accounts for an expense — credit cards are a later slice", () => {
-    const eligible = getEligibleFundingSources("expense", [checking, retirement, brokerage]);
+  it("admits credit cards alongside liquid accounts for an expense", () => {
+    const eligible = getEligibleFundingSources("expense", [checking, retirement, visa, brokerage]);
+    expect(eligible.map((a) => a.id)).toEqual(["checking", "visa", "brokerage"]);
+  });
+
+  it("excludes credit cards for an asset-acquisition — no card funds a down payment", () => {
+    const eligible = getEligibleFundingSources("asset-acquisition", [checking, visa, brokerage]);
     expect(eligible.map((a) => a.id)).toEqual(["checking", "brokerage"]);
   });
 
