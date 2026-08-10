@@ -44,7 +44,7 @@ function freshBase(): TaxableByOwner {
 // Credit-only headroom behavior (borrow in full, cap at headroom, a maxed or limitless card
 // contributing nothing) is exercised through the owning abstractions instead of here — the
 // simulator (`simulate.creditFunding.test.ts`) for what actually gets applied, and the
-// authoring gate (`events.homePurchase.test.ts` — "fundingLookup — credit sources") for what a
+// authoring gate (`fundingLookup.test.ts` — "fundingLookup — credit sources") for what a
 // candidate is told before it runs. What stays here is the one thing neither of those seams can
 // pin: the mixed-order gross-up math, which needs a real tax jurisdiction stub the simulator
 // tests intentionally avoid (`nullJurisdiction`).

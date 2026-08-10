@@ -88,9 +88,9 @@ export function fundingLookup(
   const categoryById = new Map(liquidAccounts.map((a) => [a.id, a.taxProfile.withdrawalCategory]));
   const household = interpretLedger(ledger, base);
   // A card the household has already taken (via a LoanEvent), keyed for the credit-aware source
-  // resolution below. Its `creditLimitCents` is authored, never `null` — the only way a source
-  // resolves to unbounded/no headroom is through the primitive's own defensive default, never
-  // through data this seam produces.
+  // resolution below. Its `creditLimitCents` is authored, never `null` — a null limit (zero usable
+  // headroom) can only arise from the primitive's own defensive default, never from data this seam
+  // produces.
   const cardById = new Map<string, Extract<HouseholdLiability, { kind: "creditCard" }>>(
     household.liabilities
       .filter((l): l is Extract<HouseholdLiability, { kind: "creditCard" }> => l.kind === "creditCard")
