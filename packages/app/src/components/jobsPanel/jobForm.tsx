@@ -212,7 +212,16 @@ export function JobForm(props: JobFormProps) {
       {props.ownership === "choose" && pickableOwners.length > 1 && (
         <label className="field">
           <span className="field-label">Whose job</span>
-          <select value={ownerId ?? ""} onChange={(e) => setOwnerId(e.target.value)}>
+          <select
+            value={ownerId ?? ""}
+            onChange={(e) => {
+              const newOwnerId = e.target.value;
+              setOwnerId(newOwnerId);
+              // Start age is owner-relative; reset it when the owner changes.
+              const newOwner = pickableOwners.find((o) => o.id === newOwnerId);
+              if (newOwner !== undefined) patch({ startAge: newOwner.currentAge });
+            }}
+          >
             {pickableOwners.map((o) => (
               <option key={o.id} value={o.id}>
                 {o.name}
