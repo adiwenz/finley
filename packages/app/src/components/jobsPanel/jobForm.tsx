@@ -215,7 +215,7 @@ export function JobForm(props: JobFormProps) {
           <select
             value={ownerId ?? ""}
             onChange={(e) => {
-              const newOwnerId = e.target.value as PersonId;
+              const newOwnerId = e.target.value;
               setOwnerId(newOwnerId);
               // Ages on this form are the selected owner's, so a new owner needs a new start
               // age or the old one silently becomes their history or their future — see the
