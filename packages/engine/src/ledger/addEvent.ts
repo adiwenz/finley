@@ -23,6 +23,7 @@ import { classifyFundingFailure, type EligibleAccountState, type FundingFailure 
 import type { FundingTreatment } from "../projection/fundingEligibility";
 import { nullJurisdiction, type Jurisdiction, type JurisdictionContext } from "../jurisdiction/jurisdiction";
 import type { HouseholdLiability } from "./household";
+import { isPreExisting } from "../projection/nowMarker";
 
 // simulate.ts / report.ts hold the same local constant. Only bracket indexing reads it, so
 // an off-by-a-year is immaterial.
@@ -108,10 +109,86 @@ export function fundingLookup(
   );
   const projection = buildProjection(household, base, jurisdiction);
   const last = projection.months.length - 1;
-  // A Year-0 purchase draws against the funds on hand right now — the `opening` snapshot;
-  // later months read that processed month's end-of-month balances, as before.
-  const monthAt = (month: number) =>
-    month <= 0 ? projection.opening : projection.months[Math.min(month, last)];
+
+  /**
+   * Month 0's already-authored explicit draws (another One-Time Spend, a down payment), replayed
+   * against the opening balances through the SAME primitive the simulator resolves them with
+   * ({@link resolveOrderedFundingDraw}), in ledger order — nothing else about month 0 (growth,
+   * the automatic waterfall, a card's own interest/minimum-payment mechanics, decumulation) runs.
+   * A household with no month-0 explicit draws gets back `opening`'s own figures untouched, so
+   * every existing month-0 read (a card's pre-mechanics headroom, among others) is unaffected; one
+   * WITH a prior spend sees its sources already reduced by it — the seam a second month-0 draw
+   * must be priced against, matching exactly what the simulator would apply were this candidate
+   * the one being resolved. Bug this fixes: month 0 was treated as pre-existing (`<= 0`) and so
+   * NEVER reflected any of its own draws — the same `<= 0` vs `< 0` drift {@link isPreExisting}'s
+   * own doc comment warns about, here for a different symptom (a second month-0 spend always
+   * seeing the original balance) rather than free equity.
+   */
+  function openingAfterMonth0Draws() {
+    const accountBalancesCents: Record<string, number> = { ...projection.opening.accountBalancesCents };
+    const accountBasisCents: Record<string, number> = { ...projection.opening.accountBasisCents };
+    const liabilityBalancesCents: Record<string, number> = { ...projection.opening.liabilityBalancesCents };
+    const ctx0: JurisdictionContext = { year: startYear };
+    const taxableByOwner: TaxableByOwner = new Map();
+
+    const month0Draws = household.fundingDraws.filter(
+      (o) => o.month === 0 && o.funding.kind === "explicit",
+    );
+    for (const obligation of month0Draws) {
+      if (obligation.funding.kind !== "explicit") continue;
+      const sources: FundingSourceState[] = [];
+      for (const id of obligation.funding.orderedAccountIds) {
+        const card = cardById.get(id);
+        if (card !== undefined) {
+          sources.push({
+            kind: "credit",
+            id,
+            ownerId: card.ownerId,
+            balanceCents: liabilityBalancesCents[id] ?? 0,
+            creditLimitCents: card.creditLimitCents,
+            label: id,
+          });
+          continue;
+        }
+        if (!labelById.has(id)) continue;
+        sources.push({
+          id,
+          ownerId: ownerById.get(id) ?? "",
+          category: categoryById.get(id) ?? "capitalGains",
+          balanceCents: accountBalancesCents[id] ?? 0,
+          basisCents: accountBasisCents[id] ?? 0,
+          label: labelById.get(id) ?? id,
+        });
+      }
+      // Mutates `taxableByOwner` in place — exactly what threads a second month-0 draw's gain
+      // marginally atop the first's, the same stacking `resolveFundingDraws` applies within a
+      // real month.
+      const { perSource } = resolveOrderedFundingDraw(
+        obligation.amountCents,
+        sources,
+        jurisdiction,
+        ctx0,
+        taxableByOwner,
+      );
+      for (const s of perSource) {
+        if (s.grossCents <= 0) continue;
+        if (s.kind === "credit") {
+          liabilityBalancesCents[s.id] = (liabilityBalancesCents[s.id] ?? 0) + s.grossCents;
+          continue;
+        }
+        accountBalancesCents[s.id] = (accountBalancesCents[s.id] ?? 0) - s.grossCents;
+        accountBasisCents[s.id] = Math.max(0, (accountBasisCents[s.id] ?? 0) - s.principalCents);
+      }
+    }
+    return { accountBalancesCents, accountBasisCents, liabilityBalancesCents };
+  }
+  const adjustedOpening = openingAfterMonth0Draws();
+
+  const monthAt = (month: number) => {
+    if (isPreExisting(month)) return projection.opening;
+    if (month === 0) return { ...projection.opening, ...adjustedOpening };
+    return projection.months[Math.min(month, last)];
+  };
 
   // Whether a listed account can pay is `balanceCents > 0`, the test `availabilityAt` applies.
   const sourcesAt = (
@@ -145,10 +222,10 @@ export function fundingLookup(
   // after this month's explicit draws, before decumulation. Since the reorder, decumulation
   // runs AFTER the candidate, so its end-of-month drain must not count against the candidate's
   // sources; the flow view exports the pre-decumulation figures for exactly this read. The
-  // `opening` snapshot (month ≤ 0) carries no flows and already holds pre-decumulation
-  // balances, so it falls back to the end-of-month maps — which for the opening snapshot ARE
-  // the starting balances. Shared by `availabilityAt` and `failureAt` so both price a draw
-  // over identically the same seam.
+  // `opening` snapshot (a genuinely pre-existing month, `< 0`) carries no flows and already
+  // holds pre-decumulation balances, so it falls back to the end-of-month maps — which for the
+  // opening snapshot ARE the starting balances. Shared by `availabilityAt` and `failureAt` so
+  // both price a draw over identically the same seam.
   const contextAt = (month: number) => {
     const m = monthAt(month);
     const ctx: JurisdictionContext = { year: startYear + Math.floor(Math.max(0, month) / 12) };

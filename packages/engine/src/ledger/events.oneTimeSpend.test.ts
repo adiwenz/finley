@@ -239,6 +239,88 @@ describe("OneTimeSpendEvent — sibling explicit events in the same month", () =
   });
 });
 
+// Regression: `fundingLookup` (the picker's pool and the authoring gate) must show the REMAINING
+// projected balance once a prior explicit draw has consumed a source — not the account's original
+// balance. Month 0 is the specific case that was broken: it was treated as a pre-existing month
+// (reading the untouched opening snapshot) rather than the first PROCESSED month, so a second
+// month-0 spend never saw the first's draw. Covered at both month 0 and a later month, and with
+// two spends sharing one month, so the fix is pinned at the READ side (`sourcesAt`/`availabilityAt`)
+// rather than only at the simulator, which the sibling-events test above already covers.
+describe("OneTimeSpendEvent — funding-source availability reflects prior spends", () => {
+  it("month 0: a second spend sees the source drained by the first, not its original balance", () => {
+    const base = baseWith(1_000_000); // $10k
+    const ledger = addWithBase(
+      emptyLedger,
+      base,
+      spend({ id: "spend1", month: 0, amountCents: 1_000_000, fundingSourceIds: ["savings"] }),
+    );
+    const funding = fundingLookup(ledger, base, nullJurisdiction);
+
+    const pool = funding.sourcesAt(0, "expense");
+    expect(pool.find((s) => s.id === "savings")?.balanceCents).toBe(0);
+
+    const gate = funding.availabilityAt(["savings"], 100, 0);
+    expect(gate.availableCents).toBe(0);
+    expect(gate.shortfallCents).toBe(100);
+  });
+
+  it("a later month: a second spend sees the source drained by an earlier same-month spend", () => {
+    const base = baseWith(1_000_000); // $10k
+    const ledger = addWithBase(
+      emptyLedger,
+      base,
+      spend({ id: "spend1", month: 5, amountCents: 1_000_000, fundingSourceIds: ["savings"] }),
+    );
+    const funding = fundingLookup(ledger, base, nullJurisdiction);
+
+    const pool = funding.sourcesAt(5, "expense");
+    expect(pool.find((s) => s.id === "savings")?.balanceCents).toBe(0);
+
+    const gate = funding.availabilityAt(["savings"], 100, 5);
+    expect(gate.availableCents).toBe(0);
+    expect(gate.shortfallCents).toBe(100);
+  });
+
+  it("partial consumption: the pool shows exactly what a prior same-month spend left", () => {
+    const base = baseWith(1_000_000); // $10k
+    const ledger = addWithBase(
+      emptyLedger,
+      base,
+      spend({ id: "spend1", month: 0, amountCents: 400_000, fundingSourceIds: ["savings"] }),
+    );
+    const funding = fundingLookup(ledger, base, nullJurisdiction);
+
+    expect(funding.sourcesAt(0, "expense").find((s) => s.id === "savings")?.balanceCents).toBe(
+      600_000,
+    );
+    const gate = funding.availabilityAt(["savings"], 600_000, 0);
+    expect(gate.shortfallCents).toBe(0);
+    expect(gate.availableCents).toBe(600_000);
+  });
+
+  it("a household with no month-0 draw is unaffected — the pool still reads the plain opening balance", () => {
+    const base = baseWith(1_000_000); // $10k, no prior events
+    const funding = fundingLookup(emptyLedger, base, nullJurisdiction);
+    expect(funding.sourcesAt(0, "expense").find((s) => s.id === "savings")?.balanceCents).toBe(
+      1_000_000,
+    );
+  });
+
+  it("does not carry a LATER month's draw backward onto an earlier month's pool", () => {
+    const base = baseWith(1_000_000); // $10k
+    const ledger = addWithBase(
+      emptyLedger,
+      base,
+      spend({ id: "spend1", month: 5, amountCents: 1_000_000, fundingSourceIds: ["savings"] }),
+    );
+    const funding = fundingLookup(ledger, base, nullJurisdiction);
+    // A candidate priced at month 0 — before the month-5 draw — must still see the full balance.
+    expect(funding.sourcesAt(0, "expense").find((s) => s.id === "savings")?.balanceCents).toBe(
+      1_000_000,
+    );
+  });
+});
+
 /**
  * A jurisdiction that taxes only capital gains, and only past a threshold — isolating the
  * marginal-tax question the §4.5 gate has to price: whose OTHER income a sale stacks on.

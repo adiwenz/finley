@@ -68,9 +68,7 @@ export function EditEventForm({
       case "SeparationEvent":
         return <SeparationForm {...formProps} result={result} edit={{ event, onRevise }} />;
       case "OneTimeSpendEvent":
-        return (
-          <OneTimeSpendForm {...formProps} result={result} funding={funding} edit={{ event, onRevise }} />
-        );
+        return <OneTimeSpendForm {...formProps} funding={funding} edit={{ event, onRevise }} />;
       default:
         // Unreachable: the timeline only offers Edit for {@link EDITABLE_EVENT_TYPES}.
         return null;

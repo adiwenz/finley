@@ -124,9 +124,7 @@ export function AddEventForm({
       {kind === "HomePurchaseEvent" && (
         <HomePurchaseForm {...formProps} result={result} funding={funding} />
       )}
-      {kind === "OneTimeSpendEvent" && (
-        <OneTimeSpendForm {...formProps} result={result} funding={funding} />
-      )}
+      {kind === "OneTimeSpendEvent" && <OneTimeSpendForm {...formProps} funding={funding} />}
       {kind === "RelationshipEvent" && <RelationshipForm {...formProps} />}
       {kind === "ChildEvent" && <ChildForm {...formProps} />}
       {kind === "SeparationEvent" && <SeparationForm {...formProps} result={result} />}
