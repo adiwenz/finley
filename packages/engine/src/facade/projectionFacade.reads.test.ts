@@ -10,6 +10,7 @@ import { dollarsToCents } from "../money/cashFlowSeries";
 import { goalFundAccountId } from "../compile/projectionBase";
 import { obligationBudgetLineId } from "../projection/financialObligation";
 import { type BudgetLine } from "../budget/budgetLine";
+import { type Plan } from "../plan/plan";
 import { RETIREMENT_ID } from "../plan/ids";
 import { P1, freshProjection, plainJob, partnerEvent } from "../testing/projectionFacadeFixtures";
 
@@ -296,6 +297,69 @@ describe("ProjectionResult reads — over one run", () => {
     expect(scored[0].progress.onTrackFraction).toBeGreaterThan(0);
   });
 
+});
+
+describe("ProjectionResult reads — a plan's authored opening balances open the standing accounts", () => {
+  /**
+   * A deliberately INERT household: no job, no budget line, no goal, and a 0% return on every
+   * standing account. `snapshot(0)` reads the END of month 0, so anything that earns, spends,
+   * contributes or compounds would move the balance off the authored figure and make the
+   * assertion a statement about the month rather than about the opening balances. With nothing
+   * happening, month 0 closes exactly where the plan opened it.
+   */
+  const inertPlan: Plan = {
+    ...samplePlan,
+    savingsReturnPct: 0,
+    retirementReturnPct: 0,
+    brokerageReturnPct: 0,
+    inflationPct: 0,
+    goals: [],
+    budgetLines: [],
+    primary: { ...samplePlan.primary, jobs: [] },
+  };
+
+  /** Standing-account balances at the close of month 0, keyed by the account KIND the plan authored. */
+  function openingBalances(plan: Plan) {
+    const p = Projection.fromState(stateOf(plan), nullJurisdiction);
+    const result = p.run(nullJurisdiction);
+    const accounts = result.snapshot(0).balances!.accounts;
+    const balanceOf = (kind: "cash" | "retirement" | "brokerage") => {
+      // The account ids are the engine's to mint, so the kind is read off the public
+      // descriptors rather than spelled out here.
+      const id = p.accountDescriptors().find((d) => d.kind === kind)!.id;
+      return accounts.find((a) => a.id === id)!.balanceCents;
+    };
+    return {
+      cash: balanceOf("cash"),
+      retirement: balanceOf("retirement"),
+      brokerage: balanceOf("brokerage"),
+    };
+  }
+
+  it("projects each standing account from the balance the plan authored for it", () => {
+    expect(
+      openingBalances({
+        ...inertPlan,
+        openingBalanceCents: dollarsToCents(20_000),
+        retirementOpeningBalanceCents: dollarsToCents(50_000),
+        brokerageOpeningBalanceCents: dollarsToCents(15_000),
+      }),
+    ).toEqual({
+      cash: dollarsToCents(20_000),
+      retirement: dollarsToCents(50_000),
+      brokerage: dollarsToCents(15_000),
+    });
+  });
+
+  it("projects retirement and brokerage from zero when the plan states no balance for them", () => {
+    // Cash always carries an opening figure; the other two are optional, and a plan that
+    // leaves them unsaid means a saver who has not put anything by yet.
+    expect(openingBalances({ ...inertPlan, openingBalanceCents: dollarsToCents(20_000) })).toEqual({
+      cash: dollarsToCents(20_000),
+      retirement: 0,
+      brokerage: 0,
+    });
+  });
 });
 
 /**
