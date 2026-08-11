@@ -135,9 +135,23 @@ export function BudgetEditor({ budget, transact }: BudgetEditorProps) {
         </p>
 
         <NumInput
-          label="Opening balance"
+          label="Cash opening balance"
           value={budget.openingBalanceCents / 100}
           onChange={(v) => updateBudget({ openingBalanceCents: dollarsToCents(v) })}
+          prefix="$"
+          step={1000}
+        />
+        <NumInput
+          label="Retirement opening balance"
+          value={(budget.retirementOpeningBalanceCents ?? 0) / 100}
+          onChange={(v) => updateBudget({ retirementOpeningBalanceCents: dollarsToCents(v) })}
+          prefix="$"
+          step={1000}
+        />
+        <NumInput
+          label="Brokerage opening balance"
+          value={(budget.brokerageOpeningBalanceCents ?? 0) / 100}
+          onChange={(v) => updateBudget({ brokerageOpeningBalanceCents: dollarsToCents(v) })}
           prefix="$"
           step={1000}
         />

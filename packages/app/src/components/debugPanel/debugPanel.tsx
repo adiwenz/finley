@@ -125,13 +125,15 @@ function Configuration({
             formatDollars(projection.personMonthlyIncomeCents(PRIMARY_PERSON_ID)),
           ],
           ["Expenses (budget lines)", formatDollars(expenseLines.monthlyCents)],
-          ["Opening balance", formatDollars(budget.openingBalanceCents)],
+          ["Cash opening balance", formatDollars(budget.openingBalanceCents)],
           ["Budget expense lines", `${expenseLines.count}`],
         ]}
       />
       <ConfigGroup
         title="Accounts & returns"
         rows={[
+          ["Retirement opening balance", formatDollars(budget.retirementOpeningBalanceCents ?? 0)],
+          ["Brokerage opening balance", formatDollars(budget.brokerageOpeningBalanceCents ?? 0)],
           ["Savings ROI", pct(budget.savingsReturnPct)],
           ["Retirement ROI", pct(budget.retirementReturnPct)],
           ["Brokerage ROI", pct(budget.brokerageReturnPct)],

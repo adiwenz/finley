@@ -569,6 +569,29 @@ describe("createProjectionBase — surplus-cash destination lever", () => {
   });
 });
 
+describe("buildPlanAccounts — retirement and brokerage open at the plan's authored balance", () => {
+  it("opens retirement and brokerage at zero when the plan states no opening balance", () => {
+    const accounts = buildPlanAccounts(samplePlan).map((a) => a.sim);
+    expect(accounts.find((a) => a.id === "retirement")?.openingBalanceCents).toBe(0);
+    expect(accounts.find((a) => a.id === "brokerage")?.openingBalanceCents).toBe(0);
+  });
+
+  it("opens retirement and brokerage at the plan's authored balances when set", () => {
+    const plan: Plan = {
+      ...samplePlan,
+      retirementOpeningBalanceCents: dollarsToCents(50000),
+      brokerageOpeningBalanceCents: dollarsToCents(15000),
+    };
+    const accounts = buildPlanAccounts(plan).map((a) => a.sim);
+    expect(accounts.find((a) => a.id === "retirement")?.openingBalanceCents).toBe(
+      dollarsToCents(50000),
+    );
+    expect(accounts.find((a) => a.id === "brokerage")?.openingBalanceCents).toBe(
+      dollarsToCents(15000),
+    );
+  });
+});
+
 describe("planAccountDescriptors — presentation metadata that agrees with buildPlanAccounts", () => {
   it("matches buildPlanAccounts on id, label, and order (the shared source of truth)", () => {
     const plan: Plan = { ...samplePlan };

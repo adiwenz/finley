@@ -53,6 +53,15 @@ export type GoalPlan = GoalPlanBase & GoalDisposal;
 export interface Plan {
   readonly openingBalanceCents: number;
   /**
+   * The retirement and brokerage standing accounts' starting balances — money already
+   * saved there before month 0, as opposed to what a job's deferral or the waterfall
+   * contributes going forward. Optional and default to zero (their prior, sole behavior):
+   * a fresh plan's saver hasn't necessarily put anything by yet, unlike cash, which always
+   * carries an opening figure because a household's day-one buffer is never assumed empty.
+   */
+  readonly retirementOpeningBalanceCents?: number;
+  readonly brokerageOpeningBalanceCents?: number;
+  /**
    * Whole-number percents. Goal fund accounts carry their own rate on {@link GoalPlan}.
    */
   readonly savingsReturnPct: number;

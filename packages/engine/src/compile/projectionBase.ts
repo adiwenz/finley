@@ -130,7 +130,7 @@ export function buildPlanAccounts(budget: Plan): PlanAccount[] {
       label: RETIREMENT_LABEL,
       liquid: false,
       taxProfile: PRE_TAX_TAX_PROFILE,
-      balanceCents: 0,
+      balanceCents: budget.retirementOpeningBalanceCents ?? 0,
       initialAnnualRate: budget.retirementReturnPct / 100,
     }),
     planAccount({
@@ -139,7 +139,7 @@ export function buildPlanAccounts(budget: Plan): PlanAccount[] {
       label: BROKERAGE_LABEL,
       liquid: false,
       taxProfile: CAPITAL_GAINS_TAX_PROFILE,
-      balanceCents: 0,
+      balanceCents: budget.brokerageOpeningBalanceCents ?? 0,
       initialAnnualRate: budget.brokerageReturnPct / 100,
     }),
   ];
