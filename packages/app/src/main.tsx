@@ -323,6 +323,8 @@ export function App() {
       </div>
 
       <div className="card">
+        {/* A plan with no months is rejected at authoring time (`invalidAge`), so `months[0]`
+            is always present here. */}
         <DebugPanel report={report} budget={budget} month0={series.months[0]!} />
       </div>
 

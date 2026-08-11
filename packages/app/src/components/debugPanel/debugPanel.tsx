@@ -38,10 +38,9 @@ function primaryMonthlyIncomeCents(month0: ProjectionMonth): Cents {
  * weighted by each one's gross pay — 0 for a person earning nothing, never NaN.
  */
 function primaryDeferralFraction(month0: ProjectionMonth): number {
-  const sources = primaryWageSourcesAt(month0);
-  const grossCents = sources.reduce((sum, s) => sum + s.cashInflowCents, 0);
+  const grossCents = primaryMonthlyIncomeCents(month0);
   if (grossCents <= 0) return 0;
-  const deferredCents = sources.reduce(
+  const deferredCents = primaryWageSourcesAt(month0).reduce(
     (sum, s) => sum + (month0.flows?.deferralBySourceCents?.[s.sourceId] ?? 0),
     0,
   );
