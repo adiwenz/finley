@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { emptyLedger, type Ledger } from "./ledger";
-import { addEvent, fundingLookup, ledgerBeforeEvent } from "./addEvent";
+import { addEvent, fundingLookup, ledgerBeforeEvent, fundingLookupExcludingEvent } from "./addEvent";
 import { updateEvent } from "./updateEvent";
 import { interpretLedger } from "./interpret";
 import { buildProjection } from "../projection/buildHouseholdInput";
@@ -718,5 +718,115 @@ describe("OneTimeSpendEvent — editing prices availability at the event's own s
     const series = buildProjection(interpretLedger(result.ledger, base), base, nullJurisdiction);
     expect(series.status).toBe("blocked");
     expect(series.blockingObligation?.sourceEventId).toBe("C");
+  });
+});
+
+// Regression: moving an existing spend to a DIFFERENT month must price availability at its NEW
+// month, against whoever would actually execute before it there — never against who preceded it
+// at its OLD month. `ledgerBeforeEvent`'s `at` override (month, unchanged sequence number) is
+// what both `updateEvent`'s revise gate and `fundingLookupExcludingEvent` (the picker's read) key
+// off; this is the load-bearing case that would fail with a same-position-only exclusion.
+describe("OneTimeSpendEvent — moving a spend to a different month reprices at its NEW position", () => {
+  // A=$4,000, B=$3,000, C=$2,000, all month 0, in that authored order, out of $10,000 cash.
+  function threeSpendsSameMonth(base: LedgerBaseConfig): Ledger {
+    let ledger = addWithBase(
+      emptyLedger,
+      base,
+      spend({ id: "A", month: 0, amountCents: 400_000, fundingSourceIds: ["savings"] }),
+    );
+    ledger = addWithBase(
+      ledger,
+      base,
+      spend({ id: "B", month: 0, amountCents: 300_000, fundingSourceIds: ["savings"] }),
+    );
+    ledger = addWithBase(
+      ledger,
+      base,
+      spend({ id: "C", month: 0, amountCents: 200_000, fundingSourceIds: ["savings"] }),
+    );
+    return ledger;
+  }
+
+  it("moving B to month 1: sees $4,000 — A AND C (both month 0, now before it) count, not just A", () => {
+    const base = baseWith(1_000_000); // $10k
+    const ledger = threeSpendsSameMonth(base);
+    const funding = fundingLookupExcludingEvent(ledger, base, nullJurisdiction, "B");
+    // $10,000 − $4,000(A) − $2,000(C) = $4,000 — never $6,000, the OLD-position figure.
+    expect(funding.sourcesAt(1, "expense").find((s) => s.id === "savings")?.balanceCents).toBe(
+      400_000,
+    );
+    expect(funding.availabilityAt(["savings"], 400_000, 1).shortfallCents).toBe(0);
+    expect(funding.availabilityAt(["savings"], 500_000, 1).shortfallCents).toBe(100_000);
+  });
+
+  it("saving B moved to month 1 at $4,000 succeeds; at $5,000 (over what's available there) is refused", () => {
+    const base = baseWith(1_000_000); // $10k
+    const ledger = threeSpendsSameMonth(base);
+    const fits = updateEvent(
+      ledger,
+      "B",
+      spend({ id: "B", month: 1, amountCents: 400_000, fundingSourceIds: ["savings"] }),
+      base,
+      nullJurisdiction,
+    );
+    expect(fits.ok).toBe(true);
+
+    const tooMuch = updateEvent(
+      ledger,
+      "B",
+      spend({ id: "B", month: 1, amountCents: 500_000, fundingSourceIds: ["savings"] }),
+      base,
+      nullJurisdiction,
+    );
+    expect(tooMuch.ok).toBe(false);
+  });
+
+  it("moving B earlier than A and C (still same month as neither): sees the full $10,000", () => {
+    // A different fixture — A, B, C all authored at month 5 this time, so B has somewhere
+    // earlier to move TO that still isn't a negative month.
+    const base = baseWith(1_000_000); // $10k
+    let ledger = addWithBase(
+      emptyLedger,
+      base,
+      spend({ id: "A", month: 5, amountCents: 400_000, fundingSourceIds: ["savings"] }),
+    );
+    ledger = addWithBase(
+      ledger,
+      base,
+      spend({ id: "B", month: 5, amountCents: 300_000, fundingSourceIds: ["savings"] }),
+    );
+    ledger = addWithBase(
+      ledger,
+      base,
+      spend({ id: "C", month: 5, amountCents: 200_000, fundingSourceIds: ["savings"] }),
+    );
+
+    const funding = fundingLookupExcludingEvent(ledger, base, nullJurisdiction, "B");
+    expect(funding.sourcesAt(1, "expense").find((s) => s.id === "savings")?.balanceCents).toBe(
+      1_000_000,
+    );
+
+    const moved = updateEvent(
+      ledger,
+      "B",
+      spend({ id: "B", month: 1, amountCents: 1_000_000, fundingSourceIds: ["savings"] }),
+      base,
+      nullJurisdiction,
+    );
+    expect(moved.ok).toBe(true);
+  });
+
+  it("the picker reprices live as the draft's month changes, off ONE lookup handle — no re-fetch needed", () => {
+    const base = baseWith(1_000_000); // $10k
+    const ledger = threeSpendsSameMonth(base);
+    const funding = fundingLookupExcludingEvent(ledger, base, nullJurisdiction, "B");
+    // Still at month 0 (B's original position): A already spent, C has not — $6,000.
+    expect(funding.sourcesAt(0, "expense").find((s) => s.id === "savings")?.balanceCents).toBe(
+      600_000,
+    );
+    // Dragged to month 1: both A and C now precede it — $4,000.
+    expect(funding.sourcesAt(1, "expense").find((s) => s.id === "savings")?.balanceCents).toBe(
+      400_000,
+    );
   });
 });

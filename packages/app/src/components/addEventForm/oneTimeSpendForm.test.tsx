@@ -227,43 +227,50 @@ describe("OneTimeSpendForm — editing an existing spend does not count its own 
   });
 });
 
+/** A=$4,000, B=$3,000, C=$2,000, authored in that order at month 0, out of $10,000 cash. */
+function threeSpendsSameMonth() {
+  const p = Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction);
+  const id = savingsId(PLAN_DEFAULTS);
+  const a = p.spendOnce({ month: 0, label: "A", amountCents: dollarsToCents(4_000), fundingSourceIds: [id] });
+  const b = p.spendOnce({ month: 0, label: "B", amountCents: dollarsToCents(3_000), fundingSourceIds: [id] });
+  const c = p.spendOnce({ month: 0, label: "C", amountCents: dollarsToCents(2_000), fundingSourceIds: [id] });
+  return { p, id, a, b, c };
+}
+
+function renderEdit(
+  p: Projection,
+  targetId: string,
+  amountDollars: number,
+  fundingSourceIds: string[],
+  month = 0,
+) {
+  return renderToStaticMarkup(
+    <OneTimeSpendForm
+      defaultMonth={month}
+      horizonMonths={660}
+      onAdd={noop}
+      funding={p.funding(targetId)}
+      edit={{
+        event: {
+          id: targetId,
+          type: "OneTimeSpendEvent",
+          month,
+          sequenceNumber: 0,
+          label: "Edited",
+          amountCents: dollarsToCents(amountDollars),
+          fundingSourceIds,
+        },
+        onRevise: noop,
+      }}
+    />,
+  );
+}
+
 // Regression: editing a same-month spend prices availability at ITS OWN sequence position —
 // A=$4,000, B=$3,000, C=$2,000, authored in that order out of $10,000 cash. Editing B must see
 // $6,000 (A already spent, C hasn't executed from B's position), never the $4,000 the OLD
 // self-only-exclusion would have shown (A's draw AND C's, since C was still in the ledger).
 describe("OneTimeSpendForm — editing prices availability at the event's own sequence position", () => {
-  function threeSpendsSameMonth() {
-    const p = Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction);
-    const id = savingsId(PLAN_DEFAULTS);
-    const a = p.spendOnce({ month: 0, label: "A", amountCents: dollarsToCents(4_000), fundingSourceIds: [id] });
-    const b = p.spendOnce({ month: 0, label: "B", amountCents: dollarsToCents(3_000), fundingSourceIds: [id] });
-    const c = p.spendOnce({ month: 0, label: "C", amountCents: dollarsToCents(2_000), fundingSourceIds: [id] });
-    return { p, id, a, b, c };
-  }
-
-  function renderEdit(p: Projection, targetId: string, amountDollars: number, fundingSourceIds: string[]) {
-    return renderToStaticMarkup(
-      <OneTimeSpendForm
-        defaultMonth={0}
-        horizonMonths={660}
-        onAdd={noop}
-        funding={p.funding(targetId)}
-        edit={{
-          event: {
-            id: targetId,
-            type: "OneTimeSpendEvent",
-            month: 0,
-            sequenceNumber: 0,
-            label: "Edited",
-            amountCents: dollarsToCents(amountDollars),
-            fundingSourceIds,
-          },
-          onRevise: noop,
-        }}
-      />,
-    );
-  }
-
   it("editing A (first): the full $10,000 is available — nothing precedes it", () => {
     const { p, id, a } = threeSpendsSameMonth();
     const html = renderEdit(p, a, 4_000, [id]);
@@ -314,5 +321,54 @@ describe("OneTimeSpendForm — editing prices availability at the event's own se
     expect(result.series.status).toBe("blocked");
     const markers = timelineMarkers(p.ledger, result.series);
     expect(markers.find((m) => m.id === c)?.outcome).toBe("blocked");
+  });
+});
+
+// Regression: moving an existing spend to a DIFFERENT month must reprice against whoever would
+// actually execute before it AT THE NEW MONTH — never against who preceded it at its old one.
+describe("OneTimeSpendForm — moving a spend to a different month reprices at its new position", () => {
+  it("B moved to month 1 shows $4,000 — A and C, both month 0, now precede it", () => {
+    const { p, id, b } = threeSpendsSameMonth();
+    const html = renderEdit(p, b, 4_000, [id], 1);
+    expect(html).toContain("$4,000");
+    // Never the $6,000 its OLD (month-0) position would have shown.
+    expect(html).not.toContain("$6,000");
+    const button = html.match(/<button[^>]*>Save changes<\/button>/)?.[0];
+    expect(button).toBeDefined();
+    expect(button).not.toContain("disabled");
+  });
+
+  it("B moved to month 1 at $5,000 (over the $4,000 available there) disables Save", () => {
+    const { p, id, b } = threeSpendsSameMonth();
+    const html = renderEdit(p, b, 5_000, [id], 1);
+    const button = html.match(/<button[^>]*>Save changes<\/button>/)?.[0];
+    expect(button).toBeDefined();
+    expect(button).toContain("disabled");
+  });
+
+  it("B moved earlier than a later-month sibling trio shows the full $10,000", () => {
+    const p = Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction);
+    const id = savingsId(PLAN_DEFAULTS);
+    p.spendOnce({ month: 5, label: "A", amountCents: dollarsToCents(4_000), fundingSourceIds: [id] });
+    const b = p.spendOnce({ month: 5, label: "B", amountCents: dollarsToCents(3_000), fundingSourceIds: [id] });
+    p.spendOnce({ month: 5, label: "C", amountCents: dollarsToCents(2_000), fundingSourceIds: [id] });
+
+    const html = renderEdit(p, b, 10_000, [id], 1); // moved from month 5 to month 1
+    expect(html).toContain("$10,000");
+    const button = html.match(/<button[^>]*>Save changes<\/button>/)?.[0];
+    expect(button).toBeDefined();
+    expect(button).not.toContain("disabled");
+  });
+
+  it("committing the move to month 1 through the real write path succeeds at $4,000", () => {
+    const { p, id, b } = threeSpendsSameMonth();
+    expect(() =>
+      p.reviseTransaction(b, {
+        type: "spendOnce",
+        month: 1,
+        amountCents: dollarsToCents(4_000),
+        fundingSourceIds: [id],
+      }),
+    ).not.toThrow();
   });
 });

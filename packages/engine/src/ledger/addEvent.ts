@@ -8,7 +8,7 @@ import type { Ledger, ValidationResult } from "./ledger";
 import type { LifeEvent, NewLifeEvent } from "./eventTypes";
 import { checkEvent } from "./eventHandlers";
 import { validateEventData } from "./eventValidation";
-import { contextFrom, interpretLedger, interpretToState, sortedEvents } from "./interpret";
+import { contextFrom, interpretLedger, interpretToState } from "./interpret";
 import type { InterpretContext, FundingAvailability, FundingSourceBalance } from "./interpretState";
 import type { LedgerBaseConfig } from "./ledgerBase";
 import { buildProjection } from "../projection/buildHouseholdInput";
@@ -72,27 +72,82 @@ export interface FundingLookup {
 }
 
 /**
- * The ledger as it stood immediately BEFORE `eventId` — every event that precedes it in
- * interpretation order (month ASC, sequenceNumber ASC, {@link sortedEvents}'s own order), minus
- * the event itself, minus everything that comes after it (a later-month event, or a same-month
- * sibling authored after it). This is the "so far" a candidate priced AT that event's own
- * position sees: exactly what {@link addEvent} already gives a brand-new event (appended last,
- * so everything precedes it), generalized to a position INSIDE an existing ledger.
+ * The ledger as it stood immediately BEFORE a position in interpretation order (month ASC,
+ * sequenceNumber ASC, {@link sortedEvents}'s own comparator) — every event that sorts strictly
+ * before it, minus `eventId` itself, minus everything that sorts at or after it (a later-month
+ * event, or a same-month sibling authored after it).
  *
- * The one seam both `updateEvent`'s revise-time affordability gate and the authoring picker's
- * "editing an existing spend" read use to price a candidate at its own sequence position rather
- * than at the ledger's end — a same-month sibling authored AFTER it must never count as
- * already-spent money it competes with, and one authored BEFORE it always must.
+ * `at`, when given, is a HYPOTHETICAL position — the month a revision proposes to move `eventId`
+ * to, paired with its own (unchanged-by-revise) sequence number — so a candidate being dragged
+ * to a different month prices against who would actually execute before it AT THAT MONTH, not
+ * who preceded it at its old one. Omitted, `at` defaults to `eventId`'s own CURRENT position in
+ * `ledger` — "before it, unmoved." Either way this is the "so far" {@link addEvent} already gives
+ * a brand-new event (appended last, so everything precedes it), generalized to an arbitrary
+ * position inside an existing ledger.
  *
- * `eventId` not found (should not happen for an existing event a caller resolved first) falls
- * back to the whole ledger, matching `fundingLookup`'s own plain behavior.
+ * The one seam `updateEvent`'s revise-time affordability gate, and the authoring picker's
+ * "editing an existing spend" read, both use to price a candidate at its (possibly moved)
+ * position rather than at the ledger's end — a sibling that would execute AFTER it, at whatever
+ * month it ends up at, must never count as already-spent money it competes with, and one that
+ * would execute BEFORE it always must.
+ *
+ * Neither `eventId` found in `ledger` nor an explicit `at` given (should not happen for an
+ * existing event a caller resolved first) falls back to the whole ledger, matching
+ * `fundingLookup`'s own plain behavior.
  */
-export function ledgerBeforeEvent(ledger: Ledger, eventId: string): Ledger {
-  const ordered = sortedEvents(ledger.events);
-  const idx = ordered.findIndex((e) => e.id === eventId);
+export function ledgerBeforeEvent(
+  ledger: Ledger,
+  eventId: string,
+  at?: { readonly month: number; readonly sequenceNumber: number },
+): Ledger {
+  const target = at ?? ledger.events.find((e) => e.id === eventId);
+  if (target === undefined) return ledger;
   return {
-    events: idx === -1 ? ordered : ordered.slice(0, idx),
+    events: ledger.events.filter(
+      (e) =>
+        e.id !== eventId &&
+        (e.month < target.month ||
+          (e.month === target.month && e.sequenceNumber < target.sequenceNumber)),
+    ),
     nextSequenceNumber: ledger.nextSequenceNumber,
+  };
+}
+
+/**
+ * The funding lookup for an event being edited whose candidate MONTH may itself be in flux (the
+ * draft form's own month field) — each query is priced at ITS OWN `month` argument, treated as
+ * the candidate's hypothetical position, rather than at a single ledger fixed once. A plain
+ * {@link fundingLookup} bakes in ONE ledger snapshot; that is wrong here, because which events
+ * would execute "before" the candidate changes with the very month argument each query already
+ * carries (`sourcesAt(month, …)`, `availabilityAt(…, month)`, `failureAt(…, …, month)`) — a
+ * sibling that sorts after the candidate at month 0 can sort BEFORE it once the draft moves to
+ * month 1. So each method rebuilds {@link ledgerBeforeEvent} — and, off it, a fresh
+ * {@link fundingLookup} — from the SAME `month` its caller already passes in, no separate
+ * "candidate's current month" state threaded through React: the caller (the form) already
+ * re-queries on every draft change, exactly as the plain lookup expects.
+ */
+export function fundingLookupExcludingEvent(
+  ledger: Ledger,
+  base: LedgerBaseConfig,
+  jurisdiction: Jurisdiction,
+  excludeEventId: string,
+): FundingLookup {
+  const excluded = ledger.events.find((e) => e.id === excludeEventId);
+  if (excluded === undefined) return fundingLookup(ledger, base, jurisdiction);
+
+  const lookupAt = (month: number): FundingLookup =>
+    fundingLookup(
+      ledgerBeforeEvent(ledger, excludeEventId, { month, sequenceNumber: excluded.sequenceNumber }),
+      base,
+      jurisdiction,
+    );
+
+  return {
+    sourcesAt: (month, treatment) => lookupAt(month).sourcesAt(month, treatment),
+    availabilityAt: (sourceIds, amountCents, month) =>
+      lookupAt(month).availabilityAt(sourceIds, amountCents, month),
+    failureAt: (treatment, sourceIds, amountCents, month) =>
+      lookupAt(month).failureAt(treatment, sourceIds, amountCents, month),
   };
 }
 

@@ -15,7 +15,7 @@
 import type { Jurisdiction } from "../jurisdiction/jurisdiction";
 import type { LedgerBaseConfig } from "../ledger/ledgerBase";
 import type { NewLifeEvent } from "../ledger/eventTypes";
-import { addEvent, fundingLookup, ledgerBeforeEvent } from "../ledger/addEvent";
+import { addEvent, fundingLookup, fundingLookupExcludingEvent } from "../ledger/addEvent";
 import type { FundingLookup } from "../ledger/addEvent";
 import { removeEvent } from "../ledger/removeEvent";
 import { updateEvent } from "../ledger/updateEvent";
@@ -93,25 +93,26 @@ export function assertReplayable(state: ProjectionState, jurisdiction: Jurisdict
  * about the same accounts. Sharing the context is what makes that impossible rather than merely
  * unlikely.
  *
- * `excludeEventId`, when given, prices against the ledger as it stood immediately BEFORE that
- * event — every event that precedes it, minus the event itself, minus everything after it (a
- * later-month event, or a same-month sibling authored after it). An event being edited must not
- * see its OWN prior draw as already-spent money it is then asked to also cover, but a
- * not-yet-executed same-month sibling must not shrink what it sees either — the same sequence
- * position {@link addEvent} already prices a brand-new event at (appended last, so everything
- * precedes it), generalized to a position inside an existing ledger via
- * {@link ledgerBeforeEvent}. Absent for an ordinary (non-editing) read.
+ * `excludeEventId`, when given, prices each query at the excluded event's OWN month argument,
+ * treated as its (possibly still-being-dragged-around-the-form) hypothetical position — every
+ * event that would execute before it AT THAT MONTH counts, the event itself never does, and a
+ * sibling that would execute after it there does not either, whether that is a later-month event
+ * or a same-month sibling authored after it. An event being edited must not see its OWN prior
+ * draw as already-spent money it is then asked to also cover, but a not-yet-executed sibling must
+ * not shrink what it sees either — and moving the draft to a different month must reprice against
+ * who would ACTUALLY execute before it there, not who preceded it at its old month. See
+ * {@link fundingLookupExcludingEvent}, which this delegates to unchanged. Absent for an ordinary
+ * (non-editing) read.
  */
 export function projectionFunding(
   state: ProjectionState,
   jurisdiction: Jurisdiction,
   excludeEventId?: string,
 ): FundingLookup {
-  const ledger =
-    excludeEventId === undefined
-      ? state.scenario.ledger
-      : ledgerBeforeEvent(state.scenario.ledger, excludeEventId);
-  return fundingLookup(ledger, projectionBaseFor(state, jurisdiction), jurisdiction);
+  const base = projectionBaseFor(state, jurisdiction);
+  return excludeEventId === undefined
+    ? fundingLookup(state.scenario.ledger, base, jurisdiction)
+    : fundingLookupExcludingEvent(state.scenario.ledger, base, jurisdiction, excludeEventId);
 }
 
 /**

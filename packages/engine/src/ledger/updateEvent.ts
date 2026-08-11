@@ -55,16 +55,23 @@ export function updateEvent(
   const data = validateEventData(next);
   if (!data.ok) return { ok: false, conflict: data.reason };
 
-  // One-Time Spend's own affordability gate must be priced at the revision's own SEQUENCE
-  // POSITION, not against the whole ledger minus itself: `ledgerBeforeEvent` keeps every event
-  // that precedes it (any earlier month, or an earlier same-month sibling) and drops the event
-  // itself AND everything after it (a later-month event, or a same-month sibling authored after
-  // it) — so a sibling that hasn't executed yet from this event's point of view never competes
-  // for its funds, and a sibling that already has always does. Whether THAT sibling remains
-  // fundable after this revision is not re-litigated here — it stays a normal simulation-time
-  // block, the way a brand-new event's own effect on a later one already is.
+  // One-Time Spend's own affordability gate must be priced at the revision's own — possibly
+  // MOVED — sequence position, not against the whole ledger minus itself and not against the
+  // event's OLD position: `ledgerBeforeEvent` is given the revision's proposed `next.month`
+  // paired with the sequence number the revision keeps, so it keeps every event that would
+  // execute before the candidate AT THAT MONTH (any earlier month, or an earlier same-month
+  // sibling) and drops the event itself AND everything that would execute after it there (a
+  // later-month event now, or a same-month sibling authored after it, at the OLD month or the
+  // new one) — so a sibling that hasn't executed yet from this event's (possibly moved) point of
+  // view never competes for its funds, and a sibling that already has always does. Whether THAT
+  // sibling remains fundable after this revision is not re-litigated here — it stays a normal
+  // simulation-time block, the way a brand-new event's own effect on a later one already is.
   if (next.type === "OneTimeSpendEvent") {
-    const affordability = validateNewEvent(ledgerBeforeEvent(ledger, id), base, next, jurisdiction);
+    const priceAsOf = ledgerBeforeEvent(ledger, id, {
+      month: next.month,
+      sequenceNumber: existing.sequenceNumber,
+    });
+    const affordability = validateNewEvent(priceAsOf, base, next, jurisdiction);
     if (!affordability.ok) {
       return {
         ok: false,
