@@ -1,19 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { dollarsToCents, type BudgetLine } from "@finley/engine";
+import { DEFAULT_TEMPLATE_TOTAL_CENTS, defaultBudgetTemplate } from "./budgetTemplate";
 import { PLAN_DEFAULTS } from "../../planDefaults";
-import {
-  DEFAULT_TEMPLATE_TOTAL_CENTS,
-  defaultBudgetTemplate,
-  redistributeToTiers,
-  tierRebalanceWrites,
-  toBudgetLines,
-} from "./budgetTemplate";
-
-/** Sum the literal monthly cents of a tier's lines. */
-const tierTotal = (lines: readonly BudgetLine[], category: string): number =>
-  lines
-    .filter((l) => l.category === category)
-    .reduce((s, l) => s + (l.amountSource.kind === "literal" ? l.amountSource.monthlyCents : 0), 0);
 
 describe("defaultBudgetTemplate — the prepopulated Base", () => {
   it("prepopulates a non-empty set of standing expense lines, naming no ids", () => {
@@ -49,104 +36,5 @@ describe("defaultBudgetTemplate — the prepopulated Base", () => {
       0,
     );
     expect(planTotal).toBe(DEFAULT_TEMPLATE_TOTAL_CENTS);
-  });
-});
-
-describe("redistributeToTiers — the non-destructive 50/30/20 quickstart", () => {
-  const income = dollarsToCents(5_000);
-
-  it("preserves the user's named lines — it rebalances, it does not replace", () => {
-    const before = toBudgetLines(defaultBudgetTemplate());
-    const after = redistributeToTiers(before, income);
-    // Every original line survives by id (Housing, Groceries, Dining, …).
-    for (const l of before) expect(after.some((a) => a.id === l.id)).toBe(true);
-  });
-
-  it("rebalances each tier's existing lines to hit 50/30/20 of income", () => {
-    const after = redistributeToTiers(toBudgetLines(defaultBudgetTemplate()), income);
-    expect(tierTotal(after, "needs")).toBe(dollarsToCents(2_500));
-    expect(tierTotal(after, "wants")).toBe(dollarsToCents(1_500));
-  });
-
-  it("preserves each line's share within its tier when scaling", () => {
-    // Two needs lines 3:1 → after scaling to $2,500 they stay 3:1 ($1,875 / $625).
-    const lines: BudgetLine[] = [
-      { id: "a", label: "A", target: { kind: "expense" }, amountSource: { kind: "literal", monthlyCents: dollarsToCents(1_500) }, category: "needs" },
-      { id: "b", label: "B", target: { kind: "expense" }, amountSource: { kind: "literal", monthlyCents: dollarsToCents(500) }, category: "needs" },
-    ];
-    const after = redistributeToTiers(lines, income);
-    const amt = (id: string) => {
-      const s = after.find((l) => l.id === id)!.amountSource;
-      return s.kind === "literal" ? s.monthlyCents : 0;
-    };
-    expect(amt("a")).toBe(dollarsToCents(1_875));
-    expect(amt("b")).toBe(dollarsToCents(625));
-  });
-
-  it("seeds a real savings CONTRIBUTION line for an empty savings tier", () => {
-    // The default template has no savings-tier line, so the 20% is seeded as a funded
-    // contribution into an account, not a vanishing expense.
-    const after = redistributeToTiers(toBudgetLines(defaultBudgetTemplate()), income, 240);
-    const savings = after.filter((l) => l.category === "savings");
-    expect(savings.length).toBe(1);
-    expect(savings[0].target.kind).toBe("account");
-    expect((savings[0].amountSource as { monthlyCents: number }).monthlyCents).toBe(dollarsToCents(1_000));
-    // Saving stops at the retirement month (a retiree draws down, not up).
-    expect(savings[0].span).toEqual({ endMonth: 240 });
-  });
-
-  it("leaves a seeded savings line open-ended when there is no retirement month", () => {
-    const after = redistributeToTiers(toBudgetLines(defaultBudgetTemplate()), income);
-    expect(after.find((l) => l.category === "savings")?.span).toBeUndefined();
-  });
-});
-
-describe("tierRebalanceWrites — the same rebalance, as facade writes", () => {
-  const income = dollarsToCents(5_000);
-
-  it("names one rescale per moved line and one seed per empty tier", () => {
-    const before = toBudgetLines(defaultBudgetTemplate());
-    const { rescale, seeds } = tierRebalanceWrites(before, income, 240);
-
-    // The template's needs and wants lines all move; savings has none to scale, so it is the
-    // one seed. Health is NOT rescaled — it is not one of the 50/30/20 tiers, since a premium
-    // is not a share of take-home the household chooses.
-    const rebalanced = before.filter((l) => l.category !== "healthcare");
-    expect(rescale.map((r) => r.id).sort()).toEqual(rebalanced.map((l) => l.id).sort());
-    expect(rescale.map((r) => r.id)).not.toContain("Healthcare");
-    expect(seeds).toHaveLength(1);
-    expect(seeds[0].category).toBe("savings");
-    expect(seeds[0].span).toEqual({ endMonth: 240 });
-  });
-
-  it("applying the writes reproduces redistributeToTiers exactly", () => {
-    // The panel applies these one at a time through `Projection`; the result has to be the
-    // budget the rule describes, or the quickstart means something different in the app than
-    // it does in its own test.
-    const before = toBudgetLines(defaultBudgetTemplate());
-    const { rescale, seeds } = tierRebalanceWrites(before, income, 240);
-
-    const byId = new Map(rescale.map((r) => [r.id, r.monthlyCents]));
-    const applied: BudgetLine[] = [
-      ...before.map((l) =>
-        byId.has(l.id)
-          ? { ...l, amountSource: { kind: "literal" as const, monthlyCents: byId.get(l.id)! } }
-          : l,
-      ),
-      // A seed carries no id — `addBudgetLine` mints it. `toBudgetLines` re-applies the same
-      // label placeholder the rule's own output uses, so the two are comparable line for line.
-      ...toBudgetLines(seeds),
-    ];
-
-    expect(applied).toEqual(redistributeToTiers(before, income, 240));
-  });
-
-  it("writes nothing for a budget already on target", () => {
-    // Idempotent: re-running the quickstart on its own output has nothing left to move, so
-    // it does not churn the plan through a transaction that changes no number.
-    const settled = redistributeToTiers(toBudgetLines(defaultBudgetTemplate()), income, 240);
-    const { rescale, seeds } = tierRebalanceWrites(settled, income, 240);
-    expect(rescale).toEqual([]);
-    expect(seeds).toEqual([]);
   });
 });

@@ -8,7 +8,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { DebugPanel } from "./debugPanel";
-import { runOf, readerOf } from "../../testing/projectionHarness";
+import { runOf } from "../../testing/projectionHarness";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 
 afterEach(cleanup);
@@ -16,7 +16,7 @@ afterEach(cleanup);
 function renderPanel() {
   const result = runOf(PLAN_DEFAULTS);
   return render(
-    <DebugPanel report={result.report} budget={PLAN_DEFAULTS} projection={readerOf(PLAN_DEFAULTS)} />,
+    <DebugPanel report={result.report} budget={PLAN_DEFAULTS} month0={result.series.months[0]!} />,
   );
 }
 

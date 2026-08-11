@@ -8,16 +8,45 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import { PRIMARY_PERSON_ID } from "@finley/engine";
-import type { Plan, Projection, SimulationReport } from "@finley/engine";
-
-/** The two figures this inspector reads through the facade rather than re-deriving. */
-type PlanFigures = Pick<Projection, "personMonthlyIncomeCents" | "personDeferralFraction">;
+import type { Cents, Plan, ProjectionMonth, SimulationReport } from "@finley/engine";
 import { primaryJobs } from "../../planPeople";
 import { formatDollars } from "../../format";
 import { debugExportFilename } from "../../debugExport";
 import styles from "./debugPanel.module.css";
 
 const pct = (whole: number) => `${whole}%`;
+
+/**
+ * The primary person's still-active wage sources at `month0` — what the simulation actually
+ * paid them this month, not a re-derivation off authored job spans. A past job that already
+ * ended, or a future one that has not started, contributes no source here, because the engine
+ * never banded one for it.
+ */
+function primaryWageSourcesAt(month0: ProjectionMonth) {
+  return (month0.flows?.incomeSources ?? []).filter(
+    (s) => s.category === "wages" && s.ownerId === PRIMARY_PERSON_ID,
+  );
+}
+
+/** Standing pay: the primary person's active wages this month, summed across jobs. */
+function primaryMonthlyIncomeCents(month0: ProjectionMonth): Cents {
+  return primaryWageSourcesAt(month0).reduce((sum, s) => sum + s.cashInflowCents, 0);
+}
+
+/**
+ * The primary person's pre-tax 401(k) deferral this month, blended across active jobs and
+ * weighted by each one's gross pay — 0 for a person earning nothing, never NaN.
+ */
+function primaryDeferralFraction(month0: ProjectionMonth): number {
+  const sources = primaryWageSourcesAt(month0);
+  const grossCents = sources.reduce((sum, s) => sum + s.cashInflowCents, 0);
+  if (grossCents <= 0) return 0;
+  const deferredCents = sources.reduce(
+    (sum, s) => sum + (month0.flows?.deferralBySourceCents?.[s.sourceId] ?? 0),
+    0,
+  );
+  return deferredCents / grossCents;
+}
 
 /**
  * The plan's authored monthly general spend: the base amount of every literal expense budget
@@ -93,13 +122,13 @@ function growthRows(inputs: SimulationReport["inputs"]): [string, ReactNode][] {
 /** Every configurable knob, grouped — the authored plan plus resolved run facts. */
 function Configuration({
   budget,
-  projection,
+  month0,
   inputs,
   jurisdictionId,
 }: {
   budget: Plan;
-  /** Standing pay and the blended deferral are read through the facade, not re-derived here. */
-  projection: PlanFigures;
+  /** What the simulation actually paid/deferred this month — never re-derived from job spans. */
+  month0: ProjectionMonth;
   inputs: SimulationReport["inputs"];
   jurisdictionId: string;
 }) {
@@ -122,7 +151,7 @@ function Configuration({
         rows={[
           [
             `Income (${primaryJobs(budget).length} job${primaryJobs(budget).length === 1 ? "" : "s"})`,
-            formatDollars(projection.personMonthlyIncomeCents(PRIMARY_PERSON_ID)),
+            formatDollars(primaryMonthlyIncomeCents(month0)),
           ],
           ["Expenses (budget lines)", formatDollars(expenseLines.monthlyCents)],
           ["Cash opening balance", formatDollars(budget.openingBalanceCents)],
@@ -137,7 +166,7 @@ function Configuration({
           ["Savings ROI", pct(budget.savingsReturnPct)],
           ["Retirement ROI", pct(budget.retirementReturnPct)],
           ["Brokerage ROI", pct(budget.brokerageReturnPct)],
-          ["Retirement deferral (blended)", pct(Math.round(projection.personDeferralFraction(PRIMARY_PERSON_ID) * 100))],
+          ["Retirement deferral (blended)", pct(Math.round(primaryDeferralFraction(month0) * 100))],
         ]}
       />
       <ConfigGroup
@@ -179,11 +208,16 @@ function Configuration({
 export function DebugPanel({
   report,
   budget,
-  projection,
+  month0,
 }: {
   report: SimulationReport;
   budget: Plan;
-  projection: PlanFigures;
+  /**
+   * The same run's month-0 `ProjectionMonth` — carries the per-source `flows.incomeSources`
+   * (`ownerId`, `category`) the flattened {@link SimulationReport} does not, which the
+   * "Monthly cash flow" readout needs to isolate the primary person's active wages.
+   */
+  month0: ProjectionMonth;
 }) {
   const [everyMonth, setEveryMonth] = useState(false);
   /**
@@ -245,7 +279,7 @@ export function DebugPanel({
 
       <Configuration
         budget={budget}
-        projection={projection}
+        month0={month0}
         inputs={inputs}
         jurisdictionId={jurisdictionId}
       />

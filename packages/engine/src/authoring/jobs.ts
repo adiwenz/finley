@@ -575,33 +575,3 @@ export function jobStartingMonthlyIncomeCentsOf(state: ProjectionState, jobId: s
 export function jobDeferralFractionOf(state: ProjectionState, jobId: string): number {
   return deferralFractionOf(jobOrThrow(state, jobId));
 }
-
-/** The same as {@link jobMonthlyIncomeCentsOf}, summed over one person's jobs. */
-export function personMonthlyIncomeCentsOf(state: ProjectionState, personId: PersonId): Cents {
-  return householdJobs(state)
-    .filter((j) => j.ownerId === personId)
-    .reduce((sum, j) => sum + monthlyIncomeCentsOf(j), 0);
-}
-
-/** Standing pay across every earner. Sizing a household's budget off one earner's is wrong. */
-export function householdMonthlyIncomeCentsOf(state: ProjectionState): Cents {
-  return householdJobs(state).reduce((sum, j) => sum + monthlyIncomeCentsOf(j), 0);
-}
-
-/**
- * One person's pre-tax 401(k) deferral as a fraction of their gross, blended across their jobs —
- * each job elects its own, so the household-level figure is a weighted average and not any one
- * election. 0 when they earn nothing.
- */
-export function personDeferralFractionOf(state: ProjectionState, personId: PersonId): number {
-  const jobs = householdJobs(state).filter((j) => j.ownerId === personId);
-  // Weighted by CURRENT pay — the blend is what they defer now, so a decades-stale starting
-  // salary would weight the jobs against each other wrongly.
-  const grossCents = jobs.reduce((sum, j) => sum + j.salary.currentSalaryCents, 0);
-  if (grossCents <= 0) return 0;
-  const deferredCents = jobs.reduce(
-    (sum, j) => sum + j.salary.currentSalaryCents * deferralFractionOf(j),
-    0,
-  );
-  return deferredCents / grossCents;
-}

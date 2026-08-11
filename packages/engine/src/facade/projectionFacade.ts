@@ -102,12 +102,9 @@ import {
   addProjectionJobIncomeOverride,
   addProjectionJobPayChange,
   addProjectionPartnerJob,
-  householdMonthlyIncomeCentsOf,
   jobDeferralFractionOf,
   jobMonthlyIncomeCentsOf,
   jobStartingMonthlyIncomeCentsOf,
-  personDeferralFractionOf,
-  personMonthlyIncomeCentsOf,
   removeProjectionJob,
   removeProjectionJobIncomeOverride,
   removeProjectionJobPayChange,
@@ -634,25 +631,6 @@ export class Projection {
   /** One job's elected pre-tax 401(k) fraction of gross; an absent election reads as 0. */
   jobDeferralFraction(jobId: string): number {
     return jobDeferralFractionOf(this.state, jobId);
-  }
-
-  /** The same, summed over one person's jobs — nobody holds a single privileged job. */
-  personMonthlyIncomeCents(personId: PersonId): Cents {
-    return personMonthlyIncomeCentsOf(this.state, personId);
-  }
-
-  /** Standing pay across every earner. Sizing a household's budget off one earner's is wrong. */
-  householdMonthlyIncomeCents(): Cents {
-    return householdMonthlyIncomeCentsOf(this.state);
-  }
-
-  /**
-   * One person's pre-tax 401(k) deferral as a fraction of their gross, blended across their
-   * jobs — each job elects its own, so the household-level figure is a weighted average and not
-   * any one election. 0 when they earn nothing.
-   */
-  personDeferralFraction(personId: PersonId): number {
-    return personDeferralFractionOf(this.state, personId);
   }
 
   /**
