@@ -46,6 +46,7 @@ const blocking: BlockedObligation = {
     eligibleAvailableCents: 5_000_000,
     eligibleTaxCents: 0,
     shortfallCents: 3_000_000,
+    selectedSources: [],
   },
   markerNetWorthCents: 2_000_000, // final net worth $50k less the $30k shortfall
 };

@@ -20,7 +20,12 @@ import type { SimState } from "./runState";
 import type { IncomeSourceMonth } from "./waterfall";
 import { attributeExplicitObligation, type ResolvedFunding } from "./resolvedFunding";
 import type { FinancialObligation } from "./financialObligation";
-import { classifyFundingFailure, type FundingFailure, type EligibleAccountState } from "./fundingFailure";
+import {
+  classifyFundingFailure,
+  type FundingFailure,
+  type EligibleAccountState,
+  type SelectedSourceBalance,
+} from "./fundingFailure";
 import type { FundingTreatment } from "./fundingEligibility";
 import { RevolvingCard, SYNTHETIC_CARD_ID } from "../liability/liability";
 
@@ -86,6 +91,32 @@ export interface ResolvedFundingSource {
   readonly principalCents: Cents;
   /** What reached the purchase — `grossCents − taxCents`; equal to `grossCents` for credit. */
   readonly netDeliveredCents: Cents;
+}
+
+/**
+ * The selected sources' own capacity — an account's balance, a card's headroom — in the order
+ * named, independent of how much a draw actually took from each. Shared by both call sites of
+ * {@link classifyFundingFailure} so a blocked draw's diagnosis names exactly the figures the
+ * draw itself was priced against.
+ */
+export function selectedSourceBalances(
+  sources: readonly FundingSourceState[],
+): readonly SelectedSourceBalance[] {
+  return sources.map((s) =>
+    s.kind === "credit"
+      ? {
+          accountId: s.id,
+          label: s.label ?? s.id,
+          kind: "credit",
+          availableCents: s.creditLimitCents === null ? 0 : Math.max(0, s.creditLimitCents - s.balanceCents),
+        }
+      : {
+          accountId: s.id,
+          label: s.label ?? s.id,
+          kind: "account",
+          availableCents: s.balanceCents,
+        },
+  );
 }
 
 export interface OrderedFundingDrawResult {
@@ -434,6 +465,7 @@ export function resolveFundingDraws(
         selectedSourceIds: orderedAccountIds,
         selectedSourcesAvailableCents: obligation.amountCents - shortfallCents,
         selectedSourcesTaxCents: perSource.reduce((sum, s) => sum + s.taxCents, 0),
+        selectedSources: selectedSourceBalances(sources),
         accounts: accountPool,
         jurisdiction,
         ctx,

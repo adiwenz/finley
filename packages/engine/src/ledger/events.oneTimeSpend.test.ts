@@ -324,6 +324,47 @@ describe("OneTimeSpendEvent — gate == sim across a decumulation month", () => 
     expect(at.flows!.expensesCents).toBe(dollarsToCents(150_000) + DOWN);
     expect(at.flows!.taxCents).toBeGreaterThan(0);
   });
+
+  it("predicts a NONZERO shortfall that matches the simulator's block exactly", () => {
+    // Same decumulation-month seam as above, but `cash` is short of the spend on its own — the
+    // gate must predict precisely the gap the sim's own block later reports, not merely agree
+    // when the answer happens to be zero.
+    const ASK = dollarsToCents(60_000);
+    const CASH = dollarsToCents(45_000);
+    const jur = bracketedCapitalGains(dollarsToCents(15_000), 0.4);
+    const base: LedgerBaseConfig = {
+      horizonMonths: 24,
+      annualInflationRate: 0,
+      initialPersons: [personLit("p1", "Alice")],
+      initialAccounts: [liquidAcct("cash", CASH, 0), liquidAcct("nest", 20_000_000, 0.1)],
+      initialExpenseSeries: [
+        {
+          series: new SimCashFlowSeries(
+            23,
+            dollarsToCents(150_000),
+            { type: "fixed" },
+            { baselineUnit: "monthly", endMonth: 23 },
+          ),
+          ownerId: "p1" as PersonId,
+        },
+      ],
+    };
+    const buy = spend({ month: 23, amountCents: ASK, fundingSourceIds: ["cash"] });
+
+    const gate = fundingLookup(emptyLedger, base, jur).availabilityAt(["cash"], ASK, 23);
+    expect(gate.shortfallCents).toBe(ASK - CASH);
+    expect(gate.shortfallCents).toBeGreaterThan(0);
+
+    const accepted = addEvent(emptyLedger, base, buy, jur);
+    expect(accepted.ok).toBe(true);
+    if (!accepted.ok) return;
+
+    const series = buildProjection(interpretLedger(accepted.ledger, base), base, jur);
+
+    expect(series.status).toBe("blocked");
+    expect(series.blockedAtMonth).toBe(23);
+    expect(series.blockingObligation?.shortfallCents).toBe(gate.shortfallCents);
+  });
 });
 
 describe("Projection.spendOnce — authoring surface", () => {

@@ -121,7 +121,7 @@ describe("blockedWarning", () => {
   it("combines the blocking event's app label with the engine-provided shortfall", () => {
     const warning = blockedWarning(
       ledger(home("blocked", 12, 0)),
-      blocked({ kind: "no-eligible-source-suffices" }),
+      blocked({ kind: "no-eligible-source-suffices", selectedSources: [] }),
     );
 
     expect(warning).toMatchObject({
@@ -134,7 +134,7 @@ describe("blockedWarning", () => {
   it("passes through the engine's no-eligible-source-suffices verdict", () => {
     const warning = blockedWarning(
       ledger(home("blocked", 12, 0)),
-      blocked({ kind: "no-eligible-source-suffices" }),
+      blocked({ kind: "no-eligible-source-suffices", selectedSources: [] }),
     );
     expect(warning?.kind).toBe("no-eligible-source-suffices");
   });
@@ -142,6 +142,7 @@ describe("blockedWarning", () => {
   it("resolves each alternative account id to its funding-pool label, amounts untouched", () => {
     const series = blocked({
       kind: "funding-configuration",
+      selectedSources: [],
       alternativeSources: [
         { accountId: "houseFund", availableCents: 9_000_000 },
         { accountId: "brokerage", availableCents: 2_500_000 },
@@ -168,11 +169,29 @@ describe("blockedWarning", () => {
       ledger(home("blocked", 12, 0)),
       blocked({
         kind: "funding-configuration",
+        selectedSources: [],
         alternativeSources: [{ accountId: "houseFund", availableCents: 9_000_000 }],
       }),
     );
     if (warning?.kind !== "funding-configuration") throw new Error("expected funding-configuration");
     expect(warning.alternativeSources.map((a) => a.label)).toEqual(["houseFund"]);
+  });
+
+  it("preserves the engine's selected sources, in order, with what each held", () => {
+    const series = blocked({
+      kind: "funding-configuration",
+      alternativeSources: [],
+      selectedSources: [
+        { accountId: "cash", label: "Checking", kind: "account", availableCents: 5_000_00 },
+        { accountId: "visa", label: "Visa", kind: "credit", availableCents: 3_000_00 },
+      ],
+    });
+
+    const warning = blockedWarning(ledger(home("blocked", 12, 0)), series);
+    expect(warning?.selectedSources).toEqual([
+      { label: "Checking", availableCents: 5_000_00 },
+      { label: "Visa", availableCents: 3_000_00 },
+    ]);
   });
 
   it("returns no warning when there is no blocked projection", () => {

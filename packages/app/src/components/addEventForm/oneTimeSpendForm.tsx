@@ -11,7 +11,7 @@
  * down payment does.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   dollarsToCents,
   type FundingLookup,
@@ -38,6 +38,28 @@ const DEFAULTS: Omit<OneTimeSpendDraft, "month" | "sourceIds"> = {
 /** The first month a run reads as insolvent, or `null` while solvent throughout. */
 function insolventFromMonth(result: ProjectionResult): number | null {
   return result.series.months.find((m) => m.isInsolvent)?.month ?? null;
+}
+
+/**
+ * The post-add nudge's content, derived fresh from `beforeMonth` (the insolvency onset captured
+ * right before the add, `null` meaning the plan was solvent throughout — a valid baseline, not
+ * "no comparison pending") and the live `result`. Pure and exported so the specifically broken
+ * case — solvent before, insolvent after — is pinned without rendering: a `null` baseline used to
+ * be indistinguishable from "nothing to compare," which silently swallowed exactly this case.
+ * `null` here means no nudge; the caller decides separately whether a baseline exists at all.
+ */
+export function insolvencyNudgeMessage(
+  beforeMonth: number | null,
+  result: ProjectionResult,
+): string | null {
+  // A block already says its own piece; the nudge is only for a plan that RUNS TO THE HORIZON
+  // but insolvent, and only when this add is what moved the onset earlier (or introduced it) — a
+  // pre-existing, unmoved insolvency is not this purchase's doing.
+  if (result.series.status === "blocked") return null;
+  const after = insolventFromMonth(result);
+  if (after === null) return null;
+  if (beforeMonth !== null && after >= beforeMonth) return null;
+  return `This purchase is affordable, but it makes your plan insolvent from ${monthLabel(after)}.`;
 }
 
 export function OneTimeSpendForm({
@@ -88,27 +110,18 @@ export function OneTimeSpendForm({
   );
 
   // The post-add nudge: advisory, never a block, and only ABOUT an add just made — an edit does
-  // not re-open it, matching Home Purchase's DTI advisory. `insolventBefore` is captured at the
-  // moment of submit and compared against `result` once the parent's re-run lands.
-  const insolventBefore = useRef<number | null>(null);
-  const [nudge, setNudge] = useState<string | null>(null);
-  useEffect(() => {
-    if (insolventBefore.current === undefined || insolventBefore.current === null) return;
-    const before = insolventBefore.current;
-    const after = insolventFromMonth(result);
-    insolventBefore.current = null;
-    // A block already says its own piece; the nudge is only for a plan that RUNS TO THE
-    // HORIZON but insolvent, and only when this add is what moved the onset earlier (or
-    // introduced it) — a pre-existing, unmoved insolvency is not this purchase's doing.
-    if (result.series.status === "blocked" || after === null) return;
-    if (before !== null && after >= before) return;
-    setNudge(
-      `This purchase is affordable, but it makes your plan insolvent from ${monthLabel(after)}.`,
-    );
-  }, [result]);
+  // not re-open it, matching Home Purchase's DTI advisory. `undefined` means no add has happened
+  // yet this mount (no nudge); `null` is a legitimate baseline — the plan was solvent throughout
+  // before the add — and must compare exactly like any other month. Derived fresh from `result`
+  // on every render rather than latched into state, so it disappears the moment the condition no
+  // longer holds, exactly as the advisory is specified to.
+  const insolventBefore = useRef<number | null | undefined>(undefined);
+  const nudge = useMemo(
+    () => (insolventBefore.current === undefined ? null : insolvencyNudgeMessage(insolventBefore.current, result)),
+    [result],
+  );
 
   function submit() {
-    setNudge(null);
     if (edit) {
       edit.onRevise((p) =>
         p.reviseTransaction(edit.event.id, {

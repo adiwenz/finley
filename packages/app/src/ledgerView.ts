@@ -162,6 +162,12 @@ export type BlockedWarningView = {
   readonly month: number;
   /** The funding gap, net of the capital-gains tax liquidating the named sources owes. */
   readonly shortfallCents: Cents;
+  /**
+   * The sources the household actually named, in their configured order, each with what it held
+   * at the blocked month — an account's balance, a card's headroom. Straight off the engine's own
+   * {@link FundingFailure.selectedSources}, never recomputed from today's balances here.
+   */
+  readonly selectedSources: readonly AlternativeSourceView[];
 } & (
   | {
       readonly kind: "funding-configuration";
@@ -199,12 +205,13 @@ export function blockedWarning(
     blocking.sourceEventId === undefined
       ? undefined
       : ledger.events.find((e) => e.id === blocking.sourceEventId);
+  const failure = blocking.fundingFailure;
   const base = {
     eventLabel: event !== undefined ? summarizeEvent(event).label : blocking.label,
     month: blocking.month,
     shortfallCents: blocking.shortfallCents,
+    selectedSources: failure.selectedSources.map((s) => ({ label: s.label, availableCents: s.availableCents })),
   };
-  const failure = blocking.fundingFailure;
   if (failure.kind === "no-eligible-source-suffices") {
     return { ...base, kind: "no-eligible-source-suffices" };
   }

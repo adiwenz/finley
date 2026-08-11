@@ -19,6 +19,7 @@ const NO_ELIGIBLE: BlockedWarningView = {
   eventLabel: "Bought a home",
   month: 12,
   shortfallCents: dollarsToCents(139_476),
+  selectedSources: [],
   kind: "no-eligible-source-suffices",
 };
 
@@ -27,6 +28,11 @@ const FUNDING_CONFIG: BlockedWarningView = {
   eventLabel: "Bought a home",
   month: 12,
   shortfallCents: dollarsToCents(29_502),
+  selectedSources: [
+    { label: "Checking", availableCents: dollarsToCents(5_000) },
+    { label: "Brokerage", availableCents: dollarsToCents(12_000) },
+    { label: "Visa", availableCents: dollarsToCents(3_000) },
+  ],
   kind: "funding-configuration",
   alternativeSources: [{ label: "House fund", availableCents: dollarsToCents(230_446) }],
 };
@@ -58,6 +64,21 @@ describe("BlockedWarning", () => {
     const html = render(FUNDING_CONFIG);
     expect(html).toContain("House fund");
     expect(html).toContain("$230,446");
+  });
+
+  it("names the selected sources, in configured order, each with what it held, and the remaining shortfall", () => {
+    const html = render(FUNDING_CONFIG);
+    const checkingAt = html.indexOf("Checking");
+    const brokerageAt = html.indexOf("Brokerage");
+    const visaAt = html.indexOf("Visa");
+    expect(checkingAt).toBeGreaterThan(-1);
+    expect(brokerageAt).toBeGreaterThan(checkingAt);
+    expect(visaAt).toBeGreaterThan(brokerageAt);
+    expect(html).toContain("$5,000");
+    expect(html).toContain("$12,000");
+    expect(html).toContain("$3,000");
+    // The remaining shortfall — restated next to the sources it explains, not just at the lead.
+    expect(html).toContain("$29,502");
   });
 
   it("explains no eligible account can cover it — without insolvency language", () => {

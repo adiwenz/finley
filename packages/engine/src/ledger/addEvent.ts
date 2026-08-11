@@ -257,7 +257,7 @@ export function fundingLookup(
     month: number,
   ): FundingFailure => {
     const { ctx, taxableByOwner, balanceOf, basisOf, liabilityBalanceOf } = contextAt(month);
-    const { fundingSources } = selectedSources(sourceIds, balanceOf, basisOf, liabilityBalanceOf);
+    const { named, fundingSources } = selectedSources(sourceIds, balanceOf, basisOf, liabilityBalanceOf);
 
     // Price the selection over a COPY: the classifier below prices its own probes (the whole
     // eligible pool, then each alternative) over the UNMUTATED base, mirroring how a blocked
@@ -301,6 +301,12 @@ export function fundingLookup(
       selectedSourceIds: sourceIds,
       selectedSourcesAvailableCents: selected.netDeliveredCents,
       selectedSourcesTaxCents: selectedTaxCents,
+      selectedSources: named.map((n) => ({
+        accountId: n.id,
+        label: n.label,
+        kind: n.kind === "credit" ? ("credit" as const) : ("account" as const),
+        availableCents: n.balanceCents,
+      })),
       accounts,
       jurisdiction,
       ctx,
