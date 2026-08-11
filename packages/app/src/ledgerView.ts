@@ -67,6 +67,8 @@ export function summarizeEvent(e: LifeEvent): EventSummary {
       };
     case "DebtPayoffEvent":
       return { label: "Paid down debt", detail: formatDollars(e.amountCents) };
+    case "OneTimeSpendEvent":
+      return { label: e.label, detail: formatDollars(e.amountCents) };
   }
 }
 

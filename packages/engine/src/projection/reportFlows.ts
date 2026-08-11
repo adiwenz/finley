@@ -47,6 +47,15 @@ export function buildFlows(
   deferralBySourceCents?: Readonly<Record<string, Cents>>,
   payrollTaxCents: Cents = 0,
   payrollTaxBySourceCents: Readonly<Record<string, Cents>> = {},
+  /**
+   * Explicitly-funded `expense` obligations resolved this month (a One-Time Spend) — never part
+   * of `obligations` above, whose {@link automaticFundingTotal}/`liabilityPaymentsCents`
+   * derivation assumes every entry is automatic. Folded ONLY into the expense/chart views
+   * ({@link expenseReportingTotal}, the returned `obligations` band list), never into
+   * `totalObligationsCents`, so the double-count tripwire holds: the money appears in the
+   * expense graph and never inflates what the shared waterfall was asked for.
+   */
+  explicitExpenseObligations: readonly FinancialObligation[] = [],
   // `resolvedFunding` is a partition of the FUNDED total, known only after the shortfall cascade
   // settles which obligations came up short — later than this reporting pass — so the simulator
   // attaches it to the returned bands rather than this pure re-description computing it.
@@ -126,10 +135,17 @@ export function buildFlows(
   // orthogonal axes (funding kind vs. treatment); the debt rollup is their difference — the
   // automatically-funded non-expenses — rather than a fresh reduce over the list. All three
   // coincide with the pre-inversion scalars while every obligation is `funding: automatic`
-  // (this slice) and diverge once explicit funding arrives (Slice #4).
+  // (this slice) and diverge once explicit funding arrives (Slice #4). `liabilityPaymentsCents`
+  // is deliberately derived from `obligations` ALONE, never the merged list below: an explicit
+  // expense is never a liability payment, and folding it into this subtraction would understate
+  // debt service by exactly the spend's amount.
   const totalObligationsCents = automaticFundingTotal(obligations);
-  const expensesCents = expenseReportingTotal(obligations);
-  const liabilityPaymentsCents = totalObligationsCents - expensesCents;
+  const liabilityPaymentsCents = totalObligationsCents - expenseReportingTotal(obligations);
+  // The double-count tripwire: an explicit expense is real spending — it belongs in the graph —
+  // but it never drew the waterfall, so it is folded in ONLY here, after `totalObligationsCents`
+  // is fixed above.
+  const reportedObligations = [...obligations, ...explicitExpenseObligations];
+  const expensesCents = expenseReportingTotal(reportedObligations);
 
   // Budget-line slice of the list in one pass — this runs 660+ times per projection.
   const lineMonthlyCents: Record<string, Cents> = {};
@@ -154,8 +170,9 @@ export function buildFlows(
     // Not a second pass: the map IS the list, filtered, so the two cannot disagree.
     lineMonthlyCents,
     // Ordered for reporting only — chart bands stack by priority, stable on id across months.
-    // The waterfall already consumed this list as an order-invariant sum.
-    obligations: orderObligationsByPriority(obligations),
+    // The waterfall already consumed `obligations` as an order-invariant sum; the merged list
+    // adds only explicit expenses, which never drew it.
+    obligations: orderObligationsByPriority(reportedObligations),
     totalObligationsCents,
   };
 }

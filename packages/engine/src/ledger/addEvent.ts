@@ -39,7 +39,17 @@ const DEFAULT_START_YEAR = 2026;
  * is a property of the ACCOUNT, not the month, so an emptied account is listed at $0.
  */
 export interface FundingLookup {
-  readonly sourcesAt: (month: number) => readonly FundingSourceBalance[];
+  /**
+   * The pool at `treatment`'s eligibility — liquid accounts always, plus every credit card the
+   * household has taken when `treatment` is `"expense"` ({@link getEligibleFundingSources}'s own
+   * rule: an expense admits credit, an asset acquisition never does). Defaults to
+   * `"asset-acquisition"`, the pool Home Purchase's down payment has always seen, so an existing
+   * caller passing one argument is unaffected.
+   */
+  readonly sourcesAt: (
+    month: number,
+    treatment?: FundingTreatment,
+  ) => readonly FundingSourceBalance[];
   readonly availabilityAt: (
     sourceIds: readonly string[],
     amountCents: number,
@@ -104,11 +114,29 @@ export function fundingLookup(
     month <= 0 ? projection.opening : projection.months[Math.min(month, last)];
 
   // Whether a listed account can pay is `balanceCents > 0`, the test `availabilityAt` applies.
-  const sourcesAt = (month: number): readonly FundingSourceBalance[] => {
+  const sourcesAt = (
+    month: number,
+    treatment: FundingTreatment = "asset-acquisition",
+  ): readonly FundingSourceBalance[] => {
     const m = monthAt(month);
     const pool: FundingSourceBalance[] = [];
     for (const [id, label] of labelById) {
       pool.push({ id, label, balanceCents: (m?.accountBalancesCents[id] ?? 0) as number });
+    }
+    // Credit joins the pool only for an `expense` — {@link getEligibleFundingSources}'s own rule
+    // (an asset acquisition never admits it), applied here by simply never pushing a card
+    // outside that branch rather than filtering after the fact.
+    if (treatment === "expense") {
+      for (const card of cardById.values()) {
+        const owed = (m?.liabilityBalancesCents[card.id] ?? 0) as number;
+        pool.push({
+          id: card.id,
+          label: card.id,
+          balanceCents: Math.max(0, card.creditLimitCents - owed),
+          kind: "credit",
+          limited: true,
+        });
+      }
     }
     return pool.sort((a, b) => b.balanceCents - a.balanceCents);
   };

@@ -100,6 +100,22 @@ export function validateEventData(event: NewLifeEvent): ValidationResult {
       return event.amountCents > 0
         ? { ok: true }
         : bad(event, `amountCents must be > 0 (got ${event.amountCents})`);
+    case "OneTimeSpendEvent": {
+      if (!event.label.trim()) return bad(event, "label must be non-empty");
+      if (!(event.amountCents > 0)) {
+        return bad(event, `amountCents must be > 0 (got ${event.amountCents})`);
+      }
+      // At least one source, none repeated: a zero-source spend has nothing to drain, and a
+      // repeated id would double-drain one account — the same rule Home Purchase's down
+      // payment applies to its source list.
+      if (!Array.isArray(event.fundingSourceIds) || event.fundingSourceIds.length === 0) {
+        return bad(event, `fundingSourceIds must list at least one funding source`);
+      }
+      if (new Set(event.fundingSourceIds).size !== event.fundingSourceIds.length) {
+        return bad(event, `fundingSourceIds must not repeat a source`);
+      }
+      return { ok: true };
+    }
   }
 }
 

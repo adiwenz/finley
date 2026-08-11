@@ -15,6 +15,7 @@ import type {
   LifeEvent,
   LifeEventType,
   LoanEvent,
+  OneTimeSpendEvent,
   RelationshipEvent,
   SeparationEvent,
 } from "./eventTypes";
@@ -33,7 +34,7 @@ import {
   type PersonId,
 } from "../plan/ids";
 import { PRE_NOW_MONTH, isPreExisting } from "../projection/nowMarker";
-import { assetAcquisitionObligation } from "../projection/financialObligation";
+import { assetAcquisitionObligation, oneTimeSpendObligation } from "../projection/financialObligation";
 import type { FundingFailure } from "../projection/fundingFailure";
 
 export interface EventHandler<E extends LifeEvent> {
@@ -477,6 +478,44 @@ const debtPayoff: EventHandler<DebtPayoffEvent> = {
   },
 };
 
+/**
+ * A dated, source-directed spend: names the accounts (and, eligibly, credit cards) to drain and
+ * in what order, but never the down-payment hard block Home Purchase carries. Authoring never
+ * refuses on affordability — a source that falls short at simulation time BLOCKS the projection
+ * instead ({@link import("../projection/fundingDrawStep").resolveFundingDraws}), and the event
+ * stays authored, savable and replayable. `check` therefore validates only that each named
+ * source exists, as either a liquid account or a credit-card liability — never that it suffices.
+ */
+const oneTimeSpend: EventHandler<OneTimeSpendEvent> = {
+  check(event, state, context) {
+    for (const sourceId of event.fundingSourceIds) {
+      const isAccount = context.accountIds.has(asAccountId(sourceId));
+      const isCreditCard = state.liabilitiesById.get(asLiabilityId(sourceId))?.kind === "creditCard";
+      if (!isAccount && !isCreditCard) {
+        return fail(event, `funding source "${sourceId}" not found`);
+      }
+    }
+    return ok;
+  },
+  apply(event, state) {
+    // The sole obligation this event produces: an explicitly-funded expense, resolved at
+    // simulation time against the named sources' month-M balances (the split is
+    // balance-dependent and cannot be pre-computed here). `oneTimeSpendObligation` is
+    // {@link assetAcquisitionObligation}'s sibling for `treatment: "expense"` — same funding
+    // machinery, no dependent artifact to materialize.
+    state.fundingDraws.push(
+      oneTimeSpendObligation({
+        id: event.id,
+        sourceEventId: event.id,
+        month: event.month,
+        amountCents: event.amountCents,
+        orderedAccountIds: event.fundingSourceIds,
+        label: event.label,
+      }),
+    );
+  },
+};
+
 function addSeries(state: InterpretState, def: SeriesDef): void {
   state.seriesById.set(def.id, def);
 }
@@ -498,6 +537,7 @@ const handlers: HandlerRegistry = {
   HomePurchaseEvent: homePurchase,
   LoanEvent: loan,
   DebtPayoffEvent: debtPayoff,
+  OneTimeSpendEvent: oneTimeSpend,
 };
 
 /**
