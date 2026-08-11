@@ -306,11 +306,16 @@ describe("JobsPanel — every member's jobs", () => {
     render(<Harness events={withPartner([])} />); // partner in the household, no jobs yet
     fireEvent.click(screen.getByRole("button", { name: /Add a job/i }));
     fireEvent.change(screen.getByLabelText("Whose job"), { target: { value: "p-1" } });
-    enterNumber(spin(/Monthly salary now/i), "2500");
+    // Picking Sam resets start age to HER current age, so the job opens with no history yet —
+    // one salary field, not the "now" one alongside a start-of-history figure.
+    enterNumber(spin(/Monthly salary/i), "2500");
     fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
 
     expect(partnerJobs()).toHaveLength(1);
     expect(partnerJobs()[0].ownerId).toBe("p-1");
+    // Starts THIS year, at Sam's own current age — not five years in her past, which is what
+    // Alex's leftover start age would have meant applied to her birth year.
+    expect(partnerJobs()[0].startYear).toBe(START_YEAR);
     expect(partnerMonthlyDollars()).toBe(2500);
     expect(jobCount()).toBe(1); // added to the partner, NOT to the primary person
     expect(headline("Sam · Job 1")).toBe("$2,500/mo");
