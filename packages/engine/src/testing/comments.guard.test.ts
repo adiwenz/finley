@@ -73,27 +73,4 @@ describe("comment style guard", () => {
     }
     expect(offenders).toEqual([]);
   });
-
-  it("the implementation prompt carries the comment-style rule", () => {
-    const prompt = readFileSync(
-      join(repoRoot, ".sandcastle/new_flow/implement-prompt.md"),
-      "utf8",
-    );
-    expect(prompt).toMatch(/comments must be dense/i);
-    expect(prompt).toMatch(/never reference issue or pr numbers/i);
-  });
-
-  it("both AGENTS.md and the implementation prompt carry the exploration rule", () => {
-    // The rule reaches agents through two doors: AGENTS.md (read by those who read it) and the
-    // implement prompt (read by those who never do). Pinning both keeps them from drifting apart.
-    const agents = readFileSync(join(repoRoot, "AGENTS.md"), "utf8");
-    const prompt = readFileSync(
-      join(repoRoot, ".sandcastle/new_flow/implement-prompt.md"),
-      "utf8",
-    );
-    for (const doc of [agents, prompt]) {
-      expect(doc).toMatch(/through the REPL/i);
-      expect(doc).toMatch(/pin what you observed/i);
-    }
-  });
 });

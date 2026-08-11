@@ -30,7 +30,9 @@ describe("BudgetEditor", () => {
     expect(screen.getByLabelText(/Current age/i)).toBeTruthy();
     expect(screen.getByLabelText(/Life expectancy/i)).toBeTruthy();
     expect(screen.getByLabelText(/Social Security claiming age/i)).toBeTruthy();
-    expect(screen.getByLabelText(/Opening balance/i)).toBeTruthy();
+    expect(screen.getByLabelText(/Cash opening balance/i)).toBeTruthy();
+    expect(screen.getByLabelText(/Retirement opening balance/i)).toBeTruthy();
+    expect(screen.getByLabelText(/Brokerage opening balance/i)).toBeTruthy();
     expect(screen.queryByLabelText(/health/i)).toBeNull();
     expect(screen.queryByLabelText(/Retirement age/i)).toBeNull();
   });
@@ -92,6 +94,18 @@ describe("BudgetEditor", () => {
       target: { value: "brokerage" },
     });
     expect(updatePlan).toHaveBeenLastCalledWith({ surplusCashTo: "brokerage" });
+  });
+
+  it("routes each account's opening balance through updatePlan independently", () => {
+    const { updatePlan } = renderEditor();
+    enterNumber(screen.getByLabelText(/Cash opening balance/i), 12000);
+    expect(updatePlan).toHaveBeenLastCalledWith({ openingBalanceCents: 1200000 });
+
+    enterNumber(screen.getByLabelText(/Retirement opening balance/i), 50000);
+    expect(updatePlan).toHaveBeenLastCalledWith({ retirementOpeningBalanceCents: 5000000 });
+
+    enterNumber(screen.getByLabelText(/Brokerage opening balance/i), 15000);
+    expect(updatePlan).toHaveBeenLastCalledWith({ brokerageOpeningBalanceCents: 1500000 });
   });
 
   it("keeps return-rate controls in Advanced", () => {

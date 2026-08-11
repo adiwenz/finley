@@ -569,6 +569,9 @@ describe("createProjectionBase — surplus-cash destination lever", () => {
   });
 });
 
+// The authored opening balances of the standing accounts are asserted end to end, through the
+// projected month-0 balances, in `facade/projectionFacade.reads.test.ts`.
+
 describe("planAccountDescriptors — presentation metadata that agrees with buildPlanAccounts", () => {
   it("matches buildPlanAccounts on id, label, and order (the shared source of truth)", () => {
     const plan: Plan = { ...samplePlan };
