@@ -151,6 +151,8 @@ import type { BuyHomeInput, OwnHomeInput } from "../authoring/housing";
 import { applyHomePurchase, applyOwnHome } from "../authoring/housing";
 import type { CarryLoanInput, PayOffDebtInput, TakeLoanInput } from "../authoring/liabilities";
 import { applyCarryLoan, applyDebtPayoff, applyLoan } from "../authoring/liabilities";
+import type { SpendOnceInput } from "../authoring/spending";
+import { applySpendOnce } from "../authoring/spending";
 import type { TransactionRevision } from "../authoring/revise";
 import { removeProjectionTransaction, reviseProjectionTransaction } from "../authoring/revise";
 import { interpretScenarioInput } from "../authoring/fromInput";
@@ -473,6 +475,16 @@ export class Projection {
   /** A lump-sum paydown against an existing liability. Returns the minted `"payoff-N"` id. */
   payOffDebt(input: PayOffDebtInput): string {
     return this.write((state) => applyDebtPayoff(state, this.validationJurisdiction, input));
+  }
+
+  /**
+   * A dated, source-directed cash outflow: drains the named accounts (and/or credit cards) in
+   * order for a fixed, nominal amount. Never refused on affordability — unlike {@link buyHome},
+   * this carries no down-payment-style hard block; a shortfall against the named sources blocks
+   * the PROJECTION at `month` instead. Returns the minted `"spend-N"` id.
+   */
+  spendOnce(input: SpendOnceInput): string {
+    return this.write((state) => applySpendOnce(state, this.validationJurisdiction, input));
   }
 
   /** Returns the minted `"loan-N"` id. */

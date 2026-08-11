@@ -29,6 +29,10 @@ export function eventFundingSourceIds(event: LifeEvent): readonly string[] {
     // The paired outflow: a payoff reduces the liability and drains this account.
     case "DebtPayoffEvent":
       return [event.accountId];
+    // Ordered funding sources, each emptied before the next — the same drain-order contract
+    // as a down payment's, only spent rather than converted into an asset.
+    case "OneTimeSpendEvent":
+      return event.fundingSourceIds;
     // Structural or series-only — no account is spent from.
     case "RelationshipEvent":
     case "ChildEvent":

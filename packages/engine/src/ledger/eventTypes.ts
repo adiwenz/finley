@@ -180,13 +180,38 @@ export interface DebtPayoffEvent extends EventBase, CausedByFields {
   readonly amountCents: Cents;
 }
 
+/**
+ * A dated, source-directed cash outflow: the user names an ordered list of accounts (and,
+ * unlike Home Purchase's down payment, may include a credit card) to drain for a fixed amount.
+ * Produces exactly one `treatment: "expense"` obligation funded `explicit` — the down payment's
+ * funding machinery, spent rather than converted into an asset — so it shares the ordered-drain
+ * mechanism with {@link HomePurchaseEvent} and nothing else: no price, no financing terms.
+ *
+ * Distinct from a dated expense override, which draws the shared automatic waterfall and never
+ * blocks: this event never refuses at authoring time (no affordability gate), but a shortfall
+ * against its named sources blocks the PROJECTION at `month` instead of silently financing
+ * itself off the cascade.
+ *
+ * `amountCents` is NOMINAL at `month`, matching Home Purchase: a one-time spend is a
+ * point-in-time decision the user prices themselves, not a standing commitment that must track
+ * prices — sliding it later makes it cheaper in real terms, and that is accepted.
+ */
+export interface OneTimeSpendEvent extends EventBase {
+  readonly type: "OneTimeSpendEvent";
+  readonly label: string;
+  readonly amountCents: Cents;
+  /** Drained in order, each source emptied before the next is touched. */
+  readonly fundingSourceIds: readonly string[];
+}
+
 export type LifeEvent =
   | RelationshipEvent
   | ChildEvent
   | SeparationEvent
   | HomePurchaseEvent
   | LoanEvent
-  | DebtPayoffEvent;
+  | DebtPayoffEvent
+  | OneTimeSpendEvent;
 
 export type LifeEventType = LifeEvent["type"];
 

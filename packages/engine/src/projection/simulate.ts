@@ -4,7 +4,12 @@ import { accumulateEarnings, buildGovernmentBenefitSources } from "./governmentB
 import { buildRmdSources } from "./rmd";
 import { buildWithdrawalSources, DEFAULT_LIQUIDATION_ORDER } from "./withdrawal";
 import { buildFlows } from "./reportFlows";
-import { buildObligations, automaticFundingTotal, fundedLiabilityPayments } from "./financialObligation";
+import {
+  buildObligations,
+  automaticFundingTotal,
+  fundedLiabilityPayments,
+  orderObligationsByPriority,
+} from "./financialObligation";
 import { resolveFundingAttribution, type FundingSupplyPlan } from "./resolvedFunding";
 import {
   isPersonActiveAt,
@@ -375,6 +380,20 @@ export function simulateHousehold(
     advanceLiabilities(state, month, appliedLiabilityPayments, suppressedLiabilityIds);
     advanceProperties(state, month, suppressedPropertyIds);
     const paymentRecords = buildLiabilityPaymentRecords(payments);
+    // A one-time spend is `treatment: "expense"` but `funding: "explicit"`, so it never rode
+    // `obligations` (the automatic-only list the waterfall and `fundedLiabilityPayments` walk) —
+    // adding it there would wrongly let it consume budget from that walk a second time, on top of
+    // its own named draw. It still has to reach `expenseReportingTotal`, so it is folded into the
+    // report bands below, filtered to draws that actually executed this month (an omitted —
+    // blocked — draw moved no money and is not an expense that happened). An asset-acquisition
+    // draw (a home down payment) is excluded: it was never an expense.
+    const executedExpenseDraws: FinancialObligation[] = state.fundingDraws.filter(
+      (o) =>
+        o.month === month &&
+        o.treatment === "expense" &&
+        o.funding.kind === "explicit" &&
+        (o.sourceEventId === undefined || !fundingDraw.omittedSourceEventIds.has(o.sourceEventId)),
+    );
     const bands = buildFlows(
       // The down-payment gain bands are reporting-only: `cashInflowCents` the gain, no
       // waterfall inflow — its tax already rode the net-neutral source through allocation.
@@ -382,6 +401,9 @@ export function simulateHousehold(
       taxCents,
       // The very list the waterfall funded above, re-shaped into the flow record — expenses,
       // debt and per-line rollups all derive from it, so none can drift from the funded amount.
+      // Explicit expenses are folded in AFTER, never here: `totalObligationsCents` and
+      // `liabilityPaymentsCents` below are both derived from this same automatic-only list, and
+      // mixing an explicit draw in would falsify their difference.
       obligations,
       // The withdrawal channel's liquid-buffer drawdown PLUS a down payment's returned
       // principal (and any cash source's whole draw) — one `savingsDrawdown` source, so a
@@ -403,8 +425,17 @@ export function simulateHousehold(
     // on top of decumulation, which now resolves after the candidate and so is not tax it
     // induces. A newly appended event's draw is last in ledger order, hence last among the
     // explicit draws in resolution, so this base is its marginal context.
+    // Fold this month's executed one-time spends into the report bands `buildFlows` could not see
+    // (see the comment above): full amount into `expensesCents` (the epic's tripwire — it must
+    // show at its full amount) and into the chart-ordered `obligations` list, both reporting-only.
+    // `totalObligationsCents` (== `automaticFundingTotal`) and `liabilityPaymentsCents` are left
+    // exactly as `buildFlows` computed them — automatic-only, so an explicit draw never inflates
+    // what the waterfall was asked for.
+    const explicitExpenseCents = executedExpenseDraws.reduce((sum, o) => sum + o.amountCents, 0);
     const flows = {
       ...bands,
+      expensesCents: bands.expensesCents + explicitExpenseCents,
+      obligations: orderObligationsByPriority([...bands.obligations, ...executedExpenseDraws]),
       resolvedFunding,
       taxableByOwnerAfterFundingCents: toTaxableRecord(fundingDraw.taxableByOwnerAfter),
       accountBalancesAfterFundingCents,

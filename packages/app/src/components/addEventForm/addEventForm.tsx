@@ -13,6 +13,7 @@ import { ChildForm } from "./childForm";
 import { LoanForm } from "./loanForm";
 import { HomePurchaseForm } from "./homePurchaseForm";
 import { SeparationForm } from "./separationForm";
+import { SpendOnceForm } from "./spendOnceForm";
 import styles from "./addEventForm.module.css";
 
 /**
@@ -27,6 +28,7 @@ type EventKind = Extract<
   | "RelationshipEvent"
   | "ChildEvent"
   | "SeparationEvent"
+  | "OneTimeSpendEvent"
 >;
 
 const EVENT_KINDS: readonly { value: EventKind; label: string }[] = [
@@ -35,6 +37,7 @@ const EVENT_KINDS: readonly { value: EventKind; label: string }[] = [
   { value: "RelationshipEvent", label: "Partnered" },
   { value: "ChildEvent", label: "Had a child" },
   { value: "SeparationEvent", label: "Separated" },
+  { value: "OneTimeSpendEvent", label: "Made a one-time spend" },
 ];
 
 /** An in-progress edit of a timeline event: which event, how to commit it, how to abandon it. */
@@ -124,6 +127,7 @@ export function AddEventForm({
       {kind === "RelationshipEvent" && <RelationshipForm {...formProps} />}
       {kind === "ChildEvent" && <ChildForm {...formProps} />}
       {kind === "SeparationEvent" && <SeparationForm {...formProps} result={result} />}
+      {kind === "OneTimeSpendEvent" && <SpendOnceForm {...formProps} funding={funding} />}
     </div>
   );
 }

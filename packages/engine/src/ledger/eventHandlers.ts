@@ -15,6 +15,7 @@ import type {
   LifeEvent,
   LifeEventType,
   LoanEvent,
+  OneTimeSpendEvent,
   RelationshipEvent,
   SeparationEvent,
 } from "./eventTypes";
@@ -33,7 +34,7 @@ import {
   type PersonId,
 } from "../plan/ids";
 import { PRE_NOW_MONTH, isPreExisting } from "../projection/nowMarker";
-import { assetAcquisitionObligation } from "../projection/financialObligation";
+import { assetAcquisitionObligation, oneTimeSpendObligation } from "../projection/financialObligation";
 import type { FundingFailure } from "../projection/fundingFailure";
 
 export interface EventHandler<E extends LifeEvent> {
@@ -477,6 +478,48 @@ const debtPayoff: EventHandler<DebtPayoffEvent> = {
   },
 };
 
+/**
+ * The One-Time Spend event: structural checks only, DELIBERATELY absent the affordability gate
+ * `homePurchase.check` runs — authoring never refuses on affordability, so a spend whose named
+ * sources cannot cover it is still accepted here and left to block the PROJECTION at its month
+ * instead (`resolveFundingDraws`, over the same explicit obligation this pushes). A source may
+ * be a liquid account or a credit card already on the ledger — unlike a down payment, credit is
+ * an eligible source for an expense.
+ */
+const oneTimeSpend: EventHandler<OneTimeSpendEvent> = {
+  check(event, state, context) {
+    if (event.amountCents <= 0) {
+      return fail(event, `amountCents must be positive`);
+    }
+    if (event.fundingSourceIds.length === 0) {
+      return fail(event, `at least one funding source is required`);
+    }
+    for (const sourceId of event.fundingSourceIds) {
+      const isAccount = context.accountIds.has(asAccountId(sourceId));
+      const liability = state.liabilitiesById.get(asLiabilityId(sourceId));
+      const isCard = liability !== undefined && liability.kind === "creditCard";
+      if (!isAccount && !isCard) {
+        return fail(event, `funding source "${sourceId}" not found`);
+      }
+    }
+    return ok;
+  },
+  apply(event, state) {
+    // The sole record of the draw: the simulator resolves and reports it straight off this
+    // obligation, exactly as `resolveFundingDraws` already does for the down payment.
+    state.fundingDraws.push(
+      oneTimeSpendObligation({
+        id: event.id,
+        month: event.month,
+        amountCents: event.amountCents,
+        orderedAccountIds: event.fundingSourceIds,
+        label: event.label,
+        sourceEventId: event.id,
+      }),
+    );
+  },
+};
+
 function addSeries(state: InterpretState, def: SeriesDef): void {
   state.seriesById.set(def.id, def);
 }
@@ -498,6 +541,7 @@ const handlers: HandlerRegistry = {
   HomePurchaseEvent: homePurchase,
   LoanEvent: loan,
   DebtPayoffEvent: debtPayoff,
+  OneTimeSpendEvent: oneTimeSpend,
 };
 
 /**

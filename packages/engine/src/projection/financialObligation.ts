@@ -300,6 +300,45 @@ export function assetAcquisitionObligation(params: {
 }
 
 /**
+ * An explicitly-funded `expense` obligation: a fixed, dated spend (a One-Time Spend event)
+ * drained from an ordered source list the user names — reduces net worth like any other expense
+ * (so {@link expenseReportingTotal} always shows it at its full amount), but names its own
+ * funding accounts instead of drawing the shared waterfall (so {@link automaticFundingTotal}
+ * excludes it — the double-count tripwire this obligation exists to avoid).
+ *
+ * `sourceId` is the report-band namespace the simulator keys the draw's gain/tax bands off
+ * (`onetimespend:<account>` / `onetimespend-tax:<account>`) — every one-time spend shares it, so
+ * `id` derives from the caller-supplied event id instead, the same way {@link
+ * assetAcquisitionObligation} keeps two purchases from colliding on `draw:downpayment`.
+ * `priority` is inert — an explicit obligation never ranks in the automatic waterfall — so it
+ * takes the untracked tier purely to satisfy the type.
+ */
+export function oneTimeSpendObligation(params: {
+  readonly id: string;
+  readonly month: number;
+  readonly amountCents: Cents;
+  readonly orderedAccountIds: readonly string[];
+  readonly label: string;
+  /** The spend event this draw funds, so a block can suppress nothing it never originates. */
+  readonly sourceEventId?: string;
+}): FinancialObligation {
+  return {
+    id: `draw:${params.id}`,
+    sourceId: "onetimespend",
+    ...(params.sourceEventId !== undefined ? { sourceEventId: params.sourceEventId } : {}),
+    month: params.month,
+    amountCents: params.amountCents,
+    treatment: "expense",
+    funding: { kind: "explicit", orderedAccountIds: params.orderedAccountIds },
+    priority: OBLIGATION_PRIORITY.untracked,
+    sourceKind: "untracked",
+    editable: false,
+    label: params.label,
+    category: "other",
+  };
+}
+
+/**
  * Every {@link FinancialObligation} one simulated month must fund, from the same four inputs
  * the spending report reads — so the two lists cannot disagree while both exist. Expense series
  * (budget lines, healthcare, event-spawned streams) are `treatment: "expense"`; a liability's
