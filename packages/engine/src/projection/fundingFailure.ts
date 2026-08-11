@@ -39,10 +39,28 @@ export type EligibleAccountState =
   | (CreditFundingSource & { readonly liquid: false; readonly credit: true });
 
 /**
- * Why a funding draw could not be met. Both shapes carry tax and a shortfall, both are net of the
- * capital-gains tax liquidating the sources owes, and NEITHER is insolvency.
+ * One selected source's own capacity at the blocked month — an account's balance, or a card's
+ * remaining headroom — as named in the obligation's own order. Not what it actually delivered
+ * to this draw (a source after the shortfall may have gone untouched); what it HAD, so the
+ * household can see each named source next to the shortfall it left.
  */
-export type FundingFailure =
+export interface SelectedSourceBalance {
+  readonly accountId: string;
+  readonly label: string;
+  readonly kind: "account" | "credit";
+  readonly availableCents: Cents;
+}
+
+/**
+ * Why a funding draw could not be met. Both shapes carry tax and a shortfall, both are net of the
+ * capital-gains tax liquidating the sources owes, and NEITHER is insolvency. Both also name the
+ * sources the household selected, in their configured order, each with what it held at the
+ * blocked month — the diagnosis names names, not just a total.
+ */
+export type FundingFailure = {
+  /** The named sources, in configured order, each with its own capacity at the blocked month. */
+  readonly selectedSources: readonly SelectedSourceBalance[];
+} & (
   | {
       readonly kind: "funding-configuration";
       readonly requiredCents: Cents;
@@ -60,7 +78,8 @@ export type FundingFailure =
       readonly eligibleAvailableCents: Cents;
       readonly eligibleTaxCents: Cents;
       readonly shortfallCents: Cents;
-    };
+    }
+);
 
 /** A working copy so each independent pricing probes over the same base without stacking onto it. */
 function copyTaxable(taxableByOwner: TaxableByOwner): TaxableByOwner {
@@ -76,6 +95,12 @@ export function classifyFundingFailure(params: {
   /** The block's own figures for the selected draw, priced in its named order — never recomputed here. */
   readonly selectedSourcesAvailableCents: Cents;
   readonly selectedSourcesTaxCents: Cents;
+  /**
+   * The selected sources, in configured order, each already priced with what it held at the
+   * blocked month — the caller's own figures (an account's balance, a card's headroom), never
+   * recomputed here, so the diagnosis can never disagree with the draw it explains.
+   */
+  readonly selectedSources: readonly SelectedSourceBalance[];
   /** Every account the household holds at the blocked month, with the balance/basis then in effect. */
   readonly accounts: readonly EligibleAccountState[];
   readonly jurisdiction: Jurisdiction;
@@ -89,6 +114,7 @@ export function classifyFundingFailure(params: {
     selectedSourceIds,
     selectedSourcesAvailableCents,
     selectedSourcesTaxCents,
+    selectedSources,
     accounts,
     jurisdiction,
     ctx,
@@ -133,6 +159,7 @@ export function classifyFundingFailure(params: {
       selectedSourcesTaxCents,
       shortfallCents: Math.max(0, requiredCents - selectedSourcesAvailableCents),
       alternativeSources,
+      selectedSources,
     };
   }
 
@@ -143,5 +170,6 @@ export function classifyFundingFailure(params: {
     eligibleAvailableCents: wholePool.netDeliveredCents,
     eligibleTaxCents: wholePool.perSource.reduce((sum, s) => sum + s.taxCents, 0),
     shortfallCents: wholePool.shortfallCents,
+    selectedSources,
   };
 }

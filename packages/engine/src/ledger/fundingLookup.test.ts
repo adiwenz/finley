@@ -63,6 +63,26 @@ function cardLoanEvent(overrides: Partial<NewLifeEvent> = {}): NewLifeEvent {
   } as NewLifeEvent;
 }
 
+describe("fundingLookup — sourcesAt's pool by treatment", () => {
+  it("omits credit by default (asset-acquisition) and includes it only for expense", () => {
+    const base = baseWithAccounts([liquidAcct("savings", 1_000_00)]);
+    const ledger = addWithBase(
+      emptyLedger,
+      base,
+      cardLoanEvent({ creditLimitCents: 5_000_00, openingBalanceCents: 1_000_00 }),
+    );
+    const { sourcesAt } = fundingLookup(ledger, base, nullJurisdiction);
+
+    expect(sourcesAt(0).map((s) => s.id)).toEqual(["savings"]);
+    expect(sourcesAt(0, "asset-acquisition").map((s) => s.id)).toEqual(["savings"]);
+
+    const expensePool = sourcesAt(0, "expense");
+    expect(expensePool.map((s) => s.id).sort()).toEqual(["savings", "visa"]);
+    const card = expensePool.find((s) => s.id === "visa");
+    expect(card).toMatchObject({ kind: "credit", limited: true, balanceCents: 4_000_00 });
+  });
+});
+
 // `fundingLookup` resolves an explicitly-named card the same way `resolveFundingDraws` does, so a
 // mixed `[account, credit]` selection prices identically whether the household is still editing
 // (the gate) or the draw has actually run (the simulator).

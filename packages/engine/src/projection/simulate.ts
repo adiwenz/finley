@@ -375,13 +375,23 @@ export function simulateHousehold(
     advanceLiabilities(state, month, appliedLiabilityPayments, suppressedLiabilityIds);
     advanceProperties(state, month, suppressedPropertyIds);
     const paymentRecords = buildLiabilityPaymentRecords(payments);
+    // The double-count tripwire: an explicitly-funded `expense` (a One-Time Spend) must appear
+    // in the expense graph at its full amount without inflating what the shared waterfall was
+    // asked for (`automaticFundingCents`, sized off `obligations` alone, above). An
+    // `asset-acquisition` draw (a home down payment) is deliberately excluded: it is not an
+    // expense. Reported at the full owed amount regardless of whether this month's draw actually
+    // resolved, mirroring how a liability's payment is reported — the funding outcome is a
+    // separate fact ({@link ObligationOutcome}), not a discount on what was owed.
+    const explicitExpenseObligations = state.fundingDraws.filter(
+      (o) => o.month === month && o.treatment === "expense",
+    );
     const bands = buildFlows(
       // The down-payment gain bands are reporting-only: `cashInflowCents` the gain, no
       // waterfall inflow — its tax already rode the net-neutral source through allocation.
       [...incomeSources, ...fundingDraw.gainSources],
       taxCents,
-      // The very list the waterfall funded above, re-shaped into the flow record — expenses,
-      // debt and per-line rollups all derive from it, so none can drift from the funded amount.
+      // The very list the waterfall funded above — expenses, debt and per-line rollups all
+      // derive from it, so none can drift from the funded amount.
       obligations,
       // The withdrawal channel's liquid-buffer drawdown PLUS a down payment's returned
       // principal (and any cash source's whole draw) — one `savingsDrawdown` source, so a
@@ -397,6 +407,7 @@ export function simulateHousehold(
       payrollTaxCents,
       // The finer per-SOURCE payroll-tax splits, mirroring `taxBySourceCents`.
       payrollTaxBySourceCents,
+      explicitExpenseObligations,
     );
     // The taxable base after this month's explicit draws but BEFORE decumulation, so the
     // authoring gate prices a would-be draw on top of any sibling draw at this month — and NOT

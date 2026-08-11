@@ -24,13 +24,23 @@ export function BlockedWarning({ warning }: { warning: BlockedWarningView }) {
       <strong>Projection stopped.</strong> “{warning.eventLabel}” in {monthLabel(warning.month)}{" "}
     </>
   );
+  const selected = (
+    <>
+      {" "}
+      Named, in order: {warning.selectedSources
+        .map((s) => `${s.label} (${formatDollars(s.availableCents)} available)`)
+        .join(", ")}
+      . Remaining shortfall: {formatDollars(warning.shortfallCents)}.
+    </>
+  );
   return (
     <div className="alert alert-red soft-warning" role="status">
       {warning.kind === "funding-configuration" ? (
         <>
           {lead}
           can’t be funded from the accounts you chose — they fall{" "}
-          {formatDollars(warning.shortfallCents)} short after the tax on selling them. The money is
+          {formatDollars(warning.shortfallCents)} short after the tax on selling them.
+          {warning.selectedSources.length > 0 && selected} The money is
           there, just not in the accounts you pointed at:{" "}
           {warning.alternativeSources
             .map((s) => `${s.label} (${formatDollars(s.availableCents)} available)`)
@@ -42,9 +52,10 @@ export function BlockedWarning({ warning }: { warning: BlockedWarningView }) {
           {lead}
           can’t be funded: the eligible funding sources together can’t cover it, and it falls{" "}
           {formatDollars(warning.shortfallCents)} short after the tax on selling what you have.
-          Retirement accounts aren’t eligible for a purchase like this, so a balance held there
-          doesn’t change it. This isn’t a judgement about what you can manage — it’s that no
-          account the purchase may draw from holds enough.
+          {warning.selectedSources.length > 0 && selected} Retirement accounts aren’t eligible for
+          a purchase like this, so a balance held there doesn’t change it. This isn’t a judgement
+          about what you can manage — it’s that no account the purchase may draw from holds
+          enough.
         </>
       )}
     </div>

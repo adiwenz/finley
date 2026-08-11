@@ -23,6 +23,7 @@ import { classifyFundingFailure, type EligibleAccountState, type FundingFailure 
 import type { FundingTreatment } from "../projection/fundingEligibility";
 import { nullJurisdiction, type Jurisdiction, type JurisdictionContext } from "../jurisdiction/jurisdiction";
 import type { HouseholdLiability } from "./household";
+import { isPreExisting } from "../projection/nowMarker";
 
 // simulate.ts / report.ts hold the same local constant. Only bracket indexing reads it, so
 // an off-by-a-year is immaterial.
@@ -39,7 +40,17 @@ const DEFAULT_START_YEAR = 2026;
  * is a property of the ACCOUNT, not the month, so an emptied account is listed at $0.
  */
 export interface FundingLookup {
-  readonly sourcesAt: (month: number) => readonly FundingSourceBalance[];
+  /**
+   * The pool at `treatment`'s eligibility — liquid accounts always, plus every credit card the
+   * household has taken when `treatment` is `"expense"` ({@link getEligibleFundingSources}'s own
+   * rule: an expense admits credit, an asset acquisition never does). Defaults to
+   * `"asset-acquisition"`, the pool Home Purchase's down payment has always seen, so an existing
+   * caller passing one argument is unaffected.
+   */
+  readonly sourcesAt: (
+    month: number,
+    treatment?: FundingTreatment,
+  ) => readonly FundingSourceBalance[];
   readonly availabilityAt: (
     sourceIds: readonly string[],
     amountCents: number,
@@ -58,6 +69,86 @@ export interface FundingLookup {
     amountCents: number,
     month: number,
   ) => FundingFailure;
+}
+
+/**
+ * The ledger as it stood immediately BEFORE a position in interpretation order (month ASC,
+ * sequenceNumber ASC, {@link sortedEvents}'s own comparator) — every event that sorts strictly
+ * before it, minus `eventId` itself, minus everything that sorts at or after it (a later-month
+ * event, or a same-month sibling authored after it).
+ *
+ * `at`, when given, is a HYPOTHETICAL position — the month a revision proposes to move `eventId`
+ * to, paired with its own (unchanged-by-revise) sequence number — so a candidate being dragged
+ * to a different month prices against who would actually execute before it AT THAT MONTH, not
+ * who preceded it at its old one. Omitted, `at` defaults to `eventId`'s own CURRENT position in
+ * `ledger` — "before it, unmoved." Either way this is the "so far" {@link addEvent} already gives
+ * a brand-new event (appended last, so everything precedes it), generalized to an arbitrary
+ * position inside an existing ledger.
+ *
+ * The one seam `updateEvent`'s revise-time affordability gate, and the authoring picker's
+ * "editing an existing spend" read, both use to price a candidate at its (possibly moved)
+ * position rather than at the ledger's end — a sibling that would execute AFTER it, at whatever
+ * month it ends up at, must never count as already-spent money it competes with, and one that
+ * would execute BEFORE it always must.
+ *
+ * Neither `eventId` found in `ledger` nor an explicit `at` given (should not happen for an
+ * existing event a caller resolved first) falls back to the whole ledger, matching
+ * `fundingLookup`'s own plain behavior.
+ */
+export function ledgerBeforeEvent(
+  ledger: Ledger,
+  eventId: string,
+  at?: { readonly month: number; readonly sequenceNumber: number },
+): Ledger {
+  const target = at ?? ledger.events.find((e) => e.id === eventId);
+  if (target === undefined) return ledger;
+  return {
+    events: ledger.events.filter(
+      (e) =>
+        e.id !== eventId &&
+        (e.month < target.month ||
+          (e.month === target.month && e.sequenceNumber < target.sequenceNumber)),
+    ),
+    nextSequenceNumber: ledger.nextSequenceNumber,
+  };
+}
+
+/**
+ * The funding lookup for an event being edited whose candidate MONTH may itself be in flux (the
+ * draft form's own month field) — each query is priced at ITS OWN `month` argument, treated as
+ * the candidate's hypothetical position, rather than at a single ledger fixed once. A plain
+ * {@link fundingLookup} bakes in ONE ledger snapshot; that is wrong here, because which events
+ * would execute "before" the candidate changes with the very month argument each query already
+ * carries (`sourcesAt(month, …)`, `availabilityAt(…, month)`, `failureAt(…, …, month)`) — a
+ * sibling that sorts after the candidate at month 0 can sort BEFORE it once the draft moves to
+ * month 1. So each method rebuilds {@link ledgerBeforeEvent} — and, off it, a fresh
+ * {@link fundingLookup} — from the SAME `month` its caller already passes in, no separate
+ * "candidate's current month" state threaded through React: the caller (the form) already
+ * re-queries on every draft change, exactly as the plain lookup expects.
+ */
+export function fundingLookupExcludingEvent(
+  ledger: Ledger,
+  base: LedgerBaseConfig,
+  jurisdiction: Jurisdiction,
+  excludeEventId: string,
+): FundingLookup {
+  const excluded = ledger.events.find((e) => e.id === excludeEventId);
+  if (excluded === undefined) return fundingLookup(ledger, base, jurisdiction);
+
+  const lookupAt = (month: number): FundingLookup =>
+    fundingLookup(
+      ledgerBeforeEvent(ledger, excludeEventId, { month, sequenceNumber: excluded.sequenceNumber }),
+      base,
+      jurisdiction,
+    );
+
+  return {
+    sourcesAt: (month, treatment) => lookupAt(month).sourcesAt(month, treatment),
+    availabilityAt: (sourceIds, amountCents, month) =>
+      lookupAt(month).availabilityAt(sourceIds, amountCents, month),
+    failureAt: (treatment, sourceIds, amountCents, month) =>
+      lookupAt(month).failureAt(treatment, sourceIds, amountCents, month),
+  };
 }
 
 /**
@@ -98,17 +189,111 @@ export function fundingLookup(
   );
   const projection = buildProjection(household, base, jurisdiction);
   const last = projection.months.length - 1;
-  // A Year-0 purchase draws against the funds on hand right now — the `opening` snapshot;
-  // later months read that processed month's end-of-month balances, as before.
-  const monthAt = (month: number) =>
-    month <= 0 ? projection.opening : projection.months[Math.min(month, last)];
+
+  /**
+   * Month 0's already-authored explicit draws (another One-Time Spend, a down payment), replayed
+   * against the opening balances through the SAME primitive the simulator resolves them with
+   * ({@link resolveOrderedFundingDraw}), in ledger order — nothing else about month 0 (growth,
+   * the automatic waterfall, a card's own interest/minimum-payment mechanics, decumulation) runs.
+   * A household with no month-0 explicit draws gets back `opening`'s own figures untouched, so
+   * every existing month-0 read (a card's pre-mechanics headroom, among others) is unaffected; one
+   * WITH a prior spend sees its sources already reduced by it — the seam a second month-0 draw
+   * must be priced against, matching exactly what the simulator would apply were this candidate
+   * the one being resolved. Bug this fixes: month 0 was treated as pre-existing (`<= 0`) and so
+   * NEVER reflected any of its own draws — the same `<= 0` vs `< 0` drift {@link isPreExisting}'s
+   * own doc comment warns about, here for a different symptom (a second month-0 spend always
+   * seeing the original balance) rather than free equity.
+   */
+  function openingAfterMonth0Draws() {
+    const accountBalancesCents: Record<string, number> = { ...projection.opening.accountBalancesCents };
+    const accountBasisCents: Record<string, number> = { ...projection.opening.accountBasisCents };
+    const liabilityBalancesCents: Record<string, number> = { ...projection.opening.liabilityBalancesCents };
+    const ctx0: JurisdictionContext = { year: startYear };
+    const taxableByOwner: TaxableByOwner = new Map();
+
+    const month0Draws = household.fundingDraws.filter(
+      (o) => o.month === 0 && o.funding.kind === "explicit",
+    );
+    for (const obligation of month0Draws) {
+      if (obligation.funding.kind !== "explicit") continue;
+      const sources: FundingSourceState[] = [];
+      for (const id of obligation.funding.orderedAccountIds) {
+        const card = cardById.get(id);
+        if (card !== undefined) {
+          sources.push({
+            kind: "credit",
+            id,
+            ownerId: card.ownerId,
+            balanceCents: liabilityBalancesCents[id] ?? 0,
+            creditLimitCents: card.creditLimitCents,
+            label: id,
+          });
+          continue;
+        }
+        if (!labelById.has(id)) continue;
+        sources.push({
+          id,
+          ownerId: ownerById.get(id) ?? "",
+          category: categoryById.get(id) ?? "capitalGains",
+          balanceCents: accountBalancesCents[id] ?? 0,
+          basisCents: accountBasisCents[id] ?? 0,
+          label: labelById.get(id) ?? id,
+        });
+      }
+      // Mutates `taxableByOwner` in place — exactly what threads a second month-0 draw's gain
+      // marginally atop the first's, the same stacking `resolveFundingDraws` applies within a
+      // real month.
+      const { perSource } = resolveOrderedFundingDraw(
+        obligation.amountCents,
+        sources,
+        jurisdiction,
+        ctx0,
+        taxableByOwner,
+      );
+      for (const s of perSource) {
+        if (s.grossCents <= 0) continue;
+        if (s.kind === "credit") {
+          liabilityBalancesCents[s.id] = (liabilityBalancesCents[s.id] ?? 0) + s.grossCents;
+          continue;
+        }
+        accountBalancesCents[s.id] = (accountBalancesCents[s.id] ?? 0) - s.grossCents;
+        accountBasisCents[s.id] = Math.max(0, (accountBasisCents[s.id] ?? 0) - s.principalCents);
+      }
+    }
+    return { accountBalancesCents, accountBasisCents, liabilityBalancesCents };
+  }
+  const adjustedOpening = openingAfterMonth0Draws();
+
+  const monthAt = (month: number) => {
+    if (isPreExisting(month)) return projection.opening;
+    if (month === 0) return { ...projection.opening, ...adjustedOpening };
+    return projection.months[Math.min(month, last)];
+  };
 
   // Whether a listed account can pay is `balanceCents > 0`, the test `availabilityAt` applies.
-  const sourcesAt = (month: number): readonly FundingSourceBalance[] => {
+  const sourcesAt = (
+    month: number,
+    treatment: FundingTreatment = "asset-acquisition",
+  ): readonly FundingSourceBalance[] => {
     const m = monthAt(month);
     const pool: FundingSourceBalance[] = [];
     for (const [id, label] of labelById) {
       pool.push({ id, label, balanceCents: (m?.accountBalancesCents[id] ?? 0) as number });
+    }
+    // Credit joins the pool only for an `expense` — {@link getEligibleFundingSources}'s own rule
+    // (an asset acquisition never admits it), applied here by simply never pushing a card
+    // outside that branch rather than filtering after the fact.
+    if (treatment === "expense") {
+      for (const card of cardById.values()) {
+        const owed = (m?.liabilityBalancesCents[card.id] ?? 0) as number;
+        pool.push({
+          id: card.id,
+          label: card.id,
+          balanceCents: Math.max(0, card.creditLimitCents - owed),
+          kind: "credit",
+          limited: true,
+        });
+      }
     }
     return pool.sort((a, b) => b.balanceCents - a.balanceCents);
   };
@@ -117,10 +302,10 @@ export function fundingLookup(
   // after this month's explicit draws, before decumulation. Since the reorder, decumulation
   // runs AFTER the candidate, so its end-of-month drain must not count against the candidate's
   // sources; the flow view exports the pre-decumulation figures for exactly this read. The
-  // `opening` snapshot (month ≤ 0) carries no flows and already holds pre-decumulation
-  // balances, so it falls back to the end-of-month maps — which for the opening snapshot ARE
-  // the starting balances. Shared by `availabilityAt` and `failureAt` so both price a draw
-  // over identically the same seam.
+  // `opening` snapshot (a genuinely pre-existing month, `< 0`) carries no flows and already
+  // holds pre-decumulation balances, so it falls back to the end-of-month maps — which for the
+  // opening snapshot ARE the starting balances. Shared by `availabilityAt` and `failureAt` so
+  // both price a draw over identically the same seam.
   const contextAt = (month: number) => {
     const m = monthAt(month);
     const ctx: JurisdictionContext = { year: startYear + Math.floor(Math.max(0, month) / 12) };
@@ -229,7 +414,7 @@ export function fundingLookup(
     month: number,
   ): FundingFailure => {
     const { ctx, taxableByOwner, balanceOf, basisOf, liabilityBalanceOf } = contextAt(month);
-    const { fundingSources } = selectedSources(sourceIds, balanceOf, basisOf, liabilityBalanceOf);
+    const { named, fundingSources } = selectedSources(sourceIds, balanceOf, basisOf, liabilityBalanceOf);
 
     // Price the selection over a COPY: the classifier below prices its own probes (the whole
     // eligible pool, then each alternative) over the UNMUTATED base, mirroring how a blocked
@@ -273,6 +458,12 @@ export function fundingLookup(
       selectedSourceIds: sourceIds,
       selectedSourcesAvailableCents: selected.netDeliveredCents,
       selectedSourcesTaxCents: selectedTaxCents,
+      selectedSources: named.map((n) => ({
+        accountId: n.id,
+        label: n.label,
+        kind: n.kind === "credit" ? ("credit" as const) : ("account" as const),
+        availableCents: n.balanceCents,
+      })),
       accounts,
       jurisdiction,
       ctx,

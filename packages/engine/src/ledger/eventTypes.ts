@@ -144,6 +144,28 @@ export interface HomePurchaseEvent extends EventBase {
   readonly originalPriceCents?: Cents;
 }
 
+/**
+ * A dated, source-directed cash outflow: the user names which accounts (and, eligibly, credit
+ * cards) fund it and in what order, distinct from a dated expense override, which finances
+ * itself from the engine's default liquidation order and never blocks. Produces exactly one
+ * obligation — `treatment: "expense"`, `funding: { kind: "explicit", orderedAccountIds }` — via
+ * {@link import("../projection/financialObligation").explicitObligation}, the same generic
+ * abstraction Home Purchase's down payment uses, differentiated only by `treatment`; it shares
+ * the funding machinery with Home Purchase and nothing else (no price, no mortgage, no dependent
+ * artifact).
+ *
+ * `amountCents` is NOMINAL at `month`, matching Home Purchase's down payment: a one-time event
+ * is a point-in-time decision the user prices themselves, unlike a recurring stream, which stays
+ * today's-dollars-plus-growth because it is a standing commitment that must track prices.
+ */
+export interface OneTimeSpendEvent extends EventBase {
+  readonly type: "OneTimeSpendEvent";
+  readonly label: string;
+  readonly amountCents: Cents;
+  /** Ordered; drained in order. May name a credit card — the engine never substitutes one. */
+  readonly fundingSourceIds: readonly string[];
+}
+
 interface LoanEventCommon extends EventBase, CausedByFields {
   readonly type: "LoanEvent";
   readonly liabilityId: string;
@@ -186,7 +208,8 @@ export type LifeEvent =
   | SeparationEvent
   | HomePurchaseEvent
   | LoanEvent
-  | DebtPayoffEvent;
+  | DebtPayoffEvent
+  | OneTimeSpendEvent;
 
 export type LifeEventType = LifeEvent["type"];
 

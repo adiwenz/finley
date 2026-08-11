@@ -15,6 +15,7 @@ import type {
   LifeEvent,
   LifeEventType,
   LoanEvent,
+  OneTimeSpendEvent,
   RelationshipEvent,
   SeparationEvent,
 } from "./eventTypes";
@@ -33,7 +34,7 @@ import {
   type PersonId,
 } from "../plan/ids";
 import { PRE_NOW_MONTH, isPreExisting } from "../projection/nowMarker";
-import { assetAcquisitionObligation } from "../projection/financialObligation";
+import { explicitObligation } from "../projection/financialObligation";
 import type { FundingFailure } from "../projection/fundingFailure";
 
 export interface EventHandler<E extends LifeEvent> {
@@ -437,7 +438,7 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     // cancel, leaving this draw as the only net-worth change at acquisition. `"downpayment"` is the
     // report-band namespace the simulator keys the draw's gain/tax bands off.
     state.fundingDraws.push(
-      assetAcquisitionObligation({
+      explicitObligation({
         id: `downpayment:${event.id}`,
         sourceId: "downpayment",
         // The purchase event, so a block suppresses the property and mortgage it originates below.
@@ -445,6 +446,7 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
         month: event.month,
         amountCents: event.downPaymentCents,
         orderedAccountIds: event.downPaymentSourceIds,
+        treatment: "asset-acquisition",
       }),
     );
   },
@@ -477,6 +479,114 @@ const debtPayoff: EventHandler<DebtPayoffEvent> = {
   },
 };
 
+/**
+ * The spend refusal, phrased from the classification — the same shape `fundingFailureMessage`
+ * gives Home Purchase's down payment, but for an `"expense"`-eligible pool (credit cards
+ * included) and without a fixed "down payment" phrasing.
+ */
+function oneTimeSpendFundingFailureMessage(
+  event: OneTimeSpendEvent,
+  failure: FundingFailure,
+  labelById: ReadonlyMap<string, string>,
+): string {
+  const amount = `spend of ${dollars(event.amountCents)}`;
+  if (failure.kind === "funding-configuration") {
+    const taxNote =
+      failure.selectedSourcesTaxCents > 0
+        ? " (after the capital-gains tax on liquidating the selected investment sources)"
+        : "";
+    const alternatives = failure.alternativeSources
+      .map((s) => `${labelById.get(s.accountId) ?? s.accountId} (${dollars(s.availableCents)} available)`)
+      .join(", ");
+    return (
+      `${amount} exceeds the ${dollars(failure.selectedSourcesAvailableCents)} available from the ` +
+      `selected sources${taxNote} at month ${event.month}. Other eligible sources could cover it: ` +
+      `${alternatives}. Re-point the funding to one of those or lower the amount — only the selected ` +
+      `sources fund this spend, and nothing is moved for you.`
+    );
+  }
+  const taxNote =
+    failure.eligibleTaxCents > 0 ? " (after the capital-gains tax on liquidating them)" : "";
+  return (
+    `${amount} exceeds what the eligible funding sources together can cover ` +
+    `(${dollars(failure.eligibleAvailableCents)} available${taxNote}) at month ${event.month}.`
+  );
+}
+
+/**
+ * A dated, source-directed spend: names the accounts (and, eligibly, credit cards) to drain and
+ * in what order. `check` validates that each named source exists, as either a liquid account or
+ * a credit-card liability, then — mirroring Home Purchase's own §4.5 down-payment gate — HARD
+ * BLOCKS when the selected sources cannot fully cover the spend at its month, net of any
+ * capital-gains tax liquidating them owes. `fundingAvailabilityAt` runs the SAME ordered
+ * gross-up the simulator does ({@link import("../projection/fundingDrawStep").resolveFundingDraws}),
+ * so the gate refuses exactly when the sim would otherwise fall short — an insolvent spend can no
+ * longer be authored, savable and replayable, the way it once was. Present only on the authoring
+ * path; absent during ordinary replay/undo, when this check is skipped (matching Home Purchase).
+ */
+const oneTimeSpend: EventHandler<OneTimeSpendEvent> = {
+  check(event, state, context) {
+    for (const sourceId of event.fundingSourceIds) {
+      const isAccount = context.accountIds.has(asAccountId(sourceId));
+      const isCreditCard = state.liabilitiesById.get(asLiabilityId(sourceId))?.kind === "creditCard";
+      if (!isAccount && !isCreditCard) {
+        return fail(event, `funding source "${sourceId}" not found`);
+      }
+    }
+    const affordability = context.fundingAvailabilityAt?.(
+      event.fundingSourceIds,
+      event.amountCents,
+      event.month,
+    );
+    if (affordability !== undefined && affordability.shortfallCents > 0) {
+      const failure = context.fundingFailureAt?.(
+        "expense",
+        event.fundingSourceIds,
+        event.amountCents,
+        event.month,
+      );
+      if (failure !== undefined) {
+        const labelById = new Map(
+          (context.fundingSourcesAt?.(event.month) ?? []).map((s) => [s.id, s.label]),
+        );
+        return fail(event, oneTimeSpendFundingFailureMessage(event, failure, labelById));
+      }
+      // No classifier available (should not happen on the authoring path) — name just the
+      // selected sources, the same fallback Home Purchase's own gate falls back to.
+      const counted = affordability.sources
+        .map((s) => `${s.label} (${dollars(s.balanceCents)})`)
+        .join(", ");
+      const taxNote = affordability.taxed
+        ? " (after the capital-gains tax on liquidating the selected investment sources)"
+        : "";
+      return fail(
+        event,
+        `spend of ${dollars(event.amountCents)} exceeds the ${dollars(affordability.availableCents)} available from the selected sources${taxNote} at month ${event.month}. Selected sources: ${counted}.`,
+      );
+    }
+    return ok;
+  },
+  apply(event, state) {
+    // The sole obligation this event produces: an explicitly-funded expense, resolved at
+    // simulation time against the named sources' month-M balances (the split is
+    // balance-dependent and cannot be pre-computed here). Same {@link explicitObligation}
+    // abstraction the down payment uses, differentiated only by `treatment` — no dependent
+    // artifact to materialize.
+    state.fundingDraws.push(
+      explicitObligation({
+        id: event.id,
+        sourceId: "onetimespend",
+        sourceEventId: event.id,
+        month: event.month,
+        amountCents: event.amountCents,
+        orderedAccountIds: event.fundingSourceIds,
+        treatment: "expense",
+        label: event.label,
+      }),
+    );
+  },
+};
+
 function addSeries(state: InterpretState, def: SeriesDef): void {
   state.seriesById.set(def.id, def);
 }
@@ -498,6 +608,7 @@ const handlers: HandlerRegistry = {
   HomePurchaseEvent: homePurchase,
   LoanEvent: loan,
   DebtPayoffEvent: debtPayoff,
+  OneTimeSpendEvent: oneTimeSpend,
 };
 
 /**
