@@ -9,8 +9,11 @@
  *
  * Everything else, the month included, is revisable, so validation is the whole-ledger replay
  * `removeEvent` runs: every remaining event rechecked against the base-seeded state in
- * interpretation order, blocking the edit and naming the offender. No affordability gate
- * here — it needs a projection and fires only on `addEvent`.
+ * interpretation order, blocking the edit and naming the offender. No general affordability
+ * gate here — it needs a projection and otherwise fires only on `addEvent` — EXCEPT One-Time
+ * Spend, which carries its own hard block (`oneTimeSpend.check`) and must keep enforcing it on
+ * revise too, priced at the revision's own SEQUENCE POSITION (see below), never letting an edit
+ * quietly become unfunded the way `addEvent` would already refuse.
  */
 
 import type { Ledger } from "./ledger";
@@ -18,6 +21,8 @@ import type { LifeEvent, NewLifeEvent } from "./eventTypes";
 import { validateEventData } from "./eventValidation";
 import type { LedgerBaseConfig } from "./ledgerBase";
 import { validateLedger } from "./validateLedger";
+import { validateNewEvent, ledgerBeforeEvent } from "./addEvent";
+import { nullJurisdiction, type Jurisdiction } from "../jurisdiction/jurisdiction";
 
 export type UpdateResult =
   | { ok: true; ledger: Ledger }
@@ -28,6 +33,7 @@ export function updateEvent(
   id: string,
   next: NewLifeEvent,
   base: LedgerBaseConfig,
+  jurisdiction: Jurisdiction = nullJurisdiction,
 ): UpdateResult {
   const existing = ledger.events.find((e) => e.id === id);
   if (existing === undefined) {
@@ -48,6 +54,31 @@ export function updateEvent(
 
   const data = validateEventData(next);
   if (!data.ok) return { ok: false, conflict: data.reason };
+
+  // One-Time Spend's own affordability gate must be priced at the revision's own — possibly
+  // MOVED — sequence position, not against the whole ledger minus itself and not against the
+  // event's OLD position: `ledgerBeforeEvent` is given the revision's proposed `next.month`
+  // paired with the sequence number the revision keeps, so it keeps every event that would
+  // execute before the candidate AT THAT MONTH (any earlier month, or an earlier same-month
+  // sibling) and drops the event itself AND everything that would execute after it there (a
+  // later-month event now, or a same-month sibling authored after it, at the OLD month or the
+  // new one) — so a sibling that hasn't executed yet from this event's (possibly moved) point of
+  // view never competes for its funds, and a sibling that already has always does. Whether THAT
+  // sibling remains fundable after this revision is not re-litigated here — it stays a normal
+  // simulation-time block, the way a brand-new event's own effect on a later one already is.
+  if (next.type === "OneTimeSpendEvent") {
+    const priceAsOf = ledgerBeforeEvent(ledger, id, {
+      month: next.month,
+      sequenceNumber: existing.sequenceNumber,
+    });
+    const affordability = validateNewEvent(priceAsOf, base, next, jurisdiction);
+    if (!affordability.ok) {
+      return {
+        ok: false,
+        conflict: `Cannot update event "${id}": the revision fails — ${affordability.reason}`,
+      };
+    }
+  }
 
   const revised = { ...next, sequenceNumber: existing.sequenceNumber } as LifeEvent;
   // Sequence numbers are never recycled, and an update mints none.

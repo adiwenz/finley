@@ -83,6 +83,15 @@ export function App() {
   const projection = useMemo(() => Projection.fromState(state, usJurisdiction), [state]);
   const result = useMemo(() => projection.run(usJurisdiction), [projection]);
   const funding = useMemo(() => projection.funding(), [projection]);
+  // The add/edit form's own picker: while an event is open for editing, exclude ITS OWN draw
+  // from the pool — otherwise a One-Time Spend (or a down payment) being edited would see its
+  // own prior amount as already spent, understating what's available to fund the very edit in
+  // progress. Kept separate from `funding` above (which the blocked-projection warning reads)
+  // so an in-progress edit never changes what that unrelated banner reports.
+  const formFunding = useMemo(
+    () => projection.funding(editingId ?? undefined),
+    [projection, editingId],
+  );
   const { series, household, report } = result;
 
   // Who's in the household, by id — so a chart can name whose income a band is when the
@@ -244,7 +253,7 @@ export function App() {
           <div className="card">
             <AddEventForm
               result={result}
-              funding={funding}
+              funding={formFunding}
               defaultMonth={Math.floor(scrubMonth / 12) * 12}
               horizonMonths={horizonMonths}
               onAdd={transact}

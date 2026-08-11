@@ -151,6 +151,8 @@ import type { BuyHomeInput, OwnHomeInput } from "../authoring/housing";
 import { applyHomePurchase, applyOwnHome } from "../authoring/housing";
 import type { CarryLoanInput, PayOffDebtInput, TakeLoanInput } from "../authoring/liabilities";
 import { applyCarryLoan, applyDebtPayoff, applyLoan } from "../authoring/liabilities";
+import type { OneTimeSpendInput } from "../authoring/spending";
+import { applyOneTimeSpend } from "../authoring/spending";
 import type { TransactionRevision } from "../authoring/revise";
 import { removeProjectionTransaction, reviseProjectionTransaction } from "../authoring/revise";
 import { interpretScenarioInput } from "../authoring/fromInput";
@@ -509,6 +511,15 @@ export class Projection {
     return this.write((state) => applyOwnHome(state, this.validationJurisdiction, input));
   }
 
+  /**
+   * A dated, source-directed cash outflow drained from the named accounts (and, eligibly,
+   * credit cards) in order. Never refused on affordability — a shortfall blocks the projection
+   * rather than the authoring call. Returns the minted `"spend-N"` id.
+   */
+  spendOnce(input: OneTimeSpendInput): string {
+    return this.write((state) => applyOneTimeSpend(state, this.validationJurisdiction, input));
+  }
+
   // Transaction lifecycle
 
   /**
@@ -668,9 +679,15 @@ export class Projection {
    * replay context and validation jurisdiction the affordability gate decides on, so an
    * authoring picker and the §4.5 down-payment gate can never tell the user different
    * stories. Read-only, like {@link run}.
+   *
+   * `excludeEventId`: when editing an existing money-out event, price the picker at THAT
+   * event's own sequence position — every event before it counts, the event itself and any
+   * same-month sibling authored after it do not, so its own prior draw is never counted as
+   * already-spent money it is then asked to also cover, and a not-yet-executed sibling never
+   * shrinks what it sees either.
    */
-  funding(): FundingLookup {
-    return projectionFunding(this.current, this.validationJurisdiction);
+  funding(excludeEventId?: string): FundingLookup {
+    return projectionFunding(this.current, this.validationJurisdiction, excludeEventId);
   }
 
   // State round-trip

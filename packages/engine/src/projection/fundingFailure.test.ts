@@ -53,6 +53,7 @@ describe("classifyFundingFailure — funding-configuration", () => {
       selectedSourceIds: ["houseFund"],
       selectedSourcesAvailableCents: 5_000_000,
       selectedSourcesTaxCents: 0,
+      selectedSources: [{ accountId: "houseFund", label: "houseFund", kind: "account", availableCents: 5_000_000 }],
       accounts: [cash("houseFund", 5_000_000), cash("brokerage", 10_000_000)],
       jurisdiction: nullJurisdiction,
       ctx: CTX,
@@ -76,6 +77,7 @@ describe("classifyFundingFailure — funding-configuration", () => {
       selectedSourceIds: ["cash"],
       selectedSourcesAvailableCents: 3_000_00,
       selectedSourcesTaxCents: 0,
+      selectedSources: [{ accountId: "cash", label: "cash", kind: "account", availableCents: 3_000_00 }],
       // Cash covers $3k; the card's $9k headroom ($10k limit − $1k owed) covers the rest.
       accounts: [cash("cash", 3_000_00), card("visa", 1_000_00, 10_000_00)],
       jurisdiction: gainTaxing,
@@ -97,6 +99,7 @@ describe("classifyFundingFailure — funding-configuration", () => {
       selectedSourceIds: ["cash"],
       selectedSourcesAvailableCents: 5_000_000,
       selectedSourcesTaxCents: 0,
+      selectedSources: [{ accountId: "cash", label: "cash", kind: "account", availableCents: 5_000_000 }],
       accounts: [cash("cash", 5_000_000), appreciated("brokerage", 10_000_000)],
       jurisdiction: gainTaxing,
       ctx: CTX,
@@ -118,6 +121,7 @@ describe("classifyFundingFailure — no-eligible-source-suffices", () => {
       selectedSourceIds: ["houseFund"],
       selectedSourcesAvailableCents: 5_000_000,
       selectedSourcesTaxCents: 0,
+      selectedSources: [{ accountId: "houseFund", label: "houseFund", kind: "account", availableCents: 5_000_000 }],
       // $50k liquid, $2M retirement: obviously wealthy, yet nothing eligible suffices.
       accounts: [cash("houseFund", 5_000_000), retirement("401k", 200_000_000)],
       jurisdiction: nullJurisdiction,
@@ -140,6 +144,7 @@ describe("classifyFundingFailure — no-eligible-source-suffices", () => {
       selectedSourceIds: ["cash"],
       selectedSourcesAvailableCents: 3_000_00,
       selectedSourcesTaxCents: 0,
+      selectedSources: [{ accountId: "cash", label: "cash", kind: "account", availableCents: 3_000_00 }],
       // With the card admitted this would be funding-configuration; a down payment excludes it,
       // so only the $3k cash is eligible and nothing eligible suffices.
       accounts: [cash("cash", 3_000_00), card("visa", 0, 10_000_00)],
@@ -161,6 +166,7 @@ describe("classifyFundingFailure — no-eligible-source-suffices", () => {
       selectedSourceIds: ["brokerage"],
       selectedSourcesAvailableCents: 4_000_000,
       selectedSourcesTaxCents: 1_000_000,
+      selectedSources: [{ accountId: "brokerage", label: "brokerage", kind: "account", availableCents: 4_000_000 }],
       accounts: [appreciated("brokerage", 5_000_000)],
       jurisdiction: gainTaxing,
       ctx: CTX,
@@ -173,5 +179,32 @@ describe("classifyFundingFailure — no-eligible-source-suffices", () => {
     expect(failure.eligibleAvailableCents).toBe(4_000_000);
     expect(failure.eligibleTaxCents).toBe(1_000_000);
     expect(failure.shortfallCents).toBe(4_000_000);
+  });
+});
+
+describe("classifyFundingFailure — selectedSources", () => {
+  it("preserves the selected sources, in configured order, with what each held", () => {
+    const failure = classifyFundingFailure({
+      treatment: "expense",
+      requiredCents: 8_000_00,
+      selectedSourceIds: ["visa", "cash"],
+      selectedSourcesAvailableCents: 3_000_00,
+      selectedSourcesTaxCents: 0,
+      // Deliberately reversed from the accounts pool's own order, to prove the classifier forwards
+      // exactly what the caller passed rather than re-deriving it from `accounts`.
+      selectedSources: [
+        { accountId: "visa", label: "Visa", kind: "credit", availableCents: 9_000_00 },
+        { accountId: "cash", label: "Checking", kind: "account", availableCents: 3_000_00 },
+      ],
+      accounts: [cash("cash", 3_000_00), card("visa", 1_000_00, 10_000_00)],
+      jurisdiction: gainTaxing,
+      ctx: CTX,
+      taxableByOwner: NO_BASE,
+    });
+
+    expect(failure.selectedSources).toEqual([
+      { accountId: "visa", label: "Visa", kind: "credit", availableCents: 9_000_00 },
+      { accountId: "cash", label: "Checking", kind: "account", availableCents: 3_000_00 },
+    ]);
   });
 });

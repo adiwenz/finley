@@ -13,7 +13,7 @@ import { describe, it, expect } from "vitest";
 import { simulateHousehold } from "./simulate";
 import type { HouseholdSimInput, SimOwnedSeries, SimPerson } from "./simulate.types";
 import type { FundingSourceKind, ResolvedFunding } from "./resolvedFunding";
-import { assetAcquisitionObligation } from "./financialObligation";
+import { explicitObligation } from "./financialObligation";
 import { SimAccount, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../plan/simAccount";
 import { dollarsToCents } from "../money/cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction/jurisdiction";
@@ -60,7 +60,14 @@ function namedAccount(id: string, openingCents: number): SimAccount {
 
 /** An explicitly-funded down-payment draw: identity `draw:<id>`, reporting namespace `downpayment`. */
 function downPayment(amountCents: number, orderedAccountIds: string[], id = "downpayment:home-1") {
-  return assetAcquisitionObligation({ id, sourceId: "downpayment", month: 0, amountCents, orderedAccountIds });
+  return explicitObligation({
+    id,
+    sourceId: "downpayment",
+    month: 0,
+    amountCents,
+    orderedAccountIds,
+    treatment: "asset-acquisition",
+  });
 }
 
 /** An automatically-funded expense line carrying an explicit priority (lower funded first). */
@@ -549,12 +556,13 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
         incomeSeries: [{ series: monthlyIncome(dollarsToCents(3000)), ownerId: "p1" }],
         expenseSeries: [expenseLine("rent", 1000, 0)],
         fundingDraws: [
-          assetAcquisitionObligation({
+          explicitObligation({
             id: "downpayment:home-1",
             sourceId: "downpayment",
             month: 12,
             amountCents: dollarsToCents(40000),
             orderedAccountIds: ["brokerage"],
+            treatment: "asset-acquisition",
           }),
         ],
       },
@@ -594,6 +602,71 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
     expect(w.grossWithdrawnCents).toBeGreaterThan(w.netDeliveredCents);
     // Tax reconciles with the jurisdiction's own 25% on the realized gain.
     expect(w.taxCents).toBe(Math.round(w.realizedGainCents * 0.25));
+  });
+
+  it("reports a OneTimeSpend funded from an appreciated investment through the SAME pipeline a down payment uses", () => {
+    // Identical setup to the down-payment appreciated-account test above, but `treatment: "expense"`
+    // — the SAME `explicitObligation` abstraction, proving One-Time Spend rides the generic
+    // explicit-funding reporting rather than a parallel implementation of its own.
+    const result = simulateHousehold(
+      {
+        horizonMonths: 13,
+        annualInflationRate: 0,
+        persons: [PERSON],
+        accounts: [cashAccount(0), appreciatingAccount("brokerage", dollarsToCents(100000), 0.12)],
+        incomeSeries: [{ series: monthlyIncome(dollarsToCents(3000)), ownerId: "p1" }],
+        expenseSeries: [expenseLine("rent", 1000, 0)],
+        fundingDraws: [
+          explicitObligation({
+            id: "spend:car",
+            sourceId: "onetimespend",
+            month: 12,
+            amountCents: dollarsToCents(40000),
+            orderedAccountIds: ["brokerage"],
+            treatment: "expense",
+            label: "Car",
+          }),
+        ],
+      },
+      flatCapitalGainsTax,
+    );
+
+    const before = result.months[11];
+    const at = result.months[12];
+
+    // The full purchase amount is reported once, in expense reporting, at its nominal amount —
+    // alongside the automatic rent line, not merged into it.
+    expect(at.flows!.expensesCents).toBe(dollarsToCents(1000 + 40000));
+    // Never double-counted: the automatic funding total the waterfall sized is the rent line
+    // alone — the explicit spend never entered it.
+    expect(at.flows!.totalObligationsCents).toBe(dollarsToCents(1000));
+
+    const funding = at.flows?.resolvedFunding;
+    if (funding === undefined) throw new Error("expected resolvedFunding on month 12");
+    const draw = byObligation(funding, "draw:spend:car");
+    expect(draw.shortfallCents).toBe(0);
+    expect(draw.fundedCents).toBe(dollarsToCents(40000));
+
+    const source = draw.sources.find((s) => s.sourceId === "brokerage");
+    if (source?.withdrawal === undefined) {
+      throw new Error("expected a withdrawal breakdown on the brokerage source");
+    }
+    const w = source.withdrawal;
+
+    // Returned investment principal and realized gain both surface, distinctly, through the
+    // same withdrawal-breakdown channel a down payment's investment draw uses.
+    expect(w.principalCents).toBeGreaterThan(0);
+    expect(w.realizedGainCents).toBeGreaterThan(0);
+    expect(w.taxCents).toBeGreaterThan(0);
+
+    // Conservation: gross sold is exactly principal plus gain, and net delivered — the cash that
+    // actually reached the purchase — is gross minus tax and lands on the nominal amount owed.
+    // (The account's balance also grows this month, so its raw before/after drop is not the
+    // draw's gross alone; `before` is read only to confirm growth genuinely occurred.)
+    expect(before.accountBalancesCents["brokerage"]).toBeGreaterThan(dollarsToCents(100000));
+    expect(w.principalCents + w.realizedGainCents).toBe(w.grossWithdrawnCents);
+    expect(w.grossWithdrawnCents - w.taxCents).toBe(w.netDeliveredCents);
+    expect(w.netDeliveredCents).toBe(dollarsToCents(40000));
   });
 
   it("splits one decumulation draw across two obligations, slices summing to the account totals", () => {

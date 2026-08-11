@@ -63,6 +63,7 @@ export type {
   CarryLoanInput,
   PayOffDebtInput,
 } from "./authoring/liabilities";
+export type { OneTimeSpendInput } from "./authoring/spending";
 export type { TransactionRevision } from "./authoring/revise";
 
 // The authored model, and the artifacts a run produces.
