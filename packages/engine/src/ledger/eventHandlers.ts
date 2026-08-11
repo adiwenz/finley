@@ -34,7 +34,7 @@ import {
   type PersonId,
 } from "../plan/ids";
 import { PRE_NOW_MONTH, isPreExisting } from "../projection/nowMarker";
-import { assetAcquisitionObligation, oneTimeSpendObligation } from "../projection/financialObligation";
+import { explicitObligation } from "../projection/financialObligation";
 import type { FundingFailure } from "../projection/fundingFailure";
 
 export interface EventHandler<E extends LifeEvent> {
@@ -438,7 +438,7 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     // cancel, leaving this draw as the only net-worth change at acquisition. `"downpayment"` is the
     // report-band namespace the simulator keys the draw's gain/tax bands off.
     state.fundingDraws.push(
-      assetAcquisitionObligation({
+      explicitObligation({
         id: `downpayment:${event.id}`,
         sourceId: "downpayment",
         // The purchase event, so a block suppresses the property and mortgage it originates below.
@@ -446,6 +446,7 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
         month: event.month,
         amountCents: event.downPaymentCents,
         orderedAccountIds: event.downPaymentSourceIds,
+        treatment: "asset-acquisition",
       }),
     );
   },
@@ -500,16 +501,18 @@ const oneTimeSpend: EventHandler<OneTimeSpendEvent> = {
   apply(event, state) {
     // The sole obligation this event produces: an explicitly-funded expense, resolved at
     // simulation time against the named sources' month-M balances (the split is
-    // balance-dependent and cannot be pre-computed here). `oneTimeSpendObligation` is
-    // {@link assetAcquisitionObligation}'s sibling for `treatment: "expense"` — same funding
-    // machinery, no dependent artifact to materialize.
+    // balance-dependent and cannot be pre-computed here). Same {@link explicitObligation}
+    // abstraction the down payment uses, differentiated only by `treatment` — no dependent
+    // artifact to materialize.
     state.fundingDraws.push(
-      oneTimeSpendObligation({
+      explicitObligation({
         id: event.id,
+        sourceId: "onetimespend",
         sourceEventId: event.id,
         month: event.month,
         amountCents: event.amountCents,
         orderedAccountIds: event.fundingSourceIds,
+        treatment: "expense",
         label: event.label,
       }),
     );

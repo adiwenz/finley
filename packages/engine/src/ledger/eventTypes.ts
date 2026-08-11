@@ -149,8 +149,10 @@ export interface HomePurchaseEvent extends EventBase {
  * cards) fund it and in what order, distinct from a dated expense override, which finances
  * itself from the engine's default liquidation order and never blocks. Produces exactly one
  * obligation — `treatment: "expense"`, `funding: { kind: "explicit", orderedAccountIds }` — via
- * {@link assetAcquisitionObligation}'s sibling for expenses; it shares the funding machinery
- * with Home Purchase and nothing else (no price, no mortgage, no dependent artifact).
+ * {@link import("../projection/financialObligation").explicitObligation}, the same generic
+ * abstraction Home Purchase's down payment uses, differentiated only by `treatment`; it shares
+ * the funding machinery with Home Purchase and nothing else (no price, no mortgage, no dependent
+ * artifact).
  *
  * `amountCents` is NOMINAL at `month`, matching Home Purchase's down payment: a one-time event
  * is a point-in-time decision the user prices themselves, unlike a recurring stream, which stays

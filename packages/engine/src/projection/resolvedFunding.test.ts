@@ -13,7 +13,7 @@ import { describe, it, expect } from "vitest";
 import { simulateHousehold } from "./simulate";
 import type { HouseholdSimInput, SimOwnedSeries, SimPerson } from "./simulate.types";
 import type { FundingSourceKind, ResolvedFunding } from "./resolvedFunding";
-import { assetAcquisitionObligation, oneTimeSpendObligation } from "./financialObligation";
+import { explicitObligation } from "./financialObligation";
 import { SimAccount, CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../plan/simAccount";
 import { dollarsToCents } from "../money/cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction/jurisdiction";
@@ -60,7 +60,14 @@ function namedAccount(id: string, openingCents: number): SimAccount {
 
 /** An explicitly-funded down-payment draw: identity `draw:<id>`, reporting namespace `downpayment`. */
 function downPayment(amountCents: number, orderedAccountIds: string[], id = "downpayment:home-1") {
-  return assetAcquisitionObligation({ id, sourceId: "downpayment", month: 0, amountCents, orderedAccountIds });
+  return explicitObligation({
+    id,
+    sourceId: "downpayment",
+    month: 0,
+    amountCents,
+    orderedAccountIds,
+    treatment: "asset-acquisition",
+  });
 }
 
 /** An automatically-funded expense line carrying an explicit priority (lower funded first). */
@@ -549,12 +556,13 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
         incomeSeries: [{ series: monthlyIncome(dollarsToCents(3000)), ownerId: "p1" }],
         expenseSeries: [expenseLine("rent", 1000, 0)],
         fundingDraws: [
-          assetAcquisitionObligation({
+          explicitObligation({
             id: "downpayment:home-1",
             sourceId: "downpayment",
             month: 12,
             amountCents: dollarsToCents(40000),
             orderedAccountIds: ["brokerage"],
+            treatment: "asset-acquisition",
           }),
         ],
       },
@@ -598,8 +606,8 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
 
   it("reports a OneTimeSpend funded from an appreciated investment through the SAME pipeline a down payment uses", () => {
     // Identical setup to the down-payment appreciated-account test above, but `treatment: "expense"`
-    // via `oneTimeSpendObligation` — proving One-Time Spend rides the generic explicit-funding
-    // reporting rather than a parallel implementation of its own.
+    // — the SAME `explicitObligation` abstraction, proving One-Time Spend rides the generic
+    // explicit-funding reporting rather than a parallel implementation of its own.
     const result = simulateHousehold(
       {
         horizonMonths: 13,
@@ -609,11 +617,13 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
         incomeSeries: [{ series: monthlyIncome(dollarsToCents(3000)), ownerId: "p1" }],
         expenseSeries: [expenseLine("rent", 1000, 0)],
         fundingDraws: [
-          oneTimeSpendObligation({
+          explicitObligation({
             id: "spend:car",
+            sourceId: "onetimespend",
             month: 12,
             amountCents: dollarsToCents(40000),
             orderedAccountIds: ["brokerage"],
+            treatment: "expense",
             label: "Car",
           }),
         ],

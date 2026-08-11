@@ -12,7 +12,7 @@
 import { describe, it, expect } from "vitest";
 import { simulateHousehold } from "./simulate";
 import type { HouseholdSimInput, SimOwnedSeries, SimPerson, SimProperty } from "./simulate.types";
-import { assetAcquisitionObligation } from "./financialObligation";
+import { explicitObligation } from "./financialObligation";
 import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "../plan/simAccount";
 import { AmortizingLoan, RevolvingCard } from "../liability/liability";
 import { dollarsToCents } from "../money/cashFlowSeries";
@@ -89,13 +89,14 @@ function mortgage(): AmortizingLoan {
 
 /** The down-payment draw for event `buy1`, drained from `savings` at the purchase month. */
 function downPayment(amountCents: number) {
-  return assetAcquisitionObligation({
+  return explicitObligation({
     id: "downpayment:buy1",
     sourceId: "downpayment",
     sourceEventId: "buy1",
     month: BLOCK_MONTH,
     amountCents,
     orderedAccountIds: ["savings"],
+    treatment: "asset-acquisition",
   });
 }
 
@@ -249,13 +250,14 @@ describe("projection blocking — an unfundable purchase", () => {
       apr: 0,
       termMonths: 360,
     });
-    const secondDownPayment = assetAcquisitionObligation({
+    const secondDownPayment = explicitObligation({
       id: "downpayment:buy2",
       sourceId: "downpayment2",
       sourceEventId: "buy2",
       month: BLOCK_MONTH,
       amountCents: 3_000_000,
       orderedAccountIds: ["savings"],
+      treatment: "asset-acquisition",
     });
 
     const series = run({
@@ -308,13 +310,14 @@ describe("projection blocking — an unfundable purchase", () => {
       apr: 0,
       termMonths: 360,
     });
-    const firstDownPayment = assetAcquisitionObligation({
+    const firstDownPayment = explicitObligation({
       id: "downpayment:buy2",
       sourceId: "downpayment2",
       sourceEventId: "buy2",
       month: BLOCK_MONTH,
       amountCents: 1_000_000,
       orderedAccountIds: ["savings"],
+      treatment: "asset-acquisition",
     });
 
     const series = run({
@@ -388,13 +391,14 @@ describe("per-obligation resolution — simulateHousehold()'s own obligationOutc
         apr: 0,
         termMonths: 360,
       }),
-      draw: assetAcquisitionObligation({
+      draw: explicitObligation({
         id: `dp:${eventId}`,
         sourceId: `dp:${eventId}`,
         sourceEventId: eventId,
         month,
         amountCents: downCents,
         orderedAccountIds: ["savings"],
+        treatment: "asset-acquisition",
       }),
     };
   }

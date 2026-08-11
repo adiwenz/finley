@@ -11,7 +11,7 @@
  * down payment does.
  */
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   dollarsToCents,
   type FundingLookup,
@@ -62,6 +62,33 @@ export function insolvencyNudgeMessage(
   return `This purchase is affordable, but it makes your plan insolvent from ${monthLabel(after)}.`;
 }
 
+/**
+ * The nudge's whole lifecycle: `pendingBaseline` is the insolvency onset captured right before an
+ * add (`undefined` while nothing is pending; `null` is a legitimate baseline, see
+ * {@link insolvencyNudgeMessage}), and `nudge` is what is currently shown. A `result` update
+ * consumes at most ONE pending baseline — the very next run after the add it belongs to — and
+ * then clears the pending flag whether or not it fired, so a later, unrelated plan change (a
+ * different edit, another event) is never compared against a now-stale, historical "before". This
+ * is what makes the nudge specifically ABOUT the add it followed rather than a standing insolvency
+ * monitor: it answers "did THIS purchase just cause or worsen insolvency?" once, then falls silent
+ * until the next add asks the question again.
+ */
+export interface NudgeState {
+  readonly pendingBaseline: number | null | undefined;
+  readonly nudge: string | null;
+}
+
+export const NO_PENDING_NUDGE: NudgeState = { pendingBaseline: undefined, nudge: null };
+
+export function advanceNudgeState(state: NudgeState, result: ProjectionResult): NudgeState {
+  if (state.pendingBaseline === undefined) {
+    // Nothing pending: any nudge left over from a prior add no longer describes the CURRENT
+    // change, so it is retired rather than left to linger across whatever caused this update.
+    return state.nudge === null ? state : NO_PENDING_NUDGE;
+  }
+  return { pendingBaseline: undefined, nudge: insolvencyNudgeMessage(state.pendingBaseline, result) };
+}
+
 export function OneTimeSpendForm({
   defaultMonth,
   horizonMonths,
@@ -110,16 +137,15 @@ export function OneTimeSpendForm({
   );
 
   // The post-add nudge: advisory, never a block, and only ABOUT an add just made — an edit does
-  // not re-open it, matching Home Purchase's DTI advisory. `undefined` means no add has happened
-  // yet this mount (no nudge); `null` is a legitimate baseline — the plan was solvent throughout
-  // before the add — and must compare exactly like any other month. Derived fresh from `result`
-  // on every render rather than latched into state, so it disappears the moment the condition no
-  // longer holds, exactly as the advisory is specified to.
-  const insolventBefore = useRef<number | null | undefined>(undefined);
-  const nudge = useMemo(
-    () => (insolventBefore.current === undefined ? null : insolvencyNudgeMessage(insolventBefore.current, result)),
-    [result],
-  );
+  // not re-open it, matching Home Purchase's DTI advisory. `submit` arms a pending baseline;
+  // the effect below consumes it against the very next `result`, then disarms — so a later,
+  // unrelated plan change is never re-compared against this add's now-stale baseline. See
+  // {@link advanceNudgeState}.
+  const [nudgeState, setNudgeState] = useState<NudgeState>(NO_PENDING_NUDGE);
+  useEffect(() => {
+    setNudgeState((state) => advanceNudgeState(state, result));
+  }, [result]);
+  const nudge = nudgeState.nudge;
 
   function submit() {
     if (edit) {
@@ -134,7 +160,7 @@ export function OneTimeSpendForm({
       );
       return;
     }
-    insolventBefore.current = insolventFromMonth(result);
+    setNudgeState({ pendingBaseline: insolventFromMonth(result), nudge: null });
     onAdd((p) =>
       p.spendOnce({
         month: draft.month,

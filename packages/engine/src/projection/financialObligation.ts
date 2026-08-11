@@ -258,30 +258,36 @@ export function obligationBudgetLineId(lineId: string): string {
 }
 
 /**
- * An explicitly-funded `asset-acquisition` obligation: a fixed amount drained from an ordered
- * source list (the Home Purchase down payment today), buying an asset rather than spending — so
- * it is not an expense and does not reduce net worth beyond any tax on liquidating its sources —
- * and naming its own funding accounts instead of drawing the shared waterfall. This is the sole
- * record of the draw: the simulator resolves and reports it straight off the obligation.
+ * An explicitly-funded obligation: a fixed amount drained from an ordered source list, naming its
+ * own funding accounts instead of drawing the shared waterfall. This is the sole record of the
+ * draw: the simulator resolves and reports it straight off the obligation. One abstraction for
+ * every such draw — the Home Purchase down payment (`treatment: "asset-acquisition"`, buying an
+ * asset rather than spending, so it is not an expense) and a One-Time Spend
+ * (`treatment: "expense"`, reducing net worth outright) differ ONLY in `treatment` and what they
+ * pass for `sourceId`/`label`; neither gets its own constructor.
  *
  * `sourceId` is the report-band namespace, chosen at the emission site — the simulator keys the
- * draw's gain/tax bands off it, so a home down payment passes `"downpayment"` and gets
- * `downpayment:<account>` / `downpayment-tax:<account>` bands. It is deliberately *not* what
- * `id` derives from: every home purchase shares the same `sourceId`, so two purchases in one
- * plan would otherwise collide on `draw:downpayment` and stomp each other's obligation. `id`
- * instead derives from the caller-supplied `id` param — the authoring event's own id — which is
- * unique per purchase and stable across months. `priority` is inert — an explicit obligation
- * never ranks in the automatic waterfall ({@link automaticFundingTotal} already excludes it) —
- * so it takes the untracked tier purely to satisfy the type.
+ * draw's gain/tax bands off it, so a home down payment passes `"downpayment"` (bands
+ * `downpayment:<account>` / `downpayment-tax:<account>`) and a one-time spend passes
+ * `"onetimespend"`. It is deliberately *not* what `id` derives from: every home purchase (or
+ * every one-time spend) shares the same `sourceId`, so two draws in one plan would otherwise
+ * collide on `draw:downpayment` and stomp each other's obligation. `id` instead derives from the
+ * caller-supplied `id` param — the authoring event's own id — which is unique per draw and stable
+ * across months. `priority` is inert — an explicit obligation never ranks in the automatic
+ * waterfall ({@link automaticFundingTotal} already excludes it) — so it takes the untracked tier
+ * purely to satisfy the type. `label` defaults to `sourceId` (the down payment's convention, which
+ * has no more specific name to give); a one-time spend passes its own authored label instead.
  */
-export function assetAcquisitionObligation(params: {
+export function explicitObligation(params: {
   readonly id: string;
   readonly sourceId: string;
   readonly month: number;
   readonly amountCents: Cents;
   readonly orderedAccountIds: readonly string[];
-  /** The purchase event this draw funds, so a block can suppress its property and mortgage. */
+  readonly treatment: "expense" | "asset-acquisition";
+  /** The authoring event this draw funds, so a block can suppress what it originates. */
   readonly sourceEventId?: string;
+  readonly label?: string;
 }): FinancialObligation {
   return {
     id: `draw:${params.id}`,
@@ -289,49 +295,12 @@ export function assetAcquisitionObligation(params: {
     ...(params.sourceEventId !== undefined ? { sourceEventId: params.sourceEventId } : {}),
     month: params.month,
     amountCents: params.amountCents,
-    treatment: "asset-acquisition",
+    treatment: params.treatment,
     funding: { kind: "explicit", orderedAccountIds: params.orderedAccountIds },
     priority: OBLIGATION_PRIORITY.untracked,
     sourceKind: "untracked",
     editable: false,
-    label: params.sourceId,
-    category: "other",
-  };
-}
-
-/**
- * An explicitly-funded `expense` obligation: {@link assetAcquisitionObligation}'s sibling for a
- * One-Time Spend — a fixed amount drained from an ordered source list, but one that reduces net
- * worth outright rather than buying an asset. Reduces net worth exactly like any other expense,
- * and — unlike an asset acquisition — is counted in {@link expenseReportingTotal}, which is what
- * puts it in the expense graph; {@link automaticFundingTotal} already excludes every `explicit`
- * obligation regardless of treatment, so it never inflates what the shared waterfall is asked
- * for. `sourceId` is shared across every one-time spend ("onetimespend"), the report-band
- * namespace the simulator keys the draw's gain/tax bands off — mirroring
- * {@link assetAcquisitionObligation}'s "downpayment", it does not disambiguate one spend from
- * another (the caller-supplied `id` does that); it only tags the money-movement kind.
- */
-export function oneTimeSpendObligation(params: {
-  readonly id: string;
-  readonly month: number;
-  readonly amountCents: Cents;
-  readonly orderedAccountIds: readonly string[];
-  readonly label: string;
-  /** The spend event this draw funds, so a block can suppress nothing else — there is nothing else. */
-  readonly sourceEventId?: string;
-}): FinancialObligation {
-  return {
-    id: `draw:${params.id}`,
-    sourceId: "onetimespend",
-    ...(params.sourceEventId !== undefined ? { sourceEventId: params.sourceEventId } : {}),
-    month: params.month,
-    amountCents: params.amountCents,
-    treatment: "expense",
-    funding: { kind: "explicit", orderedAccountIds: params.orderedAccountIds },
-    priority: OBLIGATION_PRIORITY.untracked,
-    sourceKind: "untracked",
-    editable: false,
-    label: params.label,
+    label: params.label ?? params.sourceId,
     category: "other",
   };
 }
