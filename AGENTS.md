@@ -1,120 +1,151 @@
+
 # Finley — agent instructions
 
-A browser-based financial life simulator: enter a household's income, expenses, accounts and
-life events; get a month-by-month net-worth projection and a solved retirement year.
+Browser-based financial life simulator: household inputs and life events → month-by-month projection and solved retirement year.
 
-## Read these first
+## Maps
 
-1. **`README.md`** — the workspace table, the one-way dependency rule, every `npm` script.
-2. **`packages/engine/src/index.ts`** — the engine's entire public surface, one curated
-   re-export per line with the reason beside it. This is the fastest map in the repo: it says
-   what a caller may name, what is internal, and why nothing that writes is exported.
-3. **`CONTEXT.md`** — the canonical ubiquitous language. **Grep it for the term you need; do
-   not read it front to back.** It is 60+ entries under eight `###` groups. Use its vocabulary,
-   and respect its `_Avoid_` lines.
+Consult only when relevant:
 
-## Repo map
+* `README.md` — workspaces, dependencies, npm scripts.
+* `packages/engine/src/index.ts` — engine public API.
+* `CONTEXT.md` — canonical domain language. Grep the relevant term; respect `_Avoid_` guidance.
 
-Open-core monorepo, workspaces under `packages/`. Dependency direction is **one-way**
-`app → rules → engine`, and engine purity (no I/O, no app/jurisdiction code) is enforced by
-`scripts/check-engine-purity.mjs` in `npm run check` and CI.
+## Architecture
 
-| Package | Contents |
-|---|---|
-| `@finley/engine` | Pure simulation. Defines the jurisdiction interface; ships a null jurisdiction so it runs standalone. |
-| `@finley/rules` | Jurisdiction implementations (e.g. `US-2026`). Flat directory, one file per tax/benefit rule. |
-| `@finley/app` | UI, persistence, user data. Imports the two public packages. |
+Dependency direction is strictly:
 
-`packages/engine/src` — the bulk of the codebase:
+`app → rules → engine`
 
-| Directory | What lives there |
-|---|---|
-| `facade/` | `Projection` — the **only** public entry point. Every read and write goes through it. |
-| `projection/` | The month-by-month simulator: waterfall, withdrawal, obligations, snapshot/report. |
-| `ledger/` | Life events: add/update/remove, interpret, validation, household. |
-| `authoring/` | The write side — jobs, goals, housing, liabilities, relationships, budget lines. |
-| `plan/` | The authored model (plan, person, account, scenario) and id minting. |
-| `job/` `goal/` `budget/` `liability/` `money/` | Entity types and their own rules. |
-| `compile/` | Plan → projection base. |
-| `retirement/` | The solver, outlook, deferral limits, early-retiree health check. |
-| `jurisdiction/` | The open-core seam, plus `nullJurisdiction`. |
-| `input/` | The declarative, id-free `ScenarioInput` that seed data and presets are written as. |
-| `testing/` | Engine-side fixtures. |
+* `@finley/engine` — pure simulation; no I/O, app code, or jurisdiction-specific logic.
+* `@finley/rules` — jurisdiction implementations.
+* `@finley/app` — UI, persistence, user data.
 
-`packages/app/src` has two layers, and the distinction matters for how you test:
+`Projection` in `engine/src/facade/` is the engine's public entry point.
 
-- `components/` — 13 panel directories (`jobsPanel`, `baseAdjustments`, `budgetEditor`,
-  `goalsPanel`, `retirementPanel`, `netWorthChart`, `timeline`, `startingPositionPanel`, …).
-- Root-level `*View.ts` **view-model modules** (`retirementView`, `goalsView`, `ledgerView`,
-  `fundingView`, `jobEditing`, `presets`, `planDefaults`, …) — plain functions turning a
-  `Projection` into what a panel draws. This is the seam to reach for first.
+Start here:
 
-## Where to look
+| Change           | Start                                                  |
+| ---------------- | ------------------------------------------------------ |
+| Authoring        | `engine/src/authoring/`                                |
+| Simulation       | `engine/src/projection/`                               |
+| Tax/benefit rule | `rules/src/`                                           |
+| Panel behavior   | matching `app/src/*View.ts`                            |
+| Life event       | `engine/src/ledger/eventTypes.ts` + `eventHandlers.ts` |
+| Retirement       | `engine/src/retirement/`                               |
 
-| Task | Start at |
-|---|---|
-| Add or change an authoring gesture | `engine/src/authoring/`, then `engine/src/index.ts` |
-| Change simulation maths | `engine/src/projection/` |
-| Add a tax or benefit rule | `rules/src/` (flat, one file per rule) |
-| Change what a panel draws | the matching `app/src/*View.ts` before `app/src/components/` |
-| Add a life event | `engine/src/ledger/eventTypes.ts` + `eventHandlers.ts` |
-| Change the retirement answer | `engine/src/retirement/` |
+Prefer app `*View.ts` view-models over rendered components unless behavior is genuinely DOM-specific.
 
-## Testing & exploration
+## Execution
 
-To learn what the engine actually does, observe it through the REPL — `repl.ts`, run with
-`npx tsx repl.ts`, which preloads a live `Projection` — then pin what you observed as a test.
-Never a standalone script that gets written, read once and deleted, and never a language that
-cannot import `@finley/engine`: a Python probe cannot reach the engine, so it only reimplements
-the arithmetic and then confirms its own reimplementation — verification in the commit message,
-nothing verified in fact.
+Minimize model/tool round trips without sacrificing correctness.
 
-Not yet knowing the expected value is not licence for a script. Observe the number in the REPL,
-then — once it is known — write the test that asserts it. This is the step `/tdd` refuses to let
-you shortcut by copying output straight into an assertion, so the REPL is where the assertion's
-value is earned.
+### Explore
 
-### Scope the test run
+* Batch independent reads and searches into the same turn.
+* Prefer a named analogous implementation or the map above over broad repo exploration.
+* In one focused exploration phase, identify the implementation, callers, public surface, and relevant tests.
+* Once ownership is clear, stop broad searching.
+* Do not reread files without a new specific question.
+* Do not use an Explore subagent when the ownership path or reference implementation is already clear.
+* Skip task bookkeeping for straightforward implementation work.
 
-Tests sit beside their source as `*.test.ts(x)`. **Do not run `npm test` to check one change** —
-it takes ~70s, most of it the app's panel tests, which render a real DOM. Measured:
+### Implement
+
+* Make all already-understood related edits as one coherent batch.
+* Do not alternate one small edit with another model/tool round trip when several edits follow from the same finding.
+* When validation reports several relevant failures, inspect them all before editing and fix related failures together.
+* Do not rerun validation after each individual fix.
+* Do not compare against `main` merely because validation failed. Do so only when inspection cannot determine whether a relevant failure is pre-existing.
+
+Use this sequence:
+
+1. Inspect specification, reference implementation, relevant code, and tests.
+2. Determine the local change surface.
+3. Make the implementation batch.
+4. Run directly relevant tests.
+5. Inspect all relevant failures and fix them as a batch.
+6. Rerun those targeted tests.
+7. Run broader validation once.
+8. Run `npm run check` once at the end.
+9. Review the final diff.
+
+## Validation
+
+Tests live beside source as `*.test.ts(x)`.
+
+### Inner loop
+
+Use only tests directly relevant to changed behavior.
+
+Examples:
 
 ```bash
-npx vitest run packages/engine/src/retirement   # ~5s   — while iterating
-npx vitest run packages/engine                  # ~13s  — 1046 tests, before handing off engine work
-npx vitest run packages/app/src/goalsView.test.ts   # <1s — view-model tests
-npm test                                        # ~70s  — everything; pre-commit only
-npm run check                                   # purity + typecheck + test — the full gate
+npx vitest run packages/engine/src/retirement/foo.test.ts
+npx vitest run packages/app/src/goalsView.test.ts
 ```
 
-`npm run typecheck` alone is ~8s and catches most mistakes.
+Do not use these as inner-loop commands:
 
-**Prefer the view-model seam.** A behaviour expressed as a `*View.ts` function tests two to
-three orders of magnitude faster than the same behaviour through a rendered panel —
-`jobEditing.test.ts` runs 16 tests in 27ms; `goalsView.test.ts` 17 in 466ms; a single
-`mainState.test.tsx` case renders the whole `App` and costs 1–5s. Render a panel only when the
-assertion is genuinely about the DOM.
+```bash
+npm test
+npm run check
+npm run typecheck
+npx vitest run packages/engine
+```
 
-## Not product code
+### Broader validation
 
-`.claude/`, `.codex/`, `.sandcastle/`, `ralph/`, `docs/agents/` are tooling and agent
-instructions. Skip them when searching for behaviour — they are a large share of the repo's
-markdown and will dominate a grep for a domain term.
+After targeted tests pass:
 
-## Agent skills
+* Run a relevant package-wide suite at most once before final validation when the change warrants it.
+* Run whole-repo `npm run typecheck` once after implementation is locally stable.
+* If typecheck fails, inspect all relevant errors, fix them together, then rerun it. Do not rerun after each fix.
+* Once typecheck passes, do not run it again independently unless subsequent edits can plausibly affect types.
+* Do not explicitly run `npm test`; the final gate covers the repository suite.
+* Run `npm run check` once at the end.
 
-### Issue tracker
+If `npm run check` fails:
 
-GitHub Issues on `adiwenz/finley`, via the `gh` CLI. External pull requests are **not** a
-triage surface. See `docs/agents/issue-tracker.md`.
+1. Save and inspect the complete relevant failure output.
+2. Fix failures using the narrowest relevant validator.
+3. Address all known related failures before rerunning.
+4. Rerun `npm run check` only after those fixes are complete.
 
-### Triage labels
+Do not run a baseline `git stash → validate main → git stash pop` comparison unless a failure is outside changed code and remains genuinely ambiguous after inspection.
 
-Two roles only: `ready-for-agent` → **`Sandcastle`**, and `wontfix`. Do not create labels for
-the other canonical roles. See `docs/agents/triage-labels.md`.
+Capture long-command output once and inspect the saved output. Never rerun an expensive command merely to see another part of its output.
 
-### Domain docs
+Combine independent shell inspections into one Bash call when safe and readable.
 
-Single-context: `CONTEXT.md` at the repo root. **This repo does not use ADRs** — decisions
-live in the spec or PRD issue that produced them, and in the code's doc-comments. See
-`docs/agents/domain.md`.
+## Behavioral probes
+
+Use `npx tsx repl.ts` to observe engine behavior, then pin the observation in a test.
+
+Do not create throwaway scripts that reimplement engine arithmetic.
+
+## Testing boundaries
+
+Test public behavior, not private implementation details.
+
+Prefer `*View.ts` tests over rendered panel tests unless the assertion concerns DOM behavior.
+
+## Ignore during product search
+
+Skip `.claude/`, `.codex/`, `.sandcastle/`, `ralph/`, and `docs/agents/` when searching for application behavior.
+
+## Repo conventions
+
+* Issues: GitHub Issues on `adiwenz/finley`; see `docs/agents/issue-tracker.md`.
+* Triage: only `ready-for-agent` → `Sandcastle` and `wontfix`; see `docs/agents/triage-labels.md`.
+* Domain: `CONTEXT.md` is canonical. No ADRs; decisions live in the issue/spec/PRD and code doc-comments.
+
+<use_parallel_tool_calls>
+For maximum efficiency, whenever you perform multiple independent operations, invoke all
+relevant tools simultaneously rather than sequentially. Prioritize calling tools in
+parallel whenever possible. For example, when reading 3 files, run 3 tool calls in 
+parallel to read all 3 files into context at the same time. When running multiple 
+read-only commands like `ls` or `list_dir`, always run all of the commands in parallel.
+Err on the side of maximizing parallel tool calls rather than running too many tools 
+sequentially.
+</use_parallel_tool_calls>
