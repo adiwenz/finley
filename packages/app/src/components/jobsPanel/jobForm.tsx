@@ -217,9 +217,7 @@ export function JobForm(props: JobFormProps) {
             onChange={(e) => {
               const newOwnerId = e.target.value;
               setOwnerId(newOwnerId);
-              // Ages on this form are the selected owner's, so a new owner needs a new start
-              // age or the old one silently becomes their history or their future — see the
-              // module doc on `JobFormOwner.currentAge`.
+              // Start age is owner-relative; reset it when the owner changes.
               const newOwner = pickableOwners.find((o) => o.id === newOwnerId);
               if (newOwner !== undefined) patch({ startAge: newOwner.currentAge });
             }}
