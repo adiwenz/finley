@@ -16,6 +16,7 @@ import { dollarsToCents, Projection, type Ledger, type Plan } from "@finley/engi
 import { usJurisdiction } from "@finley/rules";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { stateOf, readerOf } from "../../testing/projectionHarness";
+import { timelineMarkers } from "../../ledgerView";
 import { OneTimeSpendForm } from "./oneTimeSpendForm";
 
 const noop = () => {};
@@ -223,5 +224,95 @@ describe("OneTimeSpendForm — editing an existing spend does not count its own 
     const button = html.match(/<button[^>]*>Save changes<\/button>/)?.[0];
     expect(button).toBeDefined();
     expect(button).toContain("disabled");
+  });
+});
+
+// Regression: editing a same-month spend prices availability at ITS OWN sequence position —
+// A=$4,000, B=$3,000, C=$2,000, authored in that order out of $10,000 cash. Editing B must see
+// $6,000 (A already spent, C hasn't executed from B's position), never the $4,000 the OLD
+// self-only-exclusion would have shown (A's draw AND C's, since C was still in the ledger).
+describe("OneTimeSpendForm — editing prices availability at the event's own sequence position", () => {
+  function threeSpendsSameMonth() {
+    const p = Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction);
+    const id = savingsId(PLAN_DEFAULTS);
+    const a = p.spendOnce({ month: 0, label: "A", amountCents: dollarsToCents(4_000), fundingSourceIds: [id] });
+    const b = p.spendOnce({ month: 0, label: "B", amountCents: dollarsToCents(3_000), fundingSourceIds: [id] });
+    const c = p.spendOnce({ month: 0, label: "C", amountCents: dollarsToCents(2_000), fundingSourceIds: [id] });
+    return { p, id, a, b, c };
+  }
+
+  function renderEdit(p: Projection, targetId: string, amountDollars: number, fundingSourceIds: string[]) {
+    return renderToStaticMarkup(
+      <OneTimeSpendForm
+        defaultMonth={0}
+        horizonMonths={660}
+        onAdd={noop}
+        funding={p.funding(targetId)}
+        edit={{
+          event: {
+            id: targetId,
+            type: "OneTimeSpendEvent",
+            month: 0,
+            sequenceNumber: 0,
+            label: "Edited",
+            amountCents: dollarsToCents(amountDollars),
+            fundingSourceIds,
+          },
+          onRevise: noop,
+        }}
+      />,
+    );
+  }
+
+  it("editing A (first): the full $10,000 is available — nothing precedes it", () => {
+    const { p, id, a } = threeSpendsSameMonth();
+    const html = renderEdit(p, a, 4_000, [id]);
+    expect(html).toContain("$10,000");
+  });
+
+  it("editing B (middle): $6,000 is available — never the $4,000 a self-only exclusion would show", () => {
+    const { p, id, b } = threeSpendsSameMonth();
+    const html = renderEdit(p, b, 3_000, [id]);
+    expect(html).toContain("$6,000");
+    expect(html).not.toContain("$4,000");
+  });
+
+  it("editing C (last): $3,000 is available — both A and B already executed", () => {
+    const { p, id, c } = threeSpendsSameMonth();
+    const html = renderEdit(p, c, 2_000, [id]);
+    expect(html).toContain("$3,000");
+  });
+
+  it("saving B unchanged remains fundable", () => {
+    const { p, id, b } = threeSpendsSameMonth();
+    const html = renderEdit(p, b, 3_000, [id]);
+    const button = html.match(/<button[^>]*>Save changes<\/button>/)?.[0];
+    expect(button).toBeDefined();
+    expect(button).not.toContain("disabled");
+  });
+
+  it("raising B to $5,000 remains fundable — the $6,000 available at B's position covers it", () => {
+    const { p, id, b } = threeSpendsSameMonth();
+    const html = renderEdit(p, b, 5_000, [id]);
+    const button = html.match(/<button[^>]*>Save changes<\/button>/)?.[0];
+    expect(button).toBeDefined();
+    expect(button).not.toContain("disabled");
+  });
+
+  it("increasing A can save even though it leaves C unfundable — the app surfaces THAT through the normal timeline, not a refusal here", () => {
+    const { p, id, a, c } = threeSpendsSameMonth();
+    const html = renderEdit(p, a, 7_000, [id]);
+    const button = html.match(/<button[^>]*>Save changes<\/button>/)?.[0];
+    expect(button).toBeDefined();
+    expect(button).not.toContain("disabled");
+
+    // Commit the revision through the real write path, then confirm the app's EXISTING timeline
+    // surfaces C as blocked — no new UI plumbing; the same mechanism any other blocked obligation
+    // already uses.
+    p.reviseTransaction(a, { type: "spendOnce", amountCents: dollarsToCents(7_000) });
+    const result = p.run(usJurisdiction);
+    expect(result.series.status).toBe("blocked");
+    const markers = timelineMarkers(p.ledger, result.series);
+    expect(markers.find((m) => m.id === c)?.outcome).toBe("blocked");
   });
 });

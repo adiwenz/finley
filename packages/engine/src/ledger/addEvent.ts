@@ -8,7 +8,7 @@ import type { Ledger, ValidationResult } from "./ledger";
 import type { LifeEvent, NewLifeEvent } from "./eventTypes";
 import { checkEvent } from "./eventHandlers";
 import { validateEventData } from "./eventValidation";
-import { contextFrom, interpretLedger, interpretToState } from "./interpret";
+import { contextFrom, interpretLedger, interpretToState, sortedEvents } from "./interpret";
 import type { InterpretContext, FundingAvailability, FundingSourceBalance } from "./interpretState";
 import type { LedgerBaseConfig } from "./ledgerBase";
 import { buildProjection } from "../projection/buildHouseholdInput";
@@ -69,6 +69,31 @@ export interface FundingLookup {
     amountCents: number,
     month: number,
   ) => FundingFailure;
+}
+
+/**
+ * The ledger as it stood immediately BEFORE `eventId` — every event that precedes it in
+ * interpretation order (month ASC, sequenceNumber ASC, {@link sortedEvents}'s own order), minus
+ * the event itself, minus everything that comes after it (a later-month event, or a same-month
+ * sibling authored after it). This is the "so far" a candidate priced AT that event's own
+ * position sees: exactly what {@link addEvent} already gives a brand-new event (appended last,
+ * so everything precedes it), generalized to a position INSIDE an existing ledger.
+ *
+ * The one seam both `updateEvent`'s revise-time affordability gate and the authoring picker's
+ * "editing an existing spend" read use to price a candidate at its own sequence position rather
+ * than at the ledger's end — a same-month sibling authored AFTER it must never count as
+ * already-spent money it competes with, and one authored BEFORE it always must.
+ *
+ * `eventId` not found (should not happen for an existing event a caller resolved first) falls
+ * back to the whole ledger, matching `fundingLookup`'s own plain behavior.
+ */
+export function ledgerBeforeEvent(ledger: Ledger, eventId: string): Ledger {
+  const ordered = sortedEvents(ledger.events);
+  const idx = ordered.findIndex((e) => e.id === eventId);
+  return {
+    events: idx === -1 ? ordered : ordered.slice(0, idx),
+    nextSequenceNumber: ledger.nextSequenceNumber,
+  };
 }
 
 /**

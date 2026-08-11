@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { emptyLedger, type Ledger } from "./ledger";
-import { addEvent, fundingLookup } from "./addEvent";
+import { addEvent, fundingLookup, ledgerBeforeEvent } from "./addEvent";
 import { updateEvent } from "./updateEvent";
 import { interpretLedger } from "./interpret";
 import { buildProjection } from "../projection/buildHouseholdInput";
@@ -591,5 +591,132 @@ describe("Projection.spendOnce — authoring surface", () => {
     expect(() =>
       p.reviseTransaction(id, { type: "spendOnce", amountCents: dollarsToCents(20_001) }),
     ).toThrow();
+  });
+});
+
+// Regression: editing a same-month spend must price availability at ITS OWN sequence position —
+// every EARLIER event (any month, or an earlier same-month sibling) counts against it, the event
+// itself never counts against itself, and a LATER same-month sibling (authored after it, not yet
+// "executed" from its point of view) must not shrink what it sees either. `ledgerBeforeEvent`
+// (read by both `updateEvent`'s revise gate and `Projection.funding(excludeEventId)`) is the one
+// seam this is pinned at, generalizing the month-0-only self-exclusion this file used to test
+// into any position, any month.
+describe("OneTimeSpendEvent — editing prices availability at the event's own sequence position", () => {
+  // A=$4,000, B=$3,000, C=$2,000, all month 0, in that authored order, out of $10,000 cash.
+  function threeSpendsSameMonth(base: LedgerBaseConfig): Ledger {
+    let ledger = addWithBase(
+      emptyLedger,
+      base,
+      spend({ id: "A", month: 0, amountCents: 400_000, fundingSourceIds: ["savings"] }),
+    );
+    ledger = addWithBase(
+      ledger,
+      base,
+      spend({ id: "B", month: 0, amountCents: 300_000, fundingSourceIds: ["savings"] }),
+    );
+    ledger = addWithBase(
+      ledger,
+      base,
+      spend({ id: "C", month: 0, amountCents: 200_000, fundingSourceIds: ["savings"] }),
+    );
+    return ledger;
+  }
+
+  it("editing A (first): the full $10,000 is available — nothing precedes it", () => {
+    const base = baseWith(1_000_000); // $10k
+    const ledger = threeSpendsSameMonth(base);
+    const funding = fundingLookup(ledgerBeforeEvent(ledger, "A"), base, nullJurisdiction);
+    expect(funding.sourcesAt(0, "expense").find((s) => s.id === "savings")?.balanceCents).toBe(
+      1_000_000,
+    );
+  });
+
+  it("editing B (middle): $6,000 is available — A already spent, C hasn't executed from B's position", () => {
+    const base = baseWith(1_000_000); // $10k
+    const ledger = threeSpendsSameMonth(base);
+    const funding = fundingLookup(ledgerBeforeEvent(ledger, "B"), base, nullJurisdiction);
+    expect(funding.sourcesAt(0, "expense").find((s) => s.id === "savings")?.balanceCents).toBe(
+      600_000,
+    );
+  });
+
+  it("editing C (last): $3,000 is available — both A and B already executed", () => {
+    const base = baseWith(1_000_000); // $10k
+    const ledger = threeSpendsSameMonth(base);
+    const funding = fundingLookup(ledgerBeforeEvent(ledger, "C"), base, nullJurisdiction);
+    expect(funding.sourcesAt(0, "expense").find((s) => s.id === "savings")?.balanceCents).toBe(
+      300_000,
+    );
+  });
+
+  it("saving B unchanged succeeds — its own $3,000 draw never counts against itself", () => {
+    const base = baseWith(1_000_000); // $10k
+    const ledger = threeSpendsSameMonth(base);
+    const result = updateEvent(
+      ledger,
+      "B",
+      spend({ id: "B", month: 0, amountCents: 300_000, fundingSourceIds: ["savings"] }),
+      base,
+      nullJurisdiction,
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("raising B to $5,000 succeeds — $6,000 is available at B's own position", () => {
+    const base = baseWith(1_000_000); // $10k
+    const ledger = threeSpendsSameMonth(base);
+    const result = updateEvent(
+      ledger,
+      "B",
+      spend({ id: "B", month: 0, amountCents: 500_000, fundingSourceIds: ["savings"] }),
+      base,
+      nullJurisdiction,
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("a later sibling's own amount never changes what an earlier edit sees, even after it is revised", () => {
+    const base = baseWith(1_000_000); // $10k
+    const ledger = threeSpendsSameMonth(base);
+    const before = fundingLookup(ledgerBeforeEvent(ledger, "B"), base, nullJurisdiction)
+      .sourcesAt(0, "expense")
+      .find((s) => s.id === "savings")?.balanceCents;
+
+    // C, authored after B, is revised down — still validly funded at C's own position ($3,000
+    // available there), so the revision succeeds.
+    const revisedC = updateEvent(
+      ledger,
+      "C",
+      spend({ id: "C", month: 0, amountCents: 50_000, fundingSourceIds: ["savings"] }),
+      base,
+      nullJurisdiction,
+    );
+    expect(revisedC.ok).toBe(true);
+    if (!revisedC.ok) return;
+
+    const after = fundingLookup(ledgerBeforeEvent(revisedC.ledger, "B"), base, nullJurisdiction)
+      .sourcesAt(0, "expense")
+      .find((s) => s.id === "savings")?.balanceCents;
+    expect(after).toBe(before);
+  });
+
+  it("raising A can save even though it leaves C unfundable — that becomes a normal simulation block, not a revise refusal", () => {
+    const base = baseWith(1_000_000); // $10k
+    const ledger = threeSpendsSameMonth(base);
+    // A: $4,000 → $7,000. Nothing precedes A, so its own gate sees the full $10,000 and passes,
+    // even though $10,000 − $7,000(A) − $3,000(B) leaves nothing for C's $2,000.
+    const result = updateEvent(
+      ledger,
+      "A",
+      spend({ id: "A", month: 0, amountCents: 700_000, fundingSourceIds: ["savings"] }),
+      base,
+      nullJurisdiction,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const series = buildProjection(interpretLedger(result.ledger, base), base, nullJurisdiction);
+    expect(series.status).toBe("blocked");
+    expect(series.blockingObligation?.sourceEventId).toBe("C");
   });
 });

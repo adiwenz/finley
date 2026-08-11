@@ -680,9 +680,11 @@ export class Projection {
    * authoring picker and the §4.5 down-payment gate can never tell the user different
    * stories. Read-only, like {@link run}.
    *
-   * `excludeEventId`: when editing an existing money-out event, price the picker against the
-   * ledger WITHOUT that event, so its own prior draw is never counted as already-spent money
-   * it is then asked to also cover.
+   * `excludeEventId`: when editing an existing money-out event, price the picker at THAT
+   * event's own sequence position — every event before it counts, the event itself and any
+   * same-month sibling authored after it do not, so its own prior draw is never counted as
+   * already-spent money it is then asked to also cover, and a not-yet-executed sibling never
+   * shrinks what it sees either.
    */
   funding(excludeEventId?: string): FundingLookup {
     return projectionFunding(this.current, this.validationJurisdiction, excludeEventId);

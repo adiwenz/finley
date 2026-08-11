@@ -12,7 +12,7 @@
  * interpretation order, blocking the edit and naming the offender. No general affordability
  * gate here — it needs a projection and otherwise fires only on `addEvent` — EXCEPT One-Time
  * Spend, which carries its own hard block (`oneTimeSpend.check`) and must keep enforcing it on
- * revise too, priced against the ledger WITHOUT this event (see below), never letting an edit
+ * revise too, priced at the revision's own SEQUENCE POSITION (see below), never letting an edit
  * quietly become unfunded the way `addEvent` would already refuse.
  */
 
@@ -21,7 +21,7 @@ import type { LifeEvent, NewLifeEvent } from "./eventTypes";
 import { validateEventData } from "./eventValidation";
 import type { LedgerBaseConfig } from "./ledgerBase";
 import { validateLedger } from "./validateLedger";
-import { validateNewEvent } from "./addEvent";
+import { validateNewEvent, ledgerBeforeEvent } from "./addEvent";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction/jurisdiction";
 
 export type UpdateResult =
@@ -55,17 +55,16 @@ export function updateEvent(
   const data = validateEventData(next);
   if (!data.ok) return { ok: false, conflict: data.reason };
 
-  // One-Time Spend's own affordability gate must not count its OWN prior draw as already
-  // spent: price the revision against the ledger WITHOUT this event — the same "so far" ledger
-  // a brand-new candidate is priced against on `addEvent` — rather than the ledger the
-  // whole-ledger replay below revalidates, which still carries the revision in this event's own
-  // slot and would otherwise see it as self-competing for its own funds.
+  // One-Time Spend's own affordability gate must be priced at the revision's own SEQUENCE
+  // POSITION, not against the whole ledger minus itself: `ledgerBeforeEvent` keeps every event
+  // that precedes it (any earlier month, or an earlier same-month sibling) and drops the event
+  // itself AND everything after it (a later-month event, or a same-month sibling authored after
+  // it) — so a sibling that hasn't executed yet from this event's point of view never competes
+  // for its funds, and a sibling that already has always does. Whether THAT sibling remains
+  // fundable after this revision is not re-litigated here — it stays a normal simulation-time
+  // block, the way a brand-new event's own effect on a later one already is.
   if (next.type === "OneTimeSpendEvent") {
-    const withoutSelf: Ledger = {
-      events: ledger.events.filter((e) => e.id !== id),
-      nextSequenceNumber: ledger.nextSequenceNumber,
-    };
-    const affordability = validateNewEvent(withoutSelf, base, next, jurisdiction);
+    const affordability = validateNewEvent(ledgerBeforeEvent(ledger, id), base, next, jurisdiction);
     if (!affordability.ok) {
       return {
         ok: false,

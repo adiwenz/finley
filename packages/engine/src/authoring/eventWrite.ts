@@ -15,7 +15,7 @@
 import type { Jurisdiction } from "../jurisdiction/jurisdiction";
 import type { LedgerBaseConfig } from "../ledger/ledgerBase";
 import type { NewLifeEvent } from "../ledger/eventTypes";
-import { addEvent, fundingLookup } from "../ledger/addEvent";
+import { addEvent, fundingLookup, ledgerBeforeEvent } from "../ledger/addEvent";
 import type { FundingLookup } from "../ledger/addEvent";
 import { removeEvent } from "../ledger/removeEvent";
 import { updateEvent } from "../ledger/updateEvent";
@@ -93,10 +93,14 @@ export function assertReplayable(state: ProjectionState, jurisdiction: Jurisdict
  * about the same accounts. Sharing the context is what makes that impossible rather than merely
  * unlikely.
  *
- * `excludeEventId`, when given, drops that one event before pricing — an event being edited
- * must not see its OWN prior draw as already-spent money it is then asked to also cover; the
- * ledger it is priced against is the one that would exist without it, the same "so far" ledger
- * a brand-new candidate is priced against on append. Absent for an ordinary (non-editing) read.
+ * `excludeEventId`, when given, prices against the ledger as it stood immediately BEFORE that
+ * event — every event that precedes it, minus the event itself, minus everything after it (a
+ * later-month event, or a same-month sibling authored after it). An event being edited must not
+ * see its OWN prior draw as already-spent money it is then asked to also cover, but a
+ * not-yet-executed same-month sibling must not shrink what it sees either — the same sequence
+ * position {@link addEvent} already prices a brand-new event at (appended last, so everything
+ * precedes it), generalized to a position inside an existing ledger via
+ * {@link ledgerBeforeEvent}. Absent for an ordinary (non-editing) read.
  */
 export function projectionFunding(
   state: ProjectionState,
@@ -106,10 +110,7 @@ export function projectionFunding(
   const ledger =
     excludeEventId === undefined
       ? state.scenario.ledger
-      : {
-          events: state.scenario.ledger.events.filter((e) => e.id !== excludeEventId),
-          nextSequenceNumber: state.scenario.ledger.nextSequenceNumber,
-        };
+      : ledgerBeforeEvent(state.scenario.ledger, excludeEventId);
   return fundingLookup(ledger, projectionBaseFor(state, jurisdiction), jurisdiction);
 }
 
