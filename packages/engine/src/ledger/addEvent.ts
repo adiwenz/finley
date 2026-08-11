@@ -39,7 +39,16 @@ const DEFAULT_START_YEAR = 2026;
  * is a property of the ACCOUNT, not the month, so an emptied account is listed at $0.
  */
 export interface FundingLookup {
-  readonly sourcesAt: (month: number) => readonly FundingSourceBalance[];
+  /**
+   * Every liquid account, plus — only when `treatment` is `"expense"` — every credit card the
+   * household has taken, at its remaining headroom. Omitting `treatment` (Home Purchase's call)
+   * lists liquid accounts alone, exactly as before: credit is never a down-payment source, so a
+   * picker gated on the bare no-arg form can never offer one.
+   */
+  readonly sourcesAt: (
+    month: number,
+    treatment?: FundingTreatment,
+  ) => readonly FundingSourceBalance[];
   readonly availabilityAt: (
     sourceIds: readonly string[],
     amountCents: number,
@@ -104,11 +113,24 @@ export function fundingLookup(
     month <= 0 ? projection.opening : projection.months[Math.min(month, last)];
 
   // Whether a listed account can pay is `balanceCents > 0`, the test `availabilityAt` applies.
-  const sourcesAt = (month: number): readonly FundingSourceBalance[] => {
+  const sourcesAt = (
+    month: number,
+    treatment?: FundingTreatment,
+  ): readonly FundingSourceBalance[] => {
     const m = monthAt(month);
     const pool: FundingSourceBalance[] = [];
     for (const [id, label] of labelById) {
       pool.push({ id, label, balanceCents: (m?.accountBalancesCents[id] ?? 0) as number });
+    }
+    // Same rule `selectedSources` applies to a NAMED card: headroom is `limit − owed`, clamped at
+    // zero, and a `null` limit is zero (never unbounded) — an unofferable card the picker greys
+    // out exactly as it greys a $0 account.
+    if (treatment === "expense") {
+      for (const [id, card] of cardById) {
+        const owed = (m?.liabilityBalancesCents[id] ?? 0) as number;
+        const headroom = Math.max(0, card.creditLimitCents - owed);
+        pool.push({ id, label: id, balanceCents: headroom, kind: "credit", limited: true });
+      }
     }
     return pool.sort((a, b) => b.balanceCents - a.balanceCents);
   };

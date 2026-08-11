@@ -12,6 +12,7 @@ import {
   expenseReportingTotal,
   buildObligations,
   assetAcquisitionObligation,
+  explicitExpenseObligation,
   obligationLiabilityId,
   orderObligationsByPriority,
   OBLIGATION_PRIORITY,
@@ -202,6 +203,39 @@ describe("assetAcquisitionObligation — the down payment as an explicit obligat
     });
     expect(automaticFundingTotal([o])).toBe(0);
     expect(expenseReportingTotal([o])).toBe(0);
+  });
+});
+
+describe("explicitExpenseObligation — a One-Time Spend as an explicit obligation", () => {
+  it("represents a cross-account draw as an explicitly-funded EXPENSE, unlike the down payment", () => {
+    const o = explicitExpenseObligation({
+      id: "onetimespend:e1",
+      sourceId: "onetimespend",
+      month: 12,
+      amountCents: dollarsToCents(30_000),
+      orderedAccountIds: ["brokerage", "checking"],
+      label: "New car",
+    });
+    expect(o.month).toBe(12);
+    expect(o.amountCents).toBe(dollarsToCents(30_000));
+    expect(o.treatment).toBe("expense");
+    expect(o.funding).toEqual({ kind: "explicit", orderedAccountIds: ["brokerage", "checking"] });
+    expect(o.sourceId).toBe("onetimespend");
+    expect(o.id).toBe("draw:onetimespend:e1");
+    expect(o.label).toBe("New car");
+  });
+
+  it("appears in expense reporting but never inflates the shared waterfall — the tripwire", () => {
+    const o = explicitExpenseObligation({
+      id: "onetimespend:e1",
+      sourceId: "onetimespend",
+      month: 0,
+      amountCents: dollarsToCents(30_000),
+      orderedAccountIds: ["brokerage"],
+      label: "New car",
+    });
+    expect(automaticFundingTotal([o])).toBe(0);
+    expect(expenseReportingTotal([o])).toBe(dollarsToCents(30_000));
   });
 });
 

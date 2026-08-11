@@ -300,6 +300,47 @@ export function assetAcquisitionObligation(params: {
 }
 
 /**
+ * An explicitly-funded `expense` obligation: a One-Time Spend event, drained from an ordered
+ * source list exactly like {@link assetAcquisitionObligation} — same shared draw machinery — but
+ * `treatment: "expense"` rather than `"asset-acquisition"`, since it reduces net worth outright
+ * instead of buying an asset. That single field is what puts it in {@link expenseReportingTotal}
+ * while it stays excluded from {@link automaticFundingTotal}: the epic's double-count tripwire, an
+ * explicitly-funded expense must be reported once and funded once, never twice over.
+ *
+ * `sourceId` is the report-band namespace ("onetimespend"), shared by every spend the way
+ * `"downpayment"` is shared by every purchase; `id` derives from the caller-supplied `id` param
+ * (the authoring event's own id), so two spends in one plan never collide on `draw:onetimespend`.
+ * `label` carries the household's own words for the spend (unlike the down payment's, which takes
+ * `sourceId` for lack of a more specific one) since a one-time spend has no OTHER label to fall
+ * back to in the expense graph.
+ */
+export function explicitExpenseObligation(params: {
+  readonly id: string;
+  readonly sourceId: string;
+  readonly month: number;
+  readonly amountCents: Cents;
+  readonly orderedAccountIds: readonly string[];
+  readonly label: string;
+  /** The spend event this draw funds, so a block can suppress nothing further — there is nothing else it originates. */
+  readonly sourceEventId?: string;
+}): FinancialObligation {
+  return {
+    id: `draw:${params.id}`,
+    sourceId: params.sourceId,
+    ...(params.sourceEventId !== undefined ? { sourceEventId: params.sourceEventId } : {}),
+    month: params.month,
+    amountCents: params.amountCents,
+    treatment: "expense",
+    funding: { kind: "explicit", orderedAccountIds: params.orderedAccountIds },
+    priority: OBLIGATION_PRIORITY.untracked,
+    sourceKind: "untracked",
+    editable: false,
+    label: params.label,
+    category: "other",
+  };
+}
+
+/**
  * Every {@link FinancialObligation} one simulated month must fund, from the same four inputs
  * the spending report reads — so the two lists cannot disagree while both exist. Expense series
  * (budget lines, healthcare, event-spawned streams) are `treatment: "expense"`; a liability's

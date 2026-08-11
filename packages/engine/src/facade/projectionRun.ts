@@ -33,6 +33,8 @@ import { computeGoalProgress } from "../goal/goal";
 import type { GoalProgress, SimGoal } from "../goal/goal";
 import { assessHomePurchase } from "../authoring/housing";
 import type { HomePurchaseAssessment, HomePurchaseInput } from "../authoring/housing";
+import { assessOneTimeSpendNudge } from "../authoring/spend";
+import type { OneTimeSpendNudge } from "../authoring/spend";
 
 /**
  * One pipeline pass under a specific jurisdiction, frozen. Carries every artifact the pass
@@ -66,6 +68,12 @@ export interface ProjectionResult {
   readonly goalProgress: () => readonly { readonly goal: SimGoal; readonly progress: GoalProgress }[];
   /** The soft debt-to-income read on a purchase that has not been authored yet. */
   readonly assessHomePurchase: (input: HomePurchaseInput) => HomePurchaseAssessment;
+  /**
+   * The post-add whole-month feasibility nudge for an already-authored One-Time Spend event —
+   * `null` while nothing about THIS run says the spend wrecks the plan. Advisory only; it never
+   * blocks and reads no state beyond this run's own `firstInsolventMonth`.
+   */
+  readonly oneTimeSpendNudge: (eventId: string, eventMonth: number) => OneTimeSpendNudge | null;
   /**
    * One job's employment, the part of it this household is paid for, and the stretches it is
    * not — everything a surface needs to draw that job, resolved under THIS run's scope. `null`
@@ -130,10 +138,12 @@ export function runProjection(
     return payDisplays;
   };
 
+  const firstInsolvent = firstInsolventMonth(series);
+
   return Object.freeze({
     jurisdictionId: jurisdiction.id,
     series,
-    firstInsolventMonth: firstInsolventMonth(series),
+    firstInsolventMonth: firstInsolvent,
     household,
     report,
     snapshot: (month: number) => buildSnapshot(household, month, series),
@@ -147,6 +157,13 @@ export function runProjection(
     },
     assessHomePurchase: (input: HomePurchaseInput) =>
       assessHomePurchase(household, series, input),
+    oneTimeSpendNudge: (eventId: string, eventMonth: number) =>
+      assessOneTimeSpendNudge({
+        eventId,
+        eventMonth,
+        blocked: series.status === "blocked",
+        firstInsolventMonth: firstInsolvent,
+      }),
     jobPayDisplay: (jobId: string) => payDisplaysOf().get(jobId) ?? null,
   });
 }

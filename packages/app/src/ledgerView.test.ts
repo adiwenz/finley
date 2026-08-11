@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Ledger, SnapshotSeries } from "@finley/engine";
 import {
   blockedWarning,
+  nudgeMessage,
   seriesLabel,
   splitMarkers,
   summarizeEvent,
@@ -63,6 +64,27 @@ describe("summarizeEvent", () => {
         mortgage: undefined,
       } as any).detail,
     ).toBe("$400,000, no mortgage");
+  });
+
+  it("describes a One-Time Spend using the household's own label", () => {
+    const spend = summarizeEvent({
+      id: "s1",
+      type: "OneTimeSpendEvent" as const,
+      month: 12,
+      sequenceNumber: 0,
+      label: "New car",
+      amountCents: 3_000_000,
+      fundingSourceIds: ["savings"],
+    } as any);
+    expect(spend.label).toBe("New car");
+    expect(spend.detail).toBe("$30,000");
+  });
+});
+
+describe("nudgeMessage", () => {
+  it("names the month the plan turns insolvent", () => {
+    expect(nudgeMessage({ eventId: "s1", insolventMonth: 12 })).toContain("Year 1");
+    expect(nudgeMessage({ eventId: "s1", insolventMonth: 12 })).toMatch(/insolvent from/);
   });
 });
 

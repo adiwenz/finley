@@ -5,8 +5,16 @@
  * engine's job, see `snapshotAt` in @finley/engine.
  */
 
-import type { Cents, FundingLookup, Ledger, LifeEvent, ProjectionSeries, SnapshotSeries } from "@finley/engine";
-import { formatDollars } from "./format";
+import type {
+  Cents,
+  FundingLookup,
+  Ledger,
+  LifeEvent,
+  OneTimeSpendNudge,
+  ProjectionSeries,
+  SnapshotSeries,
+} from "@finley/engine";
+import { formatDollars, monthLabel } from "./format";
 
 export interface EventSummary {
   /** Friendly label. Exactly one per structural change. */
@@ -60,6 +68,8 @@ export function summarizeEvent(e: LifeEvent): EventSummary {
       );
       return { label: "Bought a home", detail: bits.join(", ") };
     }
+    case "OneTimeSpendEvent":
+      return { label: e.label, detail: formatDollars(e.amountCents) };
     case "LoanEvent":
       return {
         label: "Took out a loan",
@@ -215,6 +225,15 @@ export function blockedWarning(
       availableCents: a.availableCents,
     })),
   };
+}
+
+/**
+ * The whole-month feasibility nudge's copy — advisory, never a block. Rendered only while its
+ * condition holds; the caller decides when that is by whether it still has a {@link
+ * OneTimeSpendNudge} to show (the engine speaks to it fresh on every projection re-run).
+ */
+export function nudgeMessage(nudge: OneTimeSpendNudge): string {
+  return `This purchase is affordable, but it makes your plan insolvent from ${monthLabel(nudge.insolventMonth)}.`;
 }
 
 /**

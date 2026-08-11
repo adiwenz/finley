@@ -15,6 +15,7 @@ import type {
   LifeEvent,
   LifeEventType,
   LoanEvent,
+  OneTimeSpendEvent,
   RelationshipEvent,
   SeparationEvent,
 } from "./eventTypes";
@@ -33,7 +34,7 @@ import {
   type PersonId,
 } from "../plan/ids";
 import { PRE_NOW_MONTH, isPreExisting } from "../projection/nowMarker";
-import { assetAcquisitionObligation } from "../projection/financialObligation";
+import { assetAcquisitionObligation, explicitExpenseObligation } from "../projection/financialObligation";
 import type { FundingFailure } from "../projection/fundingFailure";
 
 export interface EventHandler<E extends LifeEvent> {
@@ -450,6 +451,50 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
   },
 };
 
+/**
+ * A named funding source: a known account, or a credit card the household has already taken
+ * (a card is eligible for an `expense`, unlike a down payment). Structural only, so a
+ * hand-edited or stale source id is refused up front; whether it holds ENOUGH is never asked
+ * here — see {@link oneTimeSpend}'s doc for why.
+ */
+function isKnownFundingSource(state: InterpretState, context: InterpretContext, id: string): boolean {
+  if (context.accountIds.has(asAccountId(id))) return true;
+  const liability = state.liabilitiesById.get(asLiabilityId(id));
+  return liability !== undefined && liability.kind === "creditCard";
+}
+
+/**
+ * A dated, source-directed spend. Unlike {@link homePurchase}, `check` never runs the
+ * affordability gate: authoring never refuses on affordability — a spend whose named
+ * sources fall short is still authored, and the projection blocks at its month instead
+ * ({@link import("../projection/fundingDrawStep").resolveFundingDraws}), reporting
+ * `funding-configuration` or `no-eligible-source-suffices` the same way a stranded down payment
+ * does. Only structural preconditions refuse here: every named source must be real.
+ */
+const oneTimeSpend: EventHandler<OneTimeSpendEvent> = {
+  check(event, state, context) {
+    for (const sourceId of event.fundingSourceIds) {
+      if (!isKnownFundingSource(state, context, sourceId)) {
+        return fail(event, `funding source "${sourceId}" not found`);
+      }
+    }
+    return ok;
+  },
+  apply(event, state) {
+    state.fundingDraws.push(
+      explicitExpenseObligation({
+        id: `onetimespend:${event.id}`,
+        sourceId: "onetimespend",
+        sourceEventId: event.id,
+        month: event.month,
+        amountCents: event.amountCents,
+        orderedAccountIds: event.fundingSourceIds,
+        label: event.label,
+      }),
+    );
+  },
+};
+
 const debtPayoff: EventHandler<DebtPayoffEvent> = {
   check(event, state, context) {
     if (!state.liabilitiesById.has(asLiabilityId(event.liabilityId))) {
@@ -496,6 +541,7 @@ const handlers: HandlerRegistry = {
   ChildEvent: child,
   SeparationEvent: separation,
   HomePurchaseEvent: homePurchase,
+  OneTimeSpendEvent: oneTimeSpend,
   LoanEvent: loan,
   DebtPayoffEvent: debtPayoff,
 };

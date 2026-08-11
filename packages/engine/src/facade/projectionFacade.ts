@@ -151,6 +151,8 @@ import type { BuyHomeInput, OwnHomeInput } from "../authoring/housing";
 import { applyHomePurchase, applyOwnHome } from "../authoring/housing";
 import type { CarryLoanInput, PayOffDebtInput, TakeLoanInput } from "../authoring/liabilities";
 import { applyCarryLoan, applyDebtPayoff, applyLoan } from "../authoring/liabilities";
+import type { OneTimeSpendInput } from "../authoring/spend";
+import { applyOneTimeSpend } from "../authoring/spend";
 import type { TransactionRevision } from "../authoring/revise";
 import { removeProjectionTransaction, reviseProjectionTransaction } from "../authoring/revise";
 import { interpretScenarioInput } from "../authoring/fromInput";
@@ -507,6 +509,15 @@ export class Projection {
    */
   ownHome(input: OwnHomeInput): string {
     return this.write((state) => applyOwnHome(state, this.validationJurisdiction, input));
+  }
+
+  /**
+   * A dated, source-directed spend, drained from the named sources in order. Never refused on
+   * affordability — a shortfall blocks the projection at `month` instead, exactly as an
+   * unaffordable down payment does. Returns the minted `"spend-N"` id.
+   */
+  spendOnce(input: OneTimeSpendInput): string {
+    return this.write((state) => applyOneTimeSpend(state, this.validationJurisdiction, input));
   }
 
   // Transaction lifecycle

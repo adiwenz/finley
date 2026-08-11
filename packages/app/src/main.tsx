@@ -5,7 +5,7 @@ import { usJurisdiction } from "@finley/rules";
 import { NetWorthChart } from "./components/netWorthChart/netWorthChart";
 import { NetWorthBreakdownChart } from "./components/netWorthChart/netWorthBreakdownChart";
 import { buildNetWorthBreakdown } from "./components/netWorthChart/netWorthBreakdown";
-import { timelineMarkers, blockedWarning } from "./ledgerView";
+import { timelineMarkers, blockedWarning, nudgeMessage } from "./ledgerView";
 import { BlockedWarning } from "./components/blockedWarning/blockedWarning";
 import { monthLabel } from "./format";
 import { AddEventForm } from "./components/addEventForm/addEventForm";
@@ -98,6 +98,17 @@ export function App() {
   // it names the plan as written, never the retirement preview. `null` until something stops, so
   // its mere presence IS the condition holding — persistence and clearing fall out of the render.
   const blocked = useMemo(() => blockedWarning(ledger, series, funding), [ledger, series, funding]);
+  // The whole-month feasibility nudge for every authored One-Time Spend, off this same run —
+  // advisory, never a block, and it clears on its own the moment the run it reads no longer
+  // shows the insolvency (a later edit, a removed sibling event).
+  const oneTimeSpendNudges = useMemo(
+    () =>
+      ledger.events
+        .filter((e) => e.type === "OneTimeSpendEvent")
+        .map((e) => result.oneTimeSpendNudge(e.id, e.month))
+        .filter((n) => n !== null),
+    [ledger, result],
+  );
   // The event the edit surface is bound to, resolved live. Null when nothing is being edited or
   // when the target was removed out from under an open edit — either way the add form is shown.
   const editingEvent = useMemo(
@@ -216,6 +227,11 @@ export function App() {
               </div>
             )}
             {blocked ? <BlockedWarning warning={blocked} /> : null}
+            {oneTimeSpendNudges.map((nudge) => (
+              <div className="alert alert-amber soft-warning" role="status" key={nudge.eventId}>
+                {nudgeMessage(nudge)}
+              </div>
+            ))}
 
             <p className="disclaimer">
               Estimates include federal income tax for a single filer only — no state
