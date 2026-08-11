@@ -92,16 +92,25 @@ export function assertReplayable(state: ProjectionState, jurisdiction: Jurisdict
  * on, or an authoring picker and the down-payment gate would tell the user different stories
  * about the same accounts. Sharing the context is what makes that impossible rather than merely
  * unlikely.
+ *
+ * `excludeEventId`, when given, drops that one event before pricing — an event being edited
+ * must not see its OWN prior draw as already-spent money it is then asked to also cover; the
+ * ledger it is priced against is the one that would exist without it, the same "so far" ledger
+ * a brand-new candidate is priced against on append. Absent for an ordinary (non-editing) read.
  */
 export function projectionFunding(
   state: ProjectionState,
   jurisdiction: Jurisdiction,
+  excludeEventId?: string,
 ): FundingLookup {
-  return fundingLookup(
-    state.scenario.ledger,
-    projectionBaseFor(state, jurisdiction),
-    jurisdiction,
-  );
+  const ledger =
+    excludeEventId === undefined
+      ? state.scenario.ledger
+      : {
+          events: state.scenario.ledger.events.filter((e) => e.id !== excludeEventId),
+          nextSequenceNumber: state.scenario.ledger.nextSequenceNumber,
+        };
+  return fundingLookup(ledger, projectionBaseFor(state, jurisdiction), jurisdiction);
 }
 
 /**
@@ -129,8 +138,10 @@ export function appendEvent(
 
 /**
  * Rewrite one event in place through the whole-ledger replay {@link updateEvent} runs, so a
- * revision that would strand a later event is refused with the state untouched. No affordability
- * gate — that fires only on append.
+ * revision that would strand a later event is refused with the state untouched. No general
+ * affordability gate — that otherwise fires only on append — except One-Time Spend, which
+ * carries its own hard block and keeps enforcing it here too (`updateEvent` prices it against
+ * the ledger without this event, so its own prior draw never counts against itself).
  *
  * `nextSeq` moves with it when the revision minted something (a partner's new job), so the
  * ledger and the counter that named its contents land as ONE new state.
@@ -147,6 +158,7 @@ export function replaceEvent(
     eventId,
     next,
     projectionBaseFor(state, jurisdiction),
+    jurisdiction,
   );
   if (!result.ok) {
     throw new Error(`Projection: cannot revise transaction — ${result.conflict}`);

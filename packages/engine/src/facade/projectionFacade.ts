@@ -679,9 +679,13 @@ export class Projection {
    * replay context and validation jurisdiction the affordability gate decides on, so an
    * authoring picker and the §4.5 down-payment gate can never tell the user different
    * stories. Read-only, like {@link run}.
+   *
+   * `excludeEventId`: when editing an existing money-out event, price the picker against the
+   * ledger WITHOUT that event, so its own prior draw is never counted as already-spent money
+   * it is then asked to also cover.
    */
-  funding(): FundingLookup {
-    return projectionFunding(this.current, this.validationJurisdiction);
+  funding(excludeEventId?: string): FundingLookup {
+    return projectionFunding(this.current, this.validationJurisdiction, excludeEventId);
   }
 
   // State round-trip

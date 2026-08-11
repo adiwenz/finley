@@ -153,3 +153,75 @@ describe("OneTimeSpendForm — Add is blocked until the selection fully covers t
     expect(button).not.toContain("disabled");
   });
 });
+
+describe("OneTimeSpendForm — editing an existing spend does not count its own draw against itself", () => {
+  it("an existing $10k spend funded from $10k cash shows the full $10k available, and saving it unchanged is allowed", () => {
+    const p = Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction);
+    const id = savingsId(PLAN_DEFAULTS);
+    const spendId = p.spendOnce({
+      month: 0,
+      label: "Existing spend",
+      amountCents: dollarsToCents(10_000),
+      fundingSourceIds: [id],
+    });
+    const html = renderToStaticMarkup(
+      <OneTimeSpendForm
+        defaultMonth={0}
+        horizonMonths={660}
+        onAdd={noop}
+        funding={readerOf(PLAN_DEFAULTS, p.ledger).funding(spendId)}
+        edit={{
+          event: {
+            id: spendId,
+            type: "OneTimeSpendEvent",
+            month: 0,
+            sequenceNumber: 0,
+            label: "Existing spend",
+            amountCents: dollarsToCents(10_000),
+            fundingSourceIds: [id],
+          },
+          onRevise: noop,
+        }}
+      />,
+    );
+    // Never $0 — the spend's own $10k draw must not count against its own picker.
+    expect(html).toContain("$10,000");
+    const button = html.match(/<button[^>]*>Save changes<\/button>/)?.[0];
+    expect(button).toBeDefined();
+    expect(button).not.toContain("disabled");
+  });
+
+  it("raising that same spend's amount past what's actually available disables Save", () => {
+    const p = Projection.fromState(stateOf(PLAN_DEFAULTS), usJurisdiction);
+    const id = savingsId(PLAN_DEFAULTS);
+    const spendId = p.spendOnce({
+      month: 0,
+      label: "Existing spend",
+      amountCents: dollarsToCents(10_000),
+      fundingSourceIds: [id],
+    });
+    const html = renderToStaticMarkup(
+      <OneTimeSpendForm
+        defaultMonth={0}
+        horizonMonths={660}
+        onAdd={noop}
+        funding={readerOf(PLAN_DEFAULTS, p.ledger).funding(spendId)}
+        edit={{
+          event: {
+            id: spendId,
+            type: "OneTimeSpendEvent",
+            month: 0,
+            sequenceNumber: 0,
+            label: "Existing spend",
+            amountCents: dollarsToCents(11_000), // above the $10k cash actually holds
+            fundingSourceIds: [id],
+          },
+          onRevise: noop,
+        }}
+      />,
+    );
+    const button = html.match(/<button[^>]*>Save changes<\/button>/)?.[0];
+    expect(button).toBeDefined();
+    expect(button).toContain("disabled");
+  });
+});

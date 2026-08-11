@@ -1,12 +1,14 @@
 /**
- * `OneTimeSpendEvent`: a dated, source-directed cash outflow. Distinct from Home Purchase in that
- * authoring never refuses on affordability — a shortfall is a projection-time block, not an
- * authoring-time refusal — so these tests exercise the handler, the obligation it produces, the
- * expense-reporting tripwire, and the block, rather than an authoring-time gate.
+ * `OneTimeSpendEvent`: a dated, source-directed cash outflow. Like Home Purchase's down payment,
+ * authoring hard-refuses when the selected sources cannot fully cover it — the same §4.5-style
+ * gate, over the identical `fundingLookup` seam, so gate == sim holds one step earlier than the
+ * projection block it used to rely on. These tests exercise the handler, the obligation it
+ * produces, the expense-reporting tripwire, and the authoring-time gate (on both add and revise).
  */
 import { describe, it, expect } from "vitest";
 import { emptyLedger, type Ledger } from "./ledger";
 import { addEvent, fundingLookup } from "./addEvent";
+import { updateEvent } from "./updateEvent";
 import { interpretLedger } from "./interpret";
 import { buildProjection } from "../projection/buildHouseholdInput";
 import type { LedgerBaseConfig } from "./ledgerBase";
@@ -95,11 +97,12 @@ describe("OneTimeSpendEvent — the sole obligation it produces", () => {
   });
 });
 
-describe("OneTimeSpendEvent — authoring never refuses on affordability", () => {
-  it("accepts a spend whose named source cannot possibly cover it", () => {
+describe("OneTimeSpendEvent — authoring refuses an unaffordable spend", () => {
+  it("refuses a spend whose named source cannot possibly cover it", () => {
     const base = baseWith(1_000_00); // $1k liquid, spend wants $30k
     const result = addEvent(emptyLedger, base, spend({ amountCents: 30_000_00 }));
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.conflict).toMatch(/exceeds what the eligible funding sources/);
   });
 
   it("still validates that each named source actually exists", () => {
@@ -116,28 +119,8 @@ describe("OneTimeSpendEvent — authoring never refuses on affordability", () =>
     ).toBe(false);
     expect(addEvent(emptyLedger, baseWith(0), spend({ amountCents: 0 })).ok).toBe(false);
   });
-});
 
-describe("OneTimeSpendEvent — a shortfall blocks the projection rather than throwing", () => {
-  it("blocks at the spend's month, naming the event and the shortfall, and does not throw", () => {
-    const base = baseWith(1_000_000); // $10k liquid, spend wants $30k
-    const ledger = addWithBase(emptyLedger, base, spend({ amountCents: 3_000_000 }));
-
-    expect(() => buildProjection(interpretLedger(ledger, base), base, nullJurisdiction)).not.toThrow();
-    const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
-
-    expect(series.status).toBe("blocked");
-    expect(series.blockedAtMonth).toBe(3);
-    expect(series.blockingObligation?.sourceEventId).toBe("spend1");
-    expect(series.blockingObligation?.shortfallCents).toBe(2_000_000);
-    expect(["funding-configuration", "no-eligible-source-suffices"]).toContain(
-      series.blockingObligation?.fundingFailure.kind,
-    );
-    // The event stays authored — the ledger was never refused, only the projection stopped.
-    expect(ledger.events).toHaveLength(1);
-  });
-
-  it("names an eligible unselected account: funding-configuration", () => {
+  it("names an eligible unselected account in the refusal: funding-configuration", () => {
     const base: LedgerBaseConfig = {
       horizonMonths: 12,
       annualInflationRate: 0,
@@ -154,14 +137,47 @@ describe("OneTimeSpendEvent — a shortfall blocks the projection rather than th
         }),
       ],
     };
-    const ledger = addWithBase(
+    const result = addEvent(
       emptyLedger,
       base,
       spend({ amountCents: 3_000_000, fundingSourceIds: ["savings"] }),
     );
-    const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
-    expect(series.status).toBe("blocked");
-    expect(series.blockingObligation?.fundingFailure.kind).toBe("funding-configuration");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.conflict).toMatch(/brokerage \(\$50,000 available\)/);
+    }
+  });
+
+  it("becomes possible once enough is selected — a card added atop cash covers the rest", () => {
+    const base: LedgerBaseConfig = {
+      horizonMonths: 12,
+      annualInflationRate: 0,
+      initialPersons: [personLit("p1", "Alice")],
+      initialAccounts: [savings(2_000_00)], // $2k
+    };
+    const withCard = addWithBase(emptyLedger, base, {
+      id: "card1",
+      type: "LoanEvent",
+      month: -1,
+      liabilityId: "visa",
+      ownerId: "p1",
+      kind: "creditCard",
+      openingBalanceCents: 0,
+      apr: 0,
+      creditLimitCents: 10_000_00,
+    } as NewLifeEvent);
+
+    // Cash alone ($2k) cannot cover a $6k spend — refused.
+    const cashOnly = addEvent(withCard, base, spend({ amountCents: 6_000_00, fundingSourceIds: ["savings"] }));
+    expect(cashOnly.ok).toBe(false);
+
+    // Cash plus the card's headroom ($2k + $10k) covers it — accepted.
+    const withCredit = addEvent(
+      withCard,
+      base,
+      spend({ amountCents: 6_000_00, fundingSourceIds: ["savings", "visa"] }),
+    );
+    expect(withCredit.ok).toBe(true);
   });
 });
 
@@ -218,24 +234,45 @@ describe("OneTimeSpendEvent — a credit card among the funding sources", () => 
 });
 
 describe("OneTimeSpendEvent — sibling explicit events in the same month", () => {
-  it("resolves in event-sequence order, the second validated against what the first left", () => {
+  it("the second is priced against what the first left, in event-sequence order", () => {
     const base = baseWith(5_000_000); // $50k
-    let ledger = addWithBase(
+    const ledger = addWithBase(
       emptyLedger,
       base,
       spend({ id: "spend1", month: 3, amountCents: 4_000_000, fundingSourceIds: ["savings"] }),
     );
-    ledger = addWithBase(
+    // $50k − $40k first leaves only $10k — the second's $20k ask is refused, not blocked later.
+    const second = addEvent(
       ledger,
       base,
       spend({ id: "spend2", month: 3, amountCents: 2_000_000, fundingSourceIds: ["savings"] }),
     );
-    const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
+    expect(second.ok).toBe(false);
+    if (!second.ok) expect(second.conflict).toMatch(/\$10,000 available/);
+  });
 
-    // $50k − $40k first, then only $10k left for the second's $20k ask.
-    expect(series.status).toBe("blocked");
-    expect(series.blockingObligation?.sourceEventId).toBe("spend2");
-    expect(series.blockingObligation?.shortfallCents).toBe(1_000_000);
+  it("sequential spends draining the same cash: a second within what's left succeeds, a third over it is refused", () => {
+    const base = baseWith(1_000_000); // $10k
+    let ledger = addWithBase(
+      emptyLedger,
+      base,
+      spend({ id: "spend1", month: 3, amountCents: 400_000, fundingSourceIds: ["savings"] }),
+    );
+    // $10k − $4k = $6k left — a $6k second spend exactly fits.
+    ledger = addWithBase(
+      ledger,
+      base,
+      spend({ id: "spend2", month: 3, amountCents: 600_000, fundingSourceIds: ["savings"] }),
+    );
+    expect(ledger.events).toHaveLength(2);
+
+    // Nothing is left — a third spend of any positive amount is refused.
+    const third = addEvent(
+      ledger,
+      base,
+      spend({ id: "spend3", month: 3, amountCents: 1, fundingSourceIds: ["savings"] }),
+    );
+    expect(third.ok).toBe(false);
   });
 });
 
@@ -407,10 +444,12 @@ describe("OneTimeSpendEvent — gate == sim across a decumulation month", () => 
     expect(at.flows!.taxCents).toBeGreaterThan(0);
   });
 
-  it("predicts a NONZERO shortfall that matches the simulator's block exactly", () => {
+  it("predicts a NONZERO shortfall that matches exactly what authoring refuses it for", () => {
     // Same decumulation-month seam as above, but `cash` is short of the spend on its own — the
-    // gate must predict precisely the gap the sim's own block later reports, not merely agree
-    // when the answer happens to be zero.
+    // gate must predict precisely the gap the authoring-time refusal reports, not merely agree
+    // when the answer happens to be zero. Authoring now refuses this outright rather than
+    // accepting it and letting the projection block later — gate == sim still holds, just
+    // enforced one step earlier.
     const ASK = dollarsToCents(60_000);
     const CASH = dollarsToCents(45_000);
     const jur = bracketedCapitalGains(dollarsToCents(15_000), 0.4);
@@ -437,15 +476,53 @@ describe("OneTimeSpendEvent — gate == sim across a decumulation month", () => 
     expect(gate.shortfallCents).toBe(ASK - CASH);
     expect(gate.shortfallCents).toBeGreaterThan(0);
 
-    const accepted = addEvent(emptyLedger, base, buy, jur);
-    expect(accepted.ok).toBe(true);
-    if (!accepted.ok) return;
+    const refused = addEvent(emptyLedger, base, buy, jur);
+    expect(refused.ok).toBe(false);
+    if (refused.ok) return;
+    // The refusal names precisely the gate's own predicted available amount — the same figure,
+    // never a second calculation.
+    expect(refused.conflict).toContain(`$${(CASH / 100).toLocaleString("en-US")}`);
+  });
+});
 
-    const series = buildProjection(interpretLedger(accepted.ledger, base), base, jur);
+// Regression: revising an existing spend must not count ITS OWN prior draw as already-spent
+// money it is then asked to also cover. `updateEvent` prices the revision against the ledger
+// WITHOUT the event being revised — the same "so far" ledger a brand-new candidate is priced
+// against on `addEvent` — rather than the ledger the whole-ledger replay revalidates, which
+// still carries the revision sitting in this event's own slot.
+describe("OneTimeSpendEvent — revising does not count its own draw against itself", () => {
+  it("saving an existing spend unchanged sees its own full amount as available", () => {
+    const base = baseWith(1_000_000); // $10k
+    const ledger = addWithBase(
+      emptyLedger,
+      base,
+      spend({ id: "spend1", month: 0, amountCents: 1_000_000, fundingSourceIds: ["savings"] }),
+    );
+    const result = updateEvent(
+      ledger,
+      "spend1",
+      spend({ id: "spend1", month: 0, amountCents: 1_000_000, fundingSourceIds: ["savings"] }),
+      base,
+      nullJurisdiction,
+    );
+    expect(result.ok).toBe(true);
+  });
 
-    expect(series.status).toBe("blocked");
-    expect(series.blockedAtMonth).toBe(23);
-    expect(series.blockingObligation?.shortfallCents).toBe(gate.shortfallCents);
+  it("raising the amount past what's actually available (no other spend to draw from) is refused", () => {
+    const base = baseWith(1_000_000); // $10k
+    const ledger = addWithBase(
+      emptyLedger,
+      base,
+      spend({ id: "spend1", month: 0, amountCents: 1_000_000, fundingSourceIds: ["savings"] }),
+    );
+    const result = updateEvent(
+      ledger,
+      "spend1",
+      spend({ id: "spend1", month: 0, amountCents: 1_100_000, fundingSourceIds: ["savings"] }),
+      base,
+      nullJurisdiction,
+    );
+    expect(result.ok).toBe(false);
   });
 });
 
@@ -495,5 +572,24 @@ describe("Projection.spendOnce — authoring surface", () => {
     });
     p.reviseTransaction(id, { type: "spendOnce", amountCents: 300_000 });
     expect(p.ledger.events[0]).toMatchObject({ id, amountCents: 300_000, label: "New couch" });
+  });
+
+  it("revising a spend that already uses its full source doesn't lock itself out — the $10k/$10k case", () => {
+    const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
+    // samplePlan's "savings" opens at $20k; draw all of it in one spend.
+    const id = p.spendOnce({
+      month: 0,
+      label: "Full draw",
+      amountCents: dollarsToCents(20_000),
+      fundingSourceIds: ["savings"],
+    });
+    // Saving unchanged must not see the spend's own $20k draw as already spent, leaving $0.
+    expect(() =>
+      p.reviseTransaction(id, { type: "spendOnce", label: "Full draw (unchanged)" }),
+    ).not.toThrow();
+    // Raising it past what the source actually holds is still refused.
+    expect(() =>
+      p.reviseTransaction(id, { type: "spendOnce", amountCents: dollarsToCents(20_001) }),
+    ).toThrow();
   });
 });

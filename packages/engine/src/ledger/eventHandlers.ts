@@ -480,12 +480,49 @@ const debtPayoff: EventHandler<DebtPayoffEvent> = {
 };
 
 /**
+ * The spend refusal, phrased from the classification — the same shape `fundingFailureMessage`
+ * gives Home Purchase's down payment, but for an `"expense"`-eligible pool (credit cards
+ * included) and without a fixed "down payment" phrasing.
+ */
+function oneTimeSpendFundingFailureMessage(
+  event: OneTimeSpendEvent,
+  failure: FundingFailure,
+  labelById: ReadonlyMap<string, string>,
+): string {
+  const amount = `spend of ${dollars(event.amountCents)}`;
+  if (failure.kind === "funding-configuration") {
+    const taxNote =
+      failure.selectedSourcesTaxCents > 0
+        ? " (after the capital-gains tax on liquidating the selected investment sources)"
+        : "";
+    const alternatives = failure.alternativeSources
+      .map((s) => `${labelById.get(s.accountId) ?? s.accountId} (${dollars(s.availableCents)} available)`)
+      .join(", ");
+    return (
+      `${amount} exceeds the ${dollars(failure.selectedSourcesAvailableCents)} available from the ` +
+      `selected sources${taxNote} at month ${event.month}. Other eligible sources could cover it: ` +
+      `${alternatives}. Re-point the funding to one of those or lower the amount — only the selected ` +
+      `sources fund this spend, and nothing is moved for you.`
+    );
+  }
+  const taxNote =
+    failure.eligibleTaxCents > 0 ? " (after the capital-gains tax on liquidating them)" : "";
+  return (
+    `${amount} exceeds what the eligible funding sources together can cover ` +
+    `(${dollars(failure.eligibleAvailableCents)} available${taxNote}) at month ${event.month}.`
+  );
+}
+
+/**
  * A dated, source-directed spend: names the accounts (and, eligibly, credit cards) to drain and
- * in what order, but never the down-payment hard block Home Purchase carries. Authoring never
- * refuses on affordability — a source that falls short at simulation time BLOCKS the projection
- * instead ({@link import("../projection/fundingDrawStep").resolveFundingDraws}), and the event
- * stays authored, savable and replayable. `check` therefore validates only that each named
- * source exists, as either a liquid account or a credit-card liability — never that it suffices.
+ * in what order. `check` validates that each named source exists, as either a liquid account or
+ * a credit-card liability, then — mirroring Home Purchase's own §4.5 down-payment gate — HARD
+ * BLOCKS when the selected sources cannot fully cover the spend at its month, net of any
+ * capital-gains tax liquidating them owes. `fundingAvailabilityAt` runs the SAME ordered
+ * gross-up the simulator does ({@link import("../projection/fundingDrawStep").resolveFundingDraws}),
+ * so the gate refuses exactly when the sim would otherwise fall short — an insolvent spend can no
+ * longer be authored, savable and replayable, the way it once was. Present only on the authoring
+ * path; absent during ordinary replay/undo, when this check is skipped (matching Home Purchase).
  */
 const oneTimeSpend: EventHandler<OneTimeSpendEvent> = {
   check(event, state, context) {
@@ -495,6 +532,37 @@ const oneTimeSpend: EventHandler<OneTimeSpendEvent> = {
       if (!isAccount && !isCreditCard) {
         return fail(event, `funding source "${sourceId}" not found`);
       }
+    }
+    const affordability = context.fundingAvailabilityAt?.(
+      event.fundingSourceIds,
+      event.amountCents,
+      event.month,
+    );
+    if (affordability !== undefined && affordability.shortfallCents > 0) {
+      const failure = context.fundingFailureAt?.(
+        "expense",
+        event.fundingSourceIds,
+        event.amountCents,
+        event.month,
+      );
+      if (failure !== undefined) {
+        const labelById = new Map(
+          (context.fundingSourcesAt?.(event.month) ?? []).map((s) => [s.id, s.label]),
+        );
+        return fail(event, oneTimeSpendFundingFailureMessage(event, failure, labelById));
+      }
+      // No classifier available (should not happen on the authoring path) — name just the
+      // selected sources, the same fallback Home Purchase's own gate falls back to.
+      const counted = affordability.sources
+        .map((s) => `${s.label} (${dollars(s.balanceCents)})`)
+        .join(", ");
+      const taxNote = affordability.taxed
+        ? " (after the capital-gains tax on liquidating the selected investment sources)"
+        : "";
+      return fail(
+        event,
+        `spend of ${dollars(event.amountCents)} exceeds the ${dollars(affordability.availableCents)} available from the selected sources${taxNote} at month ${event.month}. Selected sources: ${counted}.`,
+      );
     }
     return ok;
   },
