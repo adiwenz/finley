@@ -399,6 +399,14 @@ export function simulateHousehold(
     for (const [category, cents] of Object.entries(settlement.taxByCategoryCents)) {
       if (cents) addCategory(combinedTaxByCategoryCents, category as TaxCategory, cents);
     }
+    // taxBySourceCents is always {} from the ordinary waterfall (income tax is never charged
+    // monthly — see waterfall.ts), so this is really just the settlement's own breakdown; kept
+    // as a merge rather than a plain assignment so a future monthly income-tax charge (were one
+    // ever reintroduced) would combine rather than silently overwrite.
+    const combinedTaxBySourceCents: Record<string, Cents> = { ...taxBySourceCents };
+    for (const [source, cents] of Object.entries(settlement.taxBySourceCents)) {
+      if (cents) combinedTaxBySourceCents[source] = (combinedTaxBySourceCents[source] ?? 0) + cents;
+    }
 
     applyAssetTransfers(state, month);
     compoundAssets(state, month, jurisdiction, ctx);
@@ -446,15 +454,19 @@ export function simulateHousehold(
       withdrawal.liquidDrawdownCents + fundingDraw.principalDrawdownCents + settlementPrincipalCents,
       // Undefined when the jurisdiction declines a breakdown; the app then draws one band.
       combinedTaxByCategoryCents,
-      // The finer per-SOURCE splits, so a chart can band tax by job and show take-home
-      // per source. The settlement itself carries no per-source split (it is a computed
-      // obligation, not an authored income line), so it rides only the scalar/category totals.
+      // SAME-MONTH charge only — always {} (income tax is never charged monthly, see
+      // waterfall.ts) — so a source's `netCashFlowCents` haircut never docks a paycheck for tax
+      // that was actually raised by selling OTHER assets in December.
       taxBySourceCents,
       deferralBySourceCents,
       // Employee payroll tax (FICA) — its own line, already removed from take-home.
       payrollTaxCents,
       // The finer per-SOURCE payroll-tax splits, mirroring `taxBySourceCents`.
       payrollTaxBySourceCents,
+      // DISPLAY-only per-source split for the tax chart: folds in the December settlement's
+      // apportionment of the year's bill back to the real sources that produced it, without
+      // touching the same-month `netCashFlowCents` haircut above.
+      combinedTaxBySourceCents,
       explicitExpenseObligations,
     );
     // The taxable base after this month's explicit draws but BEFORE decumulation, so the

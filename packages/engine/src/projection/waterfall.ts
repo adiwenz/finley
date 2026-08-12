@@ -67,6 +67,7 @@ function applyDeferrals(
   taxableByPerson: Map<string, TaxableByCategory>;
   earnedGrossByPerson: Map<string, TaxableByCategory>;
   sourceEarnedByPerson: Map<string, SourceTaxable[]>;
+  sourceTaxableByPerson: Map<string, SourceTaxable[]>;
   deferralBySource: Map<string, Cents>;
   deferredByPerson: Map<string, Cents>;
   combinedDepositsByPlan: Map<string, Cents>;
@@ -85,6 +86,11 @@ function applyDeferrals(
   // This month's PRE-deferral earned amount per source, unhaircut by any deferral — the
   // weight the payroll-tax breakdown apportions by.
   const sourceEarnedByPerson = new Map<string, SourceTaxable[]>();
+  // POST-deferral per-source taxable weight — mirrors `sourceEarnedByPerson` (payroll's
+  // pre-deferral weight) but for income tax's base, so the December settlement can later
+  // apportion its per-category bill back to the sources that actually produced the year's
+  // taxable income (the same {@link attributeTaxToSources} apportionment payroll uses monthly).
+  const sourceTaxableByPerson = new Map<string, SourceTaxable[]>();
   const deferralBySource = new Map<string, Cents>();
   const deferredByPerson = new Map<string, Cents>();
   const combinedDepositsByPlan = new Map<string, Cents>();
@@ -174,12 +180,21 @@ function applyDeferrals(
     // computeTakeHome}).
     const sourceTaxable = Math.max(0, (src.taxableCents ?? src.waterfallInflowCents) - deferred);
     addCategory(taxableFor(src.ownerId), src.taxCategory, sourceTaxable);
+    if (sourceTaxable > 0) {
+      let taxableList = sourceTaxableByPerson.get(src.ownerId);
+      if (taxableList === undefined) {
+        taxableList = [];
+        sourceTaxableByPerson.set(src.ownerId, taxableList);
+      }
+      taxableList.push({ key: sourceKey, category: src.taxCategory, taxableCents: sourceTaxable });
+    }
   }
   return {
     grossByPerson,
     taxableByPerson,
     earnedGrossByPerson,
     sourceEarnedByPerson,
+    sourceTaxableByPerson,
     deferralBySource,
     deferredByPerson,
     combinedDepositsByPlan,
@@ -476,6 +491,7 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     taxableByPerson,
     earnedGrossByPerson,
     sourceEarnedByPerson,
+    sourceTaxableByPerson,
     deferralBySource,
     deferredByPerson,
     combinedDepositsByPlan,
@@ -513,6 +529,7 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     taxByCategoryCents: {},
     taxBySourceCents: {},
     taxableByPersonCents: taxableByPerson,
+    taxableBySourcePersonCents: sourceTaxableByPerson,
     deferralBySourceCents: Object.fromEntries(deferralBySource),
     deferredByPersonCents: deferredByPerson,
     combinedDepositsByPlanCents: combinedDepositsByPlan,

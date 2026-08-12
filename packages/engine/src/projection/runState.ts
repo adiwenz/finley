@@ -9,7 +9,7 @@ import {
   type SimLiability,
 } from "../liability/liability";
 import type { TaxCategory } from "../money/cashFlowSeries";
-import type { TaxableByCategory } from "./taxAttribution";
+import type { SourceTaxable, TaxableByCategory } from "./taxAttribution";
 import type { BudgetLine } from "../budget/budgetLine";
 import type { SimGoal } from "../goal/goal";
 import type { SharedContributionScheme, SurplusDestination } from "./waterfall";
@@ -103,6 +103,15 @@ export interface SimState {
    * earnedByPersonYear}.
    */
   readonly taxableIncomeByPersonYear: Map<string, TaxableByCategory>;
+  /**
+   * The per-SOURCE breakdown behind {@link taxableIncomeByPersonYear}, keyed the same way
+   * (`${personId}|${year}`) — a sourceKey → running `{category, taxableCents}` map, summed
+   * across every month the source contributed. The December settlement reads this alongside
+   * the category total to apportion its per-category bill back to the sources that produced
+   * it (job, draw, benefit), the same average-rate weighting {@link
+   * import("./taxAttribution").attributeTaxToSources} already uses for payroll tax monthly.
+   */
+  readonly taxableBySourceByPersonYear: Map<string, Map<string, SourceTaxable>>;
   /** Benefit accumulation/claiming reads birthYear + benefitClaimingAge. */
   readonly personsById: ReadonlyMap<string, SimPerson>;
   /**
@@ -222,6 +231,7 @@ export function initSimState(input: HouseholdSimInput): SimState {
     earnedByPersonYear: new Map<string, TaxableByCategory>(),
     combinedDepositsByPlanYear: new Map<string, Cents>(),
     taxableIncomeByPersonYear: new Map<string, TaxableByCategory>(),
+    taxableBySourceByPersonYear: new Map<string, Map<string, SourceTaxable>>(),
     personsById,
     earningsByPerson,
     governmentBenefitBaseByPerson: new Map<string, Cents>(),

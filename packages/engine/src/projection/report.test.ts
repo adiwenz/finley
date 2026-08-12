@@ -194,14 +194,13 @@ describe("buildSimulationReport", () => {
     expect(report.columns.taxCategories).toEqual(expect.arrayContaining(["wages", "ordinaryIncome"]));
   });
 
-  it("charges income tax as a household total, with no per-SOURCE attribution (unlike payroll tax)", () => {
-    // Two jobs for one person, a wages-taxing jurisdiction. Income tax is now an annual
-    // household-level settlement (December only) with no per-source split — `taxBySourceCents`
-    // stays `{}` even in the month real tax is charged, and no source ever appears in
-    // `columns.taxSources`. This mirrors `computeTaxByCategoryCents`'s per-CATEGORY breakdown
-    // (still supported, see the previous test), which is NOT the same thing as attributing tax
-    // back to the individual income source that produced it — that finer split (still done for
-    // payroll tax, see "charges payroll tax on wages..." below) does not exist for income tax.
+  it("attributes December's income tax back to the SOURCES that produced it, by annual taxable weight", () => {
+    // Two jobs for one person, a wages-taxing jurisdiction. Income tax is an annual
+    // household-level settlement (December only), but the bill IS split back to the individual
+    // income sources that produced it — average-rate, by each job's share of the year's taxable
+    // wages (the same proportional policy `attributeTaxToSources` already uses for payroll tax,
+    // applied once at settlement instead of monthly). Every other month stays `{}`: nothing is
+    // charged, and so nothing is attributed, before December.
     const mkJob = (cents: number) =>
       new SimCashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly", taxCategory: "wages" });
     const wagesTax = {
@@ -225,10 +224,14 @@ describe("buildSimulationReport", () => {
     expect(m1.taxCents).toBe(0);
     expect(m1.taxBySourceCents).toEqual({});
     const dec = report.months[11];
-    // $72,000 annual wages (2 jobs × $6,000/mo × 12) → $7,200 tax, but not split by job.
+    // $72,000 annual wages (2 jobs × $6,000/mo × 12) → $7,200 tax, split 2:1 by each job's
+    // annual wage share ($48,000 vs. $24,000).
     expect(dec.taxCents).toBe(dollarsToCents(7200));
-    expect(dec.taxBySourceCents).toEqual({});
-    expect(report.columns.taxSources).toEqual([]);
+    expect(dec.taxBySourceCents).toEqual({
+      "job-a": dollarsToCents(4800),
+      "job-b": dollarsToCents(2400),
+    });
+    expect(report.columns.taxSources).toEqual(expect.arrayContaining(["job-a", "job-b"]));
   });
 
   it("reports an empty breakdown for a zero-tax jurisdiction (nothing to attribute)", () => {

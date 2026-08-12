@@ -29,8 +29,16 @@ import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdic
 import type { TaxCategory } from "../money/cashFlowSeries";
 import type { SimState } from "./runState";
 import { DEFAULT_LIQUIDATION_ORDER } from "./withdrawal";
-import { addCategory, type TaxableByCategory } from "./taxAttribution";
-import { assertPersonTaxBreakdownReconciles } from "./waterfallInvariants";
+import {
+  addCategory,
+  attributeTaxToSources,
+  type SourceTaxable,
+  type TaxableByCategory,
+} from "./taxAttribution";
+import {
+  assertPersonTaxBreakdownReconciles,
+  assertTaxAttributionReconciles,
+} from "./waterfallInvariants";
 
 /** Backstop on the settlement's recursive climb; a realistic bill converges in a few steps. */
 const GROSS_UP_ITERATIONS = 1_000;
@@ -56,6 +64,19 @@ export interface AnnualTaxSettlementResult {
   readonly totalTaxCents: Cents;
   /** Household tax per {@link TaxCategory}, summed across persons. `{}` when nothing is owed. */
   readonly taxByCategoryCents: TaxableByCategory;
+  /**
+   * Household tax per income SOURCE, summed across persons — keyed like {@link
+   * import("./waterfall.types").WaterfallResult.taxBySourceCents} (`sourceId` falling back to
+   * tax category), so the chart that bands tax by source can show WHERE the year's liability
+   * actually came from. Apportioned within each person/category by {@link
+   * attributeTaxToSources} against {@link
+   * import("./runState").SimState.taxableBySourceByPersonYear} (average-rate, not marginal —
+   * the same policy the monthly payroll-tax attribution already uses). A settlement draw's OWN
+   * induced gain is attributed to ITS account, keyed `tax-settlement:<accountId>`, matching
+   * {@link import("./simulate").simulateHousehold}'s reporting bands for the same draws. `{}`
+   * when nothing is owed.
+   */
+  readonly taxBySourceCents: Readonly<Record<string, Cents>>;
   /** Every account sale this settlement made, across every person, in resolution order. */
   readonly draws: readonly SettlementDraw[];
   /** Raised by selling assets — Σ `draws[].grossCents`. */
@@ -69,6 +90,7 @@ export interface AnnualTaxSettlementResult {
 const EMPTY_RESULT: AnnualTaxSettlementResult = {
   totalTaxCents: 0,
   taxByCategoryCents: {},
+  taxBySourceCents: {},
   draws: [],
   raisedCents: 0,
   borrowedCents: 0,
@@ -195,6 +217,7 @@ export function settleAnnualTax(
   let totalRaisedCents = 0;
   let totalShortfallCents = 0;
   const taxByCategoryCents: TaxableByCategory = {};
+  const taxBySourceCents: Record<string, Cents> = {};
   const allDraws: SettlementDraw[] = [];
 
   for (const pid of state.personIds) {
@@ -228,9 +251,29 @@ export function settleAnnualTax(
     for (const [category, cents] of Object.entries(perCategory)) {
       if (cents) addCategory(taxByCategoryCents, category as TaxCategory, cents);
     }
+
+    // The weights `perCategory` apportions against: the year's real sources (a job, a
+    // benefit, an account draw) PLUS this settlement's own induced gains, keyed per account so
+    // a sale the settlement itself made reads as its own band rather than vanishing into
+    // whichever real source shares its category.
+    const sourceWeights: SourceTaxable[] = [
+      ...(state.taxableBySourceByPersonYear.get(key)?.values() ?? []),
+    ];
+    for (const draw of draws) {
+      if (draw.gainCents > 0) {
+        sourceWeights.push({
+          key: `tax-settlement:${draw.accountId}`,
+          category: draw.category,
+          taxableCents: draw.gainCents,
+        });
+      }
+    }
+    attributeTaxToSources(perCategory, sourceWeights, taxBySourceCents);
   }
 
   if (totalTaxCents <= 0) return EMPTY_RESULT;
+
+  assertTaxAttributionReconciles(totalTaxCents, taxBySourceCents);
 
   // Assets ran out before the bill did: borrow against the household's shared cascade cards,
   // ascending APR — the same cheapest-first policy `applyShortfallCascade` uses for any other
@@ -253,6 +296,7 @@ export function settleAnnualTax(
   return {
     totalTaxCents,
     taxByCategoryCents,
+    taxBySourceCents,
     draws: allDraws,
     raisedCents: totalRaisedCents,
     borrowedCents,

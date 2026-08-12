@@ -1,6 +1,6 @@
 import type { Cents } from "../money/money";
 import type { TaxCategory } from "../money/cashFlowSeries";
-import type { TaxableByCategory } from "./taxAttribution";
+import type { SourceTaxable, TaxableByCategory } from "./taxAttribution";
 import type { IncomeSourceCategory } from "./simulate.types";
 import type { SimGoal } from "../goal/goal";
 
@@ -194,6 +194,17 @@ export interface WaterfallResult {
    * regardless of which month each dollar landed in.
    */
   readonly taxableByPersonCents: ReadonlyMap<string, TaxableByCategory>;
+  /**
+   * The per-SOURCE breakdown behind {@link taxableByPersonCents} — the same POST-deferral
+   * taxable amount, but kept per source (job, draw, benefit) instead of collapsed into a
+   * category total. The caller folds this into its OWN year-to-date per-source accumulator
+   * (mirroring how {@link taxableByPersonCents} folds into the category one), so the December
+   * settlement can apportion its per-category bill back to the real sources that produced the
+   * year's taxable income — the same average-rate {@link
+   * import("./taxAttribution").attributeTaxToSources} apportionment payroll tax already uses
+   * monthly, just applied once, annually. A source contributing nothing this month is absent.
+   */
+  readonly taxableBySourcePersonCents: ReadonlyMap<string, readonly SourceTaxable[]>;
   /**
    * Pre-tax deferral per income SOURCE (keyed like {@link taxBySourceCents}), summed across
    * the household, so a consumer can compute a source's take-home (gross − deferral − tax).

@@ -180,6 +180,23 @@ export function allocateMonth(
     }
   }
 
+  // The per-SOURCE mirror of the fold above — same running total, kept by source instead of
+  // category, so the December settlement can apportion its per-category bill back to the
+  // sources that actually produced it.
+  for (const [pid, sources] of result.taxableBySourcePersonCents) {
+    const key = `${pid}|${ctx.year}`;
+    let running = state.taxableBySourceByPersonYear.get(key);
+    if (running === undefined) {
+      running = new Map();
+      state.taxableBySourceByPersonYear.set(key, running);
+    }
+    for (const s of sources) {
+      const existing = running.get(s.key);
+      if (existing === undefined) running.set(s.key, { ...s });
+      else running.set(s.key, { ...existing, taxableCents: existing.taxableCents + s.taxableCents });
+    }
+  }
+
   // Contributions go back so the caller can unwind any unfundable slice after the cascade.
   return {
     taxCents: result.taxCents,
