@@ -1,10 +1,8 @@
 /**
- * PROJECTED KNOWN annual taxable income — the base the year's estimated federal income-tax
- * instalments are sized from: what compiled plan data already schedules for the year, read at
- * its start. Running the funding waterfall here to price a withdrawal's taxable slice would be a
- * second simulation of the year, so waterfall-dependent income is instead discovered as it
- * happens and settled against {@link import("./runState").SimState.taxableIncomeByPersonYear},
- * the authoritative base, in the year-end reconciliation.
+ * Projects the annual taxable income knowable from compiled plan data without running the
+ * stateful funding waterfall, sizing the year's estimated federal income-tax instalments.
+ * Waterfall-dependent taxable income is discovered during simulation and reconciled at year end
+ * against {@link import("./runState").SimState.taxableIncomeByPersonYear}, the authoritative base.
  */
 
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
@@ -28,9 +26,8 @@ export interface TaxYearProjectionInput {
   readonly incomeSeries: readonly SimOwnedSeries[];
   readonly benefitColaRate: number;
   /**
-   * This month's already-built non-withdrawal sources. Reality, not a re-derivation: it is
-   * where the year's RMD (issued once, in this very month) and this month's accrued interest
-   * enter the projection, so neither has to be predicted from account state.
+   * This month's already-built non-withdrawal sources — reality, not a re-derivation. The year's
+   * RMD is issued once, in this very month, so it arrives here rather than being predicted.
    */
   readonly openingMonthSources: readonly IncomeSourceMonth[];
   /** Each person's remaining annual deferral room as the year opens. */
@@ -39,8 +36,8 @@ export interface TaxYearProjectionInput {
 
 /**
  * The year's estimated federal income-tax liability per person. Call ONCE, at the tax year's
- * first processed month; the result is held for the rest of the year so every installment
- * comes from the same estimate.
+ * first processed month; the result is held for the rest of the year, so every instalment comes
+ * from the same estimate and no already-simulated month is ever revised.
  */
 export function projectKnownTaxYear(
   input: TaxYearProjectionInput,
