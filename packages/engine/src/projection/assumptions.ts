@@ -37,6 +37,17 @@ export const MODEL_ASSUMPTIONS: readonly ModelAssumption[] = [
       "plan unfinanceable even while investment balances remain.",
   },
   {
+    id: "incomeTaxPaidAsEvenEstimates",
+    text:
+      "Federal income tax is worked out on your whole year's income, but paid in twelve " +
+      "equal monthly instalments sized on the income the plan already knows is coming — " +
+      "your pay, pensions, benefits and required withdrawals. Money the plan could not have " +
+      "predicted, such as selling investments to fund a house or a one-off cost, is not " +
+      "part of those instalments: the tax on it is settled in December, so that month can " +
+      "show a larger payment (or a refund, if the instalments overshot). The year always " +
+      "costs the same in total; only the timing within it is an approximation.",
+  },
+  {
     id: "retirementAgeExtendsContinuationJob",
     text:
       "Every job is authored with its own end date, and your plan's projection uses exactly " +

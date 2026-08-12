@@ -127,6 +127,16 @@ export interface WaterfallInput {
     annualEarnedByCategory: Partial<Record<TaxCategory, Cents>>,
   ) => Partial<Record<TaxCategory, Cents>>;
   /**
+   * This person's ESTIMATED federal income-tax payment for this month — an even twelfth of the
+   * year's estimated liability, already priced by the caller ({@link
+   * import("./federalIncomeTax").estimatedPaymentForMonth}). Deducted from take-home like any
+   * other withholding.
+   *
+   * A FIXED figure, deliberately not a function of this month's income: income tax is annual,
+   * and the waterfall sees one month. Absent → no income tax charged.
+   */
+  readonly estimatedIncomeTaxCents?: (personId: string) => Cents;
+  /**
    * A person's year-to-date earned gross by category BEFORE this month — the base the
    * cumulative payroll figure builds on. Absent → nothing earned yet this year. Only
    * consulted when {@link computePayrollTaxCents} is present.
@@ -151,11 +161,10 @@ export interface WaterfallInput {
 
 export interface WaterfallResult {
   /**
-   * Federal income tax is NEVER charged here: the waterfall settles it once, annually, at
-   * December (see {@link import("../jurisdiction/jurisdiction").Jurisdiction.computeTaxCents}'s
-   * ANNUAL contract) — this field, and {@link taxByCategoryCents}/{@link taxBySourceCents},
-   * are always `0`/`{}` from every ordinary month's waterfall. {@link taxableByPersonCents} is
-   * what a caller folds into the year's running accumulator instead.
+   * The federal income tax charged this month, summed across persons: Σ of the ESTIMATED
+   * installments {@link WaterfallInput.estimatedIncomeTaxCents} supplied, never a figure this
+   * waterfall priced. The liability itself is annual — {@link taxableByPersonCents} is what a
+   * caller folds into the year's running accumulator, and December reconciles the two.
    */
   readonly taxCents: Cents;
   /**
@@ -182,16 +191,16 @@ export interface WaterfallResult {
    * WaterfallInput.priorEarnedByPersonCents} is current. A person with no income is absent.
    */
   readonly earnedThisMonthByPersonCents: ReadonlyMap<string, TaxableByCategory>;
-  /** Always `{}` — see {@link taxCents}. */
+  /** Always `{}`: the caller priced the installment, so it owns the split — see {@link taxCents}. */
   readonly taxByCategoryCents: Partial<Record<TaxCategory, Cents>>;
-  /** Always `{}` — see {@link taxCents}. */
+  /** Always `{}` — see {@link taxByCategoryCents}. */
   readonly taxBySourceCents: Readonly<Record<string, Cents>>;
   /**
-   * This month's taxable income by {@link TaxCategory}, per person — POST-deferral, the exact
-   * base federal income tax would be charged on if it were charged this month (it isn't). The
-   * caller folds this into its year-to-date accumulator (mirroring {@link
-   * earnedThisMonthByPersonCents}), so the December settlement reads the complete year's total
-   * regardless of which month each dollar landed in.
+   * This month's taxable income by {@link TaxCategory}, per person — POST-deferral. NOT the
+   * base of {@link taxCents}, which is an installment on the whole year's estimate: the caller
+   * folds this into its year-to-date accumulator (mirroring {@link
+   * earnedThisMonthByPersonCents}), so the December reconciliation reads the complete year's
+   * ACTUAL total regardless of which month each dollar landed in.
    */
   readonly taxableByPersonCents: ReadonlyMap<string, TaxableByCategory>;
   /**

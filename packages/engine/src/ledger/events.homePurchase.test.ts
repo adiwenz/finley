@@ -934,8 +934,9 @@ describe("HomePurchaseEvent — investment-funded down payment is NOT grossed up
     expect(at.propertyValuesCents.house1).toBe(PRICE);
     expect(at.liabilityBalancesCents["house1-mortgage"]).toBe(FINANCED);
 
-    // December (month 23) settles the year's accumulated taxable income — including this
-    // purchase's realized gain — exactly once. THAT is where net worth first diverges.
+    // December (month 23) reconciles the year's accumulated taxable income — including this
+    // purchase's realized gain, which no estimate could have predicted — exactly once. THAT is
+    // where net worth first diverges.
     const settled = taxed.months[23];
     expect(settled.flows!.taxCents).toBeGreaterThan(0);
     expect(settled.netWorthNominalCents!).toBeLessThan(untaxed.months[23].netWorthNominalCents!);
@@ -982,7 +983,7 @@ describe("HomePurchaseEvent — authoring-time affordability sizes on the down p
   it("reports no shortfall from a source that covers the down payment but would owe tax on its gain", () => {
     // $50k basis grown 24 months at 10%/yr clears $60k — the affordability gate never asks
     // whether the household could ALSO prepay the tax on the resulting gain; that tax is the
-    // December settlement's problem, not this purchase's.
+    // December reconciliation's problem, not this purchase's.
     const base = baseWithAccounts([liquidAcct("brokerage", 5_000_000, 0.1)]);
     const buy = purchase({ month: 24, downPaymentSourceIds: ["brokerage"] });
     expect(affordabilityOf(emptyLedger, base, buy, nullJurisdiction).shortfallCents).toBe(0);

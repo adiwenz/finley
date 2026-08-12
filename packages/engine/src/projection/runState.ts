@@ -10,6 +10,7 @@ import {
 } from "../liability/liability";
 import type { TaxCategory } from "../money/cashFlowSeries";
 import type { SourceTaxable, TaxableByCategory } from "./taxAttribution";
+import type { EstimatedTaxYear, FederalTaxPayment } from "./federalIncomeTax";
 import type { BudgetLine } from "../budget/budgetLine";
 import type { SimGoal } from "../goal/goal";
 import type { SharedContributionScheme, SurplusDestination } from "./waterfall";
@@ -93,14 +94,15 @@ export interface SimState {
    */
   readonly combinedDepositsByPlanYear: Map<string, Cents>;
   /**
-   * Cumulative taxable income by category, per person per calendar year, keyed
+   * ACTUAL cumulative taxable income by category, per person per calendar year, keyed
    * `${personId}|${year}` — every dollar of wages, RMD, benefit, interest accrual, or
    * realized investment gain that becomes taxable THIS person's income, folded in the month
-   * it occurs. Federal income tax is never charged against this running total mid-year (see
-   * {@link Jurisdiction.computeTaxCents}'s ANNUAL contract): the December settlement step
-   * reads the complete year's total once, at year-end, and that single read is the ONLY
-   * consumer. Resets naturally each January as the key's year rolls over, mirroring {@link
-   * earnedByPersonYear}.
+   * it occurs. The AUTHORITATIVE base of the year's liability, and the only one: December
+   * prices the year off this complete total (see {@link Jurisdiction.computeTaxCents}'s ANNUAL
+   * contract), so the month a dollar landed in never moves the final tax. Contrast {@link
+   * estimatedFederalTaxByPersonYear}, priced off scheduled income before the year runs and
+   * used only to pace payments. Resets naturally each January as the key's year rolls over,
+   * mirroring {@link earnedByPersonYear}.
    */
   readonly taxableIncomeByPersonYear: Map<string, TaxableByCategory>;
   /**
@@ -112,6 +114,24 @@ export interface SimState {
    * import("./taxAttribution").attributeTaxToSources} already uses for payroll tax monthly.
    */
   readonly taxableBySourceByPersonYear: Map<string, Map<string, SourceTaxable>>;
+  /**
+   * The tax year's ESTIMATED federal income-tax liability per person, keyed
+   * `${personId}|${year}` and priced ONCE at the year's first processed month off the taxable
+   * income already scheduled to occur that year ({@link
+   * import("./taxYearProjection").projectKnownTaxYear}). Held for the whole year so every
+   * month's installment comes from the same estimate — re-pricing mid-year from what has
+   * happened so far is the year-to-date annualization this model exists to avoid. Absent for a
+   * person whose scheduled income owes nothing.
+   */
+  readonly estimatedFederalTaxByPersonYear: Map<string, EstimatedTaxYear>;
+  /**
+   * Federal income tax already PAID this calendar year, per person, keyed
+   * `${personId}|${year}` — the running sum of the monthly estimated installments, with the
+   * category and source splits the tax chart bands on. December charges (or refunds) only
+   * `actual annual tax − this`, so the year's total charge always lands on the actual
+   * liability however far the estimate missed.
+   */
+  readonly federalTaxPaidByPersonYear: Map<string, FederalTaxPayment>;
   /** Benefit accumulation/claiming reads birthYear + benefitClaimingAge. */
   readonly personsById: ReadonlyMap<string, SimPerson>;
   /**
@@ -232,6 +252,8 @@ export function initSimState(input: HouseholdSimInput): SimState {
     combinedDepositsByPlanYear: new Map<string, Cents>(),
     taxableIncomeByPersonYear: new Map<string, TaxableByCategory>(),
     taxableBySourceByPersonYear: new Map<string, Map<string, SourceTaxable>>(),
+    estimatedFederalTaxByPersonYear: new Map<string, EstimatedTaxYear>(),
+    federalTaxPaidByPersonYear: new Map<string, FederalTaxPayment>(),
     personsById,
     earningsByPerson,
     governmentBenefitBaseByPerson: new Map<string, Cents>(),

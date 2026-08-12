@@ -133,8 +133,8 @@ describe("buildSimulationReport", () => {
     // The null jurisdiction taxes nothing — the row still exists, reading 0.
     expect(buildSimulationReport(baseInput(), nullJurisdiction).months[0].taxCents).toBe(0);
 
-    // Flat 10%, charged ONCE at December (month 11, the year's last processed month) on the
-    // FULL year's taxable income — never monthly. $3,000/mo × 12 = $36,000 wages → $3,600 tax.
+    // Flat 10% on the FULL year's taxable income, paid as twelve even instalments.
+    // $3,000/mo × 12 = $36,000 wages → $3,600 for the year, $300 a month.
     const flatTax = {
       ...nullJurisdiction,
       computeTaxCents: (byCategory: Record<string, number>) =>
@@ -150,12 +150,11 @@ describe("buildSimulationReport", () => {
       },
     };
     const report = buildSimulationReport(baseInput(), flatTax as typeof nullJurisdiction);
-    // Every non-December month charges nothing, no matter how much taxable income occurred.
-    expect(report.months[0].taxCents).toBe(0);
-    expect(report.months[10].taxCents).toBe(0);
-    // December: $3,600 tax on the full year's $36,000 of wages, deducted from savings on top
-    // of the year's $12,000 of banked surplus ($1,000/mo × 12): 10000 + 12000 − 3600 = 18400.
-    expect(report.months[11].taxCents).toBe(dollarsToCents(3600));
+    // Every month charges the same twelfth — December included, so the chart has no sawtooth.
+    for (const month of report.months) expect(month.taxCents).toBe(dollarsToCents(300));
+    // The year still costs exactly $3,600, deducted from savings alongside the year's $12,000
+    // of banked surplus ($1,000/mo × 12): 10000 + 12000 − 3600 = 18400.
+    expect(report.months.reduce((s, m) => s + m.taxCents, 0)).toBe(dollarsToCents(3600));
     expect(report.months[11].accountBalancesCents.savings).toBe(dollarsToCents(10000 + 12000 - 3600));
   });
 
@@ -169,7 +168,7 @@ describe("buildSimulationReport", () => {
   it("carries the jurisdiction's per-category tax breakdown, summing to taxCents", () => {
     // A jurisdiction that taxes AND splits: flat 10%, half to wages, half to ordinaryIncome.
     // The report carries the split, and its Σ must equal the scalar `taxCents` take-home
-    // already used — the invariant. Only December (month 11) charges anything.
+    // already used — the invariant, on every month's instalment.
     const splittingTax = {
       ...nullJurisdiction,
       computeTaxCents: (byCategory: Record<string, number>) =>
@@ -181,26 +180,22 @@ describe("buildSimulationReport", () => {
       },
     };
     const report = buildSimulationReport(baseInput(), splittingTax as typeof nullJurisdiction);
-    const m1 = report.months[1];
-    expect(m1.taxCents).toBe(0);
-    expect(m1.taxByCategoryCents).toEqual({});
-    const dec = report.months[11];
-    expect(dec.taxCents).toBe(dollarsToCents(3600)); // 10% of the full year's $36,000 wages
-    expect(dec.taxByCategoryCents).toBeDefined();
-    const split = dec.taxByCategoryCents!;
-    const sum = Object.values(split).reduce((s: number, c) => s + (c ?? 0), 0);
-    expect(sum).toBe(dec.taxCents);
+    for (const month of report.months) {
+      const split = month.taxByCategoryCents;
+      expect(split).toBeDefined();
+      expect(Object.values(split!).reduce((s: number, c) => s + (c ?? 0), 0)).toBe(month.taxCents);
+    }
+    // 10% of the full year's $36,000 wages, split across the twelve months.
+    expect(report.months.reduce((s, m) => s + m.taxCents, 0)).toBe(dollarsToCents(3600));
     // The union of categories is exposed for the stacked-chart column layout.
     expect(report.columns.taxCategories).toEqual(expect.arrayContaining(["wages", "ordinaryIncome"]));
   });
 
-  it("attributes December's income tax back to the SOURCES that produced it, by annual taxable weight", () => {
-    // Two jobs for one person, a wages-taxing jurisdiction. Income tax is an annual
-    // household-level settlement (December only), but the bill IS split back to the individual
-    // income sources that produced it — average-rate, by each job's share of the year's taxable
-    // wages (the same proportional policy `attributeTaxToSources` already uses for payroll tax,
-    // applied once at settlement instead of monthly). Every other month stays `{}`: nothing is
-    // charged, and so nothing is attributed, before December.
+  it("attributes income tax back to the SOURCES that produced it, by annual taxable weight", () => {
+    // Two jobs for one person, a wages-taxing jurisdiction. The liability is annual, but each
+    // month's instalment is split back to the individual income sources behind it —
+    // average-rate, by each job's share of the year's taxable wages (the same proportional
+    // policy `attributeTaxToSources` already uses for payroll tax).
     const mkJob = (cents: number) =>
       new SimCashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly", taxCategory: "wages" });
     const wagesTax = {
@@ -220,17 +215,16 @@ describe("buildSimulationReport", () => {
       }),
       wagesTax as typeof nullJurisdiction,
     );
-    const m1 = report.months[1];
-    expect(m1.taxCents).toBe(0);
-    expect(m1.taxBySourceCents).toEqual({});
-    const dec = report.months[11];
-    // $72,000 annual wages (2 jobs × $6,000/mo × 12) → $7,200 tax, split 2:1 by each job's
-    // annual wage share ($48,000 vs. $24,000).
-    expect(dec.taxCents).toBe(dollarsToCents(7200));
-    expect(dec.taxBySourceCents).toEqual({
-      "job-a": dollarsToCents(4800),
-      "job-b": dollarsToCents(2400),
-    });
+    // $72,000 annual wages (2 jobs × $6,000/mo × 12) → $7,200 for the year, $600 a month, split
+    // 2:1 by each job's annual wage share ($48,000 vs. $24,000) — every month, December
+    // included, since nothing unscheduled ever arrives to reconcile.
+    for (const month of report.months) {
+      expect(month.taxCents).toBe(dollarsToCents(600));
+      expect(month.taxBySourceCents).toEqual({
+        "job-a": dollarsToCents(400),
+        "job-b": dollarsToCents(200),
+      });
+    }
     expect(report.columns.taxSources).toEqual(expect.arrayContaining(["job-a", "job-b"]));
   });
 

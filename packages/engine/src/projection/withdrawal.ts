@@ -25,10 +25,10 @@ export interface WithdrawalState {
  * Default liquidation order, keyed by an account's {@link
  * import("../plan/simAccount").SimAccountTaxProfile.withdrawalCategory} — earlier is drawn
  * first. `capitalGains` leads (least tax friction under a preferential-rate regime),
- * `taxExempt` last to preserve tax-free growth. No gross-up happens here — this is an
- * ordinary mid-year decumulation, and federal income tax settles once, annually, in
- * December (see {@link import("../jurisdiction/jurisdiction").Jurisdiction.computeTaxCents}'s
- * ANNUAL contract) — so the order ranks accounts by preference alone, not by gross-up cost.
+ * `taxExempt` last to preserve tax-free growth. No gross-up happens here — an ordinary
+ * mid-year decumulation's own tax is settled with the rest of the year's, in December (see
+ * {@link import("../jurisdiction/jurisdiction").Jurisdiction.computeTaxCents}'s ANNUAL
+ * contract) — so the order ranks accounts by preference alone, not by gross-up cost.
  */
 export const DEFAULT_LIQUIDATION_ORDER: readonly TaxCategory[] = [
   "capitalGains",
@@ -62,14 +62,18 @@ function isLiquidatable(account: SimAccount, state: WithdrawalState): boolean {
 }
 
 /**
- * Single-pass total of this month's non-withdrawal income (wages, benefit, RMD): no tax is
- * subtracted — federal income tax is never charged mid-year (see the module doc) — so the
- * gross IS the net cash reaching the household.
+ * Single-pass net of this month's non-withdrawal income (wages, benefit, RMD): the gross, less
+ * the federal income-tax installment the allocation waterfall will charge on it. Sizing the
+ * gap gross would leave exactly the installment uncovered every month, pushing a household
+ * with a thin cash buffer onto credit rather than selling the investments it holds.
  */
-function estimateNetIncome(sources: readonly IncomeSourceMonth[]): Cents {
+function estimateNetIncome(
+  sources: readonly IncomeSourceMonth[],
+  estimatedIncomeTaxCents: Cents,
+): Cents {
   let grossTotal = 0;
   for (const src of sources) grossTotal += src.waterfallInflowCents;
-  return grossTotal;
+  return grossTotal - estimatedIncomeTaxCents;
 }
 
 /**
@@ -79,10 +83,10 @@ function estimateNetIncome(sources: readonly IncomeSourceMonth[]): Cents {
  *
  * NEED-based, not a safe-withdrawal rate: `gap = obligations − non-withdrawal net income`,
  * less the liquid buffer spent first. Each draw sells EXACTLY `need` (capped at the account's
- * balance) — no gross-up: this is an ORDINARY mid-year obligation, and federal income tax is
- * never charged against it here (see the module doc). The realized gain still rides
- * `taxableCents` on the returned source, so it reaches the caller's annual accumulator; it is
- * simply not netted out of the draw itself.
+ * balance) — no gross-up: the tax this draw's own gain causes is not charged here, or in any
+ * other month, but folded into the year's actual taxable income and settled in December. The
+ * realized gain still rides `taxableCents` on the returned source, so it reaches the caller's
+ * annual accumulator; it is simply not netted out of the draw itself.
  *
  * No double-withdraw against RMDs: their sources already sit in `nonWithdrawalSources` and
  * their forced draw already reduced these balances, so total pre-tax drawn settles at
@@ -125,8 +129,9 @@ export function buildWithdrawalSources(
   obligationsCents: Cents,
   ctx: JurisdictionContext,
   liquidationOrder: readonly TaxCategory[] = DEFAULT_LIQUIDATION_ORDER,
+  estimatedIncomeTaxCents: Cents = 0,
 ): WithdrawalPlan {
-  const netIncomeCents = estimateNetIncome(nonWithdrawalSources);
+  const netIncomeCents = estimateNetIncome(nonWithdrawalSources, estimatedIncomeTaxCents);
 
   const gap = obligationsCents - netIncomeCents;
   if (gap <= 0) return { sources: [], liquidDrawdownCents: 0, decumulationDraws: [] };

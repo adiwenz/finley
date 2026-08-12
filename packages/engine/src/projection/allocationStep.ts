@@ -3,7 +3,13 @@ import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdic
 import type { TaxCategory } from "../money/cashFlowSeries";
 import { orderBudgetLines, resolveBudgetLineMonthlyCents } from "../budget/budgetLine";
 import { runWaterfall, type IncomeSourceMonth } from "./waterfall";
-import { addCategory } from "./taxAttribution";
+import { addCategory, type TaxableByCategory } from "./taxAttribution";
+import { assertTaxAttributionReconciles } from "./waterfallInvariants";
+import {
+  addFederalTaxPayment,
+  NO_FEDERAL_TAX_PAID,
+  type FederalTaxPayment,
+} from "./federalIncomeTax";
 import type { SimState } from "./runState";
 import type { SimOwnedSeries } from "./simulate.types";
 
@@ -30,6 +36,28 @@ export function buildIncomeSources(
 }
 
 /**
+ * A person's remaining pre-tax deferral room for `ctx.year` — the jurisdiction's (possibly
+ * age-banded) limit less what they have already deferred. `Infinity` when the jurisdiction caps
+ * nothing. Shared with the tax-year projection, which has to take the same deferrals out of
+ * scheduled wages to estimate the year's taxable income.
+ */
+export function remainingDeferralRoomCents(
+  state: SimState,
+  jurisdiction: Jurisdiction,
+  ctx: JurisdictionContext,
+  personId: string,
+): number {
+  const limit = jurisdiction.retirementDeferralLimitCents;
+  if (limit === undefined) return Infinity;
+  const birthYear = state.personsById.get(personId)?.birthYear;
+  const capCents = limit({
+    year: ctx.year,
+    age: birthYear === undefined ? undefined : ctx.year - birthYear,
+  });
+  return Math.max(0, capCents - (state.deferredByPersonYear.get(`${personId}|${ctx.year}`) ?? 0));
+}
+
+/**
  * Step 3/6: route this month's income through the allocation waterfall, apply the
  * per-account deposits, then charge any uncovered obligation as a deficit on the first
  * liquid account so the cascade (next) drains liquid assets before reaching for credit.
@@ -46,12 +74,20 @@ export function allocateMonth(
   jurisdiction: Jurisdiction,
   sharedObligationCents: Cents,
   month: number,
+  estimatedTaxPayments: ReadonlyMap<string, FederalTaxPayment>,
 ): {
   taxCents: Cents;
   payrollTaxCents: Cents;
   payrollTaxBySourceCents: Readonly<Record<string, Cents>>;
   taxByCategoryCents: Partial<Record<TaxCategory, Cents>> | undefined;
-  taxBySourceCents: Readonly<Record<string, Cents>> | undefined;
+  /**
+   * The month's estimated income-tax installment apportioned back to the sources whose
+   * scheduled income it was sized from — a genuine same-month figure, since the installment
+   * really was deducted from this month's take-home. December's reconciliation is NOT in here:
+   * that one is raised by selling assets, so docking it off the month's paychecks would read as
+   * though those sources earned nothing.
+   */
+  taxBySourceCents: Readonly<Record<string, Cents>>;
   deferralBySourceCents: Readonly<Record<string, Cents>>;
   contributions: readonly { accountId: string; monthlyCents: Cents }[];
   /** The pre-cascade shortfall this month posted to the liquid account (obligations + contributions). */
@@ -59,9 +95,8 @@ export function allocateMonth(
   /** The obligation-only slice of `shortfallCents` — see {@link WaterfallResult.obligationShortfallCents}. */
   obligationShortfallCents: Cents;
 } {
-  // Per person, not per household: the jurisdiction may band the limit on the individual's
-  // age. No birth year → the un-banded limit.
-  const deferralLimit = jurisdiction.retirementDeferralLimitCents;
+  // Per plan, but banded on the individual's age — the jurisdiction may raise the limit with
+  // it. No birth year → the un-banded limit.
   const combinedLimit = jurisdiction.combinedPlanDepositLimitCents;
   /** Age in `ctx.year`; `undefined` when the person has no birth year to band on. */
   const ageOf = (pid: string): number | undefined => {
@@ -96,6 +131,9 @@ export function allocateMonth(
     goalFundMonthlyRate: (id) => accountsById.get(id)?.getMonthlyRateAt(month) ?? 0,
     accountBalanceCents: (id) => state.assetBalances.get(id) ?? 0,
     liquidAccountId: state.liquidAccount?.id ?? null,
+    // An even twelfth of the year's estimated liability, priced before the year ran. Fixed for
+    // the month: the waterfall must never re-derive income tax from the income in front of it.
+    estimatedIncomeTaxCents: (pid) => estimatedTaxPayments.get(pid)?.totalCents ?? 0,
     // Absent seam → no payroll tax; the waterfall then leaves take-home untouched.
     computePayrollTaxCents: jurisdiction.computePayrollTaxCents
       ? (earnedByCategory) => jurisdiction.computePayrollTaxCents!(earnedByCategory, ctx)
@@ -108,12 +146,7 @@ export function allocateMonth(
     // Year-to-date earned gross BEFORE this month, so the seam's cumulative figure — and its
     // wage-base cap — build on the running total, not a single month.
     priorEarnedByPersonCents: (pid) => state.earnedByPersonYear.get(`${pid}|${ctx.year}`) ?? {},
-    remainingDeferralRoomCents: (pid) => {
-      if (deferralLimit === undefined) return Infinity;
-      const limit = deferralLimit({ year: ctx.year, age: ageOf(pid) });
-      const used = state.deferredByPersonYear.get(`${pid}|${ctx.year}`) ?? 0;
-      return Math.max(0, limit - used);
-    },
+    remainingDeferralRoomCents: (pid) => remainingDeferralRoomCents(state, jurisdiction, ctx, pid),
     // Age comes from the person; the accumulator is keyed by the plan.
     remainingCombinedDepositRoomCents: (pid, planKey) => {
       if (combinedLimit === undefined) return Infinity;
@@ -165,9 +198,9 @@ export function allocateMonth(
     );
   }
 
-  // Fold this month's taxable income into the year-to-date accumulator — UNCHARGED. Federal
-  // income tax is never levied here; the December settlement reads this running total once,
-  // at year-end, so the month a dollar landed in never changes the final annual liability.
+  // Fold this month's taxable income into the year-to-date accumulator. What the month CHARGED
+  // is an installment on the year's estimate, unrelated to this figure; December reads the
+  // complete total once, so the month a dollar landed in never changes the annual liability.
   for (const [pid, taxable] of result.taxableByPersonCents) {
     const key = `${pid}|${ctx.year}`;
     let running = state.taxableIncomeByPersonYear.get(key);
@@ -181,8 +214,8 @@ export function allocateMonth(
   }
 
   // The per-SOURCE mirror of the fold above — same running total, kept by source instead of
-  // category, so the December settlement can apportion its per-category bill back to the
-  // sources that actually produced it.
+  // category, so December can apportion its per-category bill back to the sources that
+  // actually produced it.
   for (const [pid, sources] of result.taxableBySourcePersonCents) {
     const key = `${pid}|${ctx.year}`;
     let running = state.taxableBySourceByPersonYear.get(key);
@@ -197,13 +230,33 @@ export function allocateMonth(
     }
   }
 
+  // Record what was just charged, so December reconciles against the real running total rather
+  // than re-deriving "twelve installments" and missing a year that started mid-estimate.
+  const taxByCategoryCents: TaxableByCategory = {};
+  const taxBySourceCents: Record<string, Cents> = {};
+  for (const [pid, payment] of estimatedTaxPayments) {
+    if (payment.totalCents === 0) continue;
+    const key = `${pid}|${ctx.year}`;
+    state.federalTaxPaidByPersonYear.set(
+      key,
+      addFederalTaxPayment(state.federalTaxPaidByPersonYear.get(key) ?? NO_FEDERAL_TAX_PAID, payment),
+    );
+    for (const [category, cents] of Object.entries(payment.byCategoryCents)) {
+      if (cents) addCategory(taxByCategoryCents, category as TaxCategory, cents);
+    }
+    for (const [source, cents] of Object.entries(payment.bySourceCents)) {
+      if (cents) taxBySourceCents[source] = (taxBySourceCents[source] ?? 0) + cents;
+    }
+  }
+  assertTaxAttributionReconciles(result.taxCents, taxBySourceCents);
+
   // Contributions go back so the caller can unwind any unfundable slice after the cascade.
   return {
     taxCents: result.taxCents,
     payrollTaxCents: result.payrollTaxCents,
     payrollTaxBySourceCents: result.payrollTaxBySourceCents,
-    taxByCategoryCents: result.taxByCategoryCents,
-    taxBySourceCents: result.taxBySourceCents,
+    taxByCategoryCents,
+    taxBySourceCents,
     deferralBySourceCents: result.deferralBySourceCents,
     contributions,
     shortfallCents: result.shortfallCents,

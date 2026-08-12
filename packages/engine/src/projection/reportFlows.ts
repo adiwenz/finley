@@ -37,16 +37,14 @@ const SAVINGS_DRAWDOWN_LABEL = "Savings drawdown";
  * `deferralBySourceCents` ride through pre-computed — attribution is the jurisdiction's call.
  * The per-source maps are keyed by the SAME `sourceId ?? taxCategory` the income side bands on.
  *
- * `taxBySourceCents` also haircuts each source's `netCashFlowCents` (this month's SAME-month
- * charge), so it must stay same-month-true — always `{}` under the annual settlement, since
- * income tax is never charged in the month it's earned. `reportedTaxBySourceCents` is the
- * DISPLAY figure `flows.taxBySourceCents` returns instead (defaulting to `taxBySourceCents`
- * when absent): the December settlement's apportionment of the year's bill back to the sources
- * that produced it, for the tax chart alone. Splitting the two keeps a source's per-month
- * take-home honest — attributing a whole year's tax onto the one month it happens to be BILLED
- * would read as though that source earned nothing, when in fact the tax was raised by selling
- * OTHER assets ({@link import("./annualTaxSettlement").SettlementDraw}), not by docking that
- * month's paycheck.
+ * `taxBySourceCents` also haircuts each source's `netCashFlowCents`, so it must stay
+ * same-month-true: income tax's monthly estimated installment belongs there, December's
+ * reconciliation does not. `reportedTaxBySourceCents` is the DISPLAY figure
+ * `flows.taxBySourceCents` returns instead (defaulting to `taxBySourceCents` when absent),
+ * which folds the reconciliation back in for the tax chart. Splitting the two keeps a source's
+ * per-month take-home honest — attributing a settlement onto the one month it is BILLED would
+ * read as though that source earned nothing, when in fact the tax was raised by selling OTHER
+ * assets ({@link import("./annualTaxSettlement").SettlementDraw}), not by docking a paycheck.
  */
 export function buildFlows(
   incomeSources: readonly IncomeSourceMonth[],

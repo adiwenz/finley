@@ -424,8 +424,10 @@ describe("OneTimeSpendEvent — investment-funded spend is NOT grossed up for fe
     // Gain + returned principal conserves to exactly the amount spent — no gross-up inflated it.
     expect((gainBand?.cashInflowCents ?? 0) + (drawdownBand?.cashInflowCents ?? 0)).toBe(SPEND);
 
-    // ...but not charged until December (month 11) — and since this household holds no cash
-    // reserve, settling the bill itself requires selling MORE of the appreciated brokerage,
+    // ...but never charged before December: the year's estimated payments are paced off
+    // SCHEDULED income, and a funding draw is not scheduled income — nothing predicts it. So
+    // it all lands in the reconciliation, and since this household holds no cash reserve,
+    // settling that bill itself requires selling MORE of the appreciated brokerage,
     // which realizes additional gain and recursively enlarges the bill past the naive 30% of
     // the spend's own gain alone (the one place gross-up still applies).
     const december = series.months[11].flows!;

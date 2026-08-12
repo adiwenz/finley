@@ -273,11 +273,11 @@ describe("runWaterfall — pre-tax deferrals (step 1)", () => {
   });
 });
 
-describe("runWaterfall — no federal income tax (seam 1 — settled annually elsewhere)", () => {
-  it("take-home is gross minus deferral only — no income tax is charged here, ever", () => {
-    // Federal income tax is an annual liability settled once in December (see
-    // annualTaxSettlement.ts), never charged inside the waterfall itself — this is true
-    // regardless of category, deferral, or amount.
+describe("runWaterfall — federal income tax is never PRICED here, only charged when supplied", () => {
+  it("take-home is gross minus deferral when the caller supplies no estimated instalment", () => {
+    // The waterfall never derives income tax from the income in front of it: the liability is
+    // annual, and only the caller knows the year. With no instalment supplied, nothing is
+    // charged — regardless of category, deferral, or amount.
     const r = runWaterfall(
       makeInput({
         incomeSources: [
@@ -297,7 +297,24 @@ describe("runWaterfall — no federal income tax (seam 1 — settled annually el
     expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(4000));
   });
 
-  it("carries the month's taxable base back to the caller, uncharged, for the annual accumulator", () => {
+  it("deducts the caller's estimated instalment as a FIXED amount, unrelated to the month's income", () => {
+    const instalment = dollarsToCents(700);
+    const withIncome = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(5000))],
+        estimatedIncomeTaxCents: () => instalment,
+      }),
+    );
+    expect(withIncome.taxCents).toBe(instalment);
+    expect(withIncome.accountDepositsCents.get("checking")).toBe(dollarsToCents(4300));
+    // The same instalment in a month with NO income at all: an annual liability is paid on its
+    // own schedule, so a zero-income month still owes it and the gap falls to the cascade.
+    const noIncome = runWaterfall(makeInput({ estimatedIncomeTaxCents: () => instalment }));
+    expect(noIncome.taxCents).toBe(instalment);
+    expect(noIncome.shortfallCents).toBe(instalment);
+  });
+
+  it("carries the month's taxable base back to the caller, unrelated to what it charged", () => {
     const r = runWaterfall(
       makeInput({
         incomeSources: [
@@ -309,7 +326,7 @@ describe("runWaterfall — no federal income tax (seam 1 — settled annually el
         ],
       }),
     );
-    // Post-deferral taxable base — the raw gross the December seam will later apply its own
+    // Post-deferral taxable base — the raw gross the year-end seam will later apply its own
     // inclusion %/brackets to; the waterfall itself never touches it.
     expect(r.taxableByPersonCents.get("p1")).toEqual({
       governmentRetirementBenefit: dollarsToCents(2000),

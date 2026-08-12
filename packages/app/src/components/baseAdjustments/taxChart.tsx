@@ -138,12 +138,11 @@ export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) 
   // On the shared months-from-now axis; a flow chart, so the today slot stays empty (no tax is
   // paid at "now") and the bands start at end-of-month-0, aligned with the charts above.
   //
-  // Every band gets an EXPLICIT 0 in a month it didn't charge, rather than an absent key: tax is
-  // levied once a year, so once the last monthly-recurring band (payroll tax) stops — a job
-  // ending — every remaining band (RMDs, benefits) is present in December alone and absent the
-  // other eleven months. Recharts' stacked-area geometry silently stops drawing a stack made
-  // entirely of such all-or-nothing series if some points omit the key outright; a real (zeroed)
-  // value at every point keeps every series continuous and the stack rendering.
+  // Every band gets an EXPLICIT 0 in a month it didn't charge, rather than an absent key: a
+  // December reconciliation's own bands appear in that one month and nowhere else. Recharts'
+  // stacked-area geometry silently stops drawing a stack made entirely of such all-or-nothing
+  // series if some points omit the key outright; a real (zeroed) value at every point keeps
+  // every series continuous and the stack rendering.
   const rows = useMemo(
     () =>
       data.rows.map((r) => {

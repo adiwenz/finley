@@ -86,8 +86,9 @@ export {
 
 export const usJurisdiction: Jurisdiction = {
   id: "US-2026",
-  // ANNUAL in, ANNUAL out — the engine calls this once per person per year on the year's
-  // actual accumulated taxable income (the December settlement), never a monthly slice.
+  // ANNUAL in, ANNUAL out — the engine calls this on a whole year of taxable income, never a
+  // monthly slice: on the year's scheduled income to pace its estimated payments, and on its
+  // actual income to reconcile them in December.
   computeTaxCents: (annualByCategory, ctx) => federalAnnualTaxCents(annualByCategory, ctx.year),
   computeTaxByCategoryCents: (annualByCategory, ctx) =>
     federalAnnualTaxByCategoryCents(annualByCategory, ctx.year),

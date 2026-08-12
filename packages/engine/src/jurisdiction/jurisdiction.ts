@@ -82,11 +82,13 @@ export interface Jurisdiction {
    * jurisdiction owns what share of each is taxed, and at what rate.
    *
    * ANNUAL in, ANNUAL out: `taxableByCategory` is a FULL CALENDAR YEAR of taxable income by
-   * category — never a monthly slice. Federal income tax is settled once, at year-end, on the
-   * year's actual accumulated total (see {@link import("../projection/runState").SimState}'s
-   * annual taxable-income accumulator); the engine owns collecting that total, this seam only
-   * prices it. Calling it on anything less than a full year's figures (a monthly slice, an
-   * annualized ×12 estimate) misprices lumpy income — the engine never does this.
+   * category — never a monthly slice. The engine calls it twice a year: once on the income the
+   * year is SCHEDULED to bring, to pace twelve even estimated payments, and once at year-end
+   * on the year's ACTUAL accumulated total, to reconcile against them (see {@link
+   * import("../projection/runState").SimState}'s two accumulators). The engine owns collecting
+   * both totals and all payment timing; this seam only prices a year. Calling it on anything
+   * less than a full year (a monthly slice, an annualized ×12 estimate) misprices lumpy income
+   * — the engine never does this.
    */
   computeTaxCents(
     taxableByCategory: Partial<Record<TaxCategory, Cents>>,
@@ -102,7 +104,7 @@ export interface Jurisdiction {
    * enforced at runtime to the exact cent (`assertPersonTaxBreakdownReconciles`).
    *
    * Required; no tax → `{}`. Reporting only — the scalar {@link computeTaxCents} stays the
-   * December settlement's recursive gross-up climb's marginal-tax probe.
+   * year-end settlement's recursive gross-up climb's marginal-tax probe.
    */
   computeTaxByCategoryCents(
     taxableByCategory: Partial<Record<TaxCategory, Cents>>,
