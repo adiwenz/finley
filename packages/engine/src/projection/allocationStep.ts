@@ -3,6 +3,7 @@ import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdic
 import type { TaxCategory } from "../money/cashFlowSeries";
 import { orderBudgetLines, resolveBudgetLineMonthlyCents } from "../budget/budgetLine";
 import { runWaterfall, type IncomeSourceMonth } from "./waterfall";
+import { addCategory } from "./taxAttribution";
 import type { SimState } from "./runState";
 import type { SimOwnedSeries } from "./simulate.types";
 
@@ -95,11 +96,6 @@ export function allocateMonth(
     goalFundMonthlyRate: (id) => accountsById.get(id)?.getMonthlyRateAt(month) ?? 0,
     accountBalanceCents: (id) => state.assetBalances.get(id) ?? 0,
     liquidAccountId: state.liquidAccount?.id ?? null,
-    computeTaxCents: (taxableByCategory) => jurisdiction.computeTaxCents(taxableByCategory, ctx),
-    // Required of every jurisdiction (a zero-tax one returns `{}`); `runWaterfall` enforces
-    // that a tax-charging month reconciles per source.
-    computeTaxByCategoryCents: (taxableByCategory) =>
-      jurisdiction.computeTaxByCategoryCents(taxableByCategory, ctx),
     // Absent seam → no payroll tax; the waterfall then leaves take-home untouched.
     computePayrollTaxCents: jurisdiction.computePayrollTaxCents
       ? (earnedByCategory) => jurisdiction.computePayrollTaxCents!(earnedByCategory, ctx)
@@ -167,6 +163,21 @@ export function allocateMonth(
       key,
       (state.combinedDepositsByPlanYear.get(key) ?? 0) + amount,
     );
+  }
+
+  // Fold this month's taxable income into the year-to-date accumulator — UNCHARGED. Federal
+  // income tax is never levied here; the December settlement reads this running total once,
+  // at year-end, so the month a dollar landed in never changes the final annual liability.
+  for (const [pid, taxable] of result.taxableByPersonCents) {
+    const key = `${pid}|${ctx.year}`;
+    let running = state.taxableIncomeByPersonYear.get(key);
+    if (running === undefined) {
+      running = {};
+      state.taxableIncomeByPersonYear.set(key, running);
+    }
+    for (const [category, cents] of Object.entries(taxable)) {
+      if (cents) addCategory(running, category as TaxCategory, cents);
+    }
   }
 
   // Contributions go back so the caller can unwind any unfundable slice after the cascade.

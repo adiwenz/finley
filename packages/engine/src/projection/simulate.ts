@@ -1,5 +1,6 @@
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
 import type { Cents } from "../money/money";
+import type { TaxCategory } from "../money/cashFlowSeries";
 import { accumulateEarnings, buildGovernmentBenefitSources } from "./governmentBenefit";
 import { buildRmdSources } from "./rmd";
 import { buildWithdrawalSources, DEFAULT_LIQUIDATION_ORDER } from "./withdrawal";
@@ -30,6 +31,8 @@ import {
   allocateMonth,
   unwindUnfundedContributions,
 } from "./allocationStep";
+import { settleAnnualTax } from "./annualTaxSettlement";
+import { addCategory } from "./taxAttribution";
 
 // Re-exported so importers (and the engine barrel in index.ts) keep resolving the
 // simulator's public types through ./simulate. `SimPerson` is OMITTED: it is an
@@ -263,7 +266,10 @@ export function simulateHousehold(
       fundingDraw.taxableByOwnerAfter,
     );
     const incomeSources = [...nonWithdrawalSources, ...withdrawal.sources];
-    const allocationSources = [...incomeSources, ...fundingDraw.taxSources];
+    // The explicit draws' realized gain is net-neutral cash-wise (no gross-up sold it) but
+    // still taxable — `gainSources` carries it in so it reaches `allocateMonth`'s taxable
+    // pool and the year's accumulator, settled once in December.
+    const allocationSources = [...incomeSources, ...fundingDraw.gainSources];
 
     const {
       taxCents,
@@ -285,9 +291,9 @@ export function simulateHousehold(
     const cascadeCardBalancesBeforeCents = new Map(
       state.cascadeCards.map((card) => [card.id, state.liabilityBalances.get(card.id) ?? 0]),
     );
-    // Nothing — savings or credit — could absorb this: the terminal flag.
+    // Nothing — savings or credit — could absorb this: the terminal flag (before the annual
+    // settlement below adds its own, if this is a year's last processed month).
     const uncoveredCents = applyShortfallCascade(state, month);
-    const isInsolvent = uncoveredCents > 0;
     // What the cascade actually moved onto a card this month, in real cents — ground truth for
     // the "credit" layer below, independent of any estimate.
     const borrowedOntoCreditCents = state.cascadeCards.reduce(
@@ -370,6 +376,22 @@ export function simulateHousehold(
       ...resolveFundingAttribution(obligations, supply),
     ];
 
+    // Annual settlement — a no-op every month except the year's last processed one. By now
+    // this month's own income has already folded into `state.taxableIncomeByPersonYear` (see
+    // `allocateMonth`, above), so the base this reads is the year's complete taxable income
+    // regardless of which month each dollar landed in. Sells from each person's own accounts
+    // (recursively grossed up — the one place that still happens), then borrows against the
+    // household's shared credit cards for any remainder; what neither covers folds into this
+    // month's insolvency below, exactly like any other unfundable obligation.
+    const settlement = settleAnnualTax(state, jurisdiction, ctx, month);
+    const finalUncoveredCents = uncoveredCents + settlement.uncoveredCents;
+    const finalIsInsolvent = finalUncoveredCents > 0;
+    const combinedTaxCents = taxCents + settlement.totalTaxCents;
+    const combinedTaxByCategoryCents = { ...taxByCategoryCents };
+    for (const [category, cents] of Object.entries(settlement.taxByCategoryCents)) {
+      if (cents) addCategory(combinedTaxByCategoryCents, category as TaxCategory, cents);
+    }
+
     applyAssetTransfers(state, month);
     compoundAssets(state, month, jurisdiction, ctx);
     advanceLiabilities(state, month, appliedLiabilityPayments, suppressedLiabilityIds);
@@ -385,22 +407,39 @@ export function simulateHousehold(
     const explicitExpenseObligations = state.fundingDraws.filter(
       (o) => o.month === month && o.treatment === "expense",
     );
+    // The settlement's own account sales, reported the same way a funding draw's are:
+    // reporting-only gain bands, and their returned principal folded into the savings
+    // drawdown so a December settlement funded from savings isn't invisible in the chart.
+    const settlementGainSources = settlement.draws
+      .filter((d) => d.gainCents > 0)
+      .map((d) => ({
+        ownerId: d.ownerId,
+        waterfallInflowCents: 0,
+        cashInflowCents: d.gainCents,
+        taxCategory: d.category,
+        taxableCents: 0,
+        sourceId: `tax-settlement:${d.accountId}`,
+        label: d.label,
+      }));
+    const settlementPrincipalCents = settlement.draws.reduce((s, d) => s + d.principalCents, 0);
     const bands = buildFlows(
       // The down-payment gain bands are reporting-only: `cashInflowCents` the gain, no
       // waterfall inflow — its tax already rode the net-neutral source through allocation.
-      [...incomeSources, ...fundingDraw.gainSources],
-      taxCents,
+      [...incomeSources, ...fundingDraw.gainSources, ...settlementGainSources],
+      combinedTaxCents,
       // The very list the waterfall funded above — expenses, debt and per-line rollups all
       // derive from it, so none can drift from the funded amount.
       obligations,
       // The withdrawal channel's liquid-buffer drawdown PLUS a down payment's returned
-      // principal (and any cash source's whole draw) — one `savingsDrawdown` source, so a
-      // month spent from savings isn't a zero band.
-      withdrawal.liquidDrawdownCents + fundingDraw.principalDrawdownCents,
+      // principal (and any cash source's whole draw) PLUS the settlement's own returned
+      // principal — one `savingsDrawdown` source, so a month spent from savings isn't a zero
+      // band.
+      withdrawal.liquidDrawdownCents + fundingDraw.principalDrawdownCents + settlementPrincipalCents,
       // Undefined when the jurisdiction declines a breakdown; the app then draws one band.
-      taxByCategoryCents,
+      combinedTaxByCategoryCents,
       // The finer per-SOURCE splits, so a chart can band tax by job and show take-home
-      // per source.
+      // per source. The settlement itself carries no per-source split (it is a computed
+      // obligation, not an authored income line), so it rides only the scalar/category totals.
       taxBySourceCents,
       deferralBySourceCents,
       // Employee payroll tax (FICA) — its own line, already removed from take-home.
@@ -430,14 +469,18 @@ export function simulateHousehold(
         // year of inflation by a twelfth, every month, all the way out.
         elapsedMonths: month + 1,
         annualInflationRate: input.annualInflationRate,
-        isInsolvent,
-        uncoveredCents,
+        // Folds in the annual settlement's own shortfall (assets AND credit both exhausted
+        // trying to pay the year's tax bill) — a no-op every month except one that just ran
+        // the settlement, so this is identical to the ordinary `uncoveredCents`/`isInsolvent`
+        // everywhere else.
+        isInsolvent: finalIsInsolvent,
+        uncoveredCents: finalUncoveredCents,
         priorInsolvency,
         liabilityPaymentRecords: paymentRecords,
         flows,
       }),
     );
-    if (isInsolvent) priorInsolvency = true;
+    if (finalIsInsolvent) priorInsolvency = true;
 
     // Truncate at the first blocked month: it ran to completion (income, tax, cascade, compounding
     // above) with only the blocking obligation and its artifacts omitted, and its net worth is a

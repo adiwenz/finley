@@ -1,9 +1,5 @@
 import type { Cents, TaxCategory } from "@finley/engine";
-import { federalTaxParts, annualizeByCategory, type FederalTaxParts } from "./federalTaxCore";
-
-// annualizeByCategory lives in ./federalTaxCore (a neutral ×12 helper, not attribution
-// logic); re-exported here to preserve its former import path.
-export { annualizeByCategory } from "./federalTaxCore";
+import { federalTaxParts, type FederalTaxParts } from "./federalTaxCore";
 
 /**
  * Distribute integer-cents `totalCents` across `entries` (`[category, weight]` pairs) in
@@ -76,22 +72,4 @@ export function federalAnnualTaxByCategoryCents(
 ): Partial<Record<TaxCategory, Cents>> {
   const parts = federalTaxParts(annualByCategory, year);
   return attributeFederalTax(parts.totalCents, parts);
-}
-
-/**
- * The engine's per-category tax seam for the US single filer, taking MONTHLY amounts. Σ
- * equals {@link computeFederalTaxCents} for the same slice EXACTLY. Method and limitation:
- * {@link attributeFederalTax}. The only per-category entry point `index.ts` wires into
- * {@link usJurisdiction}.
- */
-export function computeFederalTaxByCategoryCents(
-  monthlyByCategory: Partial<Record<TaxCategory, Cents>>,
-  year: number,
-): Partial<Record<TaxCategory, Cents>> {
-  const parts = federalTaxParts(annualizeByCategory(monthlyByCategory), year);
-  // Apportion the MONTHLY total (== computeFederalTaxCents) by the annual weights — identical
-  // ratios monthly vs. annual — so Σ(breakdown) === the scalar the waterfall charged, not a
-  // separately-rounded figure.
-  const monthlyTotal = Math.round(parts.totalCents / 12);
-  return attributeFederalTax(monthlyTotal, parts);
 }

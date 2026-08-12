@@ -27,23 +27,16 @@ export interface WithdrawalState {
  * Default liquidation order, keyed by an account's {@link
  * import("../plan/simAccount").SimAccountTaxProfile.withdrawalCategory} — earlier is drawn
  * first. `capitalGains` leads (least tax friction under a preferential-rate regime),
- * `taxExempt` last to preserve tax-free growth. Every category is grossed up to net its
- * need, so the order ranks them by gross-up cost, not by which are taxed at all.
+ * `taxExempt` last to preserve tax-free growth. No gross-up happens here — this is an
+ * ordinary mid-year decumulation, and federal income tax settles once, annually, in
+ * December (see {@link import("../jurisdiction/jurisdiction").Jurisdiction.computeTaxCents}'s
+ * ANNUAL contract) — so the order ranks accounts by preference alone, not by gross-up cost.
  */
 export const DEFAULT_LIQUIDATION_ORDER: readonly TaxCategory[] = [
   "capitalGains",
   "ordinaryIncome",
   "taxExempt",
 ];
-
-/**
- * Backstop on the gross-up climb. Set high because exhausting it fails QUIETLY: the draw
- * lands light and the shortfall rides to next month. Each step closes the gap by the
- * marginal rate, so `usJurisdiction` (max rate 0.6845, the 1.85x Social Security "torpedo"
- * against the 37% bracket) settles in 37 steps on a $10k need, 56 on $10M; a 0.9-rate seam
- * would want ~200.
- */
-const GROSS_UP_ITERATIONS = 1_000;
 
 function liquidationRankMap(order: readonly TaxCategory[]): Partial<Record<TaxCategory, number>> {
   const map: Partial<Record<TaxCategory, number>> = {};
@@ -76,14 +69,14 @@ function addCategory(map: TaxableByCategory, category: TaxCategory, amount: Cent
 }
 
 /**
- * Single-pass estimate of this month's after-tax income from non-withdrawal sources
- * (wages, benefit, RMD): tax is the sum of each owner's tax on their taxable-by-category
- * map. Deferrals are ignored — decumulation has none, and the residual self-corrects in
- * the liquid buffer next month. The returned taxable bases seed the gross-up.
+ * Single-pass total of this month's non-withdrawal income (wages, benefit, RMD): no tax is
+ * subtracted — federal income tax is never charged mid-year (see the module doc) — so the
+ * gross IS the net cash reaching the household. The taxable bases are still returned; the
+ * caller stacks decumulation's own realized gains on top of them into the shared per-owner
+ * base the month's explicit draws already started.
  */
 function estimateNetIncome(
   sources: readonly IncomeSourceMonth[],
-  computeTaxCents: (taxableByCategory: TaxableByCategory) => Cents,
 ): { netIncomeCents: Cents; taxableByOwner: Map<string, TaxableByCategory> } {
   let grossTotal = 0;
   const taxableByOwner = new Map<string, TaxableByCategory>();
@@ -100,27 +93,20 @@ function estimateNetIncome(
     }
     addCategory(map, src.taxCategory, src.taxableCents ?? src.waterfallInflowCents);
   }
-  let taxTotal = 0;
-  for (const taxable of taxableByOwner.values()) taxTotal += computeTaxCents(taxable);
-  return { netIncomeCents: grossTotal - taxTotal, taxableByOwner };
+  return { netIncomeCents: grossTotal, taxableByOwner };
 }
 
 /**
  * Result of the decumulation channel, which runs BEFORE the waterfall alongside {@link
  * import("./rmd").buildRmdSources}: it pulls cash from investment accounts (mutating
- * `assetBalances`) and re-injects it as income, taxed once at the chokepoint.
+ * `assetBalances`) and re-injects it as income.
  *
  * NEED-based, not a safe-withdrawal rate: `gap = obligations − non-withdrawal net income`,
- * less the liquid buffer spent first. Each draw is grossed up to the least fixed point of
- * `gross = need + inducedTax(gross)`, netting the need exactly — inverting an implied rate
- * (`need / (1 − rate)`) assumes tax scales proportionally and falls short against a bracket at
- * `offset + rate × draw`.
- *
- * Two limits, latent under `usJurisdiction`. The climb assumes MONOTONICITY, so an EITC-shaped
- * credit phasing in over the draw leaves it returning whatever it held at the iteration
- * budget. And it only sizes UP: under a notch (Australia's Medicare Levy Surcharge taxes the
- * whole return once crossed) drawing LESS can be better, but this channel crosses it and may
- * empty the account.
+ * less the liquid buffer spent first. Each draw sells EXACTLY `need` (capped at the account's
+ * balance) — no gross-up: this is an ORDINARY mid-year obligation, and federal income tax is
+ * never charged against it here (see the module doc). The realized gain still rides
+ * `taxableCents` on the returned source, so it reaches the caller's annual accumulator; it is
+ * simply not netted out of the draw itself.
  *
  * No double-withdraw against RMDs: their sources already sit in `nonWithdrawalSources` and
  * their forced draw already reduced these balances, so total pre-tax drawn settles at
@@ -165,13 +151,8 @@ export function buildWithdrawalSources(
   liquidationOrder: readonly TaxCategory[] = DEFAULT_LIQUIDATION_ORDER,
   priorTaxableByOwner?: ReadonlyMap<string, TaxableByCategory>,
 ): WithdrawalPlan {
-  const computeTaxCents = (taxable: TaxableByCategory): Cents =>
-    jurisdiction.computeTaxCents(taxable, ctx);
-
-  const { netIncomeCents, taxableByOwner: incomeTaxableByOwner } = estimateNetIncome(
-    nonWithdrawalSources,
-    computeTaxCents,
-  );
+  const { netIncomeCents, taxableByOwner: incomeTaxableByOwner } =
+    estimateNetIncome(nonWithdrawalSources);
 
   // Explicit obligations resolve first, so any gains they realized already sit in the month's
   // taxable base; decumulation stacks its own gains ON TOP, bearing the higher marginal bracket.
@@ -220,43 +201,23 @@ export function buildWithdrawalSources(
         { grossCents: draw, basisCents: basis, balanceCents: balance, category: withdrawalCategory },
         ctx,
       ) ?? draw;
-    // Difference the tax over the WHOLE return, not the draw's own-category rate: a
-    // gains/tax-exempt draw can read as 0% alone yet still raise the return's tax by
-    // pulling a benefit into provisional-income taxability. Only the gain is booked to the
-    // taxable map; the full gross is still paid out as take-home below.
+    // Sell exactly `need`, capped at the balance — no gross-up. Only the gain is booked to
+    // the taxable map (fed to the caller's annual accumulator); the full gross is still paid
+    // out as take-home below, and no tax is netted out of it.
     const base = taxableByOwner.get(account.ownerId) ?? {};
-    const withDraw = (draw: Cents): TaxableByCategory => ({
+    const gross = Math.min(balance, need);
+    const gainCents = gainOf(gross);
+    const withDraw: TaxableByCategory = {
       ...base,
-      [withdrawalCategory]: (base[withdrawalCategory] ?? 0) + gainOf(draw),
-    });
-    const baseTax = computeTaxCents(base);
-    const inducedTax = (draw: Cents): Cents => computeTaxCents(withDraw(draw)) - baseTax;
-    // Sizing is circular — the tax depends on the draw, the draw must cover the tax — so
-    // climb to the least fixed point of `gross = need + inducedTax(gross)`. Rising from
-    // `need` stops at the first solution, the cheapest liquidation that nets it. Iterate
-    // rather than invert: `computeTaxCents` is a jurisdiction-supplied black box.
-    let gross = Math.min(balance, need);
-    for (let i = 0; i < GROSS_UP_ITERATIONS; i++) {
-      const wanted = need + inducedTax(gross);
-      // The account cannot cover its own gross-up: take what is there and let the rest of
-      // the need fall to the next source.
-      if (wanted >= balance) {
-        gross = balance;
-        break;
-      }
-      if (wanted === gross) break;
-      gross = wanted;
-    }
-    const taxOnGross = computeTaxCents(withDraw(gross)) - baseTax;
-    const netDelivered = gross - taxOnGross;
+      [withdrawalCategory]: (base[withdrawalCategory] ?? 0) + gainCents,
+    };
 
     // The rest of the gross is returned principal; reduce basis by it (method-agnostic:
     // gross − taxable).
-    const gainCents = gainOf(gross);
     state.basisByAccount.set(account.id, basis - (gross - gainCents));
     state.assetBalances.set(account.id, balance - gross);
-    taxableByOwner.set(account.ownerId, withDraw(gross));
-    need -= netDelivered;
+    taxableByOwner.set(account.ownerId, withDraw);
+    need -= gross;
     sources.push({
       ownerId: account.ownerId,
       waterfallInflowCents: gross,
@@ -267,16 +228,16 @@ export function buildWithdrawalSources(
       sourceId: account.id,
       label: account.label ?? account.id,
     });
-    // Carry the whole result the gross-up already computed, not a flattened net: `gross − gain`
-    // is the returned basis (the same figure that reduced `basisByAccount` above), and the tax is
-    // the sale's induced tax. Attribution copies these onto the funding source verbatim.
+    // `gross − gain` is the returned basis (the same figure that reduced `basisByAccount`
+    // above); `taxCents` is always 0 and `netDeliveredCents` always equals `gross` — no tax
+    // is charged against an ordinary mid-year draw.
     decumulationDraws.push({
       sourceId: account.id,
       grossWithdrawnCents: gross,
       principalCents: gross - gainCents,
       realizedGainCents: gainCents,
-      taxCents: taxOnGross,
-      netDeliveredCents: netDelivered,
+      taxCents: 0,
+      netDeliveredCents: gross,
     });
   }
 

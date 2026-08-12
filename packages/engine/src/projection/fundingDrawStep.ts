@@ -5,12 +5,15 @@
  * ordered source list — because the split is balance-dependent. Here it is taken, with the
  * pro-rata basis accounting of {@link import("./withdrawal").buildWithdrawalSources}.
  *
- * An account draw is grossed up so what remains after capital-gains tax still covers the payment,
- * and the gain routes through the tax chokepoint (`allocateMonth`) as a net-neutral source.
- * A purchase funded from an appreciated source therefore lowers net worth by the tax paid;
- * a cash source (basis == balance) conserves it. A credit source instead borrows against the
- * card's headroom with no sale and no tax — the discriminated {@link FundingSourceState} lets both
- * walk the one ordered list, so the user's authored order is honoured and never reshuffled.
+ * An account draw sells EXACTLY the amount the obligation needs, capped at the account's
+ * balance — NO gross-up: a home purchase or one-time spend is an ordinary mid-year event, and
+ * federal income tax is never charged against it here (see {@link
+ * import("../jurisdiction/jurisdiction").Jurisdiction.computeTaxCents}'s ANNUAL contract). The
+ * realized gain still stacks onto the running per-owner taxable base — it reaches the year's
+ * accumulator and the December settlement, it is just not netted out of the draw itself. A
+ * credit source instead borrows against the card's headroom with no sale and no gain at all —
+ * the discriminated {@link FundingSourceState} lets both walk the one ordered list, so the
+ * user's authored order is honoured and never reshuffled.
  */
 
 import type { Cents } from "../money/money";
@@ -30,11 +33,8 @@ import type { FundingTreatment } from "./fundingEligibility";
 import { RevolvingCard, SYNTHETIC_CARD_ID } from "../liability/liability";
 
 export type TaxableByCategory = Partial<Record<TaxCategory, Cents>>;
-/** The month's taxable base, per owner — the context a gross-up differences tax over. */
+/** The month's taxable base, per owner — stacks each draw's realized gain as it is taken. */
 export type TaxableByOwner = Map<string, TaxableByCategory>;
-
-/** Backstop on the gross-up climb; a realistic draw converges in about a dozen steps. */
-const GROSS_UP_ITERATIONS = 1_000;
 
 /**
  * An account source: liquidated and grossed up over the capital-gains tax the sale induces, with a
@@ -151,14 +151,15 @@ export function toTaxableRecord(taxableByOwner: TaxableByOwner): Record<string, 
 
 /**
  * Resolve an ordered draw of `amountCents` across `sources` without mutating account state. Each
- * source is taken in turn until the remainder is covered: an account source sells enough that the
- * net (after the tax the sale induces) covers the remainder, floored at what it holds; a credit
- * source borrows the remainder against its headroom (`limit − balance`, clamped at zero; a `null`
- * limit is zero headroom, not unbounded), tax-free. Both walk the ONE ordered list — a
- * `[brokerage, visa]` list sells then borrows, never reordered.
+ * source is taken in turn until the remainder is covered: an account source sells EXACTLY the
+ * remainder, floored at what it holds — no gross-up, this is an ordinary mid-year draw and
+ * federal income tax is never charged against it here; a credit source borrows the remainder
+ * against its headroom (`limit − balance`, clamped at zero; a `null` limit is zero headroom, not
+ * unbounded), tax-free. Both walk the ONE ordered list — a `[brokerage, visa]` list sells then
+ * borrows, never reordered.
  *
- * Account tax is differenced over `taxableByOwner` and each gain stacked onto it, so a second
- * taxable source from the same owner is taxed on top of the first — hence this MUTATES
+ * An account sale's realized gain still stacks onto `taxableByOwner`, so a second taxable
+ * source from the same owner reports its gain on top of the first — hence this MUTATES
  * `taxableByOwner` (pass a copy to probe). A credit borrow realizes nothing and stacks nothing.
  *
  * Shared with the affordability reporter (`fundingLookup.availabilityAt`), so the reported
@@ -171,9 +172,6 @@ export function resolveOrderedFundingDraw(
   ctx: JurisdictionContext,
   taxableByOwner: TaxableByOwner,
 ): OrderedFundingDrawResult {
-  const computeTaxCents = (taxable: TaxableByCategory): Cents =>
-    jurisdiction.computeTaxCents(taxable, ctx);
-
   const perSource: ResolvedFundingSource[] = [];
   let remaining = amountCents;
 
@@ -215,40 +213,19 @@ export function resolveOrderedFundingDraw(
     const basis = Math.max(0, source.basisCents);
     const basisFraction = balance > 0 ? Math.min(1, basis / balance) : 0;
     // The jurisdiction owns return-of-capital policy; absent the seam, fall back to the
-    // pro-rata basis split. Must stay monotone non-decreasing — the climb below relies on it.
+    // pro-rata basis split.
     const gainOf = (gross: Cents): Cents =>
       jurisdiction.taxableWithdrawalCents?.(
         { grossCents: gross, basisCents: basis, balanceCents: balance, category },
         ctx,
       ) ?? gross - Math.round(gross * basisFraction);
 
-    const base = taxableByOwner.get(ownerId) ?? {};
-    const withGain = (gross: Cents): TaxableByCategory => ({
-      ...base,
-      [category]: (base[category] ?? 0) + gainOf(gross),
-    });
-    const baseTax = computeTaxCents(base);
-    const inducedTax = (gross: Cents): Cents => computeTaxCents(withGain(gross)) - baseTax;
-
-    // Least fixed point of `gross = remaining + inducedTax(gross)`, climbed from `remaining`
-    // and capped at the balance — the same solve as the decumulation withdrawal.
-    let gross = Math.min(balance, remaining);
-    for (let i = 0; i < GROSS_UP_ITERATIONS; i++) {
-      const wanted = remaining + inducedTax(gross);
-      // Cannot cover its own gross-up: take what is there, the rest falls to the next source.
-      if (wanted >= balance) {
-        gross = balance;
-        break;
-      }
-      if (wanted === gross) break;
-      gross = wanted;
-    }
-
+    // Sell exactly the remainder, capped at the balance — no gross-up.
+    const gross = Math.min(balance, remaining);
     const gain = gainOf(gross);
-    const tax = computeTaxCents(withGain(gross)) - baseTax;
-    taxableByOwner.set(ownerId, withGain(gross));
-    const netDelivered = gross - tax;
-    remaining -= netDelivered;
+    const base = taxableByOwner.get(ownerId) ?? {};
+    taxableByOwner.set(ownerId, { ...base, [category]: (base[category] ?? 0) + gain });
+    remaining -= gross;
     perSource.push({
       kind: "account",
       id,
@@ -257,9 +234,9 @@ export function resolveOrderedFundingDraw(
       label,
       grossCents: gross,
       gainCents: gain,
-      taxCents: tax,
+      taxCents: 0,
       principalCents: gross - gain,
-      netDeliveredCents: netDelivered,
+      netDeliveredCents: gross,
     });
   }
 
@@ -532,30 +509,18 @@ export function resolveFundingDraws(
       principalDrawdownCents += s.principalCents;
 
       // A zero-gain (cash) source books no band: pure returned principal, surfacing only
-      // through the savings drawdown.
+      // through the savings drawdown. A positive gain is net-neutral cash-wise
+      // (`waterfallInflowCents` 0 — no gross-up, nothing was withheld from the sale) but
+      // still taxABLE: `taxableCents` carries it into `allocateMonth`'s taxable pool so it
+      // reaches the caller's annual accumulator, settled once in December.
       if (s.gainCents > 0) {
         gainSources.push({
           ownerId: s.ownerId,
-          // Reporting-only: buildFlows reads this band, the waterfall never does.
           waterfallInflowCents: 0,
           cashInflowCents: s.gainCents,
           taxCategory: s.category,
-          taxableCents: 0,
-          sourceId: `${prefix}:${s.id}`,
-          label: s.label ?? s.id,
-        });
-      }
-      // Net-neutral: carries the tax slice as cash and books the gain as taxable, so
-      // `allocateMonth` charges exactly `tax` and nets zero. `cashInflowCents` 0 keeps it
-      // out of the income view.
-      if (s.taxCents > 0) {
-        taxSources.push({
-          ownerId: s.ownerId,
-          waterfallInflowCents: s.taxCents,
-          cashInflowCents: 0,
-          taxCategory: s.category,
           taxableCents: s.gainCents,
-          sourceId: `${prefix}-tax:${s.id}`,
+          sourceId: `${prefix}:${s.id}`,
           label: s.label ?? s.id,
         });
       }

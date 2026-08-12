@@ -80,6 +80,13 @@ export interface Jurisdiction {
   /**
    * The single tax chokepoint. Categories arrive whole, never collapsed into one lump: the
    * jurisdiction owns what share of each is taxed, and at what rate.
+   *
+   * ANNUAL in, ANNUAL out: `taxableByCategory` is a FULL CALENDAR YEAR of taxable income by
+   * category — never a monthly slice. Federal income tax is settled once, at year-end, on the
+   * year's actual accumulated total (see {@link import("../projection/runState").SimState}'s
+   * annual taxable-income accumulator); the engine owns collecting that total, this seam only
+   * prices it. Calling it on anything less than a full year's figures (a monthly slice, an
+   * annualized ×12 estimate) misprices lumpy income — the engine never does this.
    */
   computeTaxCents(
     taxableByCategory: Partial<Record<TaxCategory, Cents>>,
@@ -89,7 +96,7 @@ export interface Jurisdiction {
   /**
    * {@link computeTaxCents} broken out per {@link TaxCategory} — the jurisdiction's call,
    * since US tax is not linearly separable by category (progressive brackets, the deduction
-   * stacking onto gains).
+   * stacking onto gains). Same ANNUAL-in contract as {@link computeTaxCents}.
    *
    * CONTRACT: Σ of the returned map MUST equal {@link computeTaxCents} for the same input,
    * enforced at runtime to the exact cent (`assertTaxAttributionReconciles`).

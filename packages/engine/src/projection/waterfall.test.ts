@@ -17,8 +17,6 @@ function makeInput(over: Partial<WaterfallInput>): WaterfallInput {
     goals: [],
     accountBalanceCents: () => 0,
     liquidAccountId: "checking",
-    computeTaxCents: () => 0,
-    computeTaxByCategoryCents: () => ({}), // zero tax → empty breakdown (required seam)
     remainingDeferralRoomCents: () => Infinity,
     remainingCombinedDepositRoomCents: () => Infinity,
     ...over,
@@ -275,9 +273,11 @@ describe("runWaterfall — pre-tax deferrals (step 1)", () => {
   });
 });
 
-describe("runWaterfall — tax seam (seam 1)", () => {
-  it("computeTax is applied per-category to taxable = gross − deferral, not gross", () => {
-    const seen: Array<Partial<Record<string, number>>> = [];
+describe("runWaterfall — no federal income tax (seam 1 — settled annually elsewhere)", () => {
+  it("take-home is gross minus deferral only — no income tax is charged here, ever", () => {
+    // Federal income tax is an annual liability settled once in December (see
+    // annualTaxSettlement.ts), never charged inside the waterfall itself — this is true
+    // regardless of category, deferral, or amount.
     const r = runWaterfall(
       makeInput({
         incomeSources: [
@@ -288,42 +288,16 @@ describe("runWaterfall — tax seam (seam 1)", () => {
             planDescriptor: { deferralFraction: 0.2, fundAccountId: "401k" }, // $1000 deferred
           },
         ],
-        computeTaxCents: (byCat) => {
-          seen.push(byCat);
-          return Math.round((byCat.wages ?? 0) * 0.1);
-        },
-        // Matching breakdown, computed directly so it doesn't pollute `seen`.
-        computeTaxByCategoryCents: (byCat) => {
-          const t = Math.round((byCat.wages ?? 0) * 0.1);
-          return t > 0 ? { wages: t } : {};
-        },
       }),
     );
-    expect(seen).toEqual([{ wages: dollarsToCents(4000) }]);
-    expect(r.taxCents).toBe(dollarsToCents(400));
-    // Take-home = 5000 − 1000 deferral − 400 tax.
-    expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(3600));
+    expect(r.taxCents).toBe(0);
+    expect(r.taxByCategoryCents).toEqual({});
+    expect(r.taxBySourceCents).toEqual({});
+    // Take-home = 5000 − 1000 deferral, no tax subtracted.
+    expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(4000));
   });
 
-  it("non-wage income (no plan descriptor) reaches the seam at its own category, post-deferral", () => {
-    const seen: Array<Partial<Record<string, number>>> = [];
-    const r = runWaterfall(
-      makeInput({
-        incomeSources: [
-          { ownerId: "p1", waterfallInflowCents: dollarsToCents(2000), taxCategory: "governmentRetirementBenefit" },
-        ],
-        computeTaxCents: (byCat) => {
-          seen.push(byCat);
-          return 0;
-        },
-      }),
-    );
-    expect(seen).toEqual([{ governmentRetirementBenefit: dollarsToCents(2000) }]);
-    expect(r.deferredByPersonCents.get("p1") ?? 0).toBe(0);
-  });
-
-  it("passes the full benefit gross to the seam, which owns the inclusion %", () => {
-    const seen: Array<Partial<Record<string, number>>> = [];
+  it("carries the month's taxable base back to the caller, uncharged, for the annual accumulator", () => {
     const r = runWaterfall(
       makeInput({
         incomeSources: [
@@ -333,22 +307,26 @@ describe("runWaterfall — tax seam (seam 1)", () => {
             taxCategory: "governmentRetirementBenefit",
           },
         ],
-        // The jurisdiction applies the 85% inclusion before its 10% rate: 2000 × 0.85 × 0.1.
-        computeTaxCents: (byCat) => {
-          seen.push(byCat);
-          return Math.round((byCat.governmentRetirementBenefit ?? 0) * 0.85 * 0.1);
-        },
-        computeTaxByCategoryCents: (byCat) => {
-          const t = Math.round((byCat.governmentRetirementBenefit ?? 0) * 0.85 * 0.1);
-          return t > 0 ? { governmentRetirementBenefit: t } : {};
-        },
-        liquidAccountId: "checking",
       }),
     );
-    expect(seen).toEqual([{ governmentRetirementBenefit: dollarsToCents(2000) }]);
-    expect(r.taxCents).toBe(dollarsToCents(170));
-    // Take-home is gross − tax: the untaxed 15% is still spendable cash.
-    expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(1830));
+    // Post-deferral taxable base — the raw gross the December seam will later apply its own
+    // inclusion %/brackets to; the waterfall itself never touches it.
+    expect(r.taxableByPersonCents.get("p1")).toEqual({
+      governmentRetirementBenefit: dollarsToCents(2000),
+    });
+    // No cash was withheld against it.
+    expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(2000));
+  });
+
+  it("a person with no income this month still gets an (empty) taxable-base entry", () => {
+    const r = runWaterfall(
+      makeInput({
+        personIds: ["p1", "p2"],
+        incomeSources: [wageSource("p1", dollarsToCents(3000))],
+      }),
+    );
+    expect(r.taxableByPersonCents.get("p1")).toEqual({ wages: dollarsToCents(3000) });
+    expect(r.taxableByPersonCents.get("p2")).toEqual({});
   });
 });
 
@@ -673,167 +651,6 @@ describe("runWaterfall — account contributions", () => {
   });
 });
 
-describe("runWaterfall — per-source tax attribution", () => {
-  const wageJob = (ownerId: string, sourceId: string, waterfallInflowCents: number): IncomeSourceMonth => ({
-    ownerId,
-    waterfallInflowCents,
-    taxCategory: "wages",
-    sourceId,
-  });
-  // Flat 10% on wages plus an agreeing breakdown, so the waterfall can attribute to sources.
-  const flatWageTax = {
-    computeTaxCents: (byCat: Partial<Record<string, number>>) => Math.round((byCat.wages ?? 0) * 0.1),
-    computeTaxByCategoryCents: (byCat: Partial<Record<string, number>>) => {
-      const wagesTax = Math.round((byCat.wages ?? 0) * 0.1);
-      return wagesTax > 0 ? { wages: wagesTax } : {};
-    },
-  };
-
-  it("splits one person's wage tax across their jobs by taxable weight, summing to the total", () => {
-    const r = runWaterfall(
-      makeInput({
-        incomeSources: [
-          wageJob("p1", "job-a", dollarsToCents(6000)),
-          wageJob("p1", "job-b", dollarsToCents(2000)),
-        ],
-        ...flatWageTax,
-      }),
-    );
-    // Total wage tax = 10% of $8000 = $800, split 6000:2000 → $600 / $200.
-    expect(r.taxBySourceCents).toEqual({ "job-a": dollarsToCents(600), "job-b": dollarsToCents(200) });
-    expect(r.taxByCategoryCents).toEqual({ wages: dollarsToCents(800) });
-    const sourceSum = Object.values(r.taxBySourceCents ?? {}).reduce((s, v) => s + v, 0);
-    expect(sourceSum).toBe(r.taxCents); // exact-sum invariant
-  });
-
-  it("splits each person's tax across only their own jobs — no cross-person subsidy", () => {
-    // Progressive stub: 10% to $4000 taxable, 30% above. p1 ($8000) and p2 ($2000) land in
-    // different bands, so their average rates differ and a household-level split by taxable
-    // would misattribute.
-    const progressive = (wages: number) =>
-      Math.round(Math.min(wages, dollarsToCents(4000)) * 0.1 + Math.max(0, wages - dollarsToCents(4000)) * 0.3);
-    const r = runWaterfall(
-      makeInput({
-        personIds: ["p1", "p2"],
-        incomeSources: [
-          wageJob("p1", "job-a", dollarsToCents(8000)),
-          wageJob("p2", "job-b", dollarsToCents(2000)),
-        ],
-        computeTaxCents: (byCat) => progressive(byCat.wages ?? 0),
-        computeTaxByCategoryCents: (byCat) => {
-          const t = progressive(byCat.wages ?? 0);
-          return t > 0 ? { wages: t } : {};
-        },
-      }),
-    );
-    // p1: 4000×10% + 4000×30% = $1600. p2: 2000×10% = $200. Each is a single job, so it
-    // bears exactly its owner's tax (a household split by taxable would give job-a $1440).
-    expect(r.taxBySourceCents).toEqual({ "job-a": dollarsToCents(1600), "job-b": dollarsToCents(200) });
-  });
-
-  it("reports pre-tax deferral per source, keyed like the tax split", () => {
-    const r = runWaterfall(
-      makeInput({
-        incomeSources: [
-          {
-            ownerId: "p1",
-            waterfallInflowCents: dollarsToCents(5000),
-            taxCategory: "wages",
-            sourceId: "job-a",
-            planDescriptor: { deferralFraction: 0.2, fundAccountId: "401k" }, // $1000
-          },
-          wageJob("p1", "job-b", dollarsToCents(2000)),
-        ],
-        ...flatWageTax,
-      }),
-    );
-    expect(r.deferralBySourceCents).toEqual({ "job-a": dollarsToCents(1000) });
-    // job-b defers nothing, so it is simply absent (not a 0 entry).
-    expect(r.deferralBySourceCents["job-b"]).toBeUndefined();
-    // Tax is on taxable = ($5000−$1000) + $2000 = $6000 → $600, split 4000:2000.
-    expect(r.taxBySourceCents).toEqual({ "job-a": dollarsToCents(400), "job-b": dollarsToCents(200) });
-  });
-
-  it("falls back to the tax-category key for a wage source with no sourceId", () => {
-    const r = runWaterfall(
-      makeInput({
-        incomeSources: [{ ownerId: "p1", waterfallInflowCents: dollarsToCents(3000), taxCategory: "wages" }],
-        ...flatWageTax,
-      }),
-    );
-    // No sourceId → keyed by category, matching how the income side bands it.
-    expect(r.taxBySourceCents).toEqual({ wages: dollarsToCents(300) });
-  });
-
-  it("REJECTS a jurisdiction that charges tax but returns an empty breakdown (attribution contract)", () => {
-    // Charging tax while attributing nothing (`{}`) would overstate net take-home by the
-    // un-subtracted tax. Fail loudly, never fall back.
-    expect(() =>
-      runWaterfall(
-        makeInput({
-          incomeSources: [wageJob("p1", "job-a", dollarsToCents(5000))],
-          computeTaxCents: (byCat) => Math.round((byCat.wages ?? 0) * 0.1), // $500
-          computeTaxByCategoryCents: () => ({}),
-        }),
-      ),
-    ).toThrow(/does not reconcile/i);
-  });
-
-  it("REJECTS a breakdown that does not reconcile to taxCents (partial attribution)", () => {
-    // Charges $500, attributes $200 — the missing $300 would vanish from the take-home chart.
-    expect(() =>
-      runWaterfall(
-        makeInput({
-          incomeSources: [wageJob("p1", "job-a", dollarsToCents(5000))],
-          computeTaxCents: (byCat) => Math.round((byCat.wages ?? 0) * 0.1), // $500
-          computeTaxByCategoryCents: () => ({ wages: dollarsToCents(200) }),
-        }),
-      ),
-    ).toThrow(/does not reconcile/i);
-  });
-
-  it("carries an empty breakdown under a jurisdiction that taxes nothing", () => {
-    // taxCents 0 has nothing to attribute, so the breakdown is `{}` — not absent.
-    const r = runWaterfall(
-      makeInput({
-        incomeSources: [wageJob("p1", "job-a", dollarsToCents(5000))],
-        computeTaxCents: () => 0,
-      }),
-    );
-    expect(r.taxCents).toBe(0);
-    expect(r.taxBySourceCents).toEqual({});
-    expect(r.taxByCategoryCents).toEqual({});
-  });
-
-  it("REJECTS offsetting per-person mismatches that would cancel in the household total", () => {
-    // A breakdown off by 1¢ per person in OPPOSITE directions: the errors cancel, so the
-    // household Σ still equals taxCents and that check alone passes.
-    const skewed = {
-      computeTaxCents: (byCat: Partial<Record<string, number>>) =>
-        Math.round(((byCat.wages ?? 0) + (byCat.ordinaryIncome ?? 0)) * 0.1),
-      computeTaxByCategoryCents: (byCat: Partial<Record<string, number>>) => {
-        const out: Partial<Record<string, number>> = {};
-        if (byCat.wages) out.wages = Math.round(byCat.wages * 0.1) + 1; // over by 1¢
-        if (byCat.ordinaryIncome) out.ordinaryIncome = Math.round(byCat.ordinaryIncome * 0.1) - 1; // under by 1¢
-        return out;
-      },
-    };
-    expect(() => assertTaxAttributionReconciles(200_00, { A: 100_01, B: 99_99 })).not.toThrow();
-    expect(() =>
-      runWaterfall(
-        makeInput({
-          personIds: ["A", "B"],
-          incomeSources: [
-            { ownerId: "A", waterfallInflowCents: dollarsToCents(1000), taxCategory: "wages" },
-            { ownerId: "B", waterfallInflowCents: dollarsToCents(1000), taxCategory: "ordinaryIncome" },
-          ],
-          ...skewed,
-        }),
-      ),
-    ).toThrow(/does not reconcile for person/i);
-  });
-});
-
 describe("assertTaxAttributionReconciles (attribution contract)", () => {
   it("throws when the attributed tax does not sum to taxCents", () => {
     expect(() => assertTaxAttributionReconciles(100_00, { "job:a": 60_00 })).toThrow(
@@ -886,73 +703,79 @@ describe("assertPersonTaxBreakdownReconciles (per-person invariant)", () => {
 });
 
 describe("runWaterfall — unfunded deductions (deductions beyond the waterfall's cash → shortfall)", () => {
-  // A savings-interest booking: cash and taxable positive, but waterfallInflowCents 0 because
-  // the account was ALREADY CREDITED. Its tax is a deduction the waterfall has no cash to fund.
-  const interestBooking = (taxableDollars: number, ownerId = "p1"): IncomeSourceMonth => ({
+  // A wages booking already disbursed elsewhere: cash and taxable positive, but
+  // waterfallInflowCents 0. FICA is still owed on it — the waterfall has none of ITS OWN cash
+  // to fund that deduction. Federal income tax can no longer create this scenario (it is never
+  // charged inside the waterfall — see the seam-1 describe above), so payroll tax is now the
+  // one remaining deduction that can exceed a source's own cash and turn into a shortfall.
+  const alreadyPaidWages = (taxableDollars: number, ownerId = "p1"): IncomeSourceMonth => ({
     ownerId,
     waterfallInflowCents: 0,
     cashInflowCents: dollarsToCents(taxableDollars),
-    taxCategory: "ordinaryIncome",
+    taxCategory: "wages",
     taxableCents: dollarsToCents(taxableDollars),
   });
-  const tax20 = (byCat: Partial<Record<string, number>>): number =>
-    Math.round(((byCat.wages ?? 0) + (byCat.ordinaryIncome ?? 0)) * 0.2);
-  const tax20Seam = { computeTaxCents: tax20, computeTaxByCategoryCents: separableBreakdown(tax20) };
+  const flatFica20 = (byCat: Partial<Record<string, number>>): number =>
+    Math.round((byCat.wages ?? 0) * 0.2);
+  const fica20Seam = {
+    computePayrollTaxCents: flatFica20,
+    computePayrollTaxByCategoryCents: separableBreakdown(flatFica20),
+  };
 
   it("turns a deduction larger than the cash reaching the waterfall into a shortfall", () => {
-    // $500 interest taxed 20% → $100 with no cash reaching the waterfall: the $100 is the
-    // whole shortfall (funded downstream by the cascade), not clamped to 0.
-    const r = runWaterfall(makeInput({ incomeSources: [interestBooking(500)], ...tax20Seam }));
-    expect(r.taxCents).toBe(dollarsToCents(100));
+    // $500 already-paid wages, FICA 20% → $100 with no cash reaching the waterfall: the $100
+    // is the whole shortfall (funded downstream by the cascade), not clamped to 0.
+    const r = runWaterfall(makeInput({ incomeSources: [alreadyPaidWages(500)], ...fica20Seam }));
+    expect(r.payrollTaxCents).toBe(dollarsToCents(100));
     expect(r.shortfallCents).toBe(dollarsToCents(100));
     expect(r.accountDepositsCents.size).toBe(0); // no positive cash to place
   });
 
   it("counts the unfunded deduction exactly once, on top of an unmet obligation", () => {
-    // $400 obligation with no cash + the $100 unfunded interest tax → $500, each counted once.
+    // $400 obligation with no cash + the $100 unfunded FICA → $500, each counted once.
     const r = runWaterfall(
       makeInput({
-        incomeSources: [interestBooking(500)],
+        incomeSources: [alreadyPaidWages(500)],
         sharedObligationCents: dollarsToCents(400),
-        ...tax20Seam,
+        ...fica20Seam,
       }),
     );
     expect(r.shortfallCents).toBe(dollarsToCents(500));
   });
 
   it("raises no shortfall when other cash covers the deduction (take-home stays positive)", () => {
-    // Wages $5,000 alongside the $500 interest: tax = 20% × $5,500 = $1,100, take-home
-    // $3,900. The interest tax is absorbed — no unfunded deduction, no shortfall.
+    // Wages $5,000 (cash) alongside the $500 already-paid wages: FICA = 20% × $5,500 =
+    // $1,100, take-home $3,900. The extra FICA is absorbed — no unfunded deduction.
     const r = runWaterfall(
       makeInput({
-        incomeSources: [wageSource("p1", dollarsToCents(5000)), interestBooking(500)],
-        ...tax20Seam,
+        incomeSources: [wageSource("p1", dollarsToCents(5000)), alreadyPaidWages(500)],
+        ...fica20Seam,
       }),
     );
     expect(r.shortfallCents).toBe(0);
     expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(3900));
   });
 
-  it("two-person: one partner's surplus covers the other's interest-tax deficit before any asset", () => {
-    // Shared cash covers the household's TOTAL obligations — including tax owed on cash
+  it("two-person: one partner's surplus covers the other's FICA deficit before any asset", () => {
+    // Shared cash covers the household's TOTAL obligations — including FICA owed on cash
     // credited outside the waterfall — before savings, credit, or insolvency.
-    //   A: $500 savings interest (waterfallInflow 0) taxed 20% → $100 deficit, with no cash
+    //   A: $500 already-paid wages (waterfallInflow 0) FICA 20% → $100 deficit, with no cash
     //      of A's own in the waterfall to pay it.
-    //   B: $3,000 wages taxed 20% → $600, take-home $2,400. Shared obligation: $2,000.
+    //   B: $3,000 wages FICA 20% → $600, take-home $2,400. Shared obligation: $2,000.
     // $2,400 of cash covers $2,100 — financeable from cash alone.
     const r = runWaterfall(
       makeInput({
         personIds: ["A", "B"],
-        incomeSources: [interestBooking(500, "A"), wageSource("B", dollarsToCents(3000))],
+        incomeSources: [alreadyPaidWages(500, "A"), wageSource("B", dollarsToCents(3000))],
         sharedObligationCents: dollarsToCents(2000),
-        ...tax20Seam,
+        ...fica20Seam,
       }),
     );
     expect(r.shortfallCents).toBe(0);
-    // No tax dropped or double-counted: A's $100 + B's $600, each once.
-    expect(r.taxCents).toBe(dollarsToCents(700));
-    // Surplus = cash − obligations − A's interest tax = 2,400 − 2,000 − 100 = 300. ($400 if
-    // A's tax were dropped, $200 if double-counted — $300 pins "exactly once".)
+    // No deduction dropped or double-counted: A's $100 + B's $600, each once.
+    expect(r.payrollTaxCents).toBe(dollarsToCents(700));
+    // Surplus = cash − obligations − A's FICA = 2,400 − 2,000 − 100 = 300. ($400 if A's FICA
+    // were dropped, $200 if double-counted — $300 pins "exactly once".)
     expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(300));
   });
 });

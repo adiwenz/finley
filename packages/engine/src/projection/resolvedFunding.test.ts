@@ -102,7 +102,7 @@ function preTaxAccount(id: string, openingCents: number): SimAccount {
   });
 }
 
-/** 25% flat on ordinary income — a pre-tax liquidation is grossed up against it. */
+/** 25% flat on ordinary income — never withheld from a mid-year pre-tax liquidation here. */
 const flatOrdinaryTax: Jurisdiction = {
   id: "flat-25",
   computeTaxCents: (byCat) => Math.round((byCat.ordinaryIncome ?? 0) * 0.25),
@@ -507,8 +507,10 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
     );
   });
 
-  it("an appreciated pre-tax withdrawal reports gross withdrawn greater than net delivered", () => {
-    // $1000 income, no buffer, $2000 need → a pre-tax liquidation grossed up over 25% tax.
+  it("an appreciated pre-tax withdrawal books gross equal to net — no tax withheld from the sale", () => {
+    // $1000 income, no buffer, $2000 need → a pre-tax liquidation sells exactly the $1000 gap.
+    // flatOrdinaryTax taxes ordinary income at 25%, yet nothing is withheld here: federal income
+    // tax settles once, annually, in December — never against an ordinary mid-year draw.
     const month = run(
       {
         accounts: [cashAccount(0), preTaxAccount("pretax", dollarsToCents(100000))],
@@ -526,8 +528,8 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
     if (source?.withdrawal === undefined) throw new Error("expected a withdrawal breakdown on the account source");
 
     expect(source.amountCents).toBe(source.withdrawal.netDeliveredCents);
-    // Tax is withheld from the sale, so gross sold exceeds the net delivered toward the line.
-    expect(source.withdrawal.grossWithdrawnCents).toBeGreaterThan(source.withdrawal.netDeliveredCents);
+    // No tax withheld from the sale, so gross sold equals the net delivered toward the line.
+    expect(source.withdrawal.grossWithdrawnCents).toBe(source.withdrawal.netDeliveredCents);
     // Gross matches the balance reduction; realized gain is the whole draw (pre-tax basis 0).
     expect(source.withdrawal.grossWithdrawnCents).toBe(
       dollarsToCents(100000) - month.accountBalancesCents["pretax"],
@@ -536,17 +538,20 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
     // Returned principal matches the (zero) basis reduction of a pre-tax account.
     expect(source.withdrawal.principalCents).toBe(dollarsToCents(0) - month.accountBasisCents["pretax"]);
     expect(source.withdrawal.principalCents).toBe(0);
-    expect(source.withdrawal.taxCents).toBeGreaterThan(0);
+    // Untaxed here despite the jurisdiction taxing ordinary income — the gain still realized above
+    // is what will reach the annual settlement, out of scope for this pipeline stage.
+    expect(source.withdrawal.taxCents).toBe(0);
   });
 
-  it("liquidates an appreciated capital-gains account, booking partial principal, gain and tax", () => {
+  it("liquidates an appreciated capital-gains account, booking partial principal and gain, untaxed here", () => {
     // The brokerage opens at basis == balance and grows 12%/yr. After a year of deferred
     // appreciation its basis sits below its balance, so an explicit $40k purchase in month 12
-    // realizes a PROPORTIONAL gain — grossed up over the 25% capital-gains tax so the net still
-    // lands the $40k. Income covers the recurring rent every month, so nothing forces an automatic
-    // draw: the appreciated account is touched only by the explicit purchase. A year is the
-    // shortest honest way to embed the gain — the sim never opens a post-tax account already
-    // appreciated, so the basis gap can only come from compounding across months.
+    // realizes a PROPORTIONAL gain — sold at exactly $40k, no gross-up, so the net still lands
+    // the $40k with nothing withheld for the 25% capital-gains tax the jurisdiction would charge.
+    // Income covers the recurring rent every month, so nothing forces an automatic draw: the
+    // appreciated account is touched only by the explicit purchase. A year is the shortest honest
+    // way to embed the gain — the sim never opens a post-tax account already appreciated, so the
+    // basis gap can only come from compounding across months.
     const result = simulateHousehold(
       {
         horizonMonths: 13,
@@ -587,21 +592,21 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
     }
     const w = source.withdrawal;
 
-    // Genuine partial appreciation: a returned-principal slice AND a taxed-gain slice both present,
-    // unlike a pre-tax draw (all gain, principal 0) or a cash draw (all principal, gain 0).
+    // Genuine partial appreciation: a returned-principal slice AND a realized-gain slice both
+    // present, unlike a pre-tax draw (all gain, principal 0) or a cash draw (all principal, gain 0).
     expect(w.principalCents).toBeGreaterThan(0);
     expect(w.realizedGainCents).toBeGreaterThan(0);
-    expect(w.taxCents).toBeGreaterThan(0);
+    // Untaxed at the draw despite flatCapitalGainsTax charging 25% on realized gains — that tax
+    // settles once, annually, in December, out of scope for this pipeline stage.
+    expect(w.taxCents).toBe(0);
 
     // The surfaced breakdown obeys its identities, and the amount applied to the line is the net.
     expect(w.principalCents + w.realizedGainCents).toBe(w.grossWithdrawnCents);
     expect(w.grossWithdrawnCents - w.taxCents).toBe(w.netDeliveredCents);
     expect(source.amountCents).toBe(w.netDeliveredCents);
     expect(w.netDeliveredCents).toBe(dollarsToCents(40000));
-    // Gross sold exceeds the cash delivered by exactly the capital-gains tax the sale induced.
-    expect(w.grossWithdrawnCents).toBeGreaterThan(w.netDeliveredCents);
-    // Tax reconciles with the jurisdiction's own 25% on the realized gain.
-    expect(w.taxCents).toBe(Math.round(w.realizedGainCents * 0.25));
+    // No gross-up: gross sold equals the cash delivered, since nothing is withheld at the draw.
+    expect(w.grossWithdrawnCents).toBe(w.netDeliveredCents);
   });
 
   it("reports a OneTimeSpend funded from an appreciated investment through the SAME pipeline a down payment uses", () => {
@@ -657,11 +662,13 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
     // same withdrawal-breakdown channel a down payment's investment draw uses.
     expect(w.principalCents).toBeGreaterThan(0);
     expect(w.realizedGainCents).toBeGreaterThan(0);
-    expect(w.taxCents).toBeGreaterThan(0);
+    // Untaxed at the draw despite flatCapitalGainsTax charging 25% on realized gains — deferred
+    // to the annual settlement, out of scope for this pipeline stage.
+    expect(w.taxCents).toBe(0);
 
     // Conservation: gross sold is exactly principal plus gain, and net delivered — the cash that
-    // actually reached the purchase — is gross minus tax and lands on the nominal amount owed.
-    // (The account's balance also grows this month, so its raw before/after drop is not the
+    // actually reached the purchase — equals gross (no gross-up) and lands on the nominal amount
+    // owed. (The account's balance also grows this month, so its raw before/after drop is not the
     // draw's gross alone; `before` is read only to confirm growth genuinely occurred.)
     expect(before.accountBalancesCents["brokerage"]).toBeGreaterThan(dollarsToCents(100000));
     expect(w.principalCents + w.realizedGainCents).toBe(w.grossWithdrawnCents);

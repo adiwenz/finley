@@ -92,6 +92,17 @@ export interface SimState {
    * per plan, unlike {@link deferredByPersonYear}, since each plan carries its own room.
    */
   readonly combinedDepositsByPlanYear: Map<string, Cents>;
+  /**
+   * Cumulative taxable income by category, per person per calendar year, keyed
+   * `${personId}|${year}` — every dollar of wages, RMD, benefit, interest accrual, or
+   * realized investment gain that becomes taxable THIS person's income, folded in the month
+   * it occurs. Federal income tax is never charged against this running total mid-year (see
+   * {@link Jurisdiction.computeTaxCents}'s ANNUAL contract): the December settlement step
+   * reads the complete year's total once, at year-end, and that single read is the ONLY
+   * consumer. Resets naturally each January as the key's year rolls over, mirroring {@link
+   * earnedByPersonYear}.
+   */
+  readonly taxableIncomeByPersonYear: Map<string, TaxableByCategory>;
   /** Benefit accumulation/claiming reads birthYear + benefitClaimingAge. */
   readonly personsById: ReadonlyMap<string, SimPerson>;
   /**
@@ -210,6 +221,7 @@ export function initSimState(input: HouseholdSimInput): SimState {
     deferredByPersonYear: new Map<string, Cents>(),
     earnedByPersonYear: new Map<string, TaxableByCategory>(),
     combinedDepositsByPlanYear: new Map<string, Cents>(),
+    taxableIncomeByPersonYear: new Map<string, TaxableByCategory>(),
     personsById,
     earningsByPerson,
     governmentBenefitBaseByPerson: new Map<string, Cents>(),

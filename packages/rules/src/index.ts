@@ -13,8 +13,8 @@ import {
 } from "./contributionLimits";
 import { healthCostBenchmarkMonthlyCents } from "./healthCosts";
 import {
-  computeFederalTaxCents,
-  computeFederalTaxByCategoryCents,
+  federalAnnualTaxCents,
+  federalAnnualTaxByCategoryCents,
   FEDERAL_TAX_ASSUMPTIONS,
 } from "./federalTax";
 import { taxableWithdrawalCents, returnTaxTreatment } from "./investmentTax";
@@ -48,8 +48,6 @@ export {
   federalTaxTables,
   federalAnnualTaxCents,
   federalAnnualTaxByCategoryCents,
-  computeFederalTaxCents,
-  computeFederalTaxByCategoryCents,
   taxableSocialSecurityCents,
   FEDERAL_TAX_BASE_YEAR,
   FEDERAL_TAX_ASSUMPTIONS,
@@ -79,7 +77,7 @@ export {
  *
  * `US-2026` implements the interface with real single-filer facts: the tax seam runs actual
  * federal brackets, the standard deduction, the capital-gains preference, and the
- * Social-Security inclusion formula ({@link import("./federalTax").computeFederalTaxCents});
+ * Social-Security inclusion formula ({@link import("./federalTax").federalAnnualTaxCents});
  * contribution limits, government benefit, RMDs, and health-cost benchmarks fill their own
  * seams.
  *
@@ -88,9 +86,11 @@ export {
 
 export const usJurisdiction: Jurisdiction = {
   id: "US-2026",
-  computeTaxCents: (taxableByCategory, ctx) => computeFederalTaxCents(taxableByCategory, ctx.year),
-  computeTaxByCategoryCents: (taxableByCategory, ctx) =>
-    computeFederalTaxByCategoryCents(taxableByCategory, ctx.year),
+  // ANNUAL in, ANNUAL out — the engine calls this once per person per year on the year's
+  // actual accumulated taxable income (the December settlement), never a monthly slice.
+  computeTaxCents: (annualByCategory, ctx) => federalAnnualTaxCents(annualByCategory, ctx.year),
+  computeTaxByCategoryCents: (annualByCategory, ctx) =>
+    federalAnnualTaxByCategoryCents(annualByCategory, ctx.year),
   // Employee FICA on EARNED income only: `wages`, never the `ordinaryIncome` a retirement
   // withdrawal books, so a 401(k)/IRA draw is never payroll-taxed. The engine feeds the
   // year-to-date total and charges the difference, so the wage-base cap binds cumulatively.

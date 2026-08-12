@@ -1,13 +1,14 @@
 /**
  * The ordered funding-draw primitive, {@link resolveOrderedFundingDraw}, priced across a mixed
- * source list. An `account` source is sold and grossed up over the capital-gains tax the sale
- * induces; a `credit` source borrows against its remaining headroom (`creditLimit − balance`,
- * clamped at zero) with no sale, no basis and no tax. Both walk the SAME ordered list in one pass,
- * so a `[brokerage, visa]` list draws the brokerage first and then borrows — never reordered.
+ * source list. An `account` source sells EXACTLY the remainder requested, capped at its balance —
+ * no gross-up, no tax charged at the draw; a `credit` source borrows against its remaining
+ * headroom (`creditLimit − balance`, clamped at zero) with no sale, no basis and no tax. Both walk
+ * the SAME ordered list in one pass, so a `[brokerage, visa]` list draws the brokerage first and
+ * then borrows — never reordered.
  *
  * A gain-taxing stub jurisdiction (flat 20% on realized capital gains) stands in for a rules
- * package the engine cannot import, so an appreciated account delivers strictly less than its
- * balance while credit stays tax-free.
+ * package the engine cannot import — it proves the realized gain is still computed and stacked
+ * onto the owner base even though nothing is withheld from the sale itself.
  */
 
 import { describe, it, expect } from "vitest";
@@ -53,7 +54,7 @@ describe("resolveOrderedFundingDraw — credit sources", () => {
     const base = freshBase();
     const result = resolveOrderedFundingDraw(
       9_000_00,
-      // Brokerage first (all gain, taxed), then borrow the remainder on the card.
+      // Brokerage first (all gain, realized but untaxed here), then borrow the remainder on the card.
       [appreciated("brokerage", 5_000_00), creditCard("visa", 0, 10_000_00)],
       gainTaxing,
       CTX,
@@ -61,18 +62,21 @@ describe("resolveOrderedFundingDraw — credit sources", () => {
     );
 
     expect(result.perSource.map((s) => s.id)).toEqual(["brokerage", "visa"]);
-    // Brokerage fully liquidated: $50k gross, $50k gain, 20% ⇒ $10k tax, $40k net delivered.
+    // Brokerage sells its whole $5k balance (the $9k request exceeds it) — no gross-up, so gross
+    // equals the balance and nothing is withheld: $5k gain realized, $0 tax, $5k net delivered.
     const brokerage = result.perSource[0]!;
     expect(brokerage.kind).toBe("account");
-    expect(brokerage.taxCents).toBe(1_000_00);
-    expect(brokerage.netDeliveredCents).toBe(4_000_00);
-    // Visa covers the $50k that remains, tax-free.
+    expect(brokerage.grossCents).toBe(5_000_00);
+    expect(brokerage.taxCents).toBe(0);
+    expect(brokerage.netDeliveredCents).toBe(5_000_00);
+    // Visa covers the $4k that remains after the brokerage, tax-free.
     const visa = result.perSource[1]!;
     expect(visa.kind).toBe("credit");
-    expect(visa.grossCents).toBe(5_000_00);
+    expect(visa.grossCents).toBe(4_000_00);
     expect(visa.taxCents).toBe(0);
     expect(result.shortfallCents).toBe(0);
-    // Only the brokerage's gain was stacked onto the owner base; the borrow added nothing taxable.
+    // The brokerage's realized gain still stacks onto the owner base even though it went untaxed
+    // here — it feeds the annual settlement; the borrow added nothing taxable.
     expect(base.get(OWNER)?.capitalGains).toBe(5_000_00);
   });
 });

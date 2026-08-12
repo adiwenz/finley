@@ -5,8 +5,6 @@ import {
   taxableSocialSecurityCents,
   federalAnnualTaxCents,
   federalAnnualTaxByCategoryCents,
-  computeFederalTaxCents,
-  computeFederalTaxByCategoryCents,
 } from "./federalTax";
 
 /** Σ of a per-category tax map — the invariant the attribution must preserve. */
@@ -121,18 +119,6 @@ describe("federalAnnualTaxCents — government benefit inclusion end to end", ()
   });
 });
 
-describe("computeFederalTaxCents — the monthly seam", () => {
-  it("annualizes the monthly slice, taxes it, and returns the monthly portion", () => {
-    // $100k/yr of wages = 100_000_00/12 per month. Annual tax 13,170 → /12 monthly.
-    const monthly = computeFederalTaxCents({ wages: Math.round(100_000_00 / 12) }, 2026);
-    expect(monthly).toBe(Math.round(13_170_00 / 12));
-  });
-
-  it("returns 0 for a monthly slice that annualizes below the standard deduction", () => {
-    expect(computeFederalTaxCents({ wages: 100_00 }, 2026)).toBe(0);
-  });
-});
-
 describe("federalAnnualTaxByCategoryCents — per-category attribution", () => {
   it("attributes all tax to the sole taxed category (wages only)", () => {
     const total = federalAnnualTaxCents({ wages: 100_000_00 }, 2026);
@@ -182,23 +168,5 @@ describe("federalAnnualTaxByCategoryCents — per-category attribution", () => {
   it("returns an empty map when no tax is owed", () => {
     expect(federalAnnualTaxByCategoryCents({ wages: 12_000_00 }, 2026)).toEqual({});
     expect(federalAnnualTaxByCategoryCents({}, 2026)).toEqual({});
-  });
-});
-
-describe("computeFederalTaxByCategoryCents — the monthly per-category seam", () => {
-  it("sums to the scalar monthly seam exactly", () => {
-    const monthly = {
-      wages: Math.round(60_000_00 / 12),
-      capitalGains: Math.round(20_000_00 / 12),
-    };
-    const total = computeFederalTaxCents(monthly, 2026);
-    const byCategory = computeFederalTaxByCategoryCents(monthly, 2026);
-    expect(sumCents(byCategory)).toBe(total);
-    expect(byCategory.wages).toBeGreaterThan(0);
-    expect(byCategory.capitalGains).toBeGreaterThan(0);
-  });
-
-  it("returns an empty map for a slice that annualizes below the standard deduction", () => {
-    expect(computeFederalTaxByCategoryCents({ wages: 100_00 }, 2026)).toEqual({});
   });
 });

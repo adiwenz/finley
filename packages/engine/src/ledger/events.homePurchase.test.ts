@@ -915,9 +915,9 @@ describe("HomePurchaseEvent — explicit draw resolves before automatic decumula
   });
 });
 
-describe("HomePurchaseEvent — investment-funded down payment is taxed", () => {
-  it("grosses up the draw and drops net worth by the capital-gains tax it pays", () => {
-    // An otherwise-identical no-tax run isolates the tax from the month's growth.
+describe("HomePurchaseEvent — investment-funded down payment is NOT grossed up for federal income tax", () => {
+  it("draws exactly the down payment regardless of jurisdiction — net worth is identical at purchase", () => {
+    // An otherwise-identical no-tax run isolates any tax effect from the month's growth.
     const base = baseWithAccounts([liquidAcct("brokerage", 8_000_000, 0.12)]);
     const ledger = addFinanced(emptyLedger, base, { month: 12, downPaymentSourceIds: ["brokerage"] });
     const household = interpretLedger(ledger, base);
@@ -925,18 +925,23 @@ describe("HomePurchaseEvent — investment-funded down payment is taxed", () => 
     const untaxed = buildProjection(household, base, nullJurisdiction);
 
     const at = taxed.months[12];
-    expect(at.flows!.taxCents).toBeGreaterThan(0);
-    expect(at.netWorthNominalCents!).toBeLessThan(untaxed.months[12].netWorthNominalCents!);
-    // Grossed up: taxation drained more than the bare down payment.
-    expect(at.accountBalancesCents.brokerage).toBeLessThan(
-      untaxed.months[12].accountBalancesCents.brokerage,
-    );
-    // The tax is the household's loss, not the home's: equity is still price − financed.
+    // No gross-up: the draw sells exactly the down payment, same as under no tax at all — no
+    // federal income-tax payment is charged at the time of the taxable event.
+    expect(at.flows!.taxCents).toBe(0);
+    expect(at.accountBalancesCents.brokerage).toBe(untaxed.months[12].accountBalancesCents.brokerage);
+    expect(at.netWorthNominalCents).toBe(untaxed.months[12].netWorthNominalCents);
+    // The home purchase itself is unaffected either way: equity is price − financed.
     expect(at.propertyValuesCents.house1).toBe(PRICE);
     expect(at.liabilityBalancesCents["house1-mortgage"]).toBe(FINANCED);
+
+    // December (month 23) settles the year's accumulated taxable income — including this
+    // purchase's realized gain — exactly once. THAT is where net worth first diverges.
+    const settled = taxed.months[23];
+    expect(settled.flows!.taxCents).toBeGreaterThan(0);
+    expect(settled.netWorthNominalCents!).toBeLessThan(untaxed.months[23].netWorthNominalCents!);
   });
 
-  it("conserves net worth for a cash-funded down payment (no gain → no tax)", () => {
+  it("conserves net worth for a cash-funded down payment (no gain → nothing ever taxed)", () => {
     // basis == balance → no embedded gain.
     const base = baseWithAccounts([liquidAcct("savings", 10_000_000, 0)]);
     const ledger = addFinanced(emptyLedger, base, { month: 3, downPaymentSourceIds: ["savings"] });
@@ -947,7 +952,7 @@ describe("HomePurchaseEvent — investment-funded down payment is taxed", () => 
     expect(at.accountBalancesCents.savings).toBe(10_000_000 - DOWN);
   });
 
-  it("reports the gain as capital-gains income taxed at the jurisdiction's rate", () => {
+  it("reports the gain as capital-gains income at purchase; the jurisdiction's rate is charged later, in December", () => {
     const base = baseWithAccounts([liquidAcct("brokerage", 8_000_000, 0.12)]);
     const ledger = addWithBase(
       emptyLedger,
@@ -960,26 +965,37 @@ describe("HomePurchaseEvent — investment-funded down payment is taxed", () => 
     expect(gainBand?.category).toBe("capitalGains");
     expect(gainBand!.cashInflowCents).toBeGreaterThan(0);
     expect(flows.incomeSources.some((s) => s.category === "savingsDrawdown")).toBe(true);
-    expect(flows.taxCents).toBe(Math.round(gainBand!.cashInflowCents * 0.2));
+    // No tax at the point of purchase — the gain is recorded, not charged.
+    expect(flows.taxCents).toBe(0);
+    // December (month 23) charges the jurisdiction's rate on the gain — but since this
+    // household holds no separate cash reserve, settling that bill itself requires selling
+    // MORE of the (appreciated) brokerage, which realizes additional gain and recursively
+    // enlarges the bill until the sale and the bill it causes converge (the one place
+    // gross-up still applies). $133,796 > the naive $128,572 (20% of the purchase's own
+    // gain alone) by exactly that recursive top-up — observed via the engine, not derived.
+    expect(series.months[23].flows!.taxCents).toBe(133_796);
+    expect(series.months[23].flows!.taxCents).toBeGreaterThan(Math.round(gainBand!.cashInflowCents * 0.2));
   });
 });
 
-describe("HomePurchaseEvent — the reporter sizes on down payment + tax", () => {
-  it("reports a shortfall when a selected investment source covers the down payment but not its tax", () => {
-    // $50k basis grown 24 months at 10%/yr clears $60k pre-tax; the tax on the gain does not.
+describe("HomePurchaseEvent — authoring-time affordability sizes on the down payment ALONE, never its future tax", () => {
+  it("reports no shortfall from a source that covers the down payment but would owe tax on its gain", () => {
+    // $50k basis grown 24 months at 10%/yr clears $60k — the affordability gate never asks
+    // whether the household could ALSO prepay the tax on the resulting gain; that tax is the
+    // December settlement's problem, not this purchase's.
     const base = baseWithAccounts([liquidAcct("brokerage", 5_000_000, 0.1)]);
     const buy = purchase({ month: 24, downPaymentSourceIds: ["brokerage"] });
-    // No tax: the pre-tax proceeds cover it, so no shortfall — the gap is the tax, not insufficiency.
     expect(affordabilityOf(emptyLedger, base, buy, nullJurisdiction).shortfallCents).toBe(0);
 
     const taxed = affordabilityOf(emptyLedger, base, buy, flatCapitalGains(0.2));
-    expect(taxed.shortfallCents).toBeGreaterThan(0);
-    expect(taxed.taxed).toBe(true);
+    expect(taxed.shortfallCents).toBe(0);
+    expect(taxed.taxed).toBe(false);
   });
 
-  it("prices the gain MARGINALLY over the owner's other income, not standalone", () => {
-    // Same brokerage, same down payment: covered with no other income, short once a wage pushes the
-    // gain into the taxed band. Only a report reading the owner's other income tells these apart.
+  it("stays covered even once a wage would have pushed the realized gain into a taxed bracket", () => {
+    // Same brokerage, same down payment, with and without an owner wage that would (under the
+    // old gross-up model) have pushed the gain over a taxable threshold. Affordability no
+    // longer reads the owner's other income at all — the gate prices only the down payment.
     const wage = new SimCashFlowSeries(0, dollarsToCents(15_000), { type: "fixed" }, { baselineUnit: "monthly" });
     const accounts = () => [liquidAcct("savings", 0), liquidAcct("brokerage", 5_000_000, 0.1)];
     const jur = bracketedCapitalGains(dollarsToCents(15_000), 0.4); // $15k/mo threshold, 40% above
@@ -997,23 +1013,22 @@ describe("HomePurchaseEvent — the reporter sizes on down payment + tax", () =>
     };
     const buy = purchase({ month: 24, downPaymentSourceIds: ["brokerage"] });
 
-    // No other income: the ~$10k gain sits below the $15k threshold → untaxed → covered.
     expect(affordabilityOf(emptyLedger, withoutWage, buy, jur).shortfallCents).toBe(0);
-    // The wage stacks the gain above the threshold → taxed → proceeds no longer cover it.
-    const short = affordabilityOf(emptyLedger, withWage, buy, jur);
-    expect(short.shortfallCents).toBeGreaterThan(0);
-    expect(short.taxed).toBe(true);
+    const withWageResult = affordabilityOf(emptyLedger, withWage, buy, jur);
+    expect(withWageResult.shortfallCents).toBe(0);
+    expect(withWageResult.taxed).toBe(false);
   });
 });
 
-// §4.5 gate, sibling draws: the sim threads one working base across a month's draws, stacking
-// the first's realized gain under the second. The gate must price a candidate over that stacked
-// base, not the pre-funding one.
+// §4.5 gate, sibling draws: a sibling's realized gain no longer changes a second purchase's
+// affordability AT ALL — the gate never grosses up or prices tax, with or without a sibling's
+// gain sitting underneath it. (This stacking used to be able to push a sibling's gain over a
+// taxed threshold and report the second purchase short; that coupling is gone.)
 
-describe("HomePurchaseEvent — the reporter stacks a sibling draw in the same month", () => {
-  // Each brokerage: $50k basis grown 24 months at 10%/yr → ~$60,021, a ~$10,021 gain. Alone it
-  // sits under the $15k threshold, untaxed, exactly covering the $60,000 down payment. Purchase
-  // at month 23: months[23] holds those 24 flow-months of growth now that month 0 is processed.
+describe("HomePurchaseEvent — a sibling's realized gain does not affect a second purchase's affordability", () => {
+  // Each brokerage: $50k basis grown 24 months at 10%/yr → ~$60,021, a ~$10,021 gain — under the
+  // old gross-up model, stacking two such gains crossed the $15k threshold and blocked the
+  // second purchase. Neither purchase's affordability depends on tax at all anymore.
   const jurisdiction = () => bracketedCapitalGains(dollarsToCents(15_000), 0.4);
   const twoBrokerages = () =>
     baseWithAccounts([
@@ -1027,7 +1042,7 @@ describe("HomePurchaseEvent — the reporter stacks a sibling draw in the same m
     downPaymentSourceIds: ["brokerage-b"],
   });
 
-  it("reports the second purchase short, its gain stacked under the first purchase's", () => {
+  it("reports the second purchase covered even with its sibling's gain stacked underneath", () => {
     const jur = jurisdiction();
     const base = twoBrokerages();
     const first = addEvent(
@@ -1039,15 +1054,13 @@ describe("HomePurchaseEvent — the reporter stacks a sibling draw in the same m
     expect(first.ok).toBe(true);
     if (!first.ok) return;
 
-    // The reporter prices this AFTER its sibling, stacking that ~$10k gain underneath: this gain
-    // crosses the threshold and leaves the brokerage short of $60,000.
     const second = affordabilityOf(first.ledger, base, secondPurchase, jur);
-    expect(second.shortfallCents).toBeGreaterThan(0);
-    expect(second.taxed).toBe(true);
+    expect(second.shortfallCents).toBe(0);
+    expect(second.taxed).toBe(false);
   });
 
-  it("reports that same second purchase covered when it has no sibling (the gap IS the stacking)", () => {
-    // The control: identical but for the sibling.
+  it("reports that same second purchase covered when it has no sibling — identical either way", () => {
+    // The control: identical whether or not the sibling ran first.
     expect(affordabilityOf(emptyLedger, twoBrokerages(), secondPurchase, jurisdiction()).shortfallCents).toBe(0);
   });
 });

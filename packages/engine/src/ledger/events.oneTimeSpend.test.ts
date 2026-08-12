@@ -395,6 +395,46 @@ function liquidAcct(id: string, openingCents: number, rate = 0): PlanAccount {
   });
 }
 
+describe("OneTimeSpendEvent — investment-funded spend is NOT grossed up for federal income tax", () => {
+  it("draws exactly the spend amount from an appreciated source, no gross-up, and taxes the gain only in December", () => {
+    const jur = bracketedCapitalGains(0, 0.3); // taxes every dollar of gain at 30%, no threshold
+    const base: LedgerBaseConfig = {
+      horizonMonths: 12,
+      annualInflationRate: 0,
+      initialPersons: [personLit("p1", "Alice")],
+      initialAccounts: [liquidAcct("brokerage", dollarsToCents(100_000), 0.12)],
+    };
+    const SPEND = dollarsToCents(20_000);
+    // Six months of growth first, so the account holds embedded gain (basis < balance) by
+    // the time the spend draws from it.
+    const ledger = addWithBase(emptyLedger, base, spend({ month: 6, amountCents: SPEND, fundingSourceIds: ["brokerage"] }));
+    const series = buildProjection(interpretLedger(ledger, base), base, jur);
+
+    // Exactly $20k was sold — no gross-up, even though the sale realizes a taxable gain. The
+    // account's END-of-month balance also reflects this month's growth, so read the actual
+    // draw off the gain + returned-principal bands rather than the raw balance delta.
+    const at = series.months[6];
+    expect(at.flows!.taxCents).toBe(0);
+
+    // The gain is recorded as capital-gains income immediately...
+    const gainBand = at.flows!.incomeSources.find((s) => s.sourceId === `onetimespend:brokerage`);
+    expect(gainBand?.category).toBe("capitalGains");
+    expect(gainBand!.cashInflowCents).toBeGreaterThan(0);
+    const drawdownBand = at.flows!.incomeSources.find((s) => s.category === "savingsDrawdown");
+    // Gain + returned principal conserves to exactly the amount spent — no gross-up inflated it.
+    expect((gainBand?.cashInflowCents ?? 0) + (drawdownBand?.cashInflowCents ?? 0)).toBe(SPEND);
+
+    // ...but not charged until December (month 11) — and since this household holds no cash
+    // reserve, settling the bill itself requires selling MORE of the appreciated brokerage,
+    // which realizes additional gain and recursively enlarges the bill past the naive 30% of
+    // the spend's own gain alone (the one place gross-up still applies).
+    const december = series.months[11].flows!;
+    const naive = Math.round(gainBand!.cashInflowCents * 0.3);
+    expect(december.taxCents).toBeGreaterThan(naive);
+    expect(december.taxCents).toBe(34_062);
+  });
+});
+
 // gate == sim, the load-bearing invariant Home Purchase's §4.5 gate already pins: the funding
 // gate prices a candidate over the SAME base the simulator resolves it against — "after this
 // month's explicit draws, before decumulation" — so its predicted shortfall equals the
