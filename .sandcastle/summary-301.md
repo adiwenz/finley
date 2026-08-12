@@ -34,6 +34,15 @@ The distinction the whole design rests on:
 | Used for | pacing twelve even estimated payments | the authoritative December liability |
 | Contains endogenous withdrawals | no — unknowable at the year's start | yes |
 
+The inclusion test is **knowable, not recurring**: can the taxable amount be read off compiled
+state at the year's start without executing the stateful monthly waterfall? A one-month bonus
+compiles to a single month of a salary series, so it is as knowable as the eleven around it and
+is estimated like them. A funding withdrawal — decumulation, a home purchase's down payment, a
+one-time spend — is not: `resolveOrderedFundingDraw` splits it across accounts by their balance
+and cost basis in the month it lands, both products of that year's returns, earlier draws and
+tax already paid, and a draw that shorts out blocks and realizes nothing. Pricing that at year
+start would be a second simulation of the year, so it is left to December.
+
 Already-simulated months are never mutated when the two diverge; the difference lands in
 December.
 
@@ -65,6 +74,10 @@ December.
 - **A refund is a single event.** A negative reconciliation credits the household's liquid
   account once, in the settling month, and is reported as that month's negative `taxCents`.
   Earlier months are never rewritten.
+- **The estimate costs less than a simulated month.** One pass over the compiled series for the
+  year's remaining eleven months, once a year — no replay of the waterfall, no fixed-point loop.
+  A projection is still exactly one `simulateHousehold` call, so the retirement solver's binary
+  search costs what it always did; `retirementSolver.passes.test.ts` pins both.
 - **Attribution splits same-month from display.** The monthly instalment really does come out
   of take-home, so it haircuts each source's `netCashFlowCents`; December's settlement is
   raised by selling assets, so it rides only the display map the tax chart bands on. Over a
@@ -91,13 +104,16 @@ December.
 
 ## Verification
 
-`npm run check` (engine-purity + typecheck + full suite) is green: **137 test files, 1850
+`npm run check` (engine-purity + typecheck + full suite) is green: **138 test files, 1855
 tests passing, 45 todo, 0 failures**.
 
 `projection/federalIncomeTax.test.ts` (renamed from `annualTaxSettlement.test.ts`) covers, all
 through `simulateHousehold`: even monthly payments for steady wages; a known annual RMD spread
-across the year rather than spiked; lumpy-vs-even scheduled income producing the identical
-estimate; no YTD extrapolation and no monthly refunds; a fresh tax year each January; an
+across the year rather than spiked; a one-month bonus folded into the year's estimate rather
+than reconciled; lumpy-vs-even scheduled income producing the identical estimate; a home
+purchase's and a one-time spend's funding draw neither grossed up nor estimated, but present in
+actual annual income and settled in December; no YTD extrapolation and no monthly refunds; a
+fresh tax year each January; an
 endogenous withdrawal enlarging December alone while earlier months stay byte-identical; the
 year's total charge equalling the annual tax on actual taxable income; recursive gross-up
 converging to its closed form; a single refund for an overshooting estimate; a block-truncated

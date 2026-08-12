@@ -191,6 +191,21 @@ describe("Federal income tax — a smooth monthly estimated payment", () => {
     for (const tax of taxes) expect(tax).toBe(dollarsToCents(2_500));
   });
 
+  it("includes a one-month bonus in the year's estimate, spread like the rest of the year", () => {
+    const projection = simulateHousehold(
+      baseInput([account("checking", CAPITAL_GAINS_TAX_PROFILE, 0, true)], {
+        // $120k of salary plus a $60k bonus in month 4 — authored as its own single month of the
+        // compiled series, exactly as a `thisMonthOnly` job override compiles. Knowable at the
+        // year's start, so it is estimated, not reconciled: one-off does not mean unpredictable.
+        incomeSeries: [series(10_000, 0, 11), series(60_000, 4, 4)],
+      }),
+      flatAnnual(0.25),
+    );
+    const taxes = monthlyTax(projection);
+    expect(taxes).toEqual(Array(12).fill(dollarsToCents(3_750))); // 25% of $180k, in twelfths
+    expect(taxes[4]).toBe(taxes[0]); // the bonus month is no heavier than any other
+  });
+
   it("starts a fresh tax year each January", () => {
     const projection = simulateHousehold(
       baseInput([account("checking", CAPITAL_GAINS_TAX_PROFILE, 0, true)], {
@@ -325,6 +340,63 @@ describe("Federal income tax — December reconciles against the year's ACTUAL i
     // 25% of the four months of wages that actually landed ($40k) — the year is priced on what
     // happened, not on the full twelve months the estimate was pacing towards.
     expect(sum(monthlyTax(projection))).toBe(dollarsToCents(10_000));
+  });
+});
+
+/**
+ * A funding draw's taxable slice depends on the funding account's balance and cost basis in the
+ * month it lands — both of them products of the year's returns, earlier draws and tax already
+ * paid — so it is unknowable at the year's start and belongs to December. These pin both halves:
+ * the draw is not enlarged to prepay its own tax, and the tax still gets collected.
+ */
+describe("Federal income tax — funding draws are not knowable at year start", () => {
+  const WAGE_MONTHLY_TAX = dollarsToCents(2_500); // 25% of $120k/yr, in twelfths
+
+  /** $120k of wages and a $500k pre-tax account, with one draw against it in month 4. */
+  function withDraw(treatment: "asset-acquisition" | "expense"): ProjectionSeries {
+    return simulateHousehold(
+      baseInput(
+        [account("checking", CAPITAL_GAINS_TAX_PROFILE, 0, true), account("pretax", PRE_TAX_TAX_PROFILE, 500_000)],
+        {
+          incomeSeries: [series(10_000, 0, 11)],
+          fundingDraws: [
+            explicitObligation({
+              id: "draw1",
+              sourceId: "draw1",
+              month: 4,
+              amountCents: dollarsToCents(100_000),
+              orderedAccountIds: ["pretax"],
+              treatment,
+            }),
+          ],
+        },
+      ),
+      flatAnnual(0.25),
+    );
+  }
+
+  it.each([
+    ["a home purchase's down payment", "asset-acquisition"],
+    ["a one-time spend", "expense"],
+  ] as const)("does not gross up %s, and settles its tax in December", (_label, treatment) => {
+    const projection = withDraw(treatment);
+    const taxes = monthlyTax(projection);
+
+    // Exactly $100k left the account — not $133k sold to prepay the tax the sale itself causes.
+    expect(projection.months[4].accountBalancesCents.pretax).toBe(
+      dollarsToCents(500_000 - 100_000),
+    );
+    // The $100k IS the year's actual taxable income, booked in the month it was realized —
+    // that month's ordinary income is the usual $10k of pay plus the whole draw.
+    const ordinaryIn = (m: number): Cents =>
+      projection.months[m].flows!.incomeByCategoryCents["ordinaryIncome"] ?? 0;
+    expect(ordinaryIn(4) - ordinaryIn(3)).toBe(dollarsToCents(100_000));
+    // The estimate never saw it: every month up to December is the wages-only instalment, and
+    // the month of the draw is no heavier than the others.
+    expect(taxes.slice(0, 11)).toEqual(Array(11).fill(WAGE_MONTHLY_TAX));
+    // December trues up the whole $100k at once, out of the cash the year's wages built up.
+    expect(taxes[11]).toBe(WAGE_MONTHLY_TAX + dollarsToCents(25_000));
+    expect(sum(taxes)).toBe(dollarsToCents(30_000 + 25_000));
   });
 });
 
