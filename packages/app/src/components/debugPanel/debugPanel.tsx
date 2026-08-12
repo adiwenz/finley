@@ -7,61 +7,14 @@
  */
 
 import { useMemo, useState, type ReactNode } from "react";
-import { PRIMARY_PERSON_ID } from "@finley/engine";
-import type { Cents, Plan, ProjectionMonth, SimulationReport } from "@finley/engine";
-import { primaryJobs } from "../../planPeople";
+import { EMPTY_MONTHLY_WAGES, PRIMARY_PERSON_ID } from "@finley/engine";
+import type { Plan, ProjectionMonth, SimulationReport } from "@finley/engine";
 import { formatDollars } from "../../format";
 import { debugExportFilename } from "../../debugExport";
 import styles from "./debugPanel.module.css";
 
 const pct = (whole: number) => `${whole}%`;
 
-/**
- * The primary person's still-active wage sources at `month0` — what the simulation actually
- * paid them this month, not a re-derivation off authored job spans. A past job that already
- * ended, or a future one that has not started, contributes no source here, because the engine
- * never banded one for it.
- */
-function primaryWageSourcesAt(month0: ProjectionMonth) {
-  return (month0.flows?.incomeSources ?? []).filter(
-    (s) => s.category === "wages" && s.ownerId === PRIMARY_PERSON_ID,
-  );
-}
-
-/** Standing pay: the primary person's active wages this month, summed across jobs. */
-function primaryMonthlyIncomeCents(month0: ProjectionMonth): Cents {
-  return primaryWageSourcesAt(month0).reduce((sum, s) => sum + s.cashInflowCents, 0);
-}
-
-/**
- * The primary person's pre-tax 401(k) deferral this month, blended across active jobs and
- * weighted by each one's gross pay — 0 for a person earning nothing, never NaN.
- */
-function primaryDeferralFraction(month0: ProjectionMonth): number {
-  const grossCents = primaryMonthlyIncomeCents(month0);
-  if (grossCents <= 0) return 0;
-  const deferredCents = primaryWageSourcesAt(month0).reduce(
-    (sum, s) => sum + (month0.flows?.deferralBySourceCents?.[s.sourceId] ?? 0),
-    0,
-  );
-  return deferredCents / grossCents;
-}
-
-/**
- * The plan's authored monthly general spend: the base amount of every literal expense budget
- * line, before price growth, spans or dated overrides. Contribution lines (account targets)
- * and non-literal amounts are not spend, so they are excluded.
- */
-function expenseLinesSummary(budget: Plan): { count: number; monthlyCents: number } {
-  const lines = budget.budgetLines.filter(
-    (l) => l.target.kind === "expense" && l.amountSource.kind === "literal",
-  );
-  const monthlyCents = lines.reduce(
-    (sum, l) => sum + (l.amountSource.kind === "literal" ? l.amountSource.monthlyCents : 0),
-    0,
-  );
-  return { count: lines.length, monthlyCents };
-}
 /** A rate held as a FRACTION (0.03) rendered as a percentage ("3%"). */
 const ratePct = (fraction: number) => `${+(fraction * 100).toFixed(2)}%`;
 const targetDate = (d: number | "asap") => (d === "asap" ? "ASAP" : `month ${d}`);
@@ -131,7 +84,14 @@ function Configuration({
   inputs: SimulationReport["inputs"];
   jurisdictionId: string;
 }) {
-  const expenseLines = expenseLinesSummary(budget);
+  // The primary earner's month-0 pay as the ENGINE stated it: how many jobs paid, what they
+  // paid, and the deferral blended across them. Nothing here is computed — an owner who earned
+  // nothing this month has no entry, and reads as zeros.
+  const wages = month0.flows?.wagesByOwner[PRIMARY_PERSON_ID] ?? EMPTY_MONTHLY_WAGES;
+  // What the sim actually spent in month 0, and how many budget lines it billed — not a re-read
+  // of the authored lines, which would show pre-growth amounts and lines outside their span.
+  const expensesCents = month0.flows?.expensesCents ?? 0;
+  const budgetLineCount = Object.keys(month0.flows?.lineMonthlyCents ?? {}).length;
   return (
     <div className={styles.config}>
       <ConfigGroup
@@ -149,12 +109,14 @@ function Configuration({
         title="Monthly cash flow"
         rows={[
           [
-            `Income (${primaryJobs(budget).length} job${primaryJobs(budget).length === 1 ? "" : "s"})`,
-            formatDollars(primaryMonthlyIncomeCents(month0)),
+            // Jobs that PAID this month, per the engine — not jobs on the plan, which counts
+            // ended and not-yet-started ones the income beside it deliberately excludes.
+            `Income (${wages.jobCount} job${wages.jobCount === 1 ? "" : "s"})`,
+            formatDollars(wages.grossCents),
           ],
-          ["Expenses (budget lines)", formatDollars(expenseLines.monthlyCents)],
-          ["Cash opening balance", formatDollars(budget.openingBalanceCents)],
-          ["Budget expense lines", `${expenseLines.count}`],
+          ["Expenses (month 0)", formatDollars(expensesCents)],
+          ["Opening balance", formatDollars(budget.openingBalanceCents)],
+          ["Budget lines billed (month 0)", `${budgetLineCount}`],
         ]}
       />
       <ConfigGroup
@@ -165,7 +127,7 @@ function Configuration({
           ["Savings ROI", pct(budget.savingsReturnPct)],
           ["Retirement ROI", pct(budget.retirementReturnPct)],
           ["Brokerage ROI", pct(budget.brokerageReturnPct)],
-          ["Retirement deferral (blended)", pct(Math.round(primaryDeferralFraction(month0) * 100))],
+          ["Retirement deferral (blended)", pct(Math.round(wages.deferralFraction * 100))],
         ]}
       />
       <ConfigGroup
@@ -212,9 +174,9 @@ export function DebugPanel({
   report: SimulationReport;
   budget: Plan;
   /**
-   * The same run's month-0 `ProjectionMonth` — carries the per-source `flows.incomeSources`
-   * (`ownerId`, `category`) the flattened {@link SimulationReport} does not, which the
-   * "Monthly cash flow" readout needs to isolate the primary person's active wages.
+   * The same run's month-0 `ProjectionMonth` — carries the `flows` rollups the flattened
+   * {@link SimulationReport} does not, chiefly `wagesByOwner`, which states the primary
+   * person's current pay, job count and deferral so this panel only has to print them.
    */
   month0: ProjectionMonth;
 }) {

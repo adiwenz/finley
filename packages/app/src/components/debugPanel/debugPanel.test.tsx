@@ -10,9 +10,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { DebugPanel } from "./debugPanel";
 import { runOf } from "../../testing/projectionHarness";
 import { PLAN_DEFAULTS } from "../../planDefaults";
-import { PRIMARY_PERSON_ID, dollarsToCents } from "@finley/engine";
-import type { Job, Plan } from "@finley/engine";
-import { START_YEAR } from "../../config";
+import { PRIMARY_PERSON_ID } from "@finley/engine";
+import type { MonthlyWages, Plan, ProjectionMonth } from "@finley/engine";
 
 // The debug panel reads a `SimulationReport` (`ProjectionResult.report`) — everything it shows
 // comes off the very series the app draws, so it can never disagree with the engine. One `runOf`
@@ -21,6 +20,24 @@ function render(budget: Plan) {
   const result = runOf(budget);
   return renderToStaticMarkup(
     <DebugPanel report={result.report} budget={budget} month0={result.series.months[0]!} />,
+  );
+}
+
+/**
+ * Renders with the primary person's month-0 wages REPLACED by a stated record. The panel prints
+ * what the engine put there and derives nothing, so a test of the readout states the engine's
+ * answer directly — whether that answer is right for a given set of jobs is settled in the
+ * engine's own `wagesByOwner` tests, not by grepping this HTML.
+ */
+function renderWithWages(wages: MonthlyWages) {
+  const result = runOf(PLAN_DEFAULTS);
+  const real = result.series.months[0]!;
+  const month0: ProjectionMonth = {
+    ...real,
+    flows: { ...real.flows!, wagesByOwner: { [PRIMARY_PERSON_ID]: wages } },
+  };
+  return renderToStaticMarkup(
+    <DebugPanel report={result.report} budget={PLAN_DEFAULTS} month0={month0} />,
   );
 }
 
@@ -71,65 +88,56 @@ describe("DebugPanel — rates that differ between series", () => {
   });
 });
 
-describe("DebugPanel — current income/deferral come off the projection's month-0 output", () => {
-  // The default plan's one job pays $5,000/mo (`DEFAULT_MONTHLY_PAY_CENTS`) and elects no
-  // deferral, flat real (`realGrowthPct: 0`) — so month 0 cash flow reads exactly what was
-  // authored, with nothing else in play to blur the figure.
-  const [currentJob] = PLAN_DEFAULTS.primary.jobs;
-
-  // Long ended — the household stopped receiving this pay a decade before "now".
-  const pastJob: Job = {
-    id: "past-job",
-    ownerId: PRIMARY_PERSON_ID,
-    startYear: START_YEAR - 20,
-    endYear: START_YEAR - 5,
-    salary: {
-      startingSalaryCents: dollarsToCents(30_000),
-      currentSalaryCents: dollarsToCents(30_000),
-      realGrowthPct: 0,
-    },
-  };
-
-  // Not started yet — a planned raise the household has not begun earning.
-  const futureJob: Job = {
-    id: "future-job",
-    ownerId: PRIMARY_PERSON_ID,
-    startYear: START_YEAR + 5,
-    endYear: START_YEAR + 10,
-    salary: {
-      startingSalaryCents: dollarsToCents(90_000),
-      currentSalaryCents: dollarsToCents(90_000),
-      realGrowthPct: 0,
-    },
-    deferral: { deferralFraction: 0.5, fundAccountId: "retirement" },
-  };
-
-  it("does not count a past, already-ended job's pay as current income", () => {
-    const html = render({
-      ...PLAN_DEFAULTS,
-      primary: { ...PLAN_DEFAULTS.primary, jobs: [currentJob!, pastJob] },
+describe("DebugPanel — the monthly cash-flow readout prints what the engine stated", () => {
+  it("shows the pay, job count and blended deferral the projection reported", () => {
+    const html = renderWithWages({
+      jobCount: 2,
+      grossCents: 12_345_00,
+      deferralCents: 1_234_50,
+      deferralFraction: 0.1,
     });
-    // Only the still-active job's $5,000/mo shows — the ended $30,000/mo job does not inflate it.
-    expect(html).toContain("<dd>$5,000</dd>");
-    expect(html).not.toContain("$35,000");
+    expect(html).toContain("<dt>Income (2 jobs)</dt><dd>$12,345</dd>");
+    expect(html).toContain("<dt>Retirement deferral (blended)</dt><dd>10%</dd>");
   });
 
-  it("does not count a future, not-yet-started job's pay as current income", () => {
-    const html = render({
-      ...PLAN_DEFAULTS,
-      primary: { ...PLAN_DEFAULTS.primary, jobs: [currentJob!, futureJob] },
+  it("counts the jobs that PAID, so an authored job the engine did not pay is not among them", () => {
+    // The plan behind this render authors a job, and the panel still says one — because the
+    // engine said one. Were the label counting `budget.primary.jobs`, this record could not
+    // change it.
+    const html = renderWithWages({
+      jobCount: 0,
+      grossCents: 0,
+      deferralCents: 0,
+      deferralFraction: 0,
     });
-    expect(html).toContain("<dd>$5,000</dd>");
-    expect(html).not.toContain("$95,000");
+    expect(PLAN_DEFAULTS.primary.jobs.length).toBeGreaterThan(0);
+    expect(html).toContain("<dt>Income (0 jobs)</dt><dd>$0</dd>");
+    expect(html).toContain("<dt>Retirement deferral (blended)</dt><dd>0%</dd>");
   });
 
-  it("does not let a future job's deferral election skew the blended rate", () => {
-    const html = render({
-      ...PLAN_DEFAULTS,
-      primary: { ...PLAN_DEFAULTS.primary, jobs: [currentJob!, futureJob] },
+  it("says one job in the singular", () => {
+    const html = renderWithWages({
+      jobCount: 1,
+      grossCents: 5_000_00,
+      deferralCents: 0,
+      deferralFraction: 0,
     });
-    // The active job elects nothing, so the blended figure reads 0% — not tugged toward the
-    // not-yet-started job's 50%.
+    expect(html).toContain("<dt>Income (1 job)</dt><dd>$5,000</dd>");
+  });
+
+  it("reads an earner the projection never mentioned as no wages at all, rather than blank", () => {
+    // A retiree's month has no wage entry for anyone. The panel must print zeros, not `NaN%`
+    // or an empty cell, and it must not fall back to reading the plan's jobs.
+    const result = runOf(PLAN_DEFAULTS);
+    const real = result.series.months[0]!;
+    const html = renderToStaticMarkup(
+      <DebugPanel
+        report={result.report}
+        budget={PLAN_DEFAULTS}
+        month0={{ ...real, flows: { ...real.flows!, wagesByOwner: {} } }}
+      />,
+    );
+    expect(html).toContain("<dt>Income (0 jobs)</dt><dd>$0</dd>");
     expect(html).toContain("<dt>Retirement deferral (blended)</dt><dd>0%</dd>");
   });
 });
