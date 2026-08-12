@@ -77,7 +77,7 @@ December.
 - **The estimate costs less than a simulated month.** One pass over the compiled series for the
   year's remaining eleven months, once a year — no replay of the waterfall, no fixed-point loop.
   A projection is still exactly one `simulateHousehold` call, so the retirement solver's binary
-  search costs what it always did; `retirementSolver.passes.test.ts` pins both.
+  search costs what it always did.
 - **Attribution splits same-month from display.** The monthly instalment really does come out
   of take-home, so it haircuts each source's `netCashFlowCents`; December's settlement is
   raised by selling assets, so it rides only the display map the tax chart bands on. Over a
@@ -104,8 +104,15 @@ December.
 
 ## Verification
 
-`npm run check` (engine-purity + typecheck + full suite) is green: **138 test files, 1855
+`npm run check` (engine-purity + typecheck + full suite) is green: **138 test files, 1856
 tests passing, 45 todo, 0 failures**.
+
+`rules/src/federalIncomeTaxSchedule.test.ts` **(new)** runs the schedule end to end through
+`Projection` under the real US brackets: over each of three years the charged tax equals
+`usJurisdiction.computeTaxCents(the year's actual reported income)` to the cent, with eleven
+level instalments and the year's savings interest settled in December. The engine's own suite
+adds the same equality under a neutral bracketed fixture — flat-rate fixtures alone cannot show
+it, since a flat year's tax is linear in income and reconciles by arithmetic.
 
 `projection/federalIncomeTax.test.ts` (renamed from `annualTaxSettlement.test.ts`) covers, all
 through `simulateHousehold`: even monthly payments for steady wages; a known annual RMD spread

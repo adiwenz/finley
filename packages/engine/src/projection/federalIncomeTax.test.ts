@@ -104,6 +104,32 @@ function flatAnnualWithAllowance(rate: number, allowanceDollars: number): Jurisd
   };
 }
 
+/**
+ * A BRACKETED jurisdiction: an allowance, then two rates. Progressive on purpose — under a flat
+ * rate the year's tax is linear in income, so summing twelve instalments and reconciling can
+ * agree by arithmetic that says nothing about the annual seam. Here the estimate's marginal rate
+ * genuinely differs from the actual year's.
+ */
+function progressiveAnnual(): Jurisdiction {
+  const scalar = (byCat: Partial<Record<string, number>>): Cents => {
+    const total = CATEGORIES.reduce((s, c) => s + (byCat[c] ?? 0), 0);
+    const overAllowance = Math.max(0, total - dollarsToCents(20_000));
+    const lower = Math.min(overAllowance, dollarsToCents(60_000));
+    return Math.round(lower * 0.1 + Math.max(0, overAllowance - lower) * 0.35);
+  };
+  return {
+    id: "progressive-annual",
+    computeTaxCents: scalar,
+    computeTaxByCategoryCents: (byCat) =>
+      Object.fromEntries(
+        apportionByWeight(
+          scalar(byCat),
+          CATEGORIES.map((c) => [c, byCat[c] ?? 0] as const),
+        ),
+      ),
+  };
+}
+
 /** Every month's charged federal income tax, in order. */
 function monthlyTax(projection: ProjectionSeries): Cents[] {
   return projection.months.map((m) => m.flows!.taxCents);
@@ -270,6 +296,49 @@ describe("Federal income tax — December reconciles against the year's ACTUAL i
     expect(projection.months[11].accountBalancesCents.pretax).toBeLessThan(
       dollarsToCents(1_000_000) - dollarsToCents(10_000),
     );
+  });
+
+  it("charges exactly the jurisdiction's annual tax on the year's actual base, under a progressive schedule", () => {
+    const jurisdiction = progressiveAnnual();
+    // $96k of wages the estimate paces on, and a $40k obligation in month 6 that only the
+    // fully-taxable pre-tax account can fund — income the estimate never saw, landing in the
+    // 35% band the wages alone never reached. Ample cash by December, so the settlement is paid
+    // without selling more and the year's base is exactly these two figures.
+    const projection = simulateHousehold(
+      baseInput(
+        [account("checking", CAPITAL_GAINS_TAX_PROFILE, 0, true), account("pretax", PRE_TAX_TAX_PROFILE, 500_000)],
+        {
+          incomeSeries: [series(8_000, 0, 11)],
+          fundingDraws: [
+            explicitObligation({
+              id: "spend1",
+              sourceId: "spend1",
+              month: 6,
+              amountCents: dollarsToCents(40_000),
+              orderedAccountIds: ["pretax"],
+              treatment: "expense",
+            }),
+          ],
+        },
+      ),
+      jurisdiction,
+    );
+    const taxes = monthlyTax(projection);
+    const actualBase = { ordinaryIncome: dollarsToCents(96_000 + 40_000) };
+
+    // The invariant the whole model rests on: twelve instalments plus December's reconciliation
+    // come to the annual liability on the year's actual taxable income, to the cent — no
+    // rounding residue, and no dependence on which month the $40k landed in.
+    expect(sum(taxes)).toBe(jurisdiction.computeTaxCents(actualBase, { year: 2026 }));
+    // And the estimate really was wrong, so the equality is doing work rather than holding
+    // because nothing needed reconciling: the eleven months before December are the wages-only
+    // estimate to the cent, and December carries the whole difference.
+    const estimated = jurisdiction.computeTaxCents(
+      { ordinaryIncome: dollarsToCents(96_000) },
+      { year: 2026 },
+    );
+    expect(sum(taxes.slice(0, 11))).toBe(estimated - monthlyInstallmentCents(estimated, 11));
+    expect(taxes[11]).toBeGreaterThan(taxes[0]);
   });
 
   it("combines two mid-year withdrawals into one annual base rather than two separate bills", () => {

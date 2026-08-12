@@ -1,32 +1,10 @@
 /**
- * PROJECTED KNOWN annual taxable income — the base the year's monthly estimated federal
- * income-tax payments are sized from, and the only figure in the engine derived from the
- * FUTURE rather than from what has already happened.
- *
- * The one test for inclusion: **can this taxable amount be read off compiled state at the year's
- * start, without executing the stateful monthly waterfall?** Not recurring-vs-one-off — a bonus
- * is a single month of a compiled salary series and is as knowable as the eleven around it.
- * Everything knowable is folded here; everything else is left to December.
- *
- * IN, because the simulator already holds them: the compiled income series (wages and their
- * one-month overrides, pensions, alimony), the government benefit, the year's RMD.
- *
- * OUT, because pricing them means replaying the year: every funding withdrawal — decumulation,
- * a home purchase's down-payment sale, a one-time spend's. `resolveOrderedFundingDraw` splits a
- * draw across accounts by their balance and cost basis in the month it lands, both of which
- * depend on returns, prior draws and prior tax paid; a draw that shorts out blocks and realizes
- * nothing at all. Reproducing that here would be a second simulation, so the tax those draws
- * cause is settled in December's reconciliation instead — which is why the estimate is only an
- * estimate, and why {@link import("./runState").SimState.taxableIncomeByPersonYear} stays the
- * authoritative base.
- *
- * This is emphatically NOT `taxableIncomeYTD / monthsElapsed * 12`: annualizing year-to-date
- * income charges a lumpy earner a large estimate in the month a lump lands and refunds it back
- * over the months after, which is the sawtooth the annual model exists to remove.
- *
- * Cost: one pass over the compiled series for the year's remaining eleven months, once a year.
- * Deliberately cheaper than a simulated month, so the retirement solver's binary search still
- * costs exactly one simulation pass per candidate age.
+ * PROJECTED KNOWN annual taxable income — the base the year's estimated federal income-tax
+ * instalments are sized from: what compiled plan data already schedules for the year, read at
+ * its start. Running the funding waterfall here to price a withdrawal's taxable slice would be a
+ * second simulation of the year, so waterfall-dependent income is instead discovered as it
+ * happens and settled against {@link import("./runState").SimState.taxableIncomeByPersonYear},
+ * the authoritative base, in the year-end reconciliation.
  */
 
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
