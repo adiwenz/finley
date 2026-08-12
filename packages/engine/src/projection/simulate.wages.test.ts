@@ -1,11 +1,12 @@
 /**
- * `flows.wagesByOwner` across a run: the engine's statement of what each person earns from work
- * in a given month, checked against JOB SPANS rather than against authored job records.
+ * `flows.wagesByOwner` as a projection reads it: the engine's statement of what each person
+ * earns from work in a given month, checked against JOB SPANS rather than authored job records.
  *
  * The spans are the whole point. Every consumer that answered "what do you earn now?" by adding
  * up the plan's jobs got the same three cases wrong — a job that already ended kept paying, one
  * that has not started paid early, and its deferral election tugged a blend it has no part in.
- * So the cases live here, at the layer that owns the answer, and not in a panel's rendered HTML.
+ * So one household holding all three jobs at once is run through the public `Projection` API and
+ * its months are read the way a consumer reads them, no reporting internals in sight.
  */
 import { describe, expect, it } from "vitest";
 import { Projection } from "../facade/projectionFacade";
@@ -17,7 +18,7 @@ import type { Job } from "../job/job";
 import type { Plan } from "../plan/plan";
 import { EMPTY_MONTHLY_WAGES } from "./simulate.types";
 
-/** The fixture's current job: $8,000/mo, flat in real terms, electing 10%. */
+/** The one job paying in month 0: $8,000/mo, flat in real terms, electing 10%. */
 const CURRENT_JOB = salariedJob(dollarsToCents(8_000), { deferralFraction: 0.1 });
 
 /** Long over: it stopped paying five years before the run's first month. */
@@ -34,6 +35,7 @@ const PAST_JOB: Job = {
 };
 
 /** Not started: a planned move five years out, electing half its pay to retirement. */
+const FUTURE_JOB_START_MONTH = 5 * 12;
 const FUTURE_JOB: Job = {
   id: "job-future",
   ownerId: "p1",
@@ -47,15 +49,26 @@ const FUTURE_JOB: Job = {
   deferral: { deferralFraction: 0.5, fundAccountId: RETIREMENT_ID },
 };
 
-function wagesAt(jobs: readonly Job[], month: number) {
-  const plan: Plan = { ...samplePlan, primary: { ...samplePlan.primary, jobs } };
-  const months = Projection.fromState(stateOf(plan), nullJurisdiction).run(nullJurisdiction).series.months;
-  return months[month]?.flows?.wagesByOwner["p1"] ?? EMPTY_MONTHLY_WAGES;
-}
+/** One household holding all three jobs — the past one, the current one, the future one. */
+const THREE_JOB_PLAN: Plan = {
+  ...samplePlan,
+  primary: { ...samplePlan.primary, jobs: [PAST_JOB, CURRENT_JOB, FUTURE_JOB] },
+};
 
-describe("wagesByOwner — only the jobs paying in that month", () => {
-  it("reports the current job's pay, deferral and count on its own", () => {
-    expect(wagesAt([CURRENT_JOB], 0)).toEqual({
+const months = Projection.fromState(stateOf(THREE_JOB_PLAN), nullJurisdiction)
+  .run(nullJurisdiction)
+  .series.months;
+
+/** The projection's own month record, read as any consumer reads it. */
+const wagesAt = (month: number) => months[month]?.flows?.wagesByOwner ?? {};
+const primaryWagesAt = (month: number) => wagesAt(month)["p1"] ?? EMPTY_MONTHLY_WAGES;
+
+describe("wagesByOwner — a household with a past, current and future job", () => {
+  it("reports month 0 from the current job alone", () => {
+    // $8,000/mo at 10%. The ended job's $30,000/mo and the not-yet-started job's $20,000/mo are
+    // absent from every figure — pay, job count, deferral and the blend alike, which is what
+    // pins the 10%: the future job's 50% election would move it the moment it were counted.
+    expect(primaryWagesAt(0)).toEqual({
       jobCount: 1,
       grossCents: dollarsToCents(8_000),
       deferralCents: dollarsToCents(800),
@@ -63,39 +76,29 @@ describe("wagesByOwner — only the jobs paying in that month", () => {
     });
   });
 
-  it("leaves an already-ended job out of both the pay and the job count", () => {
-    // $30,000/mo that stopped five years ago is not income now, and the job behind it is not
-    // one of the jobs paying now — the reading is identical to the plan without it.
-    expect(wagesAt([CURRENT_JOB, PAST_JOB], 0)).toEqual(wagesAt([CURRENT_JOB], 0));
+  it("keys only the people actually earning", () => {
+    // The household's one earner, not an entry per authored job or per roster member.
+    expect(Object.keys(wagesAt(0))).toEqual(["p1"]);
   });
 
-  it("leaves a not-yet-started job out, and its election out of the blend", () => {
-    // The future job elects 50%; the blend stays at the current job's 10% because a job that
-    // paid nothing defers nothing and weighs nothing.
-    expect(wagesAt([CURRENT_JOB, FUTURE_JOB], 0)).toEqual(wagesAt([CURRENT_JOB], 0));
-  });
+  it("starts counting the future job in the month it starts paying, not before", () => {
+    expect(primaryWagesAt(FUTURE_JOB_START_MONTH - 1).jobCount).toBe(1);
 
-  it("counts the future job once it starts paying, blending the two elections by pay", () => {
-    const startMonth = 5 * 12;
-    // Stated against the same month with each job ALONE rather than against literal dollars:
-    // five years of CPI have moved the pay by then, and what is under test is the rollup, not
-    // the raise schedule.
-    const both = wagesAt([CURRENT_JOB, FUTURE_JOB], startMonth);
-    const current = wagesAt([CURRENT_JOB], startMonth);
-    const future = wagesAt([FUTURE_JOB], startMonth);
-    expect(both.jobCount).toBe(2);
-    expect(both.grossCents).toBe(current.grossCents + future.grossCents);
-    expect(both.deferralCents).toBe(current.deferralCents + future.deferralCents);
-    // Weighted by pay: the larger, 50%-electing job pulls the blend well past the midpoint of
-    // the two elections (30%), which is what an unweighted average would have reported.
-    expect(both.deferralFraction).toBeCloseTo(both.deferralCents / both.grossCents, 10);
-    expect(both.deferralFraction).toBeGreaterThan(0.35);
+    const started = primaryWagesAt(FUTURE_JOB_START_MONTH);
+    expect(started.jobCount).toBe(2);
+    // Both jobs' pay and both elections are now in play: the blend sits between the 10% and the
+    // 50%, weighted by pay — the larger, 50%-electing job pulls it past their midpoint.
+    expect(started.grossCents).toBeGreaterThan(primaryWagesAt(FUTURE_JOB_START_MONTH - 1).grossCents);
+    expect(started.deferralFraction).toBeCloseTo(started.deferralCents / started.grossCents, 10);
+    expect(started.deferralFraction).toBeGreaterThan(0.35);
+    expect(started.deferralFraction).toBeLessThan(0.5);
   });
 
   it("reports no wages at all once every job has ended", () => {
-    // A month past the current job's end: nothing banded, so the owner has no entry and a
-    // consumer reads the empty record rather than stale pay.
-    const afterEveryJob = (SAMPLE_START_YEAR + 25 - SAMPLE_START_YEAR) * 12;
-    expect(wagesAt([CURRENT_JOB], afterEveryJob)).toEqual(EMPTY_MONTHLY_WAGES);
+    // Past the last job's end: nothing is banded, so the earner has no entry and a consumer
+    // reads the empty record rather than stale pay.
+    const afterEveryJob = months.length - 1;
+    expect(wagesAt(afterEveryJob)).toEqual({});
+    expect(primaryWagesAt(afterEveryJob)).toEqual(EMPTY_MONTHLY_WAGES);
   });
 });
