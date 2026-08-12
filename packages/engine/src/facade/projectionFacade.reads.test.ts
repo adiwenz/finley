@@ -217,13 +217,13 @@ describe("Projection reads — over authored state", () => {
     expect(Math.abs(tenYearsOn - dollarsToCents(600) * Math.pow(1.03, 10))).toBeLessThanOrEqual(2);
   });
 
-  it("reads standing pay per job, per person and across the household — both planes", () => {
+  it("reads standing pay per job, on either plane", () => {
     const p = freshProjection();
     const mine = p.addJob(P1, {
       ...plainJob,
       salary: { startingSalaryCents: dollarsToCents(120000), currentSalaryCents: dollarsToCents(120000), realGrowthPct: 0 },
     });
-    const partnerId = p.marry({
+    p.marry({
       month: 0,
       name: "Sam",
       birthYear: SAMPLE_START_YEAR - 38,
@@ -237,19 +237,14 @@ describe("Projection reads — over authored state", () => {
     expect(p.jobMonthlyIncomeCents(mine)).toBe(dollarsToCents(10000));
     // Found on the ledger plane by id alone — the caller never says which.
     expect(p.jobMonthlyIncomeCents(theirs)).toBe(dollarsToCents(5000));
-    expect(p.personMonthlyIncomeCents(P1)).toBe(dollarsToCents(10000));
-    expect(p.personMonthlyIncomeCents(partnerId)).toBe(dollarsToCents(5000));
-    // Sizing a household budget off one earner is the mistake this exists to prevent.
-    expect(p.householdMonthlyIncomeCents()).toBe(dollarsToCents(15000));
   });
 
   it("refuses a job id no one in the household holds, rather than reading 0", () => {
     expect(() => freshProjection().jobMonthlyIncomeCents("job-9")).toThrow(/no job "job-9"/);
   });
 
-  it("blends a person's deferral across their jobs, weighted by gross", () => {
+  it("reads one job's own deferral election, never another's", () => {
     const p = freshProjection();
-    // $120k at 10% and $40k at 0% → 7.5% of the $160k gross, not the 5% a flat mean gives.
     p.addJob(P1, {
       ...plainJob,
       salary: { startingSalaryCents: dollarsToCents(120000), currentSalaryCents: dollarsToCents(120000), realGrowthPct: 0 },
@@ -259,14 +254,8 @@ describe("Projection reads — over authored state", () => {
       ...plainJob,
       salary: { startingSalaryCents: dollarsToCents(40000), currentSalaryCents: dollarsToCents(40000), realGrowthPct: 0 },
     });
-    expect(p.personDeferralFraction(P1)).toBeCloseTo(0.075, 6);
     // A job electing nothing reads as 0, never as "absent".
     expect(p.jobDeferralFraction(plain)).toBe(0);
-  });
-
-  it("reads a person who earns nothing as 0, not NaN", () => {
-    expect(freshProjection().personDeferralFraction(P1)).toBe(0);
-    expect(freshProjection().personMonthlyIncomeCents(P1)).toBe(0);
   });
 });
 

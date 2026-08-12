@@ -67,7 +67,6 @@ function Harness({ initial, ledger: initialLedger = NO_EVENTS }: { initial: Plan
         household={household}
         ledger={ledger}
         projection={projection}
-        plannedWorkStopAge={65}
       />
       <output data-testid="primary-jobs">{JSON.stringify(plan.primary.jobs)}</output>
       <output data-testid="partner-jobs">{JSON.stringify(partnerJobsOf(ledger))}</output>
@@ -155,17 +154,6 @@ describe("BaseAdjustmentsPanel — Base", () => {
     expect(incomeReadonlyDollars()).toBe(5000);
     // Standing pay is edited in Jobs, not here.
     expect(screen.queryByRole("spinbutton", { name: /^Income$/ })).toBeNull();
-  });
-
-  it("rebalances to 50/30/20 non-destructively — named lines survive, savings is seeded", () => {
-    renderPanel(PLAN_DEFAULTS);
-    expect(spin(/Housing/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Quickstart/i }));
-    // Still a named line after: the budget was rebalanced, not replaced by 3 buckets.
-    expect(spin(/Housing/)).toBeTruthy();
-    expect(screen.queryByRole("spinbutton", { name: /Needs \(50%\)/ })).toBeNull();
-    // A real savings contribution line is seeded for the empty savings tier.
-    expect(screen.getByLabelText(/Delete Savings/i)).toBeTruthy();
   });
 });
 
@@ -521,7 +509,6 @@ describe("BaseAdjustmentsPanel — renders every obligation the month incurs", (
         household={household}
         ledger={NO_EVENTS}
         projection={projection}
-        plannedWorkStopAge={65}
       />,
     );
     // Month 1 is the first serviced month (origination at month 0 charges nothing).

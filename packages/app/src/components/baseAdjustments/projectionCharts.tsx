@@ -31,8 +31,6 @@ export interface ProjectionChartsProps {
   readonly personNames: ReadonlyMap<string, string>;
   readonly selectedMonth: number;
   readonly onSelectMonth: (month: number) => void;
-  /** The %-quickstart: rebalance the existing budget to 50/30/20 of income. */
-  readonly onQuickstart: () => void;
 }
 
 export const ProjectionCharts = memo(function ProjectionCharts({
@@ -43,16 +41,10 @@ export const ProjectionCharts = memo(function ProjectionCharts({
   personNames,
   selectedMonth,
   onSelectMonth,
-  onQuickstart,
 }: ProjectionChartsProps) {
   return (
     <div>
-      <div className="row-between">
-        <h3>Cash flow &amp; spending over time</h3>
-        <button className="btn" onClick={onQuickstart} type="button">
-          Quickstart from income (50/30/20)
-        </button>
-      </div>
+      <h3>Cash flow &amp; spending over time</h3>
       <p className="hint">Click either graph to edit at any point in time.</p>
 
       <h4 className={styles.groupHeading}>Monthly cash flows vs. spending</h4>

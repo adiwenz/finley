@@ -139,6 +139,17 @@ export interface ProjectionMonthFlows {
    */
   readonly incomeSources: readonly ProjectionIncomeSource[];
   /**
+   * "What is this person earning from work right now", stated by the simulation rather than
+   * re-derived from authored job spans. Keyed by `ownerId`; an earner with no wages this month
+   * has no entry, so a consumer reads `?? EMPTY_MONTHLY_WAGES` rather than branching.
+   *
+   * Exists because every consumer that answered this question itself got it wrong the same way:
+   * summing every authored job ignores `startYear`/`endYear`, so an ended job kept paying and an
+   * unstarted one paid early. Here the answer can only be the one the sim used — it is a
+   * regrouping of {@link incomeSources}, which the waterfall already banded.
+   */
+  readonly wagesByOwner: Readonly<Record<string, MonthlyWages>>;
+  /**
    * Σ `incomeByCategoryCents` — realized taxable income: includes savings interest,
    * excludes the savings drawdown.
    */
@@ -251,6 +262,37 @@ export interface ProjectionMonthFlows {
    */
   readonly resolvedFunding: readonly ResolvedFunding[];
 }
+
+/**
+ * One earner's pay for work in a single month — the `wages` slice of {@link
+ * ProjectionMonthFlows.incomeSources} for one `ownerId`, rolled up. Benefits, savings interest
+ * and the savings drawdown are not pay for work and are excluded.
+ */
+export interface MonthlyWages {
+  /**
+   * How many jobs actually paid this person this month. NOT how many jobs they have authored:
+   * a job outside its span pays nothing and books no source, so it is not counted here.
+   */
+  readonly jobCount: number;
+  /** Pre-tax, pre-deferral pay across those jobs. */
+  readonly grossCents: Cents;
+  /** Pre-tax retirement deferral withheld from that pay. */
+  readonly deferralCents: Cents;
+  /**
+   * `deferralCents / grossCents` — the blended election across jobs, weighted by each one's pay.
+   * 0, never `NaN`, for an earner with no wages: the engine states the fraction so no consumer
+   * has to re-invent the divide-by-zero guard.
+   */
+  readonly deferralFraction: number;
+}
+
+/** What an owner with no wages this month reads as — every figure zero, not `undefined`. */
+export const EMPTY_MONTHLY_WAGES: MonthlyWages = {
+  jobCount: 0,
+  grossCents: 0,
+  deferralCents: 0,
+  deferralFraction: 0,
+};
 
 /**
  * The display/grouping axis, NOT the tax axis. Usually the source's own {@link

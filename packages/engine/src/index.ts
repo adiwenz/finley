@@ -191,6 +191,11 @@ export type { ModelAssumption } from "./projection/assumptions";
 export type { AccountReturnKind } from "./plan/simAccount";
 export type { EarningsRecord } from "./job/earningsRecord";
 export type { ProjectionIncomeSource } from "./projection/simulate.types";
+// One earner's pay for work this month, stated by the sim. Exported as a VALUE too: a consumer
+// reading an owner with no wages needs the zero record, and re-declaring it app-side would be
+// the same re-derivation this field exists to end.
+export type { MonthlyWages } from "./projection/simulate.types";
+export { EMPTY_MONTHLY_WAGES } from "./projection/simulate.types";
 
 // The standalone jurisdiction: no taxes, no government programs. Part of this package precisely
 // so `fromInput(input, nullJurisdiction)` runs the engine end to end without the `rules` package

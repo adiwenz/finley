@@ -13,7 +13,7 @@
 
 import type { Cents } from "../money/money";
 import type { IncomeSourceMonth } from "./waterfall";
-import type { ProjectionIncomeSource, ProjectionMonthFlows } from "./simulate.types";
+import type { MonthlyWages, ProjectionIncomeSource, ProjectionMonthFlows } from "./simulate.types";
 import {
   automaticFundingTotal,
   expenseReportingTotal,
@@ -130,6 +130,32 @@ export function buildFlows(
       netCashFlowCents: liquidDrawdownCents,
     });
   }
+  // Pay for work, per earner — a regrouping of the bands above, so it cannot disagree with what
+  // the sim paid. Reading the banded `sources` is the whole point: a job outside its span banded
+  // nothing, which is why `jobCount` is how many jobs PAID this month rather than how many were
+  // authored. The savings drawdown pushed above is skipped on `category`, as is every benefit.
+  const wagesByOwner: Record<string, MonthlyWages> = {};
+  for (const s of sources) {
+    if (s.category !== "wages" || s.ownerId === undefined) continue;
+    const prior = wagesByOwner[s.ownerId];
+    wagesByOwner[s.ownerId] = {
+      jobCount: (prior?.jobCount ?? 0) + 1,
+      grossCents: (prior?.grossCents ?? 0) + s.cashInflowCents,
+      deferralCents: (prior?.deferralCents ?? 0) + (deferralBySourceCents?.[s.sourceId] ?? 0),
+      // Placeholder: the blend is only meaningful over the completed sums, so the pass below
+      // restates it once per owner rather than this loop recomputing it per job.
+      deferralFraction: 0,
+    };
+  }
+  for (const [ownerId, w] of Object.entries(wagesByOwner)) {
+    // Guarded rather than assumed positive: a banded source had nonzero cash, but the sum is
+    // not bounded below by anything — an income override can zero out the month.
+    wagesByOwner[ownerId] = {
+      ...w,
+      deferralFraction: w.grossCents > 0 ? w.deferralCents / w.grossCents : 0,
+    };
+  }
+
   // Every reported total is a derivation of the one obligation list the waterfall consumed, so
   // the flow view cannot drift from the funded amount. The two named sums split the list on
   // orthogonal axes (funding kind vs. treatment); the debt rollup is their difference — the
@@ -156,6 +182,7 @@ export function buildFlows(
   return {
     incomeByCategoryCents,
     incomeSources: sources,
+    wagesByOwner,
     totalIncomeCents,
     governmentRetirementBenefitCents: incomeByCategoryCents["governmentRetirementBenefit"] ?? 0,
     taxCents,

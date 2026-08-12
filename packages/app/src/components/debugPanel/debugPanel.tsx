@@ -7,33 +7,14 @@
  */
 
 import { useMemo, useState, type ReactNode } from "react";
-import { PRIMARY_PERSON_ID } from "@finley/engine";
-import type { Plan, Projection, SimulationReport } from "@finley/engine";
-
-/** The two figures this inspector reads through the facade rather than re-deriving. */
-type PlanFigures = Pick<Projection, "personMonthlyIncomeCents" | "personDeferralFraction">;
-import { primaryJobs } from "../../planPeople";
+import { EMPTY_MONTHLY_WAGES, PRIMARY_PERSON_ID } from "@finley/engine";
+import type { Plan, ProjectionMonth, SimulationReport } from "@finley/engine";
 import { formatDollars } from "../../format";
 import { debugExportFilename } from "../../debugExport";
 import styles from "./debugPanel.module.css";
 
 const pct = (whole: number) => `${whole}%`;
 
-/**
- * The plan's authored monthly general spend: the base amount of every literal expense budget
- * line, before price growth, spans or dated overrides. Contribution lines (account targets)
- * and non-literal amounts are not spend, so they are excluded.
- */
-function expenseLinesSummary(budget: Plan): { count: number; monthlyCents: number } {
-  const lines = budget.budgetLines.filter(
-    (l) => l.target.kind === "expense" && l.amountSource.kind === "literal",
-  );
-  const monthlyCents = lines.reduce(
-    (sum, l) => sum + (l.amountSource.kind === "literal" ? l.amountSource.monthlyCents : 0),
-    0,
-  );
-  return { count: lines.length, monthlyCents };
-}
 /** A rate held as a FRACTION (0.03) rendered as a percentage ("3%"). */
 const ratePct = (fraction: number) => `${+(fraction * 100).toFixed(2)}%`;
 const targetDate = (d: number | "asap") => (d === "asap" ? "ASAP" : `month ${d}`);
@@ -93,17 +74,24 @@ function growthRows(inputs: SimulationReport["inputs"]): [string, ReactNode][] {
 /** Every configurable knob, grouped — the authored plan plus resolved run facts. */
 function Configuration({
   budget,
-  projection,
+  month0,
   inputs,
   jurisdictionId,
 }: {
   budget: Plan;
-  /** Standing pay and the blended deferral are read through the facade, not re-derived here. */
-  projection: PlanFigures;
+  /** What the simulation actually paid/deferred this month — never re-derived from job spans. */
+  month0: ProjectionMonth;
   inputs: SimulationReport["inputs"];
   jurisdictionId: string;
 }) {
-  const expenseLines = expenseLinesSummary(budget);
+  // The primary earner's month-0 pay as the ENGINE stated it: how many jobs paid, what they
+  // paid, and the deferral blended across them. Nothing here is computed — an owner who earned
+  // nothing this month has no entry, and reads as zeros.
+  const wages = month0.flows?.wagesByOwner[PRIMARY_PERSON_ID] ?? EMPTY_MONTHLY_WAGES;
+  // What the sim actually spent in month 0, and how many budget lines it billed — not a re-read
+  // of the authored lines, which would show pre-growth amounts and lines outside their span.
+  const expensesCents = month0.flows?.expensesCents ?? 0;
+  const budgetLineCount = Object.keys(month0.flows?.lineMonthlyCents ?? {}).length;
   return (
     <div className={styles.config}>
       <ConfigGroup
@@ -121,12 +109,14 @@ function Configuration({
         title="Monthly cash flow"
         rows={[
           [
-            `Income (${primaryJobs(budget).length} job${primaryJobs(budget).length === 1 ? "" : "s"})`,
-            formatDollars(projection.personMonthlyIncomeCents(PRIMARY_PERSON_ID)),
+            // Jobs that PAID this month, per the engine — not jobs on the plan, which counts
+            // ended and not-yet-started ones the income beside it deliberately excludes.
+            `Income (${wages.jobCount} job${wages.jobCount === 1 ? "" : "s"})`,
+            formatDollars(wages.grossCents),
           ],
-          ["Expenses (budget lines)", formatDollars(expenseLines.monthlyCents)],
-          ["Cash opening balance", formatDollars(budget.openingBalanceCents)],
-          ["Budget expense lines", `${expenseLines.count}`],
+          ["Expenses (month 0)", formatDollars(expensesCents)],
+          ["Opening balance", formatDollars(budget.openingBalanceCents)],
+          ["Budget lines billed (month 0)", `${budgetLineCount}`],
         ]}
       />
       <ConfigGroup
@@ -137,7 +127,7 @@ function Configuration({
           ["Savings ROI", pct(budget.savingsReturnPct)],
           ["Retirement ROI", pct(budget.retirementReturnPct)],
           ["Brokerage ROI", pct(budget.brokerageReturnPct)],
-          ["Retirement deferral (blended)", pct(Math.round(projection.personDeferralFraction(PRIMARY_PERSON_ID) * 100))],
+          ["Retirement deferral (blended)", pct(Math.round(wages.deferralFraction * 100))],
         ]}
       />
       <ConfigGroup
@@ -179,11 +169,16 @@ function Configuration({
 export function DebugPanel({
   report,
   budget,
-  projection,
+  month0,
 }: {
   report: SimulationReport;
   budget: Plan;
-  projection: PlanFigures;
+  /**
+   * The same run's month-0 `ProjectionMonth` — carries the `flows` rollups the flattened
+   * {@link SimulationReport} does not, chiefly `wagesByOwner`, which states the primary
+   * person's current pay, job count and deferral so this panel only has to print them.
+   */
+  month0: ProjectionMonth;
 }) {
   const [everyMonth, setEveryMonth] = useState(false);
   /**
@@ -245,7 +240,7 @@ export function DebugPanel({
 
       <Configuration
         budget={budget}
-        projection={projection}
+        month0={month0}
         inputs={inputs}
         jurisdictionId={jurisdictionId}
       />

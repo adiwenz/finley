@@ -29,7 +29,6 @@ import {
 import { START_YEAR } from "../../config";
 import { formatDollars } from "../../format";
 import { NumInput } from "../numInput/numInput";
-import { tierRebalanceWrites } from "./budgetTemplate";
 import { BudgetLineForm } from "./budgetLineForm";
 import { PayChangeEditor } from "./payChangeEditor";
 import {
@@ -94,24 +93,11 @@ export interface BaseAdjustmentsPanelProps {
   readonly household: Household;
   readonly ledger: Ledger;
   /**
-   * The three reads this panel makes: what each expense line resolves to at the selected month,
-   * the household's standing pay the quickstart sizes its tiers against, and the plan's account
-   * ids/labels so the "Funded by" section can name an account rather than print its id. Writes
-   * go through {@link transact}.
+   * The two reads this panel makes: what each expense line resolves to at the selected month, and
+   * the plan's account ids/labels so the "Funded by" section can name an account rather than
+   * print its id. Writes go through {@link transact}.
    */
-  readonly projection: Pick<
-    Projection,
-    "expenseRowsAt" | "householdMonthlyIncomeCents" | "accountDescriptors"
-  >;
-  /**
-   * The age the authored plan stops earning, which is where the quickstart's savings line stops
-   * — saving out of a paycheck the plan does not have is not a budget. `null` for a household
-   * with no jobs, which leaves the line unbounded rather than zero-length.
-   *
-   * Passed in rather than read here: it comes off the retirement solve `App` already holds, and
-   * a second solve on this panel could only ever agree with it or be a bug.
-   */
-  readonly plannedWorkStopAge: number | null;
+  readonly projection: Pick<Projection, "expenseRowsAt" | "accountDescriptors">;
 }
 
 export function BaseAdjustmentsPanel({
@@ -122,7 +108,6 @@ export function BaseAdjustmentsPanel({
   household,
   ledger,
   projection,
-  plannedWorkStopAge,
 }: BaseAdjustmentsPanelProps) {
   const lines = plan.budgetLines;
   const [selectedMonth, setSelectedMonth] = useState(0);
@@ -250,8 +235,8 @@ export function BaseAdjustmentsPanel({
 
   /**
    * A staged-but-uncommitted edit is dropped: framed against the old month's numbers,
-   * carrying it forward would commit a change the user never read. Stable identity, like
-   * {@link applyQuickstart} — both are props of the memoized graphs.
+   * carrying it forward would commit a change the user never read. Stable identity, since it
+   * is a prop of the memoized graphs.
    */
   const selectMonth = useCallback((month: number): void => {
     setSelectedMonth(month);
@@ -277,28 +262,6 @@ export function BaseAdjustmentsPanel({
     }
     setPending(null);
   }
-
-  /** Where the quickstart's savings line stops — `undefined` leaves it unbounded. */
-  const retirementMonth =
-    plannedWorkStopAge === null
-      ? undefined
-      : Math.max(0, (plannedWorkStopAge - (START_YEAR - plan.primary.birthYear)) * 12);
-
-  const applyQuickstart = useCallback((): void => {
-    // Non-destructive: rebalance existing lines to 50/30/20, keeping their names. Off the
-    // whole household's standing pay — one earner's jobs would size a two-earner
-    // household's spending to half its income.
-    const monthlyIncomeCents = projection.householdMonthlyIncomeCents();
-    // One transaction: the whole rebalance lands together or not at all.
-    const { rescale, seeds } = tierRebalanceWrites(lines, monthlyIncomeCents, retirementMonth);
-    transact((p) => {
-      for (const { id, monthlyCents } of rescale) {
-        p.updateBudgetLine(id, { amountSource: { kind: "literal", monthlyCents } });
-      }
-      for (const seed of seeds) p.addBudgetLine(seed);
-    });
-    setPending(null);
-  }, [lines, projection, retirementMonth, transact]);
 
   // `length - 1`: every row is a processed month now (the opening snapshot left the array), so
   // the last selectable month is the last INDEX, not the count. Clamping to the count would
@@ -332,7 +295,6 @@ export function BaseAdjustmentsPanel({
         personNames={personNames}
         selectedMonth={selectedMonth}
         onSelectMonth={selectMonth}
-        onQuickstart={applyQuickstart}
       />
 
       {/* The point being edited. */}

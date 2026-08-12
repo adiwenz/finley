@@ -319,12 +319,13 @@ export function App() {
           household={household}
           ledger={ledger}
           projection={projection}
-          plannedWorkStopAge={retirement.plannedWorkStopAge}
         />
       </div>
 
       <div className="card">
-        <DebugPanel report={report} budget={budget} projection={projection} />
+        {/* A plan with no months is rejected at authoring time (`invalidAge`), so `months[0]`
+            is always present here. */}
+        <DebugPanel report={report} budget={budget} month0={series.months[0]!} />
       </div>
 
       <div className="card">
