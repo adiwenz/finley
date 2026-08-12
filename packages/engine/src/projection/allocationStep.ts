@@ -3,7 +3,6 @@ import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdic
 import type { TaxCategory } from "../money/cashFlowSeries";
 import { orderBudgetLines, resolveBudgetLineMonthlyCents } from "../budget/budgetLine";
 import { runWaterfall, type IncomeSourceMonth } from "./waterfall";
-import { monthlyIncomeTaxCents, monthlyIncomeTaxByCategoryCents } from "./incomeTax";
 import type { SimState } from "./runState";
 import type { SimOwnedSeries } from "./simulate.types";
 
@@ -96,12 +95,24 @@ export function allocateMonth(
     goalFundMonthlyRate: (id) => accountsById.get(id)?.getMonthlyRateAt(month) ?? 0,
     accountBalanceCents: (id) => state.assetBalances.get(id) ?? 0,
     liquidAccountId: state.liquidAccount?.id ?? null,
-    computeTaxCents: (taxableByCategory) =>
-      monthlyIncomeTaxCents(jurisdiction, ctx, taxableByCategory),
+    computeTaxCents: (annualByCategory) => jurisdiction.computeTaxCents(annualByCategory, ctx),
     // Required of every jurisdiction (a zero-tax one returns `{}`); `runWaterfall` enforces
     // that a tax-charging month reconciles per source.
-    computeTaxByCategoryCents: (taxableByCategory) =>
-      monthlyIncomeTaxByCategoryCents(jurisdiction, ctx, taxableByCategory),
+    computeTaxByCategoryCents: (annualByCategory) =>
+      jurisdiction.computeTaxByCategoryCents(annualByCategory, ctx),
+    // A person's income-tax YTD state BEFORE this month — the base the waterfall's
+    // annualized-YTD reconciliation builds on (see ./incomeTax.ts). Absent key → a fresh tax
+    // year, which naturally happens each January as `ctx.year` rolls the key over.
+    priorIncomeTaxByPersonState: (pid) => {
+      const key = `${pid}|${ctx.year}`;
+      return {
+        taxableByCategory: state.taxableIncomeByPersonYear.get(key) ?? {},
+        taxPaidCents: state.incomeTaxPaidByPersonYear.get(key) ?? 0,
+      };
+    },
+    // Calendar months elapsed so far this year, INCLUDING this one — `month` is absolute
+    // across the whole run, so this is its position within the current 12-month year.
+    monthsElapsedInYear: (month % 12) + 1,
     // Absent seam → no payroll tax; the waterfall then leaves take-home untouched.
     computePayrollTaxCents: jurisdiction.computePayrollTaxCents
       ? (earnedByCategory) => jurisdiction.computePayrollTaxCents!(earnedByCategory, ctx)
@@ -169,6 +180,24 @@ export function allocateMonth(
       key,
       (state.combinedDepositsByPlanYear.get(key) ?? 0) + amount,
     );
+  }
+
+  // Fold this month's taxable income and income-tax charge into the YTD accumulators so next
+  // month's `priorIncomeTaxByPersonState` reconciliation reads a current base.
+  for (const [pid, taxable] of result.taxableThisMonthByPersonCents) {
+    const key = `${pid}|${ctx.year}`;
+    const running = state.taxableIncomeByPersonYear.get(key);
+    if (running === undefined) {
+      state.taxableIncomeByPersonYear.set(key, { ...taxable });
+    } else {
+      for (const [category, cents] of Object.entries(taxable)) {
+        if (cents) running[category as TaxCategory] = (running[category as TaxCategory] ?? 0) + cents;
+      }
+    }
+  }
+  for (const [pid, tax] of result.taxByPersonCents) {
+    const key = `${pid}|${ctx.year}`;
+    state.incomeTaxPaidByPersonYear.set(key, (state.incomeTaxPaidByPersonYear.get(key) ?? 0) + tax);
   }
 
   // Contributions go back so the caller can unwind any unfundable slice after the cascade.

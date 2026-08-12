@@ -19,6 +19,9 @@ function makeInput(over: Partial<WaterfallInput>): WaterfallInput {
     liquidAccountId: "checking",
     computeTaxCents: () => 0,
     computeTaxByCategoryCents: () => ({}), // zero tax → empty breakdown (required seam)
+    // Month 1 of a fresh tax year (no prior YTD state) unless a test overrides it — the
+    // single-call unit tests below each run in isolation, so this is always "the first month".
+    monthsElapsedInYear: 1,
     remainingDeferralRoomCents: () => Infinity,
     remainingCombinedDepositRoomCents: () => Infinity,
     ...over,
@@ -299,7 +302,8 @@ describe("runWaterfall — tax seam (seam 1)", () => {
         },
       }),
     );
-    expect(seen).toEqual([{ wages: dollarsToCents(4000) }]);
+    // The seam is ANNUAL in/out: month 1 of a fresh year annualizes the $4000 taxable ×12.
+    expect(seen).toEqual([{ wages: dollarsToCents(4000 * 12) }]);
     expect(r.taxCents).toBe(dollarsToCents(400));
     // Take-home = 5000 − 1000 deferral − 400 tax.
     expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(3600));
@@ -318,7 +322,8 @@ describe("runWaterfall — tax seam (seam 1)", () => {
         },
       }),
     );
-    expect(seen).toEqual([{ governmentRetirementBenefit: dollarsToCents(2000) }]);
+    // Annualized ×12 (month 1 of a fresh year) — the seam is ANNUAL in/out.
+    expect(seen).toEqual([{ governmentRetirementBenefit: dollarsToCents(2000 * 12) }]);
     expect(r.deferredByPersonCents.get("p1") ?? 0).toBe(0);
   });
 
@@ -345,7 +350,7 @@ describe("runWaterfall — tax seam (seam 1)", () => {
         liquidAccountId: "checking",
       }),
     );
-    expect(seen).toEqual([{ governmentRetirementBenefit: dollarsToCents(2000) }]);
+    expect(seen).toEqual([{ governmentRetirementBenefit: dollarsToCents(2000 * 12) }]);
     expect(r.taxCents).toBe(dollarsToCents(170));
     // Take-home is gross − tax: the untaxed 15% is still spendable cash.
     expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(1830));
@@ -707,11 +712,16 @@ describe("runWaterfall — per-source tax attribution", () => {
   });
 
   it("splits each person's tax across only their own jobs — no cross-person subsidy", () => {
-    // Progressive stub: 10% to $4000 taxable, 30% above. p1 ($8000) and p2 ($2000) land in
+    // Progressive stub: 10% to $4000/mo taxable, 30% above (stated at the ANNUAL scale the
+    // seam now takes — ×12 — so a month-1 annualized $8000/$2000 draw lands in the same
+    // bands as before the seam's contract changed). p1 ($8000) and p2 ($2000) land in
     // different bands, so their average rates differ and a household-level split by taxable
     // would misattribute.
     const progressive = (wages: number) =>
-      Math.round(Math.min(wages, dollarsToCents(4000)) * 0.1 + Math.max(0, wages - dollarsToCents(4000)) * 0.3);
+      Math.round(
+        Math.min(wages, dollarsToCents(4000 * 12)) * 0.1 +
+          Math.max(0, wages - dollarsToCents(4000 * 12)) * 0.3,
+      );
     const r = runWaterfall(
       makeInput({
         personIds: ["p1", "p2"],

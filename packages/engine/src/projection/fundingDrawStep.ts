@@ -18,7 +18,7 @@ import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdic
 import type { TaxCategory } from "../money/cashFlowSeries";
 import type { SimState } from "./runState";
 import type { IncomeSourceMonth } from "./waterfall";
-import { monthlyIncomeTaxCents } from "./incomeTax";
+import { ytdIncomeTaxCents, FRESH_YTD_TAX_STATE, type YtdTaxState } from "./incomeTax";
 import { attributeExplicitObligation, type ResolvedFunding } from "./resolvedFunding";
 import type { FinancialObligation } from "./financialObligation";
 import {
@@ -164,6 +164,12 @@ export function toTaxableRecord(taxableByOwner: TaxableByOwner): Record<string, 
  *
  * Shared with the affordability reporter (`fundingLookup.availabilityAt`), so the reported
  * shortfall matches exactly what the sim would fall short by.
+ *
+ * `priorIncomeTaxByOwner`/`monthsElapsedInYear` seed the YTD reconciliation (`./incomeTax.ts`)
+ * each owner's tax is priced against. Both default to a fresh tax year at month 1 — bit-
+ * identical to annualizing THIS draw alone ×12 — for a caller with no running YTD context
+ * (the affordability gate, a stand-alone probe); the real simulator (`resolveFundingDraws`)
+ * always supplies the household's actual running YTD state.
  */
 export function resolveOrderedFundingDraw(
   amountCents: Cents,
@@ -171,9 +177,13 @@ export function resolveOrderedFundingDraw(
   jurisdiction: Jurisdiction,
   ctx: JurisdictionContext,
   taxableByOwner: TaxableByOwner,
+  priorIncomeTaxByOwner: (ownerId: string) => YtdTaxState = () => FRESH_YTD_TAX_STATE,
+  monthsElapsedInYear: number = 1,
 ): OrderedFundingDrawResult {
-  const computeTaxCents = (taxable: TaxableByCategory): Cents =>
-    monthlyIncomeTaxCents(jurisdiction, ctx, taxable);
+  const computeAnnualTaxCents = (annual: TaxableByCategory): Cents =>
+    jurisdiction.computeTaxCents(annual, ctx);
+  const computeTaxCents = (ownerId: string, taxable: TaxableByCategory): Cents =>
+    ytdIncomeTaxCents(computeAnnualTaxCents, priorIncomeTaxByOwner(ownerId), monthsElapsedInYear, taxable);
 
   const perSource: ResolvedFundingSource[] = [];
   let remaining = amountCents;
@@ -228,8 +238,8 @@ export function resolveOrderedFundingDraw(
       ...base,
       [category]: (base[category] ?? 0) + gainOf(gross),
     });
-    const baseTax = computeTaxCents(base);
-    const inducedTax = (gross: Cents): Cents => computeTaxCents(withGain(gross)) - baseTax;
+    const baseTax = computeTaxCents(ownerId, base);
+    const inducedTax = (gross: Cents): Cents => computeTaxCents(ownerId, withGain(gross)) - baseTax;
 
     // Least fixed point of `gross = remaining + inducedTax(gross)`, climbed from `remaining`
     // and capped at the balance — the same solve as the decumulation withdrawal.
@@ -246,7 +256,7 @@ export function resolveOrderedFundingDraw(
     }
 
     const gain = gainOf(gross);
-    const tax = computeTaxCents(withGain(gross)) - baseTax;
+    const tax = computeTaxCents(ownerId, withGain(gross)) - baseTax;
     taxableByOwner.set(ownerId, withGain(gross));
     const netDelivered = gross - tax;
     remaining -= netDelivered;
@@ -364,6 +374,19 @@ export function resolveFundingDraws(
   const working: TaxableByOwner = new Map();
   for (const [ownerId, byCategory] of taxableByOwner) working.set(ownerId, { ...byCategory });
 
+  // Each owner's income-tax state YTD BEFORE this month — the base a candidate gain's
+  // gross-up is priced against, so a draw resolved here prices identically to how the
+  // waterfall (later this same month) will actually charge it. `month`'s position within the
+  // calendar year mirrors `allocationStep.ts`'s `monthsElapsedInYear`.
+  const priorIncomeTaxByOwner = (ownerId: string) => {
+    const key = `${ownerId}|${ctx.year}`;
+    return {
+      taxableByCategory: state.taxableIncomeByPersonYear.get(key) ?? {},
+      taxPaidCents: state.incomeTaxPaidByPersonYear.get(key) ?? 0,
+    };
+  };
+  const monthsElapsedInYear = (month % 12) + 1;
+
   // This month's draws, in resolution order, materialized BEFORE any is priced: a block has to name
   // not just the draw that fell short but every draw after it that consequently never ran, and that
   // tail is only knowable from the whole list. A funding draw is any EXPLICITLY-funded obligation:
@@ -424,6 +447,8 @@ export function resolveFundingDraws(
       jurisdiction,
       ctx,
       probe,
+      priorIncomeTaxByOwner,
+      monthsElapsedInYear,
     );
     if (shortfallCents > 0) {
       // The block. Omit this draw and everything after it — no state moves, no attribution.

@@ -261,6 +261,17 @@ export function simulateHousehold(
       ctx,
       DEFAULT_LIQUIDATION_ORDER,
       fundingDraw.taxableByOwnerAfter,
+      // Each owner's income-tax YTD state BEFORE this month — the same base the funding
+      // draws above and the waterfall below price against, so a decumulation gross-up prices
+      // identically to what the month actually charges.
+      (ownerId) => {
+        const key = `${ownerId}|${year}`;
+        return {
+          taxableByCategory: state.taxableIncomeByPersonYear.get(key) ?? {},
+          taxPaidCents: state.incomeTaxPaidByPersonYear.get(key) ?? 0,
+        };
+      },
+      (month % 12) + 1,
     );
     const incomeSources = [...nonWithdrawalSources, ...withdrawal.sources];
     const allocationSources = [...incomeSources, ...fundingDraw.taxSources];

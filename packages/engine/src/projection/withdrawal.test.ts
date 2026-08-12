@@ -11,6 +11,7 @@ import { SimCashFlowSeries, dollarsToCents } from "../money/cashFlowSeries";
 import {
   nullJurisdiction,
   type Jurisdiction,
+  type JurisdictionContext,
   type WithdrawalTaxBasis,
 } from "../jurisdiction/jurisdiction";
 import type { Cents } from "../money/money";
@@ -28,7 +29,14 @@ import {
   type WithdrawalState,
 } from "./withdrawal";
 import type { IncomeSourceMonth } from "./waterfall";
-import { monthlyIncomeTaxCents } from "./incomeTax";
+import { ytdIncomeTaxCents, FRESH_YTD_TAX_STATE } from "./incomeTax";
+import type { TaxableByCategory } from "./taxAttribution";
+
+/** Month 1 of a fresh tax year — matches `buildWithdrawalSources`'s own default when no YTD
+ * context is supplied, so a test's own tax check stays consistent with what it exercises. */
+function freshMonthlyTaxCents(jurisdiction: Jurisdiction, ctx: JurisdictionContext, taxable: TaxableByCategory): number {
+  return ytdIncomeTaxCents((annual) => jurisdiction.computeTaxCents(annual, ctx), FRESH_YTD_TAX_STATE, 1, taxable);
+}
 
 /** A non-compounding account so balances move only by withdrawal/deposit. */
 function account(id: string, taxProfile: SimAccountTaxProfile, dollars: number, liquid = false): SimAccount {
@@ -530,7 +538,7 @@ describe("Every taxed draw nets the need — whole-return gross-up", () => {
       byOwner.set(s.ownerId, map);
     }
     let tax = 0;
-    for (const map of byOwner.values()) tax += monthlyIncomeTaxCents(jurisdiction, ctx, map);
+    for (const map of byOwner.values()) tax += freshMonthlyTaxCents(jurisdiction, ctx, map);
     return gross - tax;
   }
 
@@ -719,7 +727,7 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable", () => {
       byOwner.set(s.ownerId, map);
     }
     let tax = 0;
-    for (const map of byOwner.values()) tax += monthlyIncomeTaxCents(jurisdiction, ctx, map);
+    for (const map of byOwner.values()) tax += freshMonthlyTaxCents(jurisdiction, ctx, map);
     return gross - tax;
   }
 

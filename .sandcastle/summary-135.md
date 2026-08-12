@@ -1,0 +1,54 @@
+# Summary — Issue 135: Calculate income tax from annual/YTD income instead of monthly annualization
+
+## Overview
+
+Federal income tax was calculated month-by-month by annualizing each month's taxable income (`monthly × 12`), taxing that estimate, and charging 1/12 of the result. This is exact for steady income but massively overtaxes lumpy income — an RMD forced entirely into one month, a bonus, a large one-time withdrawal — since the seam treated that single month's amount as though it recurred every month of the year.
+
+This issue replaces that with genuine year-to-date (YTD) accumulation: the engine tracks each person's cumulative taxable income and tax paid so far this calendar year, extrapolates an annual pace from the YTD total (`taxableYTD / monthsElapsed × 12`), taxes that estimate through the jurisdiction's now-annual seam, and charges only the difference between the resulting target cumulative liability and what has already been paid. By December, the YTD total *is* the actual annual total, so cumulative tax reconciles exactly to the true annual liability regardless of how income was distributed across the year.
+
+The work landed in two commits:
+- **Part 1** (`395bd27`, RALPH) — a behavior-preserving refactor moving the `monthly × 12 → tax → ÷ 12` annualization out of `packages/rules` and into a new engine-owned seam contract (`Jurisdiction.computeTaxCents` now takes ANNUAL input/output). Bit-identical to the prior behavior, proven by the full test suite.
+- **Part 2** (this commit) — the actual YTD feature: state, reconciliation math, and rewiring the three call sites that price income tax.
+
+## RGR Verification Details
+
+Each new engine function was TDD'd in isolation before being wired into production:
+1. `packages/engine/src/projection/incomeTax.ts`'s core functions (`annualizeYtd`, `targetCumulativeTaxCents`, `ytdIncomeTaxCents`, `ytdIncomeTaxWithBreakdownCents`) were written test-first in `incomeTax.test.ts`, including the headline acceptance test — a $120k RMD lump in January vs. the same $120k spread evenly across 12 months both reconcile to the exact same December cumulative tax ($28,000 under a synthetic 40%-over-$50k bracket), where the pre-fix naive approach would have charged ~$46,333 in January alone.
+2. Wiring into `waterfall.ts` (`computeTakeHome`), `fundingDrawStep.ts` (`resolveOrderedFundingDraw`/`resolveFundingDraws`), and `withdrawal.ts` (`buildWithdrawalSources`) was verified by running the full existing suite after each change and fixing genuine contract-driven test breaks (mock jurisdictions written for the old monthly-in/monthly-out contract needed rescaling to the new annual-in/annual-out one — the same technique used across `withdrawal.test.ts`, `fundingDrawStep.test.ts`, and `events.homePurchase.test.ts`).
+3. Two real bugs were caught by running the FULL suite (including `packages/app`'s tests, which exercise the real `usJurisdiction` federal-bracket seam end-to-end) rather than trusting synthetic-jurisdiction unit tests alone:
+   - **Negative single-category attribution**: differencing two independently-apportioned annual snapshots per category (mirroring the existing payroll-tax pattern) could make one category's own increment go negative even while a person's total tax rose, because annual weight *ratios* between categories shift month to month. `attributeTaxToSources` silently drops non-positive category entries, breaking the household Σ invariant. Fixed by apportioning THIS MONTH's scalar charge by the CURRENT month's weights directly (matching the pre-issue `computeFederalTaxByCategoryCents` design) rather than differencing history — this also let `taxPaidByCategoryCents` state be dropped entirely as unnecessary.
+   - **Empty-weight refund**: when the current month's annualized estimate implies zero tax (e.g. it falls back under the standard deduction) but a refund is still owed from an earlier, higher estimate, there is no tax-weighted category to attribute the refund to. Fixed with a fallback to the YTD taxable-income composition, which is guaranteed non-empty whenever `taxPaidCents` is nonzero.
+
+Both are covered by regression tests in `incomeTax.test.ts`.
+
+Final state: `npm run check` (purity guard + typecheck + full repo test suite) green — 1858 tests, 138 files, 45 pre-existing todos.
+
+## Key Decisions & Why
+
+- **Seam contract**: `Jurisdiction.computeTaxCents`/`computeTaxByCategoryCents` now take a full calendar year's taxable-by-category (or the engine's current best YTD estimate of it) and return that year's liability — never a monthly slice. The jurisdiction owns tax policy only; the engine owns turning a month's flows into an annual estimate and reconciling it back to a monthly charge.
+- **One shared helper, three callers**: all annualization/reconciliation arithmetic lives in `packages/engine/src/projection/incomeTax.ts`, called from `waterfall.ts` (the real monthly charge), `fundingDrawStep.ts` (a funding-draw gross-up), and `withdrawal.ts` (a decumulation gross-up) — so normal taxation and withdrawal gross-up cannot drift apart, per the issue's explicit requirement.
+- **Closures, not `Jurisdiction`+`ctx`**: `incomeTax.ts`'s functions take bound `(annual) => tax` closures rather than a `Jurisdiction` object and `JurisdictionContext`, so `waterfall.ts` (which only ever has `WaterfallInput`'s already-bound closures) and the two gross-up sites (which have a real `jurisdiction`+`ctx`) both pass what they already have without constructing anything extra.
+- **Gross-up probe needs no `taxPaidCents`**: a marginal probe (`inducedTax(gross) = computeTaxCents(withGain(gross)) − computeTaxCents(base)`) only ever *differences* two calls sharing the same prior YTD state and `monthsElapsed`, so the constant `taxPaidCents` offset cancels algebraically — only the waterfall's real (absolute, not differenced) charge needs it. This is why `ytdIncomeTaxCents` serves both roles with one formula.
+- **Per-category apportionment by current weight, not history**: see the negative-attribution bug above — apportioning this month's scalar charge by the current month's annual breakdown weights (the same shape the pre-issue rules-side attribution used) avoids ever needing signed per-category history, and is simpler.
+- **Gate/probe callers default to a fresh tax year at month 1**: `resolveOrderedFundingDraw` and `buildWithdrawalSources` accept optional `priorIncomeTaxByOwner`/`monthsElapsedInYear` parameters. The real simulator (`simulate.ts`, via `resolveFundingDraws`) always supplies the household's actual running YTD state. Standalone callers with no running simulation state — chiefly the home-purchase affordability gate in `addEvent.ts`/`fundingLookup` — get the default, which is bit-identical to the old naive `×12÷12` annualization (proven by keeping those callers' existing behavior unchanged). **This is a known, deliberate scope limit**: the gate always prices a hypothetical candidate as if it were January of a fresh year, so a candidate evaluated late in the year with real prior YTD income can price differently from what the simulator would actually charge that month. This was true (in a blunter form) before this issue too; #135's fix narrows but does not close that gap. Threading real YTD state through the gate would mean plumbing it through `fundingLookup`'s own internal projection read, a separate, larger change deliberately left out of scope here.
+
+## Changes Made
+
+- `packages/engine/src/jurisdiction/jurisdiction.ts` — `computeTaxCents`/`computeTaxByCategoryCents` doc contract changed to annual-in/annual-out.
+- `packages/engine/src/projection/incomeTax.ts` (new) — the shared YTD reconciliation module: `YtdTaxState`, `FRESH_YTD_TAX_STATE`, `annualizeYtd`, `targetCumulativeTaxCents`, `ytdIncomeTaxCents`, `ytdIncomeTaxWithBreakdownCents`, `ytdIncomeTaxByCategoryCents`.
+- `packages/engine/src/projection/taxAttribution.ts` — `mergeCategories` promoted here (shared by `waterfall.ts`'s payroll-tax logic and `incomeTax.ts`).
+- `packages/engine/src/projection/runState.ts` — `SimState` gained `taxableIncomeByPersonYear` and `incomeTaxPaidByPersonYear` (both keyed `${personId}|${year}`, mirroring the existing `earnedByPersonYear`/`deferredByPersonYear` pattern).
+- `packages/engine/src/projection/waterfall.types.ts` — `WaterfallInput` gained `priorIncomeTaxByPersonState`/`monthsElapsedInYear`; `WaterfallResult` gained `taxableThisMonthByPersonCents`/`taxByPersonCents` (per-person figures the caller folds into YTD state, mirroring `earnedThisMonthByPersonCents`).
+- `packages/engine/src/projection/waterfall.ts` — `computeTakeHome` now calls `ytdIncomeTaxWithBreakdownCents` instead of the injected seam directly.
+- `packages/engine/src/projection/allocationStep.ts` — wires `priorIncomeTaxByPersonState`/`monthsElapsedInYear` from `state`/`month`, folds the waterfall's per-person results back into the YTD accumulators after each month.
+- `packages/engine/src/projection/fundingDrawStep.ts` — `resolveOrderedFundingDraw`'s gross-up closure is owner-aware and YTD-reconciled; `resolveFundingDraws` supplies real household YTD state.
+- `packages/engine/src/projection/withdrawal.ts` — `buildWithdrawalSources`'s gross-up closure is owner-aware and YTD-reconciled (`estimateNetIncome` too).
+- `packages/engine/src/projection/simulate.ts` — wires real YTD state/`monthsElapsedInYear` into `buildWithdrawalSources`.
+- `packages/rules/src/federalTax.ts`, `federalTaxAttribution.ts`, `federalTaxCore.ts`, `index.ts` — monthly wrapper functions (`computeFederalTaxCents`, `computeFederalTaxByCategoryCents`) deleted; `usJurisdiction` wires directly to the always-annual `federalAnnualTaxCents`/`federalAnnualTaxByCategoryCents`.
+- Test files updated for the new annual-in/annual-out contract: `federalTax.test.ts`, `rules/index.test.ts`, `waterfall.test.ts`, `withdrawal.test.ts`, `events.homePurchase.test.ts` (mock jurisdictions with fixed thresholds/cliffs rescaled ×12 where they're only ever evaluated via the month-1-fresh default; left unscaled where the assertion reads the real simulator at a real `monthsElapsed`).
+- `packages/engine/src/projection/incomeTax.test.ts` (new) — unit coverage for the reconciliation arithmetic, including the two bug-regression tests above.
+- `packages/engine/src/projection/incomeTaxYtd.test.ts` (new) — end-to-end acceptance coverage through `simulateHousehold`: RMD-lump-not-taxed-as-recurring, bonus-stacks-onto-wages, new-tax-year-starts-fresh, second-withdrawal-stacks-on-first's-YTD-base.
+
+## Verification & Testing
+
+`npm run check` (purity guard + `tsc --noEmit` + full vitest run): **1858 tests green** across 138 test files (45 pre-existing `todo`s unrelated to this issue), spanning `packages/engine`, `packages/rules`, and `packages/app` — including real `usJurisdiction` federal-bracket runs through the app's React component and orchestration tests, which is what surfaced both bugs described above.

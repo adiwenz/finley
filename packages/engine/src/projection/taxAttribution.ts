@@ -20,6 +20,18 @@ export function addCategory(map: TaxableByCategory, category: TaxCategory, amoun
   map[category] = (map[category] ?? 0) + amount;
 }
 
+/** Merge two per-category maps into a new one; used to add this month's flow onto a YTD base. */
+export function mergeCategories(
+  a: TaxableByCategory | undefined,
+  b: TaxableByCategory | undefined,
+): TaxableByCategory {
+  const out: TaxableByCategory = { ...(a ?? {}) };
+  for (const [category, cents] of Object.entries(b ?? {})) {
+    if (cents) addCategory(out, category as TaxCategory, cents);
+  }
+  return out;
+}
+
 /**
  * Splits one person's per-category tax down to the sources that bore it, accumulating into
  * the household `into` map. Within a category, tax is apportioned by taxable weight

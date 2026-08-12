@@ -3,7 +3,7 @@ import type { SimAccount } from "../plan/simAccount";
 import type { TaxCategory } from "../money/cashFlowSeries";
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
 import type { IncomeSourceMonth } from "./waterfall";
-import { monthlyIncomeTaxCents } from "./incomeTax";
+import { ytdIncomeTaxCents, FRESH_YTD_TAX_STATE, type YtdTaxState } from "./incomeTax";
 
 type TaxableByCategory = Partial<Record<TaxCategory, Cents>>;
 
@@ -84,7 +84,7 @@ function addCategory(map: TaxableByCategory, category: TaxCategory, amount: Cent
  */
 function estimateNetIncome(
   sources: readonly IncomeSourceMonth[],
-  computeTaxCents: (taxableByCategory: TaxableByCategory) => Cents,
+  computeTaxCents: (ownerId: string, taxableByCategory: TaxableByCategory) => Cents,
 ): { netIncomeCents: Cents; taxableByOwner: Map<string, TaxableByCategory> } {
   let grossTotal = 0;
   const taxableByOwner = new Map<string, TaxableByCategory>();
@@ -102,7 +102,7 @@ function estimateNetIncome(
     addCategory(map, src.taxCategory, src.taxableCents ?? src.waterfallInflowCents);
   }
   let taxTotal = 0;
-  for (const taxable of taxableByOwner.values()) taxTotal += computeTaxCents(taxable);
+  for (const [ownerId, taxable] of taxableByOwner) taxTotal += computeTaxCents(ownerId, taxable);
   return { netIncomeCents: grossTotal - taxTotal, taxableByOwner };
 }
 
@@ -165,9 +165,17 @@ export function buildWithdrawalSources(
   ctx: JurisdictionContext,
   liquidationOrder: readonly TaxCategory[] = DEFAULT_LIQUIDATION_ORDER,
   priorTaxableByOwner?: ReadonlyMap<string, TaxableByCategory>,
+  // Each owner's income-tax YTD state before this month, and the calendar months elapsed so
+  // far (see ./incomeTax.ts). Default to a fresh tax year at month 1 — bit-identical to
+  // annualizing this draw alone ×12 — for a caller with no running YTD context; the real
+  // simulator (simulate.ts) always supplies the household's actual running state.
+  priorIncomeTaxByOwner: (ownerId: string) => YtdTaxState = () => FRESH_YTD_TAX_STATE,
+  monthsElapsedInYear: number = 1,
 ): WithdrawalPlan {
-  const computeTaxCents = (taxable: TaxableByCategory): Cents =>
-    monthlyIncomeTaxCents(jurisdiction, ctx, taxable);
+  const computeAnnualTaxCents = (annual: TaxableByCategory): Cents =>
+    jurisdiction.computeTaxCents(annual, ctx);
+  const computeTaxCents = (ownerId: string, taxable: TaxableByCategory): Cents =>
+    ytdIncomeTaxCents(computeAnnualTaxCents, priorIncomeTaxByOwner(ownerId), monthsElapsedInYear, taxable);
 
   const { netIncomeCents, taxableByOwner: incomeTaxableByOwner } = estimateNetIncome(
     nonWithdrawalSources,
@@ -230,8 +238,8 @@ export function buildWithdrawalSources(
       ...base,
       [withdrawalCategory]: (base[withdrawalCategory] ?? 0) + gainOf(draw),
     });
-    const baseTax = computeTaxCents(base);
-    const inducedTax = (draw: Cents): Cents => computeTaxCents(withDraw(draw)) - baseTax;
+    const baseTax = computeTaxCents(account.ownerId, base);
+    const inducedTax = (draw: Cents): Cents => computeTaxCents(account.ownerId, withDraw(draw)) - baseTax;
     // Sizing is circular — the tax depends on the draw, the draw must cover the tax — so
     // climb to the least fixed point of `gross = need + inducedTax(gross)`. Rising from
     // `need` stops at the first solution, the cheapest liquidation that nets it. Iterate
@@ -248,7 +256,7 @@ export function buildWithdrawalSources(
       if (wanted === gross) break;
       gross = wanted;
     }
-    const taxOnGross = computeTaxCents(withDraw(gross)) - baseTax;
+    const taxOnGross = computeTaxCents(account.ownerId, withDraw(gross)) - baseTax;
     const netDelivered = gross - taxOnGross;
 
     // The rest of the gross is returned principal; reduce basis by it (method-agnostic:

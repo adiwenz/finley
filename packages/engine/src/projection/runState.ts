@@ -92,6 +92,20 @@ export interface SimState {
    * per plan, unlike {@link deferredByPersonYear}, since each plan carries its own room.
    */
   readonly combinedDepositsByPlanYear: Map<string, Cents>;
+  /**
+   * Cumulative TAXABLE income by category, per person per calendar year, keyed
+   * `${personId}|${year}` — the base {@link import("./incomeTax").annualizeYtd} extrapolates
+   * to an annual pace. Resets naturally each January as the key's year rolls over.
+   */
+  readonly taxableIncomeByPersonYear: Map<string, TaxableByCategory>;
+  /**
+   * Cumulative income tax actually CHARGED so far this calendar year (the scalar total), per
+   * person, keyed `${personId}|${year}`. Each month's charge is the difference between the
+   * annualized-YTD target and this running total, so it telescopes: after each month this
+   * total EQUALS that month's target exactly, letting next month's charge be found from this
+   * total alone, without recomputing every prior month's target.
+   */
+  readonly incomeTaxPaidByPersonYear: Map<string, Cents>;
   /** Benefit accumulation/claiming reads birthYear + benefitClaimingAge. */
   readonly personsById: ReadonlyMap<string, SimPerson>;
   /**
@@ -210,6 +224,8 @@ export function initSimState(input: HouseholdSimInput): SimState {
     deferredByPersonYear: new Map<string, Cents>(),
     earnedByPersonYear: new Map<string, TaxableByCategory>(),
     combinedDepositsByPlanYear: new Map<string, Cents>(),
+    taxableIncomeByPersonYear: new Map<string, TaxableByCategory>(),
+    incomeTaxPaidByPersonYear: new Map<string, Cents>(),
     personsById,
     earningsByPerson,
     governmentBenefitBaseByPerson: new Map<string, Cents>(),

@@ -1146,11 +1146,13 @@ describe("HomePurchaseEvent — down-payment obligation ids", () => {
 // regression.
 
 describe("HomePurchaseEvent — §4.5 gate == sim across a decumulation month", () => {
-  // The candidate draws `cash` (a $60k buffer, no gain); decumulation draws the appreciated
-  // `nest`. The gains-above-$15k jurisdiction taxes `nest`'s liquidation but never the cash
-  // draw, so the candidate's shortfall is purely a question of balance — precisely the axis the
-  // reorder moved.
-  const jur = () => bracketedCapitalGains(dollarsToCents(15_000 * 12), 0.4);
+  // The candidate draws `cash` (a $60k buffer, no gain) — the gate always prices a hypothetical
+  // candidate at a fresh tax year (month 1), so its $0 gain reads $0 tax regardless of the
+  // threshold's scale. Decumulation draws the appreciated `nest` through the REAL simulator,
+  // which prices it with the household's actual YTD state (empty here, at month 23's real
+  // elapsed-months count, so unscaled): the ~$150k liquidation trivially crosses this unscaled
+  // $15k threshold, so the threshold stays at the real single-draw scale, not the gate's ×12.
+  const jur = () => bracketedCapitalGains(dollarsToCents(15_000), 0.4);
   // One decumulation month at the purchase: $150k of expense with no income at month 23 only,
   // so `nest` grows untouched until then and liquidates exactly once, alongside the draw. In the
   // PRE-CANDIDATE projection the gate probes, decumulation would spend the whole $60k `cash`

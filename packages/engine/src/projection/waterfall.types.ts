@@ -3,6 +3,7 @@ import type { TaxCategory } from "../money/cashFlowSeries";
 import type { TaxableByCategory } from "./taxAttribution";
 import type { IncomeSourceCategory } from "./simulate.types";
 import type { SimGoal } from "../goal/goal";
+import type { YtdTaxState } from "./incomeTax";
 
 /** The employer-sponsored savings plan a job carries — presence makes it deferral-eligible. */
 export interface PlanDescriptor {
@@ -99,20 +100,37 @@ export interface WaterfallInput {
   /** The default liquid account — the `idle` surplus destination. Null if none. */
   readonly liquidAccountId: string | null;
   /**
-   * Per-{@link TaxCategory} taxable amounts in → tax owed out. Called once per person with
-   * their full map, so the jurisdiction — not the waterfall — decides how each is taxed.
+   * Per-{@link TaxCategory} ANNUAL taxable amounts in → ANNUAL tax owed out — the jurisdiction
+   * seam directly (see {@link import("../jurisdiction/jurisdiction").Jurisdiction.computeTaxCents}),
+   * called once per person with their full map. The waterfall turns THIS month's flows into
+   * that annual estimate (`taxableYTD / monthsElapsed × 12`, see `./incomeTax.ts`) and
+   * reconciles the result back to a monthly charge — the jurisdiction decides only what share
+   * of each category is taxed, never a monthly assumption.
    */
-  readonly computeTaxCents: (taxableByCategory: Partial<Record<TaxCategory, Cents>>) => Cents;
+  readonly computeTaxCents: (annualTaxableByCategory: Partial<Record<TaxCategory, Cents>>) => Cents;
   /**
-   * The per-{@link TaxCategory} breakdown of the SAME tax `computeTaxCents` returns.
-   * REQUIRED — every jurisdiction owns its attribution; a zero-tax one returns `{}`,
-   * otherwise Σ per person MUST equal that person's `computeTaxCents` (runtime-enforced —
-   * see {@link assertTaxAttributionReconciles}). Additive only: take-home still uses the
-   * scalar total.
+   * The per-{@link TaxCategory} breakdown of the SAME tax `computeTaxCents` returns, for the
+   * SAME annual input. REQUIRED — every jurisdiction owns its attribution; a zero-tax one
+   * returns `{}`, otherwise Σ per person MUST equal that person's `computeTaxCents`
+   * (runtime-enforced — see {@link assertTaxAttributionReconciles}). Additive only: take-home
+   * still uses the scalar total.
    */
   readonly computeTaxByCategoryCents: (
-    taxableByCategory: Partial<Record<TaxCategory, Cents>>,
+    annualTaxableByCategory: Partial<Record<TaxCategory, Cents>>,
   ) => Partial<Record<TaxCategory, Cents>>;
+  /**
+   * A person's income-tax YTD state BEFORE this month — cumulative taxable-by-category and
+   * cumulative tax actually charged so far this calendar year, the base the annualized-YTD
+   * target builds on (see `./incomeTax.ts`). Absent → a fresh tax year (0 taxable, 0 paid),
+   * the natural default in January or under a jurisdiction that has never charged tax.
+   */
+  readonly priorIncomeTaxByPersonState?: (personId: string) => YtdTaxState;
+  /**
+   * Calendar months elapsed so far THIS year, INCLUDING this one (1..12) — the denominator
+   * the YTD annualization extrapolates over. At 12, the YTD total already IS the actual
+   * annual figure, so the estimate stops extrapolating and cumulative tax reconciles exactly.
+   */
+  readonly monthsElapsedInYear: number;
   /**
    * A person's REMAINING annual deferral room this month (limit minus what they have
    * already deferred this year). `Infinity` = uncapped.
@@ -190,6 +208,18 @@ export interface WaterfallResult {
    * WaterfallInput.priorEarnedByPersonCents} is current. A person with no income is absent.
    */
   readonly earnedThisMonthByPersonCents: ReadonlyMap<string, TaxableByCategory>;
+  /**
+   * This month's taxable-by-category, per person — the caller folds it into its YTD
+   * accumulator so next month's {@link WaterfallInput.priorIncomeTaxByPersonState} is current.
+   * A person with no taxable income this month is absent.
+   */
+  readonly taxableThisMonthByPersonCents: ReadonlyMap<string, TaxableByCategory>;
+  /**
+   * This month's reconciled income-tax charge (the scalar), per person — the caller folds it
+   * into its YTD `taxPaidCents` accumulator. A person charged nothing (including a REFUND
+   * month, see `./incomeTax.ts`) may be 0 or negative; absent means nothing to fold in.
+   */
+  readonly taxByPersonCents: ReadonlyMap<string, Cents>;
   /**
    * Household tax per {@link TaxCategory}, summed across persons. `{}` in a zero-tax month,
    * otherwise Σ === `taxCents`.

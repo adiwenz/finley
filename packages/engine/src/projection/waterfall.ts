@@ -19,6 +19,7 @@ import type { TaxCategory } from "../money/cashFlowSeries";
 import {
   addCategory,
   attributeTaxToSources,
+  mergeCategories,
   type SourceTaxable,
   type TaxableByCategory,
 } from "./taxAttribution";
@@ -31,6 +32,7 @@ import {
   assertPersonPayrollTaxBreakdownReconciles,
   assertPayrollTaxAttributionReconciles,
 } from "./waterfallInvariants";
+import { ytdIncomeTaxWithBreakdownCents, FRESH_YTD_TAX_STATE } from "./incomeTax";
 
 // Re-exported so the engine barrel keeps exposing them.
 export {
@@ -219,10 +221,14 @@ function computeTakeHome(
   takeHomeByPerson: Map<string, Cents>;
   taxByCategoryCents: TaxableByCategory;
   taxBySourceCents: Record<string, Cents>;
+  taxableThisMonthByPerson: Map<string, TaxableByCategory>;
+  taxByPerson: Map<string, Cents>;
 } {
+  const scalarSeam = input.computeTaxCents;
   const breakdownSeam = input.computeTaxByCategoryCents;
   const payrollSeam = input.computePayrollTaxCents;
   const payrollBreakdownSeam = input.computePayrollTaxByCategoryCents;
+  const monthsElapsed = input.monthsElapsedInYear;
   let taxCents: Cents = 0;
   let payrollTaxCents: Cents = 0;
   // The breakdown seam is required; a zero-tax jurisdiction returns `{}`.
@@ -230,18 +236,31 @@ function computeTakeHome(
   const taxBySourceCents: Record<string, Cents> = {};
   const payrollTaxBySourceCents: Record<string, Cents> = {};
   const takeHomeByPerson = new Map<string, Cents>();
+  const taxableThisMonthByPerson = new Map<string, TaxableByCategory>();
+  const taxByPerson = new Map<string, Cents>();
   for (const pid of input.personIds) {
     const gross = grossByPerson.get(pid) ?? 0;
     const deferral = deferredByPerson.get(pid) ?? 0;
     const taxable = taxableByPerson.get(pid) ?? {};
-    // Charged against the scalar total; the breakdown is a reporting re-description whose
-    // Σ equals this same figure.
-    const tax = input.computeTaxCents(taxable);
+    const priorState = input.priorIncomeTaxByPersonState?.(pid) ?? FRESH_YTD_TAX_STATE;
+    // The reconciled YTD charge — annualize (prior YTD + this month) by months elapsed, tax
+    // the annual estimate, take this month's share of the annual liability, and charge only
+    // what is not already paid. See ./incomeTax.ts; charged against the scalar total, the
+    // breakdown is a reporting re-description whose Σ equals this same figure.
+    const { taxCents: tax, taxByCategoryCents: perCategory } = ytdIncomeTaxWithBreakdownCents(
+      scalarSeam,
+      breakdownSeam,
+      priorState,
+      monthsElapsed,
+      taxable,
+      pid,
+    );
     taxCents += tax;
-    const perCategory = breakdownSeam(taxable);
     // Per person BEFORE aggregating, so offsetting errors can't cancel in the household
     // total and slip past the household check.
     assertPersonTaxBreakdownReconciles(pid, tax, perCategory);
+    if (Object.keys(taxable).length > 0) taxableThisMonthByPerson.set(pid, taxable);
+    taxByPerson.set(pid, tax);
     for (const [category, cents] of Object.entries(perCategory)) {
       if (cents) addCategory(taxByCategoryCents, category as TaxCategory, cents);
     }
@@ -279,19 +298,9 @@ function computeTakeHome(
     takeHomeByPerson,
     taxByCategoryCents,
     taxBySourceCents,
+    taxableThisMonthByPerson,
+    taxByPerson,
   };
-}
-
-/** Merge two per-category maps into a new one; used to add this month's earnings onto the year-to-date base. */
-function mergeCategories(
-  a: TaxableByCategory | undefined,
-  b: TaxableByCategory | undefined,
-): TaxableByCategory {
-  const out: TaxableByCategory = { ...(a ?? {}) };
-  for (const [category, cents] of Object.entries(b ?? {})) {
-    if (cents) addCategory(out, category as TaxCategory, cents);
-  }
-  return out;
 }
 
 /**
@@ -522,6 +531,8 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     takeHomeByPerson,
     taxByCategoryCents,
     taxBySourceCents,
+    taxableThisMonthByPerson,
+    taxByPerson,
   } = computeTakeHome(
     input,
     grossByPerson,
@@ -552,6 +563,8 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     payrollTaxCents,
     payrollTaxBySourceCents,
     earnedThisMonthByPersonCents: earnedGrossByPerson,
+    taxableThisMonthByPersonCents: taxableThisMonthByPerson,
+    taxByPersonCents: taxByPerson,
     taxByCategoryCents,
     taxBySourceCents,
     deferralBySourceCents: Object.fromEntries(deferralBySource),
