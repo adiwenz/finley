@@ -7,8 +7,9 @@
  * raising cash for. Resolving that requires recursion: sell → the sale's gain raises the bill →
  * sell more → repeat until the amount raised covers the (now larger) bill.
  *
- * Runs once, at the year's last processed month (December, or the sim's final partial year),
- * after that month's own income has already folded into {@link
+ * Runs once, at the year's last processed month (December, or — via `isFinalMonth` — a funding
+ * block that truncates the run before December ever arrives), after that month's own income has
+ * already folded into {@link
  * import("./runState").SimState.taxableIncomeByPersonYear} (via {@link
  * import("./allocationStep").allocateMonth}) — so the base this reads is the COMPLETE year,
  * regardless of which month each dollar of taxable income actually landed in.
@@ -34,7 +35,7 @@ import { assertPersonTaxBreakdownReconciles } from "./waterfallInvariants";
 /** Backstop on the settlement's recursive climb; a realistic bill converges in a few steps. */
 const GROSS_UP_ITERATIONS = 1_000;
 
-/** December, or every 12th month after it — the year's last processed month. */
+/** December, or every 12th month after it. */
 export function isAnnualSettlementMonth(month: number): boolean {
   return month % 12 === 11;
 }
@@ -167,14 +168,23 @@ function settlePerson(
  * Settle every person's annual tax liability, mutating `state` (asset sales, credit borrows)
  * and `state.taxableIncomeByPersonYear` (folds in the settlement's own induced gains). A no-op
  * outside a year's last processed month, or when nobody owes anything.
+ *
+ * `isFinalMonth` covers the one way a year can end WITHOUT reaching {@link
+ * isAnnualSettlementMonth}'s December: a funding block truncates the run for good before
+ * December arrives — the caller knows this at the point it calls settlement, since a blocked
+ * month's own draws are already priced (and correctly excluded from this month's taxable base)
+ * before the truncating `break`. Without this, a household blocked mid-year would carry its
+ * year's accumulated taxable income into a December the run never reaches — a silent violation
+ * of "settled once at year-end" for exactly the households a block is most likely to happen to.
  */
 export function settleAnnualTax(
   state: SimState,
   jurisdiction: Jurisdiction,
   ctx: JurisdictionContext,
   month: number,
+  isFinalMonth: boolean,
 ): AnnualTaxSettlementResult {
-  if (!isAnnualSettlementMonth(month)) return EMPTY_RESULT;
+  if (!isAnnualSettlementMonth(month) && !isFinalMonth) return EMPTY_RESULT;
 
   const rankMap: Partial<Record<TaxCategory, number>> = {};
   DEFAULT_LIQUIDATION_ORDER.forEach((category, i) => {

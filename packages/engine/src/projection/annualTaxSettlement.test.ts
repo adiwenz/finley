@@ -9,6 +9,7 @@ import { SimCashFlowSeries, dollarsToCents } from "../money/cashFlowSeries";
 import type { Jurisdiction } from "../jurisdiction/jurisdiction";
 import { simulateHousehold, type HouseholdSimInput, type SimOwnedSeries } from "./simulate";
 import type { SimPerson } from "./simulate.types";
+import { explicitObligation } from "./financialObligation";
 
 /** A non-compounding account so balances move only by withdrawal/deposit unless a rate is given. */
 function account(id: string, taxProfile: SimAccountTaxProfile, dollars: number, liquid = false, rate = 0): SimAccount {
@@ -231,5 +232,42 @@ describe("Annual tax settlement — per-category attribution reconciles exactly 
     // The helper series carries no explicit tax category, so it defaults to ordinaryIncome.
     expect(december.taxByCategoryCents?.ordinaryIncome).toBeGreaterThan(0);
     expect(december.taxByCategoryCents?.capitalGains).toBeGreaterThan(0);
+  });
+});
+
+describe("Annual tax settlement — a funding block truncates the run before December", () => {
+  it("still settles the year's accumulated taxable income at the blocked month, not never", () => {
+    const rate = 0.25;
+    // $10k/mo wages land in "checking" (the liquid destination) with nothing else drawing on
+    // them; by the block below, 4 months (0..3) have landed — $40k accumulated.
+    const wages = series(10_000, 0, 11);
+    const blockMonth = 3;
+    const seriesResult = simulateHousehold(
+      baseInput([account("checking", CAPITAL_GAINS_TAX_PROFILE, 0, true)], {
+        incomeSeries: [wages],
+        // Named source has nothing close to $500k, so this blocks at month 3 — the run never
+        // reaches December (month 11) to settle through the ordinary path.
+        fundingDraws: [
+          explicitObligation({
+            id: "spend1",
+            sourceId: "spend1",
+            month: blockMonth,
+            amountCents: dollarsToCents(500_000),
+            orderedAccountIds: ["checking"],
+            treatment: "expense",
+          }),
+        ],
+      }),
+      flatAnnual(rate),
+    );
+    expect(seriesResult.status).toBe("blocked");
+    expect(seriesResult.blockedAtMonth).toBe(blockMonth);
+    // Without the block-triggered settlement, this month's `taxCents` would be 0 — the horizon
+    // (12 months) never reaches month 11, so December's ordinary trigger never fires.
+    expect(seriesResult.months[blockMonth].flows!.taxCents).toBeGreaterThan(0);
+    // 25% of the 4 months of wages actually accumulated ($40k) — not a partial or a full-year
+    // guess, and not grossed up (this account never funds the settlement: wages themselves are
+    // cash, not a taxable sale, so nothing here induces a recursive top-up).
+    expect(seriesResult.months[blockMonth].flows!.taxCents).toBe(dollarsToCents(10_000));
   });
 });

@@ -4,8 +4,6 @@ import type { TaxCategory } from "../money/cashFlowSeries";
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
 import type { IncomeSourceMonth } from "./waterfall";
 
-type TaxableByCategory = Partial<Record<TaxCategory, Cents>>;
-
 /**
  * The slice of `SimState` decumulation reads and mutates, declared structurally to keep
  * state private to the simulator and this module independently testable.
@@ -63,37 +61,15 @@ function isLiquidatable(account: SimAccount, state: WithdrawalState): boolean {
   return true;
 }
 
-function addCategory(map: TaxableByCategory, category: TaxCategory, amount: Cents): void {
-  if (amount === 0) return;
-  map[category] = (map[category] ?? 0) + amount;
-}
-
 /**
  * Single-pass total of this month's non-withdrawal income (wages, benefit, RMD): no tax is
  * subtracted — federal income tax is never charged mid-year (see the module doc) — so the
- * gross IS the net cash reaching the household. The taxable bases are still returned; the
- * caller stacks decumulation's own realized gains on top of them into the shared per-owner
- * base the month's explicit draws already started.
+ * gross IS the net cash reaching the household.
  */
-function estimateNetIncome(
-  sources: readonly IncomeSourceMonth[],
-): { netIncomeCents: Cents; taxableByOwner: Map<string, TaxableByCategory> } {
+function estimateNetIncome(sources: readonly IncomeSourceMonth[]): Cents {
   let grossTotal = 0;
-  const taxableByOwner = new Map<string, TaxableByCategory>();
-  for (const src of sources) {
-    grossTotal += src.waterfallInflowCents;
-    // The jurisdiction owns the inclusion %, so the engine never pre-applies a fraction and
-    // honors the explicit taxable amount. A source's taxable base can differ from the cash
-    // it puts through the waterfall: a returned-basis draw books only its gain, and savings
-    // interest has positive taxableCents but 0 inflow (already credited).
-    let map = taxableByOwner.get(src.ownerId);
-    if (map === undefined) {
-      map = {};
-      taxableByOwner.set(src.ownerId, map);
-    }
-    addCategory(map, src.taxCategory, src.taxableCents ?? src.waterfallInflowCents);
-  }
-  return { netIncomeCents: grossTotal, taxableByOwner };
+  for (const src of sources) grossTotal += src.waterfallInflowCents;
+  return grossTotal;
 }
 
 /**
@@ -149,22 +125,8 @@ export function buildWithdrawalSources(
   obligationsCents: Cents,
   ctx: JurisdictionContext,
   liquidationOrder: readonly TaxCategory[] = DEFAULT_LIQUIDATION_ORDER,
-  priorTaxableByOwner?: ReadonlyMap<string, TaxableByCategory>,
 ): WithdrawalPlan {
-  const { netIncomeCents, taxableByOwner: incomeTaxableByOwner } =
-    estimateNetIncome(nonWithdrawalSources);
-
-  // Explicit obligations resolve first, so any gains they realized already sit in the month's
-  // taxable base; decumulation stacks its own gains ON TOP, bearing the higher marginal bracket.
-  // `priorTaxableByOwner` already folds this month's non-withdrawal income in (it is built from
-  // the same sources), so it REPLACES the income-only base rather than adding to it — merging
-  // would double-count that income. Absent it (a direct unit call, or a month with no explicit
-  // draw) the base is non-withdrawal income alone, unchanged. The gap below is sized on
-  // `netIncomeCents` either way: explicit draws are net-neutral and never move it.
-  const taxableByOwner =
-    priorTaxableByOwner !== undefined
-      ? new Map(Array.from(priorTaxableByOwner, ([owner, byCat]) => [owner, { ...byCat }]))
-      : incomeTaxableByOwner;
+  const netIncomeCents = estimateNetIncome(nonWithdrawalSources);
 
   const gap = obligationsCents - netIncomeCents;
   if (gap <= 0) return { sources: [], liquidDrawdownCents: 0, decumulationDraws: [] };
@@ -201,22 +163,16 @@ export function buildWithdrawalSources(
         { grossCents: draw, basisCents: basis, balanceCents: balance, category: withdrawalCategory },
         ctx,
       ) ?? draw;
-    // Sell exactly `need`, capped at the balance — no gross-up. Only the gain is booked to
-    // the taxable map (fed to the caller's annual accumulator); the full gross is still paid
-    // out as take-home below, and no tax is netted out of it.
-    const base = taxableByOwner.get(account.ownerId) ?? {};
+    // Sell exactly `need`, capped at the balance — no gross-up. Only the gain is booked as
+    // `taxableCents` on the returned source (fed to the caller's annual accumulator); the
+    // full gross is still paid out as take-home below, and no tax is netted out of it.
     const gross = Math.min(balance, need);
     const gainCents = gainOf(gross);
-    const withDraw: TaxableByCategory = {
-      ...base,
-      [withdrawalCategory]: (base[withdrawalCategory] ?? 0) + gainCents,
-    };
 
     // The rest of the gross is returned principal; reduce basis by it (method-agnostic:
     // gross − taxable).
     state.basisByAccount.set(account.id, basis - (gross - gainCents));
     state.assetBalances.set(account.id, balance - gross);
-    taxableByOwner.set(account.ownerId, withDraw);
     need -= gross;
     sources.push({
       ownerId: account.ownerId,

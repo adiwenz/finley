@@ -207,10 +207,10 @@ export function simulateHousehold(
     // the down-payment / one-time-spend draw sells its named sources before the automatic
     // waterfall sizes what to liquidate. Its gains difference over non-withdrawal income alone —
     // decumulation has not run, so that ordinary income and benefits are the whole marginal
-    // context. Each source is grossed up over the tax its sale induces and drained here (before
-    // compounding, so a drained balance does not earn this month); its net-neutral tax source
-    // rides into `allocateMonth` so the gain is charged exactly once. `taxableByOwnerAfter` —
-    // this base with the draws' gains stacked in — is exposed on the flow view so the §4.5 gate
+    // context. Each source sells exactly what the obligation needs and is drained here (before
+    // compounding, so a drained balance does not earn this month) — no gross-up: the gain rides
+    // into `allocateMonth`'s taxable pool uncharged, settled once in December. `taxableByOwnerAfter`
+    // — this base with the draws' gains stacked in — is exposed on the flow view so the §4.5 gate
     // prices a candidate over its siblings the SAME way (exact under any regime).
     const fundingBase = buildTaxableByOwner(nonWithdrawalSources);
     const fundingDraw = resolveFundingDraws(state, month, jurisdiction, ctx, fundingBase);
@@ -252,9 +252,9 @@ export function simulateHousehold(
     // non-withdrawal income can't cover the month's automatic obligations, liquidate investment
     // accounts BEFORE the waterfall — same seam as RMD/benefit. Its gap is still sized on the
     // automatic total (explicit obligations excluded); only the assets left to close it have
-    // shrunk, and any shortfall spills to the credit cascade. Its gains stack on the explicit
-    // draws' via `taxableByOwnerAfter`, so the month's capital-gains tax is charged once,
-    // marginally, in resolution order. RMD income is already counted, so the draw never
+    // shrunk, and any shortfall spills to the credit cascade. No gross-up: each draw sells
+    // exactly the gap, and its realized gain rides `taxableCents` into the annual accumulator
+    // uncharged, settled once in December. RMD income is already counted, so the draw never
     // double-withdraws.
     const withdrawal = buildWithdrawalSources(
       state,
@@ -263,7 +263,6 @@ export function simulateHousehold(
       automaticFundingCents,
       ctx,
       DEFAULT_LIQUIDATION_ORDER,
-      fundingDraw.taxableByOwnerAfter,
     );
     const incomeSources = [...nonWithdrawalSources, ...withdrawal.sources];
     // The explicit draws' realized gain is net-neutral cash-wise (no gross-up sold it) but
@@ -383,7 +382,16 @@ export function simulateHousehold(
     // (recursively grossed up — the one place that still happens), then borrows against the
     // household's shared credit cards for any remainder; what neither covers folds into this
     // month's insolvency below, exactly like any other unfundable obligation.
-    const settlement = settleAnnualTax(state, jurisdiction, ctx, month);
+    //
+    // `isFinalMonth` forces settlement even off-December when a funding block is about to
+    // truncate the run for good (`fundingDraw.block` is already known below, before the
+    // truncating `break`) — otherwise a household blocked mid-year would carry its year's
+    // accumulated taxable income into a December that never comes, understating the tax it
+    // actually owes at the point the run stops. Not keyed off `horizonMonths` itself: an
+    // authored horizon is always a whole number of years (see `planHorizonMonths`), so its
+    // last month is already December when nothing blocks first.
+    const isFinalMonth = fundingDraw.block !== undefined;
+    const settlement = settleAnnualTax(state, jurisdiction, ctx, month, isFinalMonth);
     const finalUncoveredCents = uncoveredCents + settlement.uncoveredCents;
     const finalIsInsolvent = finalUncoveredCents > 0;
     const combinedTaxCents = taxCents + settlement.totalTaxCents;
@@ -424,7 +432,8 @@ export function simulateHousehold(
     const settlementPrincipalCents = settlement.draws.reduce((s, d) => s + d.principalCents, 0);
     const bands = buildFlows(
       // The down-payment gain bands are reporting-only: `cashInflowCents` the gain, no
-      // waterfall inflow — its tax already rode the net-neutral source through allocation.
+      // waterfall inflow — the gain itself rode into the annual accumulator uncharged, via
+      // `taxableCents` on this same band.
       [...incomeSources, ...fundingDraw.gainSources, ...settlementGainSources],
       combinedTaxCents,
       // The very list the waterfall funded above — expenses, debt and per-line rollups all

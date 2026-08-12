@@ -99,10 +99,10 @@ export interface Jurisdiction {
    * stacking onto gains). Same ANNUAL-in contract as {@link computeTaxCents}.
    *
    * CONTRACT: Σ of the returned map MUST equal {@link computeTaxCents} for the same input,
-   * enforced at runtime to the exact cent (`assertTaxAttributionReconciles`).
+   * enforced at runtime to the exact cent (`assertPersonTaxBreakdownReconciles`).
    *
    * Required; no tax → `{}`. Reporting only — the scalar {@link computeTaxCents} stays the
-   * gross-up loop's marginal-tax probe.
+   * December settlement's recursive gross-up climb's marginal-tax probe.
    */
   computeTaxByCategoryCents(
     taxableByCategory: Partial<Record<TaxCategory, Cents>>,
