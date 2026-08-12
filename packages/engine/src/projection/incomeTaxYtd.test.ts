@@ -116,6 +116,42 @@ describe("Income tax reconciles from YTD taxable income, not each month's own an
     expect(series.months[1].flows?.taxCents ?? 0).toBeLessThan(0); // February refunds part of it
   });
 
+  it("an RMD forced into January and the same total delivered as twelve equal distributions owe identical annual tax", () => {
+    // Direct A/B companion to the test above: rather than checking the RMD's cumulative tax
+    // against a hand-computed constant, run a SECOND household that receives the identical
+    // $120k total spread evenly across the year (not age-triggered, so nothing forces it —
+    // a stand-in for "the same dollars, paid out monthly instead of yanked out at once") and
+    // assert the two households' cumulative tax is EQUAL, not just that both separately equal
+    // $28k. This is what pins the RMD path (simulateHousehold's automatic
+    // requiredMinimumDistributionCents forcing) to the SAME reconciliation the ordinary
+    // income path uses, rather than trusting two independent calculations to agree by luck.
+    const rmdAgePerson: SimPerson = { id: "p1", name: "You", birthYear: 2026 - 73 };
+    const lumpSeries = simulateHousehold(
+      baseInput(rmdAgePerson, [
+        account("pretax", PRE_TAX_TAX_PROFILE, 120_000),
+        account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
+      ]),
+      progressive,
+    );
+
+    const notYetRmdAge: SimPerson = { id: "p1", name: "You", birthYear: 2026 - 40 };
+    const distributions: SimOwnedSeries = {
+      series: new SimCashFlowSeries(0, dollarsToCents(10_000), { type: "fixed" }, { baselineUnit: "monthly" }),
+      ownerId: "p1",
+    };
+    const spreadSeries = simulateHousehold(
+      baseInput(notYetRmdAge, [account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true)], {
+        incomeSeries: [distributions],
+      }),
+      progressive,
+    );
+
+    const trueAnnualTax = dollarsToCents(28_000);
+    expect(cumulativeTaxCents(lumpSeries, 0, 11)).toBe(trueAnnualTax);
+    expect(cumulativeTaxCents(spreadSeries, 0, 11)).toBe(trueAnnualTax);
+    expect(cumulativeTaxCents(lumpSeries, 0, 11)).toBe(cumulativeTaxCents(spreadSeries, 0, 11));
+  });
+
   it("a bonus stacked onto steady wages is taxed as part of the year's actual total, not as though it recurred monthly", () => {
     // $60k/yr steady wages ($5k/mo) plus a single $20k bonus in month 6. True annual tax on
     // the combined $80k: 40% of (80k − 50k) = $12k.
@@ -138,6 +174,44 @@ describe("Income tax reconciles from YTD taxable income, not each month's own an
       progressive,
     );
     expect(cumulativeTaxCents(series, 0, 11)).toBe(dollarsToCents(12_000));
+  });
+
+  it("a $120k bonus paid as one January lump sum or spread evenly across the year owes identical annual tax", () => {
+    // Direct A/B: two households earning the SAME $120k over the same year, differing only
+    // in timing. Both must reconcile to the same true annual liability — 40% of (120k − 50k)
+    // = $28k — proving the invariant holds for household-level WAGE income exactly as it
+    // does for the pure reconciliation arithmetic (incomeTax.test.ts) and for the RMD
+    // decumulation path above.
+    const lumpBonus: SimOwnedSeries = {
+      series: new SimCashFlowSeries(0, dollarsToCents(120_000), { type: "fixed" }, {
+        baselineUnit: "monthly",
+        endMonth: 0,
+      }),
+      ownerId: "p1",
+    };
+    const person: SimPerson = { id: "p1", name: "You" };
+    const lumpSeries = simulateHousehold(
+      baseInput(person, [account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true)], {
+        incomeSeries: [lumpBonus],
+      }),
+      progressive,
+    );
+
+    const spreadWages: SimOwnedSeries = {
+      series: new SimCashFlowSeries(0, dollarsToCents(10_000), { type: "fixed" }, { baselineUnit: "monthly" }),
+      ownerId: "p1",
+    };
+    const spreadSeries = simulateHousehold(
+      baseInput(person, [account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true)], {
+        incomeSeries: [spreadWages],
+      }),
+      progressive,
+    );
+
+    const trueAnnualTax = dollarsToCents(28_000);
+    expect(cumulativeTaxCents(lumpSeries, 0, 11)).toBe(trueAnnualTax);
+    expect(cumulativeTaxCents(spreadSeries, 0, 11)).toBe(trueAnnualTax);
+    expect(cumulativeTaxCents(lumpSeries, 0, 11)).toBe(cumulativeTaxCents(spreadSeries, 0, 11));
   });
 
   it("a new calendar year starts income tax fresh — January owes nothing on last year's income", () => {
