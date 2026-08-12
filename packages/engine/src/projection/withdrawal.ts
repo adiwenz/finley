@@ -3,6 +3,7 @@ import type { SimAccount } from "../plan/simAccount";
 import type { TaxCategory } from "../money/cashFlowSeries";
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
 import type { IncomeSourceMonth } from "./waterfall";
+import { monthlyIncomeTaxCents } from "./incomeTax";
 
 type TaxableByCategory = Partial<Record<TaxCategory, Cents>>;
 
@@ -166,7 +167,7 @@ export function buildWithdrawalSources(
   priorTaxableByOwner?: ReadonlyMap<string, TaxableByCategory>,
 ): WithdrawalPlan {
   const computeTaxCents = (taxable: TaxableByCategory): Cents =>
-    jurisdiction.computeTaxCents(taxable, ctx);
+    monthlyIncomeTaxCents(jurisdiction, ctx, taxable);
 
   const { netIncomeCents, taxableByOwner: incomeTaxableByOwner } = estimateNetIncome(
     nonWithdrawalSources,

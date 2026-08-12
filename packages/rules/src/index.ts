@@ -13,8 +13,8 @@ import {
 } from "./contributionLimits";
 import { healthCostBenchmarkMonthlyCents } from "./healthCosts";
 import {
-  computeFederalTaxCents,
-  computeFederalTaxByCategoryCents,
+  federalAnnualTaxCents,
+  federalAnnualTaxByCategoryCents,
   FEDERAL_TAX_ASSUMPTIONS,
 } from "./federalTax";
 import { taxableWithdrawalCents, returnTaxTreatment } from "./investmentTax";
@@ -48,8 +48,6 @@ export {
   federalTaxTables,
   federalAnnualTaxCents,
   federalAnnualTaxByCategoryCents,
-  computeFederalTaxCents,
-  computeFederalTaxByCategoryCents,
   taxableSocialSecurityCents,
   FEDERAL_TAX_BASE_YEAR,
   FEDERAL_TAX_ASSUMPTIONS,
@@ -79,18 +77,19 @@ export {
  *
  * `US-2026` implements the interface with real single-filer facts: the tax seam runs actual
  * federal brackets, the standard deduction, the capital-gains preference, and the
- * Social-Security inclusion formula ({@link import("./federalTax").computeFederalTaxCents});
- * contribution limits, government benefit, RMDs, and health-cost benchmarks fill their own
- * seams.
+ * Social-Security inclusion formula ({@link import("./federalTax").federalAnnualTaxCents}, on
+ * ANNUAL taxable-by-category — the engine turns a month's flows into that annual figure and
+ * reconciles the liability back down monthly); contribution limits, government benefit,
+ * RMDs, and health-cost benchmarks fill their own seams.
  *
  * ⚠ Estimates, not advice. Figures change yearly and are jurisdiction-specific.
  */
 
 export const usJurisdiction: Jurisdiction = {
   id: "US-2026",
-  computeTaxCents: (taxableByCategory, ctx) => computeFederalTaxCents(taxableByCategory, ctx.year),
-  computeTaxByCategoryCents: (taxableByCategory, ctx) =>
-    computeFederalTaxByCategoryCents(taxableByCategory, ctx.year),
+  computeTaxCents: (annualByCategory, ctx) => federalAnnualTaxCents(annualByCategory, ctx.year),
+  computeTaxByCategoryCents: (annualByCategory, ctx) =>
+    federalAnnualTaxByCategoryCents(annualByCategory, ctx.year),
   // Employee FICA on EARNED income only: `wages`, never the `ordinaryIncome` a retirement
   // withdrawal books, so a 401(k)/IRA draw is never payroll-taxed. The engine feeds the
   // year-to-date total and charges the difference, so the wage-base cap binds cumulatively.

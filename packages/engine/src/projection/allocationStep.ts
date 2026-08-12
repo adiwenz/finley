@@ -3,6 +3,7 @@ import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdic
 import type { TaxCategory } from "../money/cashFlowSeries";
 import { orderBudgetLines, resolveBudgetLineMonthlyCents } from "../budget/budgetLine";
 import { runWaterfall, type IncomeSourceMonth } from "./waterfall";
+import { monthlyIncomeTaxCents, monthlyIncomeTaxByCategoryCents } from "./incomeTax";
 import type { SimState } from "./runState";
 import type { SimOwnedSeries } from "./simulate.types";
 
@@ -95,11 +96,12 @@ export function allocateMonth(
     goalFundMonthlyRate: (id) => accountsById.get(id)?.getMonthlyRateAt(month) ?? 0,
     accountBalanceCents: (id) => state.assetBalances.get(id) ?? 0,
     liquidAccountId: state.liquidAccount?.id ?? null,
-    computeTaxCents: (taxableByCategory) => jurisdiction.computeTaxCents(taxableByCategory, ctx),
+    computeTaxCents: (taxableByCategory) =>
+      monthlyIncomeTaxCents(jurisdiction, ctx, taxableByCategory),
     // Required of every jurisdiction (a zero-tax one returns `{}`); `runWaterfall` enforces
     // that a tax-charging month reconciles per source.
     computeTaxByCategoryCents: (taxableByCategory) =>
-      jurisdiction.computeTaxByCategoryCents(taxableByCategory, ctx),
+      monthlyIncomeTaxByCategoryCents(jurisdiction, ctx, taxableByCategory),
     // Absent seam → no payroll tax; the waterfall then leaves take-home untouched.
     computePayrollTaxCents: jurisdiction.computePayrollTaxCents
       ? (earnedByCategory) => jurisdiction.computePayrollTaxCents!(earnedByCategory, ctx)

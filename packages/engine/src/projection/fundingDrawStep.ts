@@ -18,6 +18,7 @@ import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdic
 import type { TaxCategory } from "../money/cashFlowSeries";
 import type { SimState } from "./runState";
 import type { IncomeSourceMonth } from "./waterfall";
+import { monthlyIncomeTaxCents } from "./incomeTax";
 import { attributeExplicitObligation, type ResolvedFunding } from "./resolvedFunding";
 import type { FinancialObligation } from "./financialObligation";
 import {
@@ -172,7 +173,7 @@ export function resolveOrderedFundingDraw(
   taxableByOwner: TaxableByOwner,
 ): OrderedFundingDrawResult {
   const computeTaxCents = (taxable: TaxableByCategory): Cents =>
-    jurisdiction.computeTaxCents(taxable, ctx);
+    monthlyIncomeTaxCents(jurisdiction, ctx, taxable);
 
   const perSource: ResolvedFundingSource[] = [];
   let remaining = amountCents;

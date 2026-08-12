@@ -1,5 +1,5 @@
 import type { Cents, TaxCategory } from "@finley/engine";
-import { federalTaxParts, annualizeByCategory } from "./federalTaxCore";
+import { federalTaxParts } from "./federalTaxCore";
 
 // Re-exported so the `rules` barrel keeps resolving these through ./federalTax.
 export {
@@ -14,15 +14,15 @@ export {
   federalTaxParts,
   type FederalTaxParts,
 } from "./federalTaxCore";
-export {
-  federalAnnualTaxByCategoryCents,
-  computeFederalTaxByCategoryCents,
-} from "./federalTaxAttribution";
+export { federalAnnualTaxByCategoryCents } from "./federalTaxAttribution";
 
 /**
- * US federal income tax, SINGLE FILER (seam 1): {@link computeFederalTaxCents} is the
+ * US federal income tax, SINGLE FILER (seam 1): {@link federalAnnualTaxCents} is the
  * `rules`-side plug behind the engine's
- * {@link import("@finley/engine").Jurisdiction.computeTaxCents} seam, called once per person.
+ * {@link import("@finley/engine").Jurisdiction.computeTaxCents} seam, called once per person
+ * with a full calendar year's taxable-by-category (or the engine's YTD estimate of it) — the
+ * engine, not this module, turns a month's flows into that annual figure and reconciles the
+ * liability back down to a monthly charge.
  *
  * Ordinary brackets 10→37%; the standard deduction off ordinary income first, its
  * remainder stacking down onto gains; `capitalGains` at 0/15/20% stacked ON TOP of
@@ -46,15 +46,4 @@ export function federalAnnualTaxCents(
   year: number,
 ): Cents {
   return federalTaxParts(annualByCategory, year).totalCents;
-}
-
-/**
- * MONTHLY per-category taxable amounts in → this month's tax out. The slice is annualized
- * (×12), taxed, and its 1/12 share returned — the steady-state withholding approximation.
- */
-export function computeFederalTaxCents(
-  monthlyByCategory: Partial<Record<TaxCategory, Cents>>,
-  year: number,
-): Cents {
-  return Math.round(federalAnnualTaxCents(annualizeByCategory(monthlyByCategory), year) / 12);
 }

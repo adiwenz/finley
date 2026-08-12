@@ -28,6 +28,7 @@ import {
   type WithdrawalState,
 } from "./withdrawal";
 import type { IncomeSourceMonth } from "./waterfall";
+import { monthlyIncomeTaxCents } from "./incomeTax";
 
 /** A non-compounding account so balances move only by withdrawal/deposit. */
 function account(id: string, taxProfile: SimAccountTaxProfile, dollars: number, liquid = false): SimAccount {
@@ -529,7 +530,7 @@ describe("Every taxed draw nets the need — whole-return gross-up", () => {
       byOwner.set(s.ownerId, map);
     }
     let tax = 0;
-    for (const map of byOwner.values()) tax += jurisdiction.computeTaxCents(map, ctx);
+    for (const map of byOwner.values()) tax += monthlyIncomeTaxCents(jurisdiction, ctx, map);
     return gross - tax;
   }
 
@@ -658,13 +659,17 @@ describe("Every taxed draw nets the need — whole-return gross-up", () => {
     // Two cliffs stack two lumps, so $3k and $45k both net exactly $1k: a step tax makes
     // `need + lump` a fixed point in every region it lands in. Climbing from `need` finds
     // the cheap one; descending from the closed-form guess ($100k) would settle on $45k.
+    // Thresholds and lumps stated at ANNUAL scale (×12 the old monthly-cliff figures): the
+    // seam now takes annual taxable in and returns annual tax, and `monthlyIncomeTaxCents`
+    // annualizes this month's draw ×12 before calling it and de-annualizes the result ÷12, so
+    // stating the cliff at ×12 reproduces the exact same monthly-scale gross-up behavior.
     const twoCliffs: Jurisdiction = {
       id: "two-cliffs",
       computeTaxByCategoryCents: () => ({}), // gross-up probe only; never reconciled
       computeTaxCents: (byCat) => {
         const draw = byCat.capitalGains ?? 0;
-        if (draw > dollarsToCents(4_000)) return dollarsToCents(44_000);
-        if (draw > dollarsToCents(500)) return dollarsToCents(2_000);
+        if (draw > dollarsToCents(4_000 * 12)) return dollarsToCents(44_000 * 12);
+        if (draw > dollarsToCents(500 * 12)) return dollarsToCents(2_000 * 12);
         return 0;
       },
     };
@@ -714,7 +719,7 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable", () => {
       byOwner.set(s.ownerId, map);
     }
     let tax = 0;
-    for (const map of byOwner.values()) tax += jurisdiction.computeTaxCents(map, ctx);
+    for (const map of byOwner.values()) tax += monthlyIncomeTaxCents(jurisdiction, ctx, map);
     return gross - tax;
   }
 

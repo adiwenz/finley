@@ -982,7 +982,7 @@ describe("HomePurchaseEvent — the reporter sizes on down payment + tax", () =>
     // gain into the taxed band. Only a report reading the owner's other income tells these apart.
     const wage = new SimCashFlowSeries(0, dollarsToCents(15_000), { type: "fixed" }, { baselineUnit: "monthly" });
     const accounts = () => [liquidAcct("savings", 0), liquidAcct("brokerage", 5_000_000, 0.1)];
-    const jur = bracketedCapitalGains(dollarsToCents(15_000), 0.4); // $15k/mo threshold, 40% above
+    const jur = bracketedCapitalGains(dollarsToCents(15_000 * 12), 0.4); // $15k/mo-equivalent (×12 annual) threshold, 40% above
 
     const withoutWage: LedgerBaseConfig = {
       horizonMonths: 24,
@@ -1014,7 +1014,7 @@ describe("HomePurchaseEvent — the reporter stacks a sibling draw in the same m
   // Each brokerage: $50k basis grown 24 months at 10%/yr → ~$60,021, a ~$10,021 gain. Alone it
   // sits under the $15k threshold, untaxed, exactly covering the $60,000 down payment. Purchase
   // at month 23: months[23] holds those 24 flow-months of growth now that month 0 is processed.
-  const jurisdiction = () => bracketedCapitalGains(dollarsToCents(15_000), 0.4);
+  const jurisdiction = () => bracketedCapitalGains(dollarsToCents(15_000 * 12), 0.4);
   const twoBrokerages = () =>
     baseWithAccounts([
       liquidAcct("brokerage-a", 5_000_000, 0.1),
@@ -1150,7 +1150,7 @@ describe("HomePurchaseEvent — §4.5 gate == sim across a decumulation month", 
   // `nest`. The gains-above-$15k jurisdiction taxes `nest`'s liquidation but never the cash
   // draw, so the candidate's shortfall is purely a question of balance — precisely the axis the
   // reorder moved.
-  const jur = () => bracketedCapitalGains(dollarsToCents(15_000), 0.4);
+  const jur = () => bracketedCapitalGains(dollarsToCents(15_000 * 12), 0.4);
   // One decumulation month at the purchase: $150k of expense with no income at month 23 only,
   // so `nest` grows untouched until then and liquidates exactly once, alongside the draw. In the
   // PRE-CANDIDATE projection the gate probes, decumulation would spend the whole $60k `cash`

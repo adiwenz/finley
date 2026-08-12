@@ -169,14 +169,3 @@ export function federalTaxParts(
     ordinaryWeights: { wages, ordinaryIncome: ordinaryOther, governmentRetirementBenefit: taxableBenefit },
   };
 }
-
-/** Annualize a monthly per-category slice (×12). */
-export function annualizeByCategory(
-  monthlyByCategory: Partial<Record<TaxCategory, Cents>>,
-): Partial<Record<TaxCategory, Cents>> {
-  const annualByCategory: Partial<Record<TaxCategory, Cents>> = {};
-  for (const [category, cents] of Object.entries(monthlyByCategory)) {
-    annualByCategory[category as TaxCategory] = (cents ?? 0) * 12;
-  }
-  return annualByCategory;
-}

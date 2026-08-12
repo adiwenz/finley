@@ -80,6 +80,14 @@ export interface Jurisdiction {
   /**
    * The single tax chokepoint. Categories arrive whole, never collapsed into one lump: the
    * jurisdiction owns what share of each is taxed, and at what rate.
+   *
+   * ANNUAL in, ANNUAL out: `taxableByCategory` is a full calendar year's taxable income by
+   * category (or the engine's current best YTD estimate of it), and the return is that
+   * year's tax liability — never a monthly slice. The jurisdiction owns tax POLICY only; the
+   * engine owns turning a month's flows into an annual estimate and reconciling the annual
+   * liability back down to a monthly charge (`monthlyIncomeTaxCents`/YTD reconciliation in
+   * `projection/incomeTax.ts`), so a lump (an RMD, a bonus) is never taxed as though it
+   * recurred every month.
    */
   computeTaxCents(
     taxableByCategory: Partial<Record<TaxCategory, Cents>>,
@@ -89,7 +97,7 @@ export interface Jurisdiction {
   /**
    * {@link computeTaxCents} broken out per {@link TaxCategory} — the jurisdiction's call,
    * since US tax is not linearly separable by category (progressive brackets, the deduction
-   * stacking onto gains).
+   * stacking onto gains). Same ANNUAL in/out contract as {@link computeTaxCents}.
    *
    * CONTRACT: Σ of the returned map MUST equal {@link computeTaxCents} for the same input,
    * enforced at runtime to the exact cent (`assertTaxAttributionReconciles`).

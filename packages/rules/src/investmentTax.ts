@@ -10,7 +10,7 @@ import type {
  * cost basis and compounds returns, these decide how much of a withdrawal is taxable and
  * whether a return is taxed at accrual or deferred. No brackets or year are read, so they are
  * not year-parameterized; the amounts they feed are taxed by
- * {@link import("./federalTax").computeFederalTaxCents}.
+ * {@link import("./federalTax").federalAnnualTaxCents}.
  *
  * ⚠ Estimates, not advice; US single-filer simplification.
  */

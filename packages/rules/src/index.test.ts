@@ -19,10 +19,10 @@ import { payrollTaxCents } from "./payrollTax";
 describe("usJurisdiction (US-2026)", () => {
   it("implements the jurisdiction interface", () => {
     expect(usJurisdiction.id).toBe("US-2026");
-    // The seam takes MONTHLY slices: $1,000/mo annualizes to $12k, below the standard
-    // deduction → no tax.
+    // The seam takes a full YEAR's taxable-by-category (the engine turns a month's flows
+    // into this annual figure): $12k/yr sits below the standard deduction → no tax.
     expect(
-      usJurisdiction.computeTaxCents({ wages: dollarsToCents(1000) }, { year: 2026 }),
+      usJurisdiction.computeTaxCents({ wages: dollarsToCents(12_000) }, { year: 2026 }),
     ).toBe(0);
   });
 
@@ -45,14 +45,14 @@ describe("usJurisdiction (US-2026)", () => {
   });
 
   it("reports tax per category, summing to the scalar total", () => {
-    // A mixed month of wages + capital gains: the per-category split's Σ must equal the
-    // scalar `computeTaxCents` for the same slice.
-    const slice = {
-      wages: Math.round(dollarsToCents(60_000) / 12),
-      capitalGains: Math.round(dollarsToCents(20_000) / 12),
+    // A year of wages + capital gains: the per-category split's Σ must equal the scalar
+    // `computeTaxCents` for the same ANNUAL slice.
+    const annual = {
+      wages: dollarsToCents(60_000),
+      capitalGains: dollarsToCents(20_000),
     };
-    const total = usJurisdiction.computeTaxCents(slice, { year: 2026 });
-    const byCategory = usJurisdiction.computeTaxByCategoryCents(slice, { year: 2026 });
+    const total = usJurisdiction.computeTaxCents(annual, { year: 2026 });
+    const byCategory = usJurisdiction.computeTaxByCategoryCents(annual, { year: 2026 });
     const sum = Object.values(byCategory).reduce((s: number, c) => s + (c ?? 0), 0);
     expect(sum).toBe(total);
     // Gains bear preferential-rate tax on their own band, not a blend.
@@ -61,13 +61,10 @@ describe("usJurisdiction (US-2026)", () => {
   });
 
   it("runs real single-filer federal tax through the seam", () => {
-    // $100k/yr of wages → annual tax $13,170 (brackets + standard deduction, single
-    // filer) → the month's 1/12 share.
-    const monthly = usJurisdiction.computeTaxCents(
-      { wages: Math.round(dollarsToCents(100_000) / 12) },
-      { year: 2026 },
-    );
-    expect(monthly).toBe(Math.round(dollarsToCents(13_170) / 12));
+    // $100k/yr of wages → annual tax $13,170 (brackets + standard deduction, single filer),
+    // returned directly — the seam is ANNUAL in, ANNUAL out.
+    const annualTax = usJurisdiction.computeTaxCents({ wages: dollarsToCents(100_000) }, { year: 2026 });
+    expect(annualTax).toBe(dollarsToCents(13_170));
   });
 
   it("taxes only the gain in a post-tax withdrawal through the basis seam", () => {
