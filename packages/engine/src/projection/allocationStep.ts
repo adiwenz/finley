@@ -3,7 +3,8 @@ import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdic
 import type { TaxCategory } from "../money/cashFlowSeries";
 import { orderBudgetLines, resolveBudgetLineMonthlyCents } from "../budget/budgetLine";
 import { runWaterfall, type IncomeSourceMonth } from "./waterfall";
-import type { SimState } from "./runState";
+import { priorIncomeTaxStateFor, type SimState } from "./runState";
+import { elapsedMonthsInYear } from "./incomeTax";
 import type { SimOwnedSeries } from "./simulate.types";
 
 export function buildIncomeSources(
@@ -103,16 +104,8 @@ export function allocateMonth(
     // A person's income-tax YTD state BEFORE this month — the base the waterfall's
     // annualized-YTD reconciliation builds on (see ./incomeTax.ts). Absent key → a fresh tax
     // year, which naturally happens each January as `ctx.year` rolls the key over.
-    priorIncomeTaxByPersonState: (pid) => {
-      const key = `${pid}|${ctx.year}`;
-      return {
-        taxableByCategory: state.taxableIncomeByPersonYear.get(key) ?? {},
-        taxPaidCents: state.incomeTaxPaidByPersonYear.get(key) ?? 0,
-      };
-    },
-    // Calendar months elapsed so far this year, INCLUDING this one — `month` is absolute
-    // across the whole run, so this is its position within the current 12-month year.
-    monthsElapsedInYear: (month % 12) + 1,
+    priorIncomeTaxByPersonState: (pid) => priorIncomeTaxStateFor(state, pid, ctx.year),
+    monthsElapsedInYear: elapsedMonthsInYear(month),
     // Absent seam → no payroll tax; the waterfall then leaves take-home untouched.
     computePayrollTaxCents: jurisdiction.computePayrollTaxCents
       ? (earnedByCategory) => jurisdiction.computePayrollTaxCents!(earnedByCategory, ctx)

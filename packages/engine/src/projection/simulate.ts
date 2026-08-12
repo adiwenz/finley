@@ -14,7 +14,8 @@ import {
   type ProjectionSeries,
 } from "./simulate.types";
 import type { FinancialObligation, ObligationId } from "./financialObligation";
-import { initSimState } from "./runState";
+import { initSimState, priorIncomeTaxStateFor } from "./runState";
+import { elapsedMonthsInYear } from "./incomeTax";
 import { snapshotMonth } from "./monthSnapshot";
 import {
   computeLiabilityPayments,
@@ -264,14 +265,8 @@ export function simulateHousehold(
       // Each owner's income-tax YTD state BEFORE this month — the same base the funding
       // draws above and the waterfall below price against, so a decumulation gross-up prices
       // identically to what the month actually charges.
-      (ownerId) => {
-        const key = `${ownerId}|${year}`;
-        return {
-          taxableByCategory: state.taxableIncomeByPersonYear.get(key) ?? {},
-          taxPaidCents: state.incomeTaxPaidByPersonYear.get(key) ?? 0,
-        };
-      },
-      (month % 12) + 1,
+      (ownerId) => priorIncomeTaxStateFor(state, ownerId, year),
+      elapsedMonthsInYear(month),
     );
     const incomeSources = [...nonWithdrawalSources, ...withdrawal.sources];
     const allocationSources = [...incomeSources, ...fundingDraw.taxSources];

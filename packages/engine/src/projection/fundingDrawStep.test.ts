@@ -76,3 +76,45 @@ describe("resolveOrderedFundingDraw — credit sources", () => {
     expect(base.get(OWNER)?.capitalGains).toBe(5_000_00);
   });
 });
+
+/** 0% to $50k of capitalGains, 40% above — so whether a draw alone crosses the threshold
+ * depends entirely on what the owner already earned this year (`priorIncomeTaxByOwner`). */
+const progressive: Jurisdiction = {
+  id: "test-progressive",
+  computeTaxCents: (a) => Math.round(Math.max(0, (a.capitalGains ?? 0) - 50_000_00) * 0.4),
+  computeTaxByCategoryCents: (a) => {
+    const tax = Math.round(Math.max(0, (a.capitalGains ?? 0) - 50_000_00) * 0.4);
+    return tax > 0 ? { capitalGains: tax } : {};
+  },
+};
+
+describe("resolveOrderedFundingDraw — YTD income-tax context (issue #135)", () => {
+  it("stacks the draw's gain onto the owner's prior YTD taxable income, pricing it exactly as the waterfall would", () => {
+    // monthsElapsed 12 (December) isolates stacking from annualization: the estimate equals
+    // the actual YTD total either way, so any tax difference comes only from the prior state.
+    const standalone = resolveOrderedFundingDraw(
+      30_000_00,
+      [appreciated("brokerage", 100_000_00)],
+      progressive,
+      CTX,
+      freshBase(),
+      () => ({ taxableByCategory: {}, taxPaidCents: 0 }),
+      12,
+    );
+    // $30k alone stays under the $50k threshold — untaxed.
+    expect(standalone.perSource[0]!.taxCents).toBe(0);
+
+    // The SAME $30k draw, but the owner already earned $40k of capitalGains this year: combined
+    // $70k crosses the threshold by $20k, so this draw alone must bear tax on the excess.
+    const stacked = resolveOrderedFundingDraw(
+      30_000_00,
+      [appreciated("brokerage", 100_000_00)],
+      progressive,
+      CTX,
+      freshBase(),
+      () => ({ taxableByCategory: { capitalGains: 40_000_00 }, taxPaidCents: 0 }),
+      12,
+    );
+    expect(stacked.perSource[0]!.taxCents).toBeGreaterThan(0);
+  });
+});

@@ -16,9 +16,9 @@
 import type { Cents } from "../money/money";
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
 import type { TaxCategory } from "../money/cashFlowSeries";
-import type { SimState } from "./runState";
+import { priorIncomeTaxStateFor, type SimState } from "./runState";
 import type { IncomeSourceMonth } from "./waterfall";
-import { ytdIncomeTaxCents, FRESH_YTD_TAX_STATE, type YtdTaxState } from "./incomeTax";
+import { ytdIncomeTaxCents, FRESH_YTD_TAX_STATE, elapsedMonthsInYear, type YtdTaxState } from "./incomeTax";
 import { attributeExplicitObligation, type ResolvedFunding } from "./resolvedFunding";
 import type { FinancialObligation } from "./financialObligation";
 import {
@@ -378,14 +378,8 @@ export function resolveFundingDraws(
   // gross-up is priced against, so a draw resolved here prices identically to how the
   // waterfall (later this same month) will actually charge it. `month`'s position within the
   // calendar year mirrors `allocationStep.ts`'s `monthsElapsedInYear`.
-  const priorIncomeTaxByOwner = (ownerId: string) => {
-    const key = `${ownerId}|${ctx.year}`;
-    return {
-      taxableByCategory: state.taxableIncomeByPersonYear.get(key) ?? {},
-      taxPaidCents: state.incomeTaxPaidByPersonYear.get(key) ?? 0,
-    };
-  };
-  const monthsElapsedInYear = (month % 12) + 1;
+  const priorIncomeTaxByOwner = (ownerId: string) => priorIncomeTaxStateFor(state, ownerId, ctx.year);
+  const monthsElapsedInYear = elapsedMonthsInYear(month);
 
   // This month's draws, in resolution order, materialized BEFORE any is priced: a block has to name
   // not just the draw that fell short but every draw after it that consequently never ran, and that

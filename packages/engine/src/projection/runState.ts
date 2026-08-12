@@ -16,6 +16,7 @@ import type { SharedContributionScheme, SurplusDestination } from "./waterfall";
 import type { HouseholdSimInput, SimPerson, SimProperty } from "./simulate.types";
 import { PRE_NOW_MONTH, isPreExisting } from "./nowMarker";
 import type { FinancialObligation } from "./financialObligation";
+import type { YtdTaxState } from "./incomeTax";
 
 /**
  * The resolved, mutable state one `simulateHousehold` run threads through its per-month
@@ -127,6 +128,20 @@ export interface SimState {
    * claim-and-keep-working bump. Absent until the first base is computed.
    */
   readonly lastComputedThroughYear: Map<string, number>;
+}
+
+/**
+ * A person's income-tax YTD state BEFORE `year` — the base {@link
+ * import("./incomeTax").annualizeYtd} extrapolates from. Shared by every caller that reads
+ * {@link SimState.taxableIncomeByPersonYear}/{@link SimState.incomeTaxPaidByPersonYear} so the
+ * key format and empty-state fallback live in one place.
+ */
+export function priorIncomeTaxStateFor(state: SimState, personId: string, year: number): YtdTaxState {
+  const key = `${personId}|${year}`;
+  return {
+    taxableByCategory: state.taxableIncomeByPersonYear.get(key) ?? {},
+    taxPaidCents: state.incomeTaxPaidByPersonYear.get(key) ?? 0,
+  };
 }
 
 export function initSimState(input: HouseholdSimInput): SimState {

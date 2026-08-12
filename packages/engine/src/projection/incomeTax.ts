@@ -32,6 +32,16 @@ export interface YtdTaxState {
 /** A fresh tax year: nothing earned, nothing charged. */
 export const FRESH_YTD_TAX_STATE: YtdTaxState = { taxableByCategory: {}, taxPaidCents: 0 };
 
+/**
+ * Calendar months elapsed so far this year, INCLUDING `month` — `month` is absolute across the
+ * whole simulation, so this is its 1-indexed position within its current 12-month year, the
+ * denominator {@link annualizeYtd} extrapolates over. Shared by every caller that annualizes
+ * YTD income for the SAME month so they read the same position.
+ */
+export function elapsedMonthsInYear(month: number): number {
+  return (month % 12) + 1;
+}
+
 function scaleByCategory(byCategory: TaxableByCategory, numerator: number, denominator: number): TaxableByCategory {
   const out: TaxableByCategory = {};
   for (const [category, cents] of Object.entries(byCategory)) {
