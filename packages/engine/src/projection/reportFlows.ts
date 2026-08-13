@@ -100,13 +100,12 @@ function applyStrandedHaircut(
  * The per-source maps are keyed by the SAME `sourceId ?? taxCategory` the income side bands on.
  *
  * `taxBySourceCents` also haircuts each source's `netCashFlowCents`, so it must stay
- * same-month-true: income tax's monthly estimated installment belongs there, December's
- * reconciliation does not. `reportedTaxBySourceCents` is the DISPLAY figure
- * `flows.taxBySourceCents` returns instead (defaulting to `taxBySourceCents` when absent),
- * which folds the reconciliation back in for the tax chart. Splitting the two keeps a source's
- * per-month take-home honest — attributing a settlement onto the one month it is BILLED would
- * read as though that source earned nothing, when in fact the tax was raised by selling OTHER
- * assets ({@link import("./annualTaxSettlement").SettlementDraw}), not by docking a paycheck.
+ * same-month-true — every cent in it really came out of this month's take-home. That now holds
+ * for the whole income-tax charge, April's settled prior-year balance included: it is docked from
+ * the month like an instalment rather than raised by selling assets outside the waterfall.
+ * `reportedTaxBySourceCents` is the DISPLAY figure `flows.taxBySourceCents` returns instead
+ * (defaulting to `taxBySourceCents` when absent). The two coincide today and are kept apart
+ * because only one of them may ever hold tax the month did not actually withhold.
  */
 export function buildFlows(
   incomeSources: readonly IncomeSourceMonth[],

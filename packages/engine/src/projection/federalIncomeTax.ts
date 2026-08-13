@@ -1,11 +1,12 @@
 /**
  * Federal income tax's semantics, in one place. The liability is ANNUAL — the year's taxable
  * income determines it — but it is PAID on a monthly schedule: an even twelfth of the year's
- * estimate each month, then a single December reconciliation against what actually happened.
+ * estimate each month, with whatever the estimate missed carried to the FOLLOWING April as a
+ * balance — the way a real filing settles.
  *
  * Both payers price tax through {@link annualFederalTax}: the monthly estimate ({@link
- * import("./taxYearProjection").projectKnownTaxYear}) and the December settlement ({@link
- * import("./annualTaxSettlement").settleAnnualTax}). Routing both through one function is what
+ * import("./taxYearProjection").projectKnownTaxYear}) and the year-end close ({@link
+ * import("./taxYearSettlement").finalizeTaxYear}). Routing both through one function is what
  * makes `actualAnnualTax − taxPaidYTD` a meaningful difference rather than a comparison of two
  * unrelated tax computations.
  */
@@ -80,8 +81,8 @@ export function annualFederalTax(
 
 /**
  * The `monthIndex`-th (0-based within the tax year) of twelve even installments. Cumulative
- * rounding, so the twelve sum to `annualCents` EXACTLY — December's reconciliation is then a
- * genuine "actual minus estimated" and never a rounding residue.
+ * rounding, so the twelve sum to `annualCents` EXACTLY — the year-end balance is then a genuine
+ * "actual minus estimated" and never a rounding residue.
  */
 export function monthlyInstallmentCents(annualCents: Cents, monthIndex: number): Cents {
   const upTo = (n: number): Cents => Math.round((annualCents * n) / MONTHS_IN_TAX_YEAR);

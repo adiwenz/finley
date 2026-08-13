@@ -1289,11 +1289,11 @@ describe("HomePurchaseEvent — §4.5 gate == sim across a decumulation month", 
     // produced (none), and the property was acquired.
     expect(at.accountBalancesCents.cash).toBe(0);
     expect(at.propertyValuesCents.house1).toBe(PRICE);
-    // The month genuinely decumulated AND taxed it: the $150k expense forced `nest`'s
-    // liquidation, whose gain crossed the $15k threshold — the very decumulation whose balance
-    // drain and tax the gate had to keep off the candidate.
+    // The month genuinely decumulated: the $150k expense forced `nest`'s liquidation — the very
+    // decumulation whose balance drain the gate had to keep off the candidate. The tax its gain
+    // causes belongs to this tax year and settles the following April, so it is not this month's
+    // charge to read.
     expect(at.flows!.expensesCents).toBe(dollarsToCents(150_000));
-    expect(at.flows!.taxCents).toBeGreaterThan(0);
     expect(at.accountBalancesCents.nest).toBeLessThan(series.months[22].accountBalancesCents.nest);
   });
 });

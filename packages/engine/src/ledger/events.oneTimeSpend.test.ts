@@ -396,10 +396,10 @@ function liquidAcct(id: string, openingCents: number, rate = 0): PlanAccount {
 }
 
 describe("OneTimeSpendEvent — investment-funded spend is NOT grossed up for federal income tax", () => {
-  it("draws exactly the spend amount from an appreciated source, no gross-up, and taxes the gain only in December", () => {
+  it("draws exactly the spend amount from an appreciated source, no gross-up, and taxes the gain the following April", () => {
     const jur = bracketedCapitalGains(0, 0.3); // taxes every dollar of gain at 30%, no threshold
     const base: LedgerBaseConfig = {
-      horizonMonths: 12,
+      horizonMonths: 16,
       annualInflationRate: 0,
       initialPersons: [personLit("p1", "Alice")],
       initialAccounts: [liquidAcct("brokerage", dollarsToCents(100_000), 0.12)],
@@ -424,16 +424,18 @@ describe("OneTimeSpendEvent — investment-funded spend is NOT grossed up for fe
     // Gain + returned principal conserves to exactly the amount spent — no gross-up inflated it.
     expect((gainBand?.cashInflowCents ?? 0) + (drawdownBand?.cashInflowCents ?? 0)).toBe(SPEND);
 
-    // ...but never charged before December: the year's estimated payments are paced off
-    // SCHEDULED income, and a funding draw is not scheduled income — nothing predicts it. So
-    // it all lands in the reconciliation, and since this household holds no cash reserve,
-    // settling that bill itself requires selling MORE of the appreciated brokerage,
-    // which realizes additional gain and recursively enlarges the bill past the naive 30% of
-    // the spend's own gain alone (the one place gross-up still applies).
-    const december = series.months[11].flows!;
+    // ...and never charged during the year at all: the estimated payments are paced off SCHEDULED
+    // income, and a funding draw is not scheduled income — nothing predicts it. December closes
+    // the year's arithmetic without moving a cent, and the whole bill settles in April of the
+    // NEXT year.
+    for (const m of series.months.slice(0, 12)) expect(m.flows!.taxCents).toBe(0);
+    const april = series.months[15].flows!;
     const naive = Math.round(gainBand!.cashInflowCents * 0.3);
-    expect(december.taxCents).toBeGreaterThan(naive);
-    expect(december.taxCents).toBe(34_062);
+    // Exactly the naive 30% of the gain — NO gross-up. Settling in the same December used to mean
+    // selling more of the appreciated brokerage to pay the bill, whose own gain enlarged the bill,
+    // recursively; that sale now happens in April and its gain is APRIL'S year's income, priced by
+    // that year's own machinery instead of reopening this one.
+    expect(april.taxCents).toBe(naive);
   });
 });
 
@@ -483,7 +485,10 @@ describe("OneTimeSpendEvent — gate == sim across a decumulation month", () => 
     expect(series.status).toBe("ran-to-horizon");
     expect(at.accountBalancesCents.cash).toBe(0);
     expect(at.flows!.expensesCents).toBe(dollarsToCents(150_000) + DOWN);
-    expect(at.flows!.taxCents).toBeGreaterThan(0);
+    // And the month really did decumulate on top of the candidate — the drain the gate had to
+    // keep off it. The tax that draw's gain causes belongs to this year and settles next April,
+    // so it is not this month's charge to read.
+    expect(at.accountBalancesCents.nest).toBeLessThan(series.months[22].accountBalancesCents.nest);
   });
 
   it("predicts a NONZERO shortfall that matches exactly what authoring refuses it for", () => {

@@ -14,9 +14,8 @@
  *  3. FORECAST decumulation: the taxable withdrawals the funding waterfall will make to cover
  *     ordinary living costs the year's income does not. This is the estimate's whole reason for
  *     existing in a retired plan — a household living off a pre-tax account has essentially no
- *     scheduled income and a five-figure annual tax bill, and an estimate that saw only (1) put
- *     that entire bill into the December reconciliation. That is where the recurring December
- *     tax-and-net-worth spike came from.
+ *     scheduled income and a five-figure annual tax bill, and an estimate that saw only (1) left
+ *     essentially the whole of it to the year-end true-up.
  *
  * The forecast in (3) is LIGHTWEIGHT and annual: {@link forecastFundingDraws} against {@link
  * orderedLiquidationAccounts}, the real waterfall's own account priority. It runs no months,
@@ -28,10 +27,11 @@
  * next month's funding gap.
  *
  * None of this is authoritative. The real run accumulates ACTUAL taxable income into {@link
- * import("./runState").SimState.taxableIncomeByPersonYear} and reconciles against it in December
- * ({@link import("./annualTaxSettlement").settleAnnualTax}), unchanged. A better estimate does not
- * make the year's tax more or less correct — it makes it arrive evenly through the year instead
- * of all at once at the end.
+ * import("./runState").SimState.taxableIncomeByPersonYear}; December prices that and parks the
+ * remaining balance for the next April to settle ({@link
+ * import("./taxYearSettlement").finalizeTaxYear}). A better estimate does not make the year's tax
+ * more or less correct — it makes more of it arrive evenly through the year the income was earned
+ * in, leaving a smaller balance to carry into the next.
  */
 
 import type { Cents } from "../money/money";
@@ -73,6 +73,15 @@ export interface TaxYearProjectionInput {
    * exactly the second simulation this must not be.
    */
   readonly liabilityPaymentsCents: ReadonlyMap<string, Cents>;
+  /**
+   * The balance left over from the tax year that just closed, which THIS year's April will settle
+   * in cash — signed, positive due. A real outflow of the year being estimated, and so part of
+   * its funding need: a household that under-withheld last year has to fund the shortfall out of
+   * this year's assets, and the withdrawal that does it is taxable THIS year. Known at this point
+   * precisely because the prior year is closed — which is what makes it an input here rather than
+   * another turn of the fixed point.
+   */
+  readonly priorYearSettlementCents: Cents;
   readonly benefitColaRate: number;
   /**
    * This month's already-built non-withdrawal sources — reality, not a re-derivation. The year's
@@ -305,7 +314,7 @@ export function projectKnownTaxYear(
   // belongs at the point of drawing (`forecastFundingDraws` returns nothing for a need ≤ 0),
   // not before the tax is added in.
   const netFundingNeedCents =
-    expectedOutflowCents - expectedInflowCents + unresolvedEventCents;
+    expectedOutflowCents - expectedInflowCents + unresolvedEventCents + input.priorYearSettlementCents;
 
   // The waterfall's own account priority — liquid cash first, then the liquidation order — with
   // the year's explicit event draws already taken out of the balances above.

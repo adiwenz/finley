@@ -97,8 +97,8 @@ export interface SimState {
    * ACTUAL cumulative taxable income by category, per person per calendar year, keyed
    * `${personId}|${year}` — every dollar of wages, RMD, benefit, interest accrual, or
    * realized investment gain that becomes taxable THIS person's income, folded in the month
-   * it occurs. The AUTHORITATIVE base of the year's liability, and the only one: December
-   * prices the year off this complete total (see {@link Jurisdiction.computeTaxCents}'s ANNUAL
+   * it occurs. The AUTHORITATIVE base of the year's liability, and the only one: the year's
+   * close prices it off this complete total (see {@link Jurisdiction.computeTaxCents}'s ANNUAL
    * contract), so the month a dollar landed in never moves the final tax. Contrast {@link
    * estimatedFederalTaxByPersonYear}, priced off scheduled income before the year runs and
    * used only to pace payments. Resets naturally each January as the key's year rolls over,
@@ -108,9 +108,9 @@ export interface SimState {
   /**
    * The per-SOURCE breakdown behind {@link taxableIncomeByPersonYear}, keyed the same way
    * (`${personId}|${year}`) — a sourceKey → running `{category, taxableCents}` map, summed
-   * across every month the source contributed. The December settlement reads this alongside
-   * the category total to apportion its per-category bill back to the sources that produced
-   * it (job, draw, benefit), the same average-rate weighting {@link
+   * across every month the source contributed. The year's close reads this alongside the
+   * category total to apportion its per-category bill back to the sources that produced it
+   * (job, draw, benefit), the same average-rate weighting {@link
    * import("./taxAttribution").attributeTaxToSources} already uses for payroll tax monthly.
    */
   readonly taxableBySourceByPersonYear: Map<string, Map<string, SourceTaxable>>;
@@ -127,11 +127,23 @@ export interface SimState {
   /**
    * Federal income tax already PAID this calendar year, per person, keyed
    * `${personId}|${year}` — the running sum of the monthly estimated installments, with the
-   * category and source splits the tax chart bands on. December charges (or refunds) only
-   * `actual annual tax − this`, so the year's total charge always lands on the actual
-   * liability however far the estimate missed.
+   * category and source splits the tax chart bands on. The year's close parks
+   * `actual annual tax − this` as a balance for the next April to charge (or refund), so the
+   * year's total charge always lands on the actual liability however far the estimate missed. A
+   * prior year's balance settled in April is NOT folded in here: it pays a different year.
    */
   readonly federalTaxPaidByPersonYear: Map<string, FederalTaxPayment>;
+  /**
+   * A CLOSED tax year's remaining balance, per person, keyed `${personId}|${taxYear}` — the
+   * year's actual liability less the instalments it collected, SIGNED (positive due, negative
+   * refund). Written once when the year closes ({@link
+   * import("./taxYearSettlement").finalizeTaxYear}) and consumed once in April of the following
+   * year ({@link import("./taxYearSettlement").dueTaxYearSettlements}, which deletes what it
+   * returns). This map is what carries a liability across a tax-year boundary, and is why
+   * December is no longer a cash event: the year's arithmetic finishes there, its money moves
+   * four months later.
+   */
+  readonly pendingTaxSettlementsByPersonYear: Map<string, FederalTaxPayment>;
   /** Benefit accumulation/claiming reads birthYear + benefitClaimingAge. */
   readonly personsById: ReadonlyMap<string, SimPerson>;
   /**
@@ -254,6 +266,7 @@ export function initSimState(input: HouseholdSimInput): SimState {
     taxableBySourceByPersonYear: new Map<string, Map<string, SourceTaxable>>(),
     estimatedFederalTaxByPersonYear: new Map<string, EstimatedTaxYear>(),
     federalTaxPaidByPersonYear: new Map<string, FederalTaxPayment>(),
+    pendingTaxSettlementsByPersonYear: new Map<string, FederalTaxPayment>(),
     personsById,
     earningsByPerson,
     governmentBenefitBaseByPerson: new Map<string, Cents>(),

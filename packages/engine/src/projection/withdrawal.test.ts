@@ -305,8 +305,8 @@ describe("Desired-withdrawal decumulation channel", () => {
     // Two things this pins apart, which a flat rate makes easy to confuse.
     //
     // NOT a gross-up: nothing here solves "sell enough that the sale's own tax still leaves
-    // $2,000" at the moment of the draw. That recursion happens in exactly one place, the
-    // December settlement (annualTaxSettlement.ts).
+    // $2,000" at the moment of the draw. That recursion happens nowhere any more — settling a
+    // year's balance in the FOLLOWING April is what removed the need for it.
     //
     // But the draw is not the bare $2,000 either. The year-start estimate now anticipates that
     // this household funds its living from a fully-taxable account, so it has an estimated
@@ -526,9 +526,9 @@ describe("No draw is ever grossed up — ordinary decumulation sells exactly the
 
   // A steep, cliff-shaped tax that would once have forced a large gross-up climb — a
   // regression guard that no jurisdiction shape, however punishing, changes what gets sold:
-  // federal income tax is never charged against an ordinary mid-year draw at all now (it
-  // settles once, annually, in December — see annualTaxSettlement.test.ts for the recursive
-  // gross-up these edge cases now actually exercise).
+  // federal income tax is never charged against an ordinary mid-year draw at all now. The gain
+  // joins the year's taxable income, the year closes in December, and whatever the year's
+  // instalments did not cover settles the following April (taxYearSettlement.ts).
   const steepCliff: Jurisdiction = {
     id: "steep-cliff",
     computeTaxByCategoryCents: () => ({}),

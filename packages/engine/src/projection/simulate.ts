@@ -1,6 +1,5 @@
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
 import type { Cents } from "../money/money";
-import type { TaxCategory } from "../money/cashFlowSeries";
 import { accumulateEarnings, buildGovernmentBenefitSources } from "./governmentBenefit";
 import { buildRmdSources } from "./rmd";
 import { buildWithdrawalSources, DEFAULT_LIQUIDATION_ORDER } from "./withdrawal";
@@ -32,14 +31,17 @@ import {
   remainingDeferralRoomCents,
   unwindUnfundedContributions,
 } from "./allocationStep";
-import { settleAnnualTax } from "./annualTaxSettlement";
+import {
+  dueTaxYearSettlements,
+  finalizeTaxYear,
+  pendingSettlementTotalCents,
+} from "./taxYearSettlement";
 import { projectKnownTaxYear } from "./taxYearProjection";
 import {
   estimatedPaymentForMonth,
   MONTHS_IN_TAX_YEAR,
   type FederalTaxPayment,
 } from "./federalIncomeTax";
-import { addCategory } from "./taxAttribution";
 
 // Re-exported so importers (and the engine barrel in index.ts) keep resolving the
 // simulator's public types through ./simulate. `SimPerson` is OMITTED: it is an
@@ -114,10 +116,12 @@ function classifyObligationOutcomes(
  *  10b. Property appreciation                             → advanceProperties
  *   11. Snapshot                                          → snapshotMonth
  * Federal income tax is priced ONCE per calendar year and paid on a schedule this function
- * owns: twelve even estimated instalments through the waterfall, reconciled against the year's
- * actual taxable income at its last processed month. The pre-flow state is
- * captured once as {@link ProjectionSeries.opening}; every entry in `months` is a real,
- * processed month, `months[i]` folding in `months[i-1]`'s flows plus its own.
+ * owns: twelve even estimated instalments through the waterfall, then — after the year's actual
+ * taxable income is complete at December — a single remaining balance carried to the FOLLOWING
+ * April, where it is charged (or refunded) through that month's ordinary waterfall. A closed year
+ * is never reopened: the April draw that funds its balance is income in the year of the draw. The
+ * pre-flow state is captured once as {@link ProjectionSeries.opening}; every entry in `months` is
+ * a real, processed month, `months[i]` folding in `months[i-1]`'s flows plus its own.
  */
 export function simulateHousehold(
   input: HouseholdSimInput,
@@ -208,8 +212,8 @@ export function simulateHousehold(
     // year's RMD, the resolved funding of this year's events, and a lightweight forecast of the
     // decumulation the year's spending will require. Held for the rest of the year, so no later
     // month re-estimates from year-to-date income. What the estimate cannot anticipate — the real
-    // waterfall's exact draws, month by month, against balances that move — the December
-    // reconciliation still settles.
+    // waterfall's exact draws, month by month, against balances that move — settles as a balance
+    // in the NEXT year's April.
     if (month % MONTHS_IN_TAX_YEAR === 0) {
       const estimates = projectKnownTaxYear({
         state,
@@ -220,6 +224,10 @@ export function simulateHousehold(
         incomeSeries: input.incomeSeries,
         expenseSeries: input.expenseSeries,
         liabilityPaymentsCents: payments,
+        // The balance last December parked, which THIS year's April must fund — known now,
+        // because the year it belongs to is already closed. Signed: an expected refund lowers the
+        // year's funding need rather than raising it.
+        priorYearSettlementCents: pendingSettlementTotalCents(state, ctx),
         benefitColaRate: input.benefitColaRate ?? input.annualInflationRate,
         openingMonthSources: nonWithdrawalSources,
         remainingDeferralRoomCents: (pid) => remainingDeferralRoomCents(state, jurisdiction, ctx, pid),
@@ -228,18 +236,28 @@ export function simulateHousehold(
         state.estimatedFederalTaxByPersonYear.set(`${pid}|${year}`, estimate);
       }
     }
-    // This month's even twelfth of that estimate, per person — charged below as an ordinary
+    // The prior tax year's remaining balance, due this month if this is April — and CONSUMED
+    // here, so it is charged exactly once. Signed: a positive balance joins the month's tax
+    // charge, a refund nets against it and can turn the month's tax negative, which the waterfall
+    // reads as extra take-home.
+    const priorYearSettlements = dueTaxYearSettlements(state, ctx, month);
+    // This month's even twelfth of the estimate, per person — charged below as an ordinary
     // deduction in the allocation waterfall, so a steady household pays a smooth monthly tax
-    // instead of one December drop.
+    // rather than one year-end drop.
     const estimatedTaxPayments = new Map<string, FederalTaxPayment>();
-    let estimatedTaxCents = 0;
+    // What the month's tax actually costs in CASH: instalments plus any settled balance. This is
+    // the figure decumulation must size its gap against, which is exactly how a balance due comes
+    // to be funded by a taxable withdrawal — one that is income in THIS year, folded into this
+    // year's accumulator by the ordinary path and settled by this year's own close. The closed
+    // year is never reopened.
+    let taxCashCents = 0;
     for (const pid of state.personIds) {
       const payment = estimatedPaymentForMonth(
         state.estimatedFederalTaxByPersonYear.get(`${pid}|${year}`),
         month % MONTHS_IN_TAX_YEAR,
       );
       estimatedTaxPayments.set(pid, payment);
-      estimatedTaxCents += payment.totalCents;
+      taxCashCents += payment.totalCents + (priorYearSettlements.get(pid)?.totalCents ?? 0);
     }
 
     // The month's obligation list, built BEFORE decumulation sizes its gap: every downstream
@@ -261,7 +279,7 @@ export function simulateHousehold(
     // decumulation has not run, so that ordinary income and benefits are the whole marginal
     // context. Each source sells exactly what the obligation needs and is drained here (before
     // compounding, so a drained balance does not earn this month) — no gross-up: the gain rides
-    // into `allocateMonth`'s taxable pool uncharged, settled once in December. `taxableByOwnerAfter`
+    // into `allocateMonth`'s taxable pool uncharged, settled with the rest of the year's. `taxableByOwnerAfter`
     // — this base with the draws' gains stacked in — is exposed on the flow view so the §4.5 gate
     // prices a candidate over its siblings the SAME way (exact under any regime).
     const fundingBase = buildTaxableByOwner(nonWithdrawalSources);
@@ -303,12 +321,12 @@ export function simulateHousehold(
     // Decumulation then operates on the balances the explicit draws left behind: when
     // non-withdrawal income can't cover the month's automatic obligations, liquidate investment
     // accounts BEFORE the waterfall — same seam as RMD/benefit. Its gap is still sized on the
-    // automatic total (explicit obligations excluded), now net of the month's estimated tax
-    // installment, which the waterfall is about to take out of the same income; only the assets
-    // left to close it have shrunk, and any shortfall spills to the credit cascade. No
-    // gross-up: each draw sells exactly the gap, and its realized gain rides `taxableCents`
-    // into the annual accumulator, settled in December. RMD income is already counted, so the
-    // draw never double-withdraws.
+    // automatic total (explicit obligations excluded), now net of the month's tax cash — this
+    // year's instalment plus, in April, last year's settled balance — which the waterfall is
+    // about to take out of the same income; only the assets left to close it have shrunk, and any
+    // shortfall spills to the credit cascade. No gross-up anywhere: each draw sells exactly the
+    // gap, and its realized gain rides `taxableCents` into THIS year's accumulator. RMD income is
+    // already counted, so the draw never double-withdraws.
     const withdrawal = buildWithdrawalSources(
       state,
       jurisdiction,
@@ -316,12 +334,12 @@ export function simulateHousehold(
       automaticFundingCents,
       ctx,
       DEFAULT_LIQUIDATION_ORDER,
-      estimatedTaxCents,
+      taxCashCents,
     );
     const incomeSources = [...nonWithdrawalSources, ...withdrawal.sources];
     // The explicit draws' realized gain is net-neutral cash-wise (no gross-up sold it) but
     // still taxable — `gainSources` carries it in so it reaches `allocateMonth`'s taxable
-    // pool and the year's accumulator, settled once in December.
+    // pool and the year's accumulator, settled with the rest of the year's.
     const allocationSources = [...incomeSources, ...fundingDraw.gainSources];
 
     const {
@@ -342,6 +360,7 @@ export function simulateHousehold(
       automaticFundingCents,
       month,
       estimatedTaxPayments,
+      priorYearSettlements,
     );
     // Snapshot every cascade card's balance before the cascade runs, so the REAL amount it
     // borrows onto credit (see below) is measured off actual liability movement rather than
@@ -352,9 +371,11 @@ export function simulateHousehold(
     const cascadeCardBalancesBeforeCents = new Map(
       state.cascadeCards.map((card) => [card.id, state.liabilityBalances.get(card.id) ?? 0]),
     );
-    // Nothing — savings or credit — could absorb this: the terminal flag (before the annual
-    // settlement below adds its own, if this is a year's last processed month).
+    // Nothing — savings or credit — could absorb this: the terminal flag. A tax balance settled
+    // this month is inside it, having been charged as ordinary tax cash above; the year's close
+    // below moves no money and so can add nothing here.
     const uncoveredCents = applyShortfallCascade(state, month);
+    const isInsolvent = uncoveredCents > 0;
     // What the cascade actually moved onto a card this month, in real cents — ground truth for
     // the "credit" layer below, independent of any estimate.
     const borrowedOntoCreditCents = state.cascadeCards.reduce(
@@ -437,40 +458,15 @@ export function simulateHousehold(
       ...resolveFundingAttribution(obligations, supply),
     ];
 
-    // December reconciliation — a no-op every month except the year's last processed one. By
-    // now this month's own income has already folded into `state.taxableIncomeByPersonYear`
-    // (see `allocateMonth`, above), so the base this reads is the year's complete ACTUAL
-    // taxable income regardless of which month each dollar landed in. It charges only that
-    // year's tax less the estimated installments already paid — a refund when the estimate
-    // overshot, a larger bill when an endogenous withdrawal it could not predict landed. A
-    // positive difference sells from each person's own accounts (recursively grossed up — the
-    // one place that still happens), then borrows against the household's shared credit cards
-    // for any remainder; what neither covers folds into this month's insolvency below, exactly
-    // like any other unfundable obligation.
-    //
-    // `isFinalMonth` forces settlement even off-December when a funding block is about to
-    // truncate the run for good (`fundingDraw.block` is already known below, before the
-    // truncating `break`) — otherwise a household blocked mid-year would carry its year's
-    // accumulated taxable income into a December that never comes, understating the tax it
-    // actually owes at the point the run stops. Not keyed off `horizonMonths` itself: an
-    // authored horizon is always a whole number of years (see `planHorizonMonths`), so its
-    // last month is already December when nothing blocks first.
-    const isFinalMonth = fundingDraw.block !== undefined;
-    const settlement = settleAnnualTax(state, jurisdiction, ctx, month, isFinalMonth);
-    const finalUncoveredCents = uncoveredCents + settlement.uncoveredCents;
-    const finalIsInsolvent = finalUncoveredCents > 0;
-    const combinedTaxCents = taxCents + settlement.totalTaxCents;
-    const combinedTaxByCategoryCents = { ...taxByCategoryCents };
-    for (const [category, cents] of Object.entries(settlement.taxByCategoryCents)) {
-      if (cents) addCategory(combinedTaxByCategoryCents, category as TaxCategory, cents);
-    }
-    // The display split: this month's estimated installment apportioned across the sources it
-    // was sized from, plus December's reconciliation of the same apportionment against the
-    // year's actual sources. Over a year these sum, per source, to the actual annual tax.
-    const combinedTaxBySourceCents: Record<string, Cents> = { ...taxBySourceCents };
-    for (const [source, cents] of Object.entries(settlement.taxBySourceCents)) {
-      if (cents) combinedTaxBySourceCents[source] = (combinedTaxBySourceCents[source] ?? 0) + cents;
-    }
+    // Close the tax year — a no-op every month but December, and NOT a cash event. By now this
+    // month's own income has folded into `state.taxableIncomeByPersonYear` (see `allocateMonth`,
+    // above), so the base this prices is the year's complete ACTUAL taxable income regardless of
+    // which month each dollar landed in. All it does is park the remaining balance (liability
+    // less the instalments already collected, signed) against this year, for the NEXT year's
+    // April to charge or refund through the ordinary waterfall. Nothing is sold, nothing is
+    // borrowed, no balance moves — which is what removed the December net-worth sawtooth, and
+    // with it the recursive gross-up that a same-month settlement needed to solve.
+    finalizeTaxYear(state, jurisdiction, ctx, month);
 
     applyAssetTransfers(state, month);
     compoundAssets(state, month, jurisdiction, ctx);
@@ -487,27 +483,6 @@ export function simulateHousehold(
     const explicitExpenseObligations = state.fundingDraws.filter(
       (o) => o.month === month && o.treatment === "expense",
     );
-    // The settlement's own account sales, reported the same way a funding draw's are:
-    // reporting-only gain bands, and their returned principal folded into the savings
-    // drawdown so a December settlement funded from savings isn't invisible in the chart.
-    //
-    // The band is NAMED apart from the account's ordinary draw, which it sits beside in the
-    // same December. Sharing the account's bare label put two differently-coloured entries
-    // reading "Retirement account" in one legend — and next to "Required distribution" in a
-    // retired year, the pair was read as the plan taking RMDs a decade before it does. The
-    // suffix follows the FICA band's convention: same source, distinct levy.
-    const settlementGainSources = settlement.draws
-      .filter((d) => d.gainCents > 0)
-      .map((d) => ({
-        ownerId: d.ownerId,
-        waterfallInflowCents: 0,
-        cashInflowCents: d.gainCents,
-        taxCategory: d.category,
-        taxableCents: 0,
-        sourceId: `tax-settlement:${d.accountId}`,
-        label: `${d.label} — sold to settle tax`,
-      }));
-    const settlementPrincipalCents = settlement.draws.reduce((s, d) => s + d.principalCents, 0);
     const bands = buildFlows(
       // `reportedGainSources`, NOT `gainSources`: an asset acquisition's realized gain is taxed
       // (it went to `allocateMonth` above, in `allocationSources`) but never banded, because the
@@ -515,30 +490,31 @@ export function simulateHousehold(
       // the spending side. The tax it causes is still charged, and `buildFlows` charges it to the
       // sources that did deliver cash. Reporting-only in both cases: `cashInflowCents` is the
       // gain, with no waterfall inflow.
-      [...incomeSources, ...fundingDraw.reportedGainSources, ...settlementGainSources],
-      combinedTaxCents,
+      [...incomeSources, ...fundingDraw.reportedGainSources],
+      taxCents,
       // The very list the waterfall funded above — expenses, debt and per-line rollups all
       // derive from it, so none can drift from the funded amount.
       obligations,
-      // The withdrawal channel's liquid-buffer drawdown PLUS a down payment's returned
-      // principal (and any cash source's whole draw) PLUS the settlement's own returned
-      // principal — one `savingsDrawdown` source, so a month spent from savings isn't a zero
-      // band.
-      withdrawal.liquidDrawdownCents + fundingDraw.principalDrawdownCents + settlementPrincipalCents,
+      // The withdrawal channel's liquid-buffer drawdown PLUS a down payment's returned principal
+      // (and any cash source's whole draw) — one `savingsDrawdown` source, so a month spent from
+      // savings isn't a zero band. An April balance funded from savings needs no term of its own:
+      // it enlarged the month's cash need, so the withdrawal channel already drew for it.
+      withdrawal.liquidDrawdownCents + fundingDraw.principalDrawdownCents,
       // Undefined when the jurisdiction declines a breakdown; the app then draws one band.
-      combinedTaxByCategoryCents,
-      // SAME-MONTH per-source haircut on `netCashFlowCents`: the estimated installment alone,
-      // which really did come out of this month's take-home. December's settlement is excluded
-      // — it is raised by selling assets, not by docking that month's paychecks.
+      taxByCategoryCents,
+      // SAME-MONTH per-source haircut on `netCashFlowCents`: every cent of tax this month
+      // charged — the instalment, plus April's settled prior-year balance — since all of it
+      // really did come out of this month's take-home.
       taxBySourceCents,
       deferralBySourceCents,
       // Employee payroll tax (FICA) — its own line, already removed from take-home.
       payrollTaxCents,
       // The finer per-SOURCE payroll-tax splits, mirroring `taxBySourceCents`.
       payrollTaxBySourceCents,
-      // DISPLAY-only per-source split for the tax chart — the estimate's and December's
-      // apportionment back to the real sources, without touching the haircut above.
-      combinedTaxBySourceCents,
+      // DISPLAY-only per-source split for the tax chart. Identical to the haircut above now that
+      // both describe the same month's cash; kept as its own argument because the two answer
+      // different questions and only coincide while no tax is raised outside the waterfall.
+      taxBySourceCents,
       explicitExpenseObligations,
     );
     // The taxable base after this month's explicit draws but BEFORE decumulation, so the
@@ -562,18 +538,14 @@ export function simulateHousehold(
         // year of inflation by a twelfth, every month, all the way out.
         elapsedMonths: month + 1,
         annualInflationRate: input.annualInflationRate,
-        // Folds in the annual settlement's own shortfall (assets AND credit both exhausted
-        // trying to pay the year's tax bill) — a no-op every month except one that just ran
-        // the settlement, so this is identical to the ordinary `uncoveredCents`/`isInsolvent`
-        // everywhere else.
-        isInsolvent: finalIsInsolvent,
-        uncoveredCents: finalUncoveredCents,
+        isInsolvent,
+        uncoveredCents,
         priorInsolvency,
         liabilityPaymentRecords: paymentRecords,
         flows,
       }),
     );
-    if (finalIsInsolvent) priorInsolvency = true;
+    if (isInsolvent) priorInsolvency = true;
 
     // Truncate at the first blocked month: it ran to completion (income, tax, cascade, compounding
     // above) with only the blocking obligation and its artifacts omitted, and its net worth is a

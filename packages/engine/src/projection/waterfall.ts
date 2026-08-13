@@ -114,7 +114,7 @@ function applyDeferrals(
   // weight the payroll-tax breakdown apportions by.
   const sourceEarnedByPerson = new Map<string, SourceTaxable[]>();
   // POST-deferral per-source taxable weight — mirrors `sourceEarnedByPerson` (payroll's
-  // pre-deferral weight) but for income tax's base, so the December settlement can later
+  // pre-deferral weight) but for income tax's base, so the year's close can later
   // apportion its per-category bill back to the sources that actually produced the year's
   // taxable income (the same {@link attributeTaxToSources} apportionment payroll uses monthly).
   const sourceTaxableByPerson = new Map<string, SourceTaxable[]>();
@@ -232,7 +232,7 @@ function applyDeferrals(
  * import("../jurisdiction/jurisdiction").Jurisdiction.computeTaxCents}'s ANNUAL contract). So
  * take-home is gross minus deferral minus payroll tax minus that installment, while
  * `taxableByPerson` rides back to the caller UNCHARGED — the year's actual liability is
- * reconciled against the installments in December, not derived from this month's income.
+ * reconciled against the installments once the year closes, not derived from this month's income.
  */
 function computeTakeHome(
   input: WaterfallInput,

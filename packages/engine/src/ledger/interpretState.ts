@@ -144,9 +144,8 @@ export interface FundingAvailability {
   readonly availableCents: Cents;
   /**
    * Always 0 — a funding draw is never grossed up or charged federal income tax at
-   * authoring time; the gain it realizes is settled once, annually, in December (see
-   * {@link import("../projection/annualTaxSettlement").settleAnnualTax}), long after any
-   * affordability check here.
+   * authoring time; the gain it realizes joins the year's taxable income and is settled once,
+   * annually, with that year — long after any affordability check here.
    */
   readonly taxCents: Cents;
   /** Always `false` — see {@link taxCents}. */

@@ -6,20 +6,20 @@
  * import("./taxYearProjection").projectKnownTaxYear}) can read scheduled income straight off
  * compiled plan data, but a retired household's largest taxable income is not scheduled at all —
  * it is the pre-tax withdrawals the funding waterfall makes to pay for ordinary living. Leaving
- * those out made the estimate ~$0 and pushed the entire year's tax into the December
- * reconciliation, which is what put a recurring December spike in every decumulation plan.
+ * those out made the estimate ~$0 and left the entire year's tax to the year-end balance, which
+ * is what deferred nearly every decumulating household's whole tax bill by a year.
  *
  * It is a FORECAST, not a second simulation. It answers only "how much from each account, and
  * how much of that is taxable", and deliberately reproduces none of the monthly machinery:
  * no month-by-month balances, no compounding, no snapshots, no event replay, no retirement
  * solving. The year's ACTUAL taxable income is still whatever the real waterfall does; the
- * December true-up ({@link import("./annualTaxSettlement").settleAnnualTax}) remains
- * authoritative and now simply has far less left to settle.
+ * year's close ({@link import("./taxYearSettlement").finalizeTaxYear}) remains authoritative and
+ * now simply has far less left to carry into the next April.
  *
  * Account priority is NOT redefined here — it comes from {@link
- * import("./withdrawal").orderedLiquidationAccounts}, the same ranking decumulation and the
- * settlement drain in. A forecast ranking accounts by its own rules would predict draws the
- * waterfall never makes, and the estimate would be confidently wrong instead of merely rough.
+ * import("./withdrawal").orderedLiquidationAccounts}, the same ranking decumulation itself drains
+ * in. A forecast ranking accounts by its own rules would predict draws the waterfall never makes,
+ * and the estimate would be confidently wrong instead of merely rough.
  */
 
 import type { Cents } from "../money/money";

@@ -26,9 +26,10 @@ export interface WithdrawalState {
  * import("../plan/simAccount").SimAccountTaxProfile.withdrawalCategory} — earlier is drawn
  * first. `capitalGains` leads (least tax friction under a preferential-rate regime),
  * `taxExempt` last to preserve tax-free growth. No gross-up happens here — an ordinary
- * mid-year decumulation's own tax is settled with the rest of the year's, in December (see
- * {@link import("../jurisdiction/jurisdiction").Jurisdiction.computeTaxCents}'s ANNUAL
- * contract) — so the order ranks accounts by preference alone, not by gross-up cost.
+ * mid-year decumulation's own tax is settled with the rest of the year's, through the year's
+ * instalments and its closing balance (see {@link
+ * import("../jurisdiction/jurisdiction").Jurisdiction.computeTaxCents}'s ANNUAL contract) — so
+ * the order ranks accounts by preference alone, not by gross-up cost.
  */
 export const DEFAULT_LIQUIDATION_ORDER: readonly TaxCategory[] = [
   "capitalGains",
@@ -55,10 +56,9 @@ export interface LiquidationRankable {
  * spent before anything is sold — then by `liquidationOrder` rank, ties held in the roster's own
  * order by a stable sort.
  *
- * Shared rather than re-derived, because three callers must agree on it: decumulation ({@link
+ * Shared rather than re-derived, because two callers must agree on it: decumulation ({@link
  * buildWithdrawalSources}, which then drops the liquid account because the shortfall charge
- * already spent it), the December settlement ({@link
- * import("./annualTaxSettlement").settleAnnualTax}), and the year-start funding forecast ({@link
+ * already spent it) and the year-start funding forecast ({@link
  * import("./fundingForecast").forecastFundingDraws}). The forecast's whole value is that it
  * predicts the draws the real waterfall will take, which it cannot do from a second copy of this
  * ranking free to drift from the first.
@@ -97,7 +97,7 @@ function estimateNetIncome(
  * NEED-based, not a safe-withdrawal rate: `gap = obligations − non-withdrawal net income`,
  * less the liquid buffer spent first. Each draw sells EXACTLY `need` (capped at the account's
  * balance) — no gross-up: the tax this draw's own gain causes is not charged here, or in any
- * other month, but folded into the year's actual taxable income and settled in December. The
+ * other month, but folded into the year's actual taxable income and settled with the year. The
  * realized gain still rides `taxableCents` on the returned source, so it reaches the caller's
  * annual accumulator; it is simply not netted out of the draw itself.
  *

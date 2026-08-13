@@ -75,17 +75,25 @@ export function allocateMonth(
   sharedObligationCents: Cents,
   month: number,
   estimatedTaxPayments: ReadonlyMap<string, FederalTaxPayment>,
+  /**
+   * The PRIOR tax year's balance, per person, in the April it settles — signed, positive due.
+   * Charged as cash alongside this month's instalment (so it is docked from take-home and, if
+   * income cannot cover it, funded by the same decumulation any other need is), but deliberately
+   * kept OUT of `federalTaxPaidByPersonYear`: that accumulator records what has been paid toward
+   * the CURRENT year, and crediting a prior year's balance to it would make this December
+   * undercharge by exactly this amount. Empty in every month but April.
+   */
+  priorYearSettlements: ReadonlyMap<string, FederalTaxPayment>,
 ): {
   taxCents: Cents;
   payrollTaxCents: Cents;
   payrollTaxBySourceCents: Readonly<Record<string, Cents>>;
   taxByCategoryCents: Partial<Record<TaxCategory, Cents>> | undefined;
   /**
-   * The month's estimated income-tax installment apportioned back to the sources whose
-   * scheduled income it was sized from — a genuine same-month figure, since the installment
-   * really was deducted from this month's take-home. December's reconciliation is NOT in here:
-   * that one is raised by selling assets, so docking it off the month's paychecks would read as
-   * though those sources earned nothing.
+   * The month's income-tax CASH apportioned back to the sources whose income it was sized from —
+   * a genuine same-month haircut, since every cent of it really was deducted from this month's
+   * take-home. In April that includes the prior year's settled balance, apportioned across the
+   * sources of the year it taxes.
    */
   taxBySourceCents: Readonly<Record<string, Cents>>;
   deferralBySourceCents: Readonly<Record<string, Cents>>;
@@ -131,9 +139,13 @@ export function allocateMonth(
     goalFundMonthlyRate: (id) => accountsById.get(id)?.getMonthlyRateAt(month) ?? 0,
     accountBalanceCents: (id) => state.assetBalances.get(id) ?? 0,
     liquidAccountId: state.liquidAccount?.id ?? null,
-    // An even twelfth of the year's estimated liability, priced before the year ran. Fixed for
-    // the month: the waterfall must never re-derive income tax from the income in front of it.
-    estimatedIncomeTaxCents: (pid) => estimatedTaxPayments.get(pid)?.totalCents ?? 0,
+    // The month's federal income-tax CASH: an even twelfth of this year's estimated liability,
+    // plus (in April only) the balance left over from the year just closed. Fixed for the month:
+    // the waterfall must never re-derive income tax from the income in front of it. Signed, so an
+    // April refund raises take-home rather than lowering it.
+    estimatedIncomeTaxCents: (pid) =>
+      (estimatedTaxPayments.get(pid)?.totalCents ?? 0) +
+      (priorYearSettlements.get(pid)?.totalCents ?? 0),
     // Absent seam → no payroll tax; the waterfall then leaves take-home untouched.
     computePayrollTaxCents: jurisdiction.computePayrollTaxCents
       ? (earnedByCategory) => jurisdiction.computePayrollTaxCents!(earnedByCategory, ctx)
@@ -230,8 +242,10 @@ export function allocateMonth(
     }
   }
 
-  // Record what was just charged, so December reconciles against the real running total rather
-  // than re-deriving "twelve installments" and missing a year that started mid-estimate.
+  // Record what was paid TOWARD THIS YEAR, so the year's close reconciles against the real
+  // running total rather than re-deriving "twelve installments" and missing a year that started
+  // mid-estimate. Only the instalment counts: a prior year's balance settled this month pays a
+  // liability this year's close knows nothing about.
   const taxByCategoryCents: TaxableByCategory = {};
   const taxBySourceCents: Record<string, Cents> = {};
   for (const [pid, payment] of estimatedTaxPayments) {
@@ -241,11 +255,21 @@ export function allocateMonth(
       key,
       addFederalTaxPayment(state.federalTaxPaidByPersonYear.get(key) ?? NO_FEDERAL_TAX_PAID, payment),
     );
-    for (const [category, cents] of Object.entries(payment.byCategoryCents)) {
-      if (cents) addCategory(taxByCategoryCents, category as TaxCategory, cents);
-    }
-    for (const [source, cents] of Object.entries(payment.bySourceCents)) {
-      if (cents) taxBySourceCents[source] = (taxBySourceCents[source] ?? 0) + cents;
+  }
+  // The breakdowns, in contrast, describe the CASH this month charged — instalment and prior-year
+  // balance alike — because that is what `taxCents` is and what the per-source haircut has to
+  // reconcile against. A settled balance bands under the sources that produced the income it
+  // taxes, which are last year's; a source no longer paying this month is stranded and spread
+  // across the month's real ones downstream ({@link import("./reportFlows").buildFlows}).
+  for (const payments of [estimatedTaxPayments, priorYearSettlements]) {
+    for (const [, payment] of payments) {
+      if (payment.totalCents === 0) continue;
+      for (const [category, cents] of Object.entries(payment.byCategoryCents)) {
+        if (cents) addCategory(taxByCategoryCents, category as TaxCategory, cents);
+      }
+      for (const [source, cents] of Object.entries(payment.bySourceCents)) {
+        if (cents) taxBySourceCents[source] = (taxBySourceCents[source] ?? 0) + cents;
+      }
     }
   }
   assertTaxAttributionReconciles(result.taxCents, taxBySourceCents);

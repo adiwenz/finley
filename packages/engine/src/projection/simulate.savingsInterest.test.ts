@@ -16,12 +16,11 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
     id: "flat-ordinary-10",
     computeTaxCents: (byCat) =>
       Math.round(((byCat.ordinaryIncome ?? 0) + (byCat.wages ?? 0)) * 0.1),
-    // Matches `computeTaxCents`'s category set exactly (ordinaryIncome/wages only) —
-    // NOT every category present. The December settlement's own recursive asset sale can
-    // introduce a `taxExempt` slice (a cash account's withdrawal category: the growth over
-    // its cost basis was already taxed at accrual, so a jurisdiction must charge it nothing);
-    // taxing every key blindly would silently overtax that slice and break the
-    // Σ-breakdown-equals-scalar contract the engine asserts at runtime.
+    // Matches `computeTaxCents`'s category set exactly (ordinaryIncome/wages only) — NOT every
+    // category present. A draw funding an April tax balance can introduce a `taxExempt` slice (a
+    // cash account's withdrawal category: the growth over its cost basis was already taxed at
+    // accrual, so a jurisdiction must charge it nothing); taxing every key blindly would silently
+    // overtax that slice and break the Σ-breakdown-equals-scalar contract the engine asserts.
     computeTaxByCategoryCents: (byCat) => {
       const out: Partial<Record<TaxCategory, number>> = {};
       for (const cat of ["ordinaryIncome", "wages"] as const) {
@@ -50,11 +49,14 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
     });
   }
 
-  // A full calendar year (horizon 12, months 0..11) so month 11 — December, the year's last
-  // processed month — actually runs the annual reconciliation. Wages are scheduled, so the
-  // year's estimate paces them evenly; interest is not, so the tax on it lands in December.
+  // A full calendar year plus the following April (horizon 16), because that is where the year's
+  // balance is now settled: December closes the year's arithmetic, April moves its money. Wages
+  // are scheduled, so the year's estimate paces them evenly; interest is not, so the tax on it is
+  // exactly what the year has left to settle.
   const WAGE_ONLY_MONTHLY_TAX = dollarsToCents(300); // 10% of $3,000/mo × 12, spread over 12
-  function run(annualRate: number, horizonMonths = 12) {
+  /** The month the tax year that starts at month 0 settles in: April of the next year. */
+  const SETTLEMENT_MONTH = 15;
+  function run(annualRate: number, horizonMonths = 16) {
     return simulateHousehold(
       {
         horizonMonths,
@@ -69,16 +71,21 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
     );
   }
 
-  it("paces the wage estimate monthly, then settles the year's credited interest in December", () => {
+  it("paces the wage estimate monthly, then settles the year's credited interest the next April", () => {
     const series = run(0.12); // ~1%/mo on a six-figure buffer → four-figure annual interest
-    // Interest is not scheduled income, so it never moves an instalment: every month before
-    // December charges exactly the wage estimate's twelfth, however much has already accrued.
-    for (const m of [0, 1, 2, 9, 10]) {
+    // Interest is not scheduled income, so it never moves an instalment: EVERY month of the year
+    // charges exactly the wage estimate's twelfth, December included, however much has accrued.
+    for (const m of [0, 1, 2, 9, 10, 11]) {
       expect(series.months[m].flows?.taxCents).toBe(WAGE_ONLY_MONTHLY_TAX);
     }
-    // December reconciles the whole year against its ACTUAL income — wages plus every month's
-    // credited interest — so it charges strictly more than another wage-only instalment.
-    expect(series.months[11].flows?.taxCents).toBeGreaterThan(WAGE_ONLY_MONTHLY_TAX);
+    // The year's balance — the tax on twelve months of credited interest the estimate never saw
+    // — lands in April of the FOLLOWING year, on top of that year's own instalment.
+    expect(series.months[SETTLEMENT_MONTH].flows?.taxCents).toBeGreaterThan(WAGE_ONLY_MONTHLY_TAX);
+    // And nowhere else: the months around it are ordinary instalments of the new year's estimate,
+    // equal to each other but for the cent of cumulative rounding that makes twelve sum exactly.
+    const march = series.months[14].flows!.taxCents;
+    expect(Math.abs(march - series.months[13].flows!.taxCents)).toBeLessThanOrEqual(1);
+    expect(series.months[SETTLEMENT_MONTH].flows!.taxCents).toBeGreaterThan(march * 2);
     // Never drawn, only growing, all year — yet still eventually taxed.
     const b1 = series.months[0].accountBalancesCents["savings"];
     const b10 = series.months[10].accountBalancesCents["savings"];
@@ -89,15 +96,15 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
   it("charges an even wage-only twelfth all year when the buffer earns no interest", () => {
     // Control: at a 0 rate no interest is ever credited, isolating interest as the cause of
     // December's excess tax above — here even December is just another instalment.
-    const series = run(0);
+    const series = run(0, 12);
     for (const m of series.months) expect(m.flows?.taxCents).toBe(WAGE_ONLY_MONTHLY_TAX);
     expect(series.months.reduce((s, m) => s + (m.flows?.taxCents ?? 0), 0)).toBe(dollarsToCents(3_600));
   });
 
   it("taxes EVERY cash account's interest, not only the liquid shortfall sink", () => {
     // Accrual tax is keyed on the account's `returnKind`, not on the single liquid sink.
-    // Only the second account varies — brokerage (deferred) vs cash reserve — at equal
-    // balance and rate, so the December tax gap is exactly the reserve's year of interest tax.
+    // Only the second account varies — brokerage (deferred) vs cash reserve — at equal balance
+    // and rate, so the settlement-month tax gap is exactly the reserve's year of interest tax.
     const brokerage = new SimAccount({
       id: "brokerage",
       ownerId: "p1",
@@ -110,7 +117,7 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
     function runWith(second: SimAccount) {
       return simulateHousehold(
         {
-          horizonMonths: 12,
+          horizonMonths: 16,
           annualInflationRate: 0,
           persons: [makePerson()],
           accounts: [savings(120_000, 0.12), second],
@@ -120,10 +127,10 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
         flatOrdinary10,
       );
     }
-    // December settles the whole year. Equal figures would mean the non-liquid buffer's
+    // April settles the whole preceding year. Equal figures would mean the non-liquid buffer's
     // interest was dropped from the annual accumulator.
-    const brokerageTax = runWith(brokerage).months[11].flows?.taxCents ?? 0;
-    const reserveTax = runWith(reserve).months[11].flows?.taxCents ?? 0;
+    const brokerageTax = runWith(brokerage).months[SETTLEMENT_MONTH].flows?.taxCents ?? 0;
+    const reserveTax = runWith(reserve).months[SETTLEMENT_MONTH].flows?.taxCents ?? 0;
     expect(reserveTax).toBeGreaterThan(brokerageTax);
     // The gap is ~10% of the reserve's ~$12.8k full year of interest on $120k at ~1%/mo.
     expect(reserveTax - brokerageTax).toBeGreaterThan(dollarsToCents(1_000));

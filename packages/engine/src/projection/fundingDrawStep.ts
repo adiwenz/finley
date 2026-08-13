@@ -10,7 +10,7 @@
  * federal income tax is never charged against it here (see {@link
  * import("../jurisdiction/jurisdiction").Jurisdiction.computeTaxCents}'s ANNUAL contract). The
  * realized gain still stacks onto the running per-owner taxable base — it reaches the year's
- * accumulator and the December settlement, it is just not netted out of the draw itself. A
+ * accumulator and the year's closing balance, it is just not netted out of the draw itself. A
  * credit source instead borrows against the card's headroom with no sale and no gain at all —
  * the discriminated {@link FundingSourceState} lets both walk the one ordered list, so the
  * user's authored order is honoured and never reshuffled.
@@ -85,8 +85,8 @@ export interface ResolvedFundingSource {
   readonly grossCents: Cents;
   /** Realized taxable gain within `grossCents` — always 0 for a credit borrow. */
   readonly gainCents: Cents;
-  /** Always 0 — no federal income tax is charged against an ordinary funding draw; see {@link
-   * import("./annualTaxSettlement").settleAnnualTax} for the one place it still applies. */
+  /** Always 0 — no federal income tax is charged against a funding draw, and no draw anywhere
+   * is grossed up for it. The gain joins the year's taxable income and is priced with it. */
   readonly taxCents: Cents;
   /** `grossCents − gainCents`; the whole borrow for credit, which realizes no gain. */
   readonly principalCents: Cents;
@@ -542,7 +542,7 @@ export function resolveFundingDraws(
       // through the savings drawdown. A positive gain is net-neutral cash-wise
       // (`waterfallInflowCents` 0 — no gross-up, nothing was withheld from the sale) but
       // still taxABLE: `taxableCents` carries it into `allocateMonth`'s taxable pool so it
-      // reaches the caller's annual accumulator, settled once in December.
+      // reaches the caller's annual accumulator, settled with the rest of the year's.
       if (s.gainCents > 0) {
         const gainSource: IncomeSourceMonth = {
           ownerId: s.ownerId,
