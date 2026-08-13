@@ -759,9 +759,20 @@ describe("HomePurchaseEvent — ordered multi-source down payment", () => {
 // A draw surfaces in the flow view: a cash source's whole draw as savings drawdown; an
 // investment source's realized gain as capital gains, its principal as drawdown.
 
-describe("HomePurchaseEvent — down-payment draw reporting", () => {
-  it("reports a cash-funded draw as a savings drawdown, with no capital gain", () => {
-    // 0% growth → basis == balance, no embedded gain.
+/**
+ * A down payment converts cash into a house. It is `asset-acquisition`, not an expense, so it
+ * never enters the spending line — and therefore none of the cash it raises may be banded as cash
+ * IN either, or the chart shows an $80k one-month spike with nothing to cover. The whole draw
+ * stays off the cash-flow view: the realized gain AND the returned principal.
+ *
+ * The tax is untouched — see the federal-income-tax suite, where the same purchase is estimated
+ * and charged in full.
+ */
+describe("HomePurchaseEvent — a down payment is not household cash flow", () => {
+  it("bands nothing at all for a cash-funded draw", () => {
+    // 0% growth → basis == balance, no embedded gain: the whole draw is returned principal, and
+    // it used to surface as a savings drawdown — a month of "living off savings" that was
+    // actually a house purchase.
     const base = baseWithAccounts([liquidAcct("savings", 8_000_000)]);
     const ledger = addWithBase(
       emptyLedger,
@@ -769,18 +780,26 @@ describe("HomePurchaseEvent — down-payment draw reporting", () => {
       purchase({ month: 3, downPaymentSourceIds: ["savings"] }),
     );
     const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
-    const flows = series.months[3].flows;
-    expect(flows).toBeDefined();
+    const flows = series.months[3].flows!;
 
-    const drawdown = flows!.incomeSources.find((s) => s.category === "savingsDrawdown");
-    expect(drawdown?.cashInflowCents).toBe(DOWN);
-    expect(flows!.incomeSources.some((s) => s.category === "capitalGains")).toBe(false);
-    // A drawdown is spending an asset, not income.
-    expect(flows!.incomeByCategoryCents.capitalGains ?? 0).toBe(0);
+    expect(flows.incomeSources.some((s) => s.category === "savingsDrawdown")).toBe(false);
+    expect(flows.incomeSources.some((s) => s.category === "capitalGains")).toBe(false);
+    expect(flows.incomeByCategoryCents.capitalGains ?? 0).toBe(0);
+    // The money did leave the account — only the reporting changed.
+    expect(series.months[3].accountBalancesCents.savings).toBe(8_000_000 - DOWN);
+    // And NO month of the run bands a drawdown, so the app's `firstSavingsDrawdownMonth` stays
+    // null and the chart never announces "you're living off savings" because of a house purchase.
+    // That flag keys on the first `savingsDrawdown` band, so this is the guarantee it needs.
+    const anyDrawdown = series.months.some((m) =>
+      (m.flows?.incomeSources ?? []).some((s) => s.category === "savingsDrawdown"),
+    );
+    expect(anyDrawdown).toBe(false);
   });
 
-  it("splits an investment-funded draw into capital-gains income and returned principal", () => {
-    // A brokerage grown 12 months at 12%/yr carries an embedded gain over its $50k basis.
+  it("bands neither the realized gain nor the returned principal of an investment-funded draw", () => {
+    // A brokerage grown 12 months at 12%/yr carries an embedded gain over its $50k basis, so the
+    // draw splits into a real gain and real principal. Neither is cash the household can spend:
+    // both went into the house.
     const base = baseWithAccounts([liquidAcct("brokerage", 5_000_000, 0.12)]);
     const ledger = addWithBase(
       emptyLedger,
@@ -796,23 +815,34 @@ describe("HomePurchaseEvent — down-payment draw reporting", () => {
 
     // The draw runs before month 12 compounds, so it sees the end-of-month-11 balance.
     const balanceAtDraw = series.months[11].accountBalancesCents.brokerage;
-    const basis = 5_000_000;
-    const expectedPrincipal = Math.round(4_000_000 * (basis / balanceAtDraw));
-    const expectedGain = 4_000_000 - expectedPrincipal;
-    expect(expectedGain).toBeGreaterThan(0); // there genuinely is an embedded gain
+    const expectedPrincipal = Math.round(4_000_000 * (5_000_000 / balanceAtDraw));
+    expect(4_000_000 - expectedPrincipal).toBeGreaterThan(0); // there genuinely is a gain
 
-    const flows = series.months[12].flows;
-    expect(flows).toBeDefined();
-    const gainBand = flows!.incomeSources.find((s) => s.sourceId === "downpayment:brokerage");
-    expect(gainBand?.category).toBe("capitalGains");
-    expect(gainBand?.cashInflowCents).toBe(expectedGain);
+    const flows = series.months[12].flows!;
+    expect(flows.incomeSources.find((s) => s.sourceId === "downpayment:brokerage")).toBeUndefined();
+    expect(flows.incomeSources.some((s) => s.category === "savingsDrawdown")).toBe(false);
+    expect(flows.incomeByCategoryCents.capitalGains ?? 0).toBe(0);
+    // The purchase month reads like any other — no spike of cash the household never held.
+    expect(flows.totalIncomeCents).toBe(series.months[11].flows!.totalIncomeCents);
+  });
 
-    const drawdown = flows!.incomeSources.find((s) => s.category === "savingsDrawdown");
-    expect(drawdown?.cashInflowCents).toBe(expectedPrincipal);
-
-    // Conserved: the two bands sum to the whole draw.
-    expect((gainBand?.cashInflowCents ?? 0) + (drawdown?.cashInflowCents ?? 0)).toBe(4_000_000);
-    expect(flows!.incomeByCategoryCents.capitalGains).toBe(expectedGain);
+  it("still bands a ONE-TIME SPEND's draw, whose spending shows on the other side", () => {
+    // The control for the rule above: an explicit `expense` draw reduces net worth and lands in
+    // the expense graph, so banding its funding is matched one-for-one by the spending it covers.
+    // Only an acquisition is unmatched.
+    const base = baseWithAccounts([liquidAcct("savings", 8_000_000)]);
+    const ledger = addWithBase(emptyLedger, base, {
+      id: "spend1",
+      type: "OneTimeSpendEvent",
+      month: 3,
+      label: "Car",
+      amountCents: DOWN,
+      fundingSourceIds: ["savings"],
+    } as NewLifeEvent);
+    const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
+    const flows = series.months[3].flows!;
+    expect(flows.incomeSources.find((s) => s.category === "savingsDrawdown")?.cashInflowCents).toBe(DOWN);
+    expect(flows.expensesCents).toBe(DOWN);
   });
 });
 
@@ -967,7 +997,11 @@ describe("HomePurchaseEvent — investment-funded down payment is NOT grossed up
     expect(at.accountBalancesCents.savings).toBe(10_000_000 - DOWN);
   });
 
-  it("reports the gain as capital-gains income at purchase; the rate is charged in instalments, not at the event", () => {
+  it("taxes the realized gain in full even though the purchase bands no cash flow at all", () => {
+    // The two halves that must not be confused. The gain is REAL — it is on the funding
+    // attribution record, it enters the year's taxable base, and the year collects 20% of it. It
+    // is simply not household cash flow, because the money went into the house, so nothing about
+    // it appears on the cash-flow chart.
     const base = baseWithAccounts([liquidAcct("brokerage", 8_000_000, 0.12)]);
     const ledger = addWithBase(
       emptyLedger,
@@ -976,10 +1010,29 @@ describe("HomePurchaseEvent — investment-funded down payment is NOT grossed up
     );
     const series = buildProjection(interpretLedger(ledger, base), base, flatCapitalGains(0.2));
     const flows = series.months[12].flows!;
-    const gainBand = flows.incomeSources.find((s) => s.sourceId === "downpayment:brokerage");
-    expect(gainBand?.category).toBe("capitalGains");
-    expect(gainBand!.cashInflowCents).toBeGreaterThan(0);
-    expect(flows.incomeSources.some((s) => s.category === "savingsDrawdown")).toBe(true);
+
+    // The gain, read off the attribution record — the ledger of what the draw actually did,
+    // which is unfiltered precisely because it is not a chart.
+    const drawnSource = (flows.resolvedFunding ?? [])
+      .flatMap((r) => r.sources)
+      .find((s) => s.sourceId === "brokerage" && s.withdrawal !== undefined);
+    const gainCents = drawnSource!.withdrawal!.realizedGainCents;
+    expect(gainCents).toBeGreaterThan(0);
+
+    // Nothing of it on the cash-flow view: no gain band and no capital-gains income. A purchase
+    // must not read as cash the household could have spent.
+    expect(flows.incomeSources.find((s) => s.sourceId === "downpayment:brokerage")).toBeUndefined();
+    expect(flows.incomeByCategoryCents.capitalGains ?? 0).toBe(0);
+    // A savings drawdown DOES appear this month — the tax instalment is funded by selling the
+    // same brokerage — but it is that instalment and nothing else. It sits level with the month
+    // after it, where folding in the down payment's principal made it an order of magnitude
+    // larger and turned the purchase month into a spike of spendable cash.
+    const drawdownAt = (m: number): number =>
+      series.months[m].flows!.incomeSources.find((s) => s.category === "savingsDrawdown")
+        ?.cashInflowCents ?? 0;
+    expect(drawdownAt(12)).toBeGreaterThan(0);
+    expect(drawdownAt(12)).toBeLessThan(drawdownAt(13) * 2);
+    expect(drawdownAt(12)).toBeLessThan(gainCents);
 
     // The purchase's own draw is not grossed up — nothing extra was sold to prepay the gain's
     // tax. What IS charged in this month is the year's ordinary instalment: the down payment's
@@ -996,8 +1049,7 @@ describe("HomePurchaseEvent — investment-funded down payment is NOT grossed up
     // selling MORE of the appreciated brokerage, which realized further gain and recursively
     // enlarged the bill. Paid in instalments through the year it comes out of the same cash the
     // month's waterfall is already handling, and that recursive top-up never arises.
-    const yearTwoTax = yearTwo.reduce((s, t) => s + t, 0);
-    expect(yearTwoTax).toBe(Math.round(gainBand!.cashInflowCents * 0.2));
+    expect(yearTwo.reduce((s, t) => s + t, 0)).toBe(Math.round(gainCents * 0.2));
   });
 });
 

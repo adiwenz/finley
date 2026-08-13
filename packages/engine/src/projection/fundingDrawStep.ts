@@ -249,22 +249,47 @@ export function resolveOrderedFundingDraw(
 }
 
 /**
- * The bands and tax routing one month's funding draws produce:
- * - `gainSources` — one band per source that realized a gain, reporting-only
- *   (`waterfallInflowCents` 0), for {@link import("./reportFlows").buildFlows};
- * - `principalDrawdownCents` — returned principal across all sources (a cash source
- *   contributes its whole draw), folded into the `savingsDrawdown` band;
+ * The bands and tax routing one month's funding draws produce.
+ *
+ * TAX AND REPORTING PART WAYS HERE, on one distinction: does the cash this draw raises reach the
+ * HOUSEHOLD, or does it pass straight through into an asset?
+ *
+ * An `expense` draw (a one-time spend) buys something that reduces net worth, and the spend
+ * itself lands in the expense graph via `explicitExpenseObligations` — so banding its funding as
+ * cash in is matched, one for one, by the spending it covers.
+ *
+ * An `asset-acquisition` draw (a home down payment) converts cash into an asset. It is
+ * deliberately NOT an expense and never enters the spending line, so banding its funding would
+ * put cash in with nothing out: an $80k down payment showed up as an $80k one-month spike on a
+ * chart asking "can I cover my spending?", when the household's spendable cash had not moved. It
+ * is excluded from reporting entirely — the realized-gain band AND the returned principal, which
+ * would otherwise land in `savingsDrawdown` and read as a month of living off savings.
+ *
+ * Excluded from REPORTING only. The gain is taxable exactly as before: it rides `gainSources`
+ * into the month's taxable pool and the year's accumulator, and the tax it causes is charged. That
+ * tax then has no band of its own to come out of, which is precisely the case {@link
+ * import("./reportFlows").buildFlows}'s stranded-haircut pass exists for — it lands on the sources
+ * that did deliver cash, which is where the household really paid it from.
+ *
+ * - `gainSources` — every gain realized this month, for the TAXABLE pool;
+ * - `reportedGainSources` — the subset the cash-flow chart may band: expense-funding draws only;
+ * - `principalDrawdownCents` — returned principal that reached the household (a cash source
+ *   contributes its whole draw), folded into the `savingsDrawdown` band. Expense-funding draws
+ *   only, for the same reason;
  * - `taxableByOwnerAfter` — the taxable base with this month's draws stacked in, read by the
  *   authoring gate (via `flows`) so a second money-out event in the same month is priced
  *   over its sibling's realized gain;
  * - `resolvedFunding` — one per-line attribution record per explicit draw, every source an
- *   account, so the flow view carries explicit and automatic obligations through one shape;
+ *   account, so the flow view carries explicit and automatic obligations through one shape.
+ *   UNFILTERED: this is the attribution record of what the draw actually did, and a down payment
+ *   still drew its accounts whether or not the cash-flow chart bands it;
  * - `omittedSourceEventIds` — the complete set of source event IDs whose draws were not
  *   executed, including the blocking event and any later events skipped. Used to suppress all
  *   artifacts (properties, liabilities) originating from these events.
  */
 export interface FundingDrawReport {
   readonly gainSources: readonly IncomeSourceMonth[];
+  readonly reportedGainSources: readonly IncomeSourceMonth[];
   readonly principalDrawdownCents: Cents;
   readonly taxableByOwnerAfter: TaxableByOwner;
   readonly resolvedFunding: readonly ResolvedFunding[];
@@ -329,6 +354,7 @@ export function resolveFundingDraws(
   taxableByOwner: TaxableByOwner,
 ): FundingDrawReport {
   const gainSources: IncomeSourceMonth[] = [];
+  const reportedGainSources: IncomeSourceMonth[] = [];
   const resolvedFunding: ResolvedFunding[] = [];
   let principalDrawdownCents = 0;
   let block: FundingBlock | undefined;
@@ -485,6 +511,10 @@ export function resolveFundingDraws(
       ),
     );
     const prefix = obligation.sourceId;
+    // Does this draw's cash reach the household, or pass through into an asset? An acquisition's
+    // does not, and it has no matching entry on the spending side either, so none of it may be
+    // banded as cash in. See {@link FundingDrawReport}.
+    const fundsAnAsset = obligation.treatment === "asset-acquisition";
 
     for (const s of perSource) {
       if (s.grossCents <= 0) continue;
@@ -503,7 +533,10 @@ export function resolveFundingDraws(
         s.id,
         Math.max(0, (state.basisByAccount.get(s.id) ?? 0) - s.principalCents),
       );
-      principalDrawdownCents += s.principalCents;
+      // Returned principal surfaces through the savings drawdown — for an expense draw, which
+      // the expense graph shows the other half of. An acquisition's principal became a house;
+      // banding it would report a month of living off savings that never happened.
+      if (!fundsAnAsset) principalDrawdownCents += s.principalCents;
 
       // A zero-gain (cash) source books no band: pure returned principal, surfacing only
       // through the savings drawdown. A positive gain is net-neutral cash-wise
@@ -511,7 +544,7 @@ export function resolveFundingDraws(
       // still taxABLE: `taxableCents` carries it into `allocateMonth`'s taxable pool so it
       // reaches the caller's annual accumulator, settled once in December.
       if (s.gainCents > 0) {
-        gainSources.push({
+        const gainSource: IncomeSourceMonth = {
           ownerId: s.ownerId,
           waterfallInflowCents: 0,
           cashInflowCents: s.gainCents,
@@ -519,13 +552,17 @@ export function resolveFundingDraws(
           taxableCents: s.gainCents,
           sourceId: `${prefix}:${s.id}`,
           label: s.label ?? s.id,
-        });
+        };
+        // Always taxed; banded only when the cash reached the household.
+        gainSources.push(gainSource);
+        if (!fundsAnAsset) reportedGainSources.push(gainSource);
       }
     }
   }
 
   return {
     gainSources,
+    reportedGainSources,
     principalDrawdownCents,
     taxableByOwnerAfter: working,
     resolvedFunding,

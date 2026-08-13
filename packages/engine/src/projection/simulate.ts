@@ -509,10 +509,13 @@ export function simulateHousehold(
       }));
     const settlementPrincipalCents = settlement.draws.reduce((s, d) => s + d.principalCents, 0);
     const bands = buildFlows(
-      // The down-payment gain bands are reporting-only: `cashInflowCents` the gain, no
-      // waterfall inflow — the gain itself rode into the annual accumulator uncharged, via
-      // `taxableCents` on this same band.
-      [...incomeSources, ...fundingDraw.gainSources, ...settlementGainSources],
+      // `reportedGainSources`, NOT `gainSources`: an asset acquisition's realized gain is taxed
+      // (it went to `allocateMonth` above, in `allocationSources`) but never banded, because the
+      // cash it raised passed straight through into the house and no matching entry appears on
+      // the spending side. The tax it causes is still charged, and `buildFlows` charges it to the
+      // sources that did deliver cash. Reporting-only in both cases: `cashInflowCents` is the
+      // gain, with no waterfall inflow.
+      [...incomeSources, ...fundingDraw.reportedGainSources, ...settlementGainSources],
       combinedTaxCents,
       // The very list the waterfall funded above — expenses, debt and per-line rollups all
       // derive from it, so none can drift from the funded amount.

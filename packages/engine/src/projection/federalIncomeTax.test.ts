@@ -627,11 +627,17 @@ describe("Federal income tax — an explicitly-funded event is priced from its o
     expect(projection.months[4].accountBalancesCents.pretax).toBe(
       dollarsToCents(500_000 - 100_000),
     );
-    // The $100k IS the year's actual taxable income, booked in the month it was realized —
-    // that month's ordinary income is the usual $10k of pay plus the whole draw.
+    // The $100k IS the year's actual taxable income either way — the identical tax schedule
+    // below is the proof. What differs is whether it BANDS as cash flow, and that turns on where
+    // the cash went. A one-time spend reduces net worth and shows in the expense graph, so
+    // banding its funding is matched by the spending it covers. A down payment converts cash
+    // into a house, appears nowhere on the spending side, and so bands nothing at all — an
+    // unmatched $100k of "income" would have read as a month the household could have spent it.
     const ordinaryIn = (m: number): Cents =>
       projection.months[m].flows!.incomeByCategoryCents["ordinaryIncome"] ?? 0;
-    expect(ordinaryIn(4) - ordinaryIn(3)).toBe(dollarsToCents(100_000));
+    expect(ordinaryIn(4) - ordinaryIn(3)).toBe(
+      treatment === "expense" ? dollarsToCents(100_000) : 0,
+    );
     // The estimate DID see it — the obligation named its account and amount in January — so the
     // year is paced on $220k from month 0. The month the draw lands in is no heavier than any
     // other, and neither is December.
