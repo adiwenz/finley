@@ -124,20 +124,28 @@ export interface ProjectionMonth {
  */
 export interface ProjectionMonthFlows {
   /**
-   * Gross income bucketed by {@link TaxCategory} — the rollup of {@link incomeSources}.
-   * A category is a tax classification, not a source: two jobs share one `wages` bucket.
+   * CASH FLOW bucketed by {@link TaxCategory} — the rollup of {@link incomeSources}, and named
+   * for what it is: a view of money reaching the household, NOT a statement of the year's
+   * taxable income. A category here is a tax classification, not a source, so two jobs share one
+   * `wages` bucket.
+   *
+   * The gap is real and deliberate. An asset acquisition's realized gain is fully taxable and
+   * appears nowhere in this rollup, because the cash it raised went into a house rather than to
+   * the household (see {@link import("./fundingDrawStep").FundingDrawReport}). Anything needing
+   * what was actually TAXED reads the funding attribution record (`resolvedFunding`) or the
+   * tax figures themselves — never this.
    */
-  readonly incomeByCategoryCents: Readonly<Record<string, Cents>>;
+  readonly cashFlowIncomeByCategoryCents: Readonly<Record<string, Cents>>;
   /**
    * The liquid-buffer drawdown gets its own `savingsDrawdown` source: spending charged
    * against cash creates no taxable withdrawal, so "living off savings" would otherwise
-   * read as zero income. Not taxable, so absent from `incomeByCategoryCents` and
+   * read as zero income. Not taxable, so absent from `cashFlowIncomeByCategoryCents` and
    * `totalIncomeCents`.
    *
    * Savings interest DOES appear in the rollups: its allocation gross is 0, but it is real
-   * taxable cash, reported via {@link ProjectionIncomeSource.cashInflowCents}.
+   * taxable cash, reported via {@link ProjectionCashFlowIncomeSource.cashInflowCents}.
    */
-  readonly incomeSources: readonly ProjectionIncomeSource[];
+  readonly incomeSources: readonly ProjectionCashFlowIncomeSource[];
   /**
    * "What is this person earning from work right now", stated by the simulation rather than
    * re-derived from authored job spans. Keyed by `ownerId`; an earner with no wages this month
@@ -150,7 +158,7 @@ export interface ProjectionMonthFlows {
    */
   readonly wagesByOwner: Readonly<Record<string, MonthlyWages>>;
   /**
-   * Σ `incomeByCategoryCents` — realized taxable income: includes savings interest,
+   * Σ `cashFlowIncomeByCategoryCents` — realized taxable income: includes savings interest,
    * excludes the savings drawdown.
    */
   readonly totalIncomeCents: Cents;
@@ -187,14 +195,14 @@ export interface ProjectionMonthFlows {
   /**
    * Keyed like {@link taxBySourceCents}; a source that deferred nothing is absent, as is
    * the whole map when none did. Already folded into {@link
-   * ProjectionIncomeSource.netCashFlowCents}; this is only for a per-source view.
+   * ProjectionCashFlowIncomeSource.netCashFlowCents}; this is only for a per-source view.
    */
   readonly deferralBySourceCents?: Readonly<Record<string, Cents>>;
   /**
    * Payroll tax (FICA) per income SOURCE, mirroring {@link taxBySourceCents} but for {@link
    * payrollTaxCents} — the share of the person-level payroll-tax charge attributed to this
    * income source, distinguishable from a partner's or another job's. Already folded into
-   * {@link ProjectionIncomeSource.netCashFlowCents}. `{}` in a month with no payroll tax,
+   * {@link ProjectionCashFlowIncomeSource.netCashFlowCents}. `{}` in a month with no payroll tax,
    * otherwise Σ === `payrollTaxCents`.
    */
   readonly payrollTaxBySourceCents: Readonly<Record<string, Cents>>;
@@ -304,11 +312,18 @@ export const EMPTY_MONTHLY_WAGES: MonthlyWages = {
 export type IncomeSourceCategory = TaxCategory | "savingsDrawdown" | "savingsInterest";
 
 /**
+ * One band of the month's CASH FLOW — money that reached the household, per source.
+ *
+ * Named for that and not for "income" because the two are not the same list. A source appears
+ * here when its cash arrived somewhere the household can spend it; a home down payment's draw is
+ * taxable and appears nowhere here, because the money passed straight into the house. This is the
+ * chart's list, not the tax base's.
+ *
  * `sourceId` is a stable machine key (a job's id, an account's id, `benefit:<person>`,
  * the fixed savings-drawdown id) so a chart can keep a band's identity across months;
  * `label` is its human name.
  */
-export interface ProjectionIncomeSource {
+export interface ProjectionCashFlowIncomeSource {
   readonly sourceId: string;
   readonly label: string;
   readonly category: IncomeSourceCategory;

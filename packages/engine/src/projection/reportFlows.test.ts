@@ -46,7 +46,7 @@ describe("buildFlows", () => {
       0,
       [],
     );
-    expect(flows.incomeByCategoryCents).toEqual({ wages: 7_000_00, ordinaryIncome: 1_000_00 });
+    expect(flows.cashFlowIncomeByCategoryCents).toEqual({ wages: 7_000_00, ordinaryIncome: 1_000_00 });
     expect(flows.totalIncomeCents).toBe(8_000_00);
   });
 
@@ -92,7 +92,7 @@ describe("buildFlows", () => {
 
   it("yields empty buckets and zero totals for a month with no income", () => {
     const flows = buildFlows([], 0, []);
-    expect(flows.incomeByCategoryCents).toEqual({});
+    expect(flows.cashFlowIncomeByCategoryCents).toEqual({});
     expect(flows.totalIncomeCents).toBe(0);
     expect(flows.governmentRetirementBenefitCents).toBe(0);
     expect(flows.taxCents).toBe(0);
@@ -113,7 +113,7 @@ describe("buildFlows", () => {
       0,
       [],
     );
-    expect(flows.incomeByCategoryCents).toEqual({ wages: 7_000_00 });
+    expect(flows.cashFlowIncomeByCategoryCents).toEqual({ wages: 7_000_00 });
     expect(flows.incomeSources).toEqual([
       { sourceId: "job:a", label: "Job A", category: "wages", ownerId: "p1", cashInflowCents: 5_000_00, netCashFlowCents: 5_000_00 },
       { sourceId: "job:b", label: "Job B", category: "wages", ownerId: "p1", cashInflowCents: 2_000_00, netCashFlowCents: 2_000_00 },
@@ -156,7 +156,7 @@ describe("buildFlows", () => {
     expect(flows.incomeSources).toEqual([
       { sourceId: "interest:p1", label: "Savings interest", category: "ordinaryIncome", ownerId: "p1", cashInflowCents: 40_00, netCashFlowCents: 40_00 },
     ]);
-    expect(flows.incomeByCategoryCents).toEqual({ ordinaryIncome: 40_00 });
+    expect(flows.cashFlowIncomeByCategoryCents).toEqual({ ordinaryIncome: 40_00 });
     expect(flows.totalIncomeCents).toBe(40_00);
   });
 
@@ -193,7 +193,7 @@ describe("buildFlows", () => {
       1_000_00, // savings covered the $1,000 gap this month
     );
     // NOT taxable income: absent from the category rollup and the total…
-    expect(flows.incomeByCategoryCents).toEqual({ governmentRetirementBenefit: 2_000_00 });
+    expect(flows.cashFlowIncomeByCategoryCents).toEqual({ governmentRetirementBenefit: 2_000_00 });
     expect(flows.totalIncomeCents).toBe(2_000_00);
     // …but present as its own band, so "living off savings" is visible, not zero income.
     expect(flows.incomeSources).toContainEqual({

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { dollarsToCents, type ProjectionIncomeSource, type ProjectionSeries } from "@finley/engine";
+import { dollarsToCents, type ProjectionCashFlowIncomeSource, type ProjectionSeries } from "@finley/engine";
 import { buildIncomeChartData, describeIncomeGap, incomeBandsForMode } from "./incomeChartData";
 
 /** A minimal series fixture: month 0 has no flows; later months carry income sources. */
-function seriesOf(...perMonth: ProjectionIncomeSource[][]): ProjectionSeries {
+function seriesOf(...perMonth: ProjectionCashFlowIncomeSource[][]): ProjectionSeries {
   const months = [
     { month: 0 },
     ...perMonth.map((incomeSources, i) => ({
@@ -17,7 +17,7 @@ function seriesOf(...perMonth: ProjectionIncomeSource[][]): ProjectionSeries {
 /** A richer fixture that also carries obligations and the insolvency flag per month. */
 function seriesWith(
   ...perMonth: {
-    sources: ProjectionIncomeSource[];
+    sources: ProjectionCashFlowIncomeSource[];
     expensesCents?: number;
     liabilityPaymentsCents?: number;
     isInsolvent?: boolean;
@@ -41,14 +41,14 @@ function seriesWith(
 const source = (
   sourceId: string,
   cashInflowCents: number,
-  category: ProjectionIncomeSource["category"],
+  category: ProjectionCashFlowIncomeSource["category"],
   label = sourceId,
   // Engine-produced net cash flow (cash inflow − deferral − tax). Defaults to the full
   // inflow (no haircut), so a test names it only when it wants take-home < gross.
   netCashFlowCents = cashInflowCents,
   // Whose income it is — only the two-claimant tests name it.
   ownerId?: string,
-): ProjectionIncomeSource => ({
+): ProjectionCashFlowIncomeSource => ({
   sourceId,
   label,
   category,

@@ -74,7 +74,7 @@ function actualAnnualBase(
 ): Partial<Record<TaxCategory, number>> {
   const base: Partial<Record<TaxCategory, number>> = {};
   for (const month of result.series.months.slice(year * 12, year * 12 + 12)) {
-    for (const [category, cents] of Object.entries(month.flows?.incomeByCategoryCents ?? {})) {
+    for (const [category, cents] of Object.entries(month.flows?.cashFlowIncomeByCategoryCents ?? {})) {
       base[category as TaxCategory] = (base[category as TaxCategory] ?? 0) + cents;
     }
   }

@@ -184,7 +184,7 @@ describe("Federal income tax — a smooth monthly estimated payment", () => {
       rmdJurisdiction,
     );
     // The whole $80k RMD is forced out in month 0 — a lump the projection already knew about.
-    expect(projection.months[0].flows!.incomeByCategoryCents["ordinaryIncome"]).toBe(
+    expect(projection.months[0].flows!.cashFlowIncomeByCategoryCents["ordinaryIncome"]).toBe(
       dollarsToCents(80_000),
     );
     // 30% of $80k, paid in twelve equal instalments: neither the RMD month nor December is spiked.
@@ -634,7 +634,7 @@ describe("Federal income tax — an explicitly-funded event is priced from its o
     // into a house, appears nowhere on the spending side, and so bands nothing at all — an
     // unmatched $100k of "income" would have read as a month the household could have spent it.
     const ordinaryIn = (m: number): Cents =>
-      projection.months[m].flows!.incomeByCategoryCents["ordinaryIncome"] ?? 0;
+      projection.months[m].flows!.cashFlowIncomeByCategoryCents["ordinaryIncome"] ?? 0;
     expect(ordinaryIn(4) - ordinaryIn(3)).toBe(
       treatment === "expense" ? dollarsToCents(100_000) : 0,
     );

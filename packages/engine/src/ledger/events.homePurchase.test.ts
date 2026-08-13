@@ -784,7 +784,7 @@ describe("HomePurchaseEvent — a down payment is not household cash flow", () =
 
     expect(flows.incomeSources.some((s) => s.category === "savingsDrawdown")).toBe(false);
     expect(flows.incomeSources.some((s) => s.category === "capitalGains")).toBe(false);
-    expect(flows.incomeByCategoryCents.capitalGains ?? 0).toBe(0);
+    expect(flows.cashFlowIncomeByCategoryCents.capitalGains ?? 0).toBe(0);
     // The money did leave the account — only the reporting changed.
     expect(series.months[3].accountBalancesCents.savings).toBe(8_000_000 - DOWN);
     // And NO month of the run bands a drawdown, so the app's `firstSavingsDrawdownMonth` stays
@@ -821,7 +821,7 @@ describe("HomePurchaseEvent — a down payment is not household cash flow", () =
     const flows = series.months[12].flows!;
     expect(flows.incomeSources.find((s) => s.sourceId === "downpayment:brokerage")).toBeUndefined();
     expect(flows.incomeSources.some((s) => s.category === "savingsDrawdown")).toBe(false);
-    expect(flows.incomeByCategoryCents.capitalGains ?? 0).toBe(0);
+    expect(flows.cashFlowIncomeByCategoryCents.capitalGains ?? 0).toBe(0);
     // The purchase month reads like any other — no spike of cash the household never held.
     expect(flows.totalIncomeCents).toBe(series.months[11].flows!.totalIncomeCents);
   });
@@ -1022,7 +1022,7 @@ describe("HomePurchaseEvent — investment-funded down payment is NOT grossed up
     // Nothing of it on the cash-flow view: no gain band and no capital-gains income. A purchase
     // must not read as cash the household could have spent.
     expect(flows.incomeSources.find((s) => s.sourceId === "downpayment:brokerage")).toBeUndefined();
-    expect(flows.incomeByCategoryCents.capitalGains ?? 0).toBe(0);
+    expect(flows.cashFlowIncomeByCategoryCents.capitalGains ?? 0).toBe(0);
     // A savings drawdown DOES appear this month — the tax instalment is funded by selling the
     // same brokerage — but it is that instalment and nothing else. It sits level with the month
     // after it, where folding in the down payment's principal made it an order of magnitude

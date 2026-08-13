@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { dollarsToCents, type ProjectionIncomeSource, type ProjectionSeries } from "@finley/engine";
+import { dollarsToCents, type ProjectionCashFlowIncomeSource, type ProjectionSeries } from "@finley/engine";
 import { buildIncomeChartData } from "./incomeChartData";
 import { buildIncomeChartModel, SPENDING_NEED_KEY } from "./incomeChartModel";
 
 /** Minimal series: month 0 is flow-free; later months carry income sources. */
-function seriesOf(...perMonth: ProjectionIncomeSource[][]): ProjectionSeries {
+function seriesOf(...perMonth: ProjectionCashFlowIncomeSource[][]): ProjectionSeries {
   const months = [
     { month: 0 },
     ...perMonth.map((incomeSources, i) => ({ month: i + 1, flows: { incomeSources } })),
@@ -15,9 +15,9 @@ function seriesOf(...perMonth: ProjectionIncomeSource[][]): ProjectionSeries {
 function source(
   sourceId: string,
   cashInflowCents: number,
-  category: ProjectionIncomeSource["category"],
-  extra: Partial<ProjectionIncomeSource> = {},
-): ProjectionIncomeSource {
+  category: ProjectionCashFlowIncomeSource["category"],
+  extra: Partial<ProjectionCashFlowIncomeSource> = {},
+): ProjectionCashFlowIncomeSource {
   return {
     sourceId,
     label: sourceId,
@@ -25,7 +25,7 @@ function source(
     cashInflowCents,
     netCashFlowCents: cashInflowCents,
     ...extra,
-  } as ProjectionIncomeSource;
+  } as ProjectionCashFlowIncomeSource;
 }
 
 const wages = source("job:a", dollarsToCents(5_000), "wages");

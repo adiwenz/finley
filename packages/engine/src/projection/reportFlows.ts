@@ -13,7 +13,7 @@
 
 import { apportionByWeight, type Cents } from "../money/money";
 import type { IncomeSourceMonth } from "./waterfall";
-import type { MonthlyWages, ProjectionIncomeSource, ProjectionMonthFlows } from "./simulate.types";
+import type { MonthlyWages, ProjectionCashFlowIncomeSource, ProjectionMonthFlows } from "./simulate.types";
 import {
   automaticFundingTotal,
   expenseReportingTotal,
@@ -54,7 +54,7 @@ const SAVINGS_DRAWDOWN_LABEL = "Savings drawdown";
  * stranded, because the alternative is a negative band that says a source took money back.
  */
 function applyStrandedHaircut(
-  sources: ProjectionIncomeSource[],
+  sources: ProjectionCashFlowIncomeSource[],
   haircutMaps: readonly Readonly<Record<string, Cents>>[],
 ): void {
   const banded = new Set(sources.map((s) => s.sourceId));
@@ -85,8 +85,10 @@ function applyStrandedHaircut(
 }
 
 /**
- * Two income views from one pass: the `incomeByCategoryCents` tax-category rollup (kept for
- * compatibility) and the finer per-source `incomeSources`. `sourceId`/`label` ride through;
+ * Two views of the month's CASH FLOW from one pass: the `cashFlowIncomeByCategoryCents`
+ * tax-category rollup (kept for compatibility) and the finer per-source `incomeSources`. Both are
+ * views of money reaching the household — neither is the taxable base, and a draw whose cash went
+ * somewhere else is absent from both while still being taxed. `sourceId`/`label` ride through;
  * a source lacking them falls back to its tax category.
  *
  * `liquidDrawdownCents` (the gap cash savings covered) is appended as its own
@@ -130,7 +132,7 @@ export function buildFlows(
   // settles which obligations came up short — later than this reporting pass — so the simulator
   // attaches it to the returned bands rather than this pure re-description computing it.
 ): Omit<ProjectionMonthFlows, "resolvedFunding"> {
-  const incomeByCategoryCents: Record<string, Cents> = {};
+  const cashFlowIncomeByCategoryCents: Record<string, Cents> = {};
   let totalIncomeCents = 0;
   // Bands on `cashInflowCents`, the realized cash paid: for accrued interest that is the
   // interest itself (`waterfallInflowCents` 0, but real household cash), else the gross —
@@ -142,8 +144,8 @@ export function buildFlows(
   const order: string[] = [];
   for (const src of incomeSources) {
     const cashInflow = src.cashInflowCents ?? src.waterfallInflowCents;
-    incomeByCategoryCents[src.taxCategory] =
-      (incomeByCategoryCents[src.taxCategory] ?? 0) + cashInflow;
+    cashFlowIncomeByCategoryCents[src.taxCategory] =
+      (cashFlowIncomeByCategoryCents[src.taxCategory] ?? 0) + cashInflow;
     totalIncomeCents += cashInflow;
     // No realized cash → nothing to band (a placeholder booking, or unrealized growth).
     if (cashInflow === 0) continue;
@@ -178,12 +180,12 @@ export function buildFlows(
       (payrollTaxBySourceCents[sourceId] ?? 0);
     return cashInflowCents - haircut;
   };
-  const sources: ProjectionIncomeSource[] = order.map((id) => {
+  const sources: ProjectionCashFlowIncomeSource[] = order.map((id) => {
     const s = bySource.get(id)!;
     return {
       sourceId: id,
       label: s.label,
-      category: s.category as ProjectionIncomeSource["category"],
+      category: s.category as ProjectionCashFlowIncomeSource["category"],
       ...(s.ownerId !== undefined ? { ownerId: s.ownerId } : {}),
       cashInflowCents: s.cashInflowCents,
       netCashFlowCents: netCashFlow(id, s.cashInflowCents),
@@ -257,11 +259,11 @@ export function buildFlows(
   }
 
   return {
-    incomeByCategoryCents,
+    cashFlowIncomeByCategoryCents,
     incomeSources: sources,
     wagesByOwner,
     totalIncomeCents,
-    governmentRetirementBenefitCents: incomeByCategoryCents["governmentRetirementBenefit"] ?? 0,
+    governmentRetirementBenefitCents: cashFlowIncomeByCategoryCents["governmentRetirementBenefit"] ?? 0,
     taxCents,
     payrollTaxCents,
     // Always present: `{}` in a zero-tax month, otherwise Σ === `taxCents`.

@@ -853,7 +853,7 @@ describe("Projection.retirement — the whole question, one search", () => {
 describe("Projection root — previewing a stop-working age", () => {
   /** Wages the household draws in `month`, the signal the income chart bands. */
   const wagesAt = (result: ReturnType<Projection["run"]>, month: number): number =>
-    result.series.months[month]?.flows?.incomeByCategoryCents.wages ?? 0;
+    result.series.months[month]?.flows?.cashFlowIncomeByCategoryCents.wages ?? 0;
 
   const CURRENT_AGE = SAMPLE_START_YEAR - samplePlan.primary.birthYear;
 

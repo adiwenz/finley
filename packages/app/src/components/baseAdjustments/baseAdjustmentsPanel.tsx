@@ -125,7 +125,7 @@ export function BaseAdjustmentsPanel({
   const incomeByMonth = useMemo(
     () =>
       series.months.map((m) => {
-        const byCategory = m.flows?.incomeByCategoryCents;
+        const byCategory = m.flows?.cashFlowIncomeByCategoryCents;
         if (byCategory === undefined) return 0;
         return (byCategory.wages ?? 0) + (byCategory.governmentRetirementBenefit ?? 0);
       }),

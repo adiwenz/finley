@@ -52,7 +52,7 @@ export type {
   ProjectionMonth,
   ProjectionMonthFlows,
   InsolvencyReport,
-  ProjectionIncomeSource,
+  ProjectionCashFlowIncomeSource,
   IncomeSourceCategory,
   ProjectionSeries,
   BlockedObligation,

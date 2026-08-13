@@ -121,7 +121,7 @@ describe("Desired-withdrawal decumulation channel", () => {
       }),
       nullJurisdiction,
     );
-    expect(series.months[0].flows?.incomeByCategoryCents["ordinaryIncome"]).toBe(
+    expect(series.months[0].flows?.cashFlowIncomeByCategoryCents["ordinaryIncome"]).toBe(
       dollarsToCents(2_000),
     );
   });
@@ -281,7 +281,7 @@ describe("Desired-withdrawal decumulation channel", () => {
     );
     expect(desiredWins.months[0].accountBalancesCents["pretax"]).toBe(dollarsToCents(98_000));
     // RMD + desired taxed once as ordinaryIncome.
-    expect(desiredWins.months[0].flows?.incomeByCategoryCents["ordinaryIncome"]).toBe(
+    expect(desiredWins.months[0].flows?.cashFlowIncomeByCategoryCents["ordinaryIncome"]).toBe(
       dollarsToCents(2_000),
     );
     for (const [, bal] of Object.entries(desiredWins.months[0].liabilityBalancesCents)) {

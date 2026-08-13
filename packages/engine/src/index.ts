@@ -190,7 +190,9 @@ export type { TaxCategory } from "./money/cashFlowSeries";
 export type { ModelAssumption } from "./projection/assumptions";
 export type { AccountReturnKind } from "./plan/simAccount";
 export type { EarningsRecord } from "./job/earningsRecord";
-export type { ProjectionIncomeSource } from "./projection/simulate.types";
+// One band of a month's cash flow. Named for cash flow, not income: a taxable draw whose money
+// went somewhere other than the household (a home down payment) is absent from it.
+export type { ProjectionCashFlowIncomeSource } from "./projection/simulate.types";
 // One earner's pay for work this month, stated by the sim. Exported as a VALUE too: a consumer
 // reading an owner with no wages needs the zero record, and re-declaring it app-side would be
 // the same re-derivation this field exists to end.

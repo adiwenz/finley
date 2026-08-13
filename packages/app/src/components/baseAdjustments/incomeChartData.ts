@@ -6,7 +6,11 @@
  *
  * Bands are the engine's per-source flows (`ProjectionMonthFlows.incomeSources`), not tax
  * buckets, so each band names *which* job pays and *which* account a draw drains. Banding by
- * `incomeByCategoryCents` (a tax classification) collapsed two jobs into one band.
+ * `cashFlowIncomeByCategoryCents` (a tax classification) collapsed two jobs into one band.
+ *
+ * Both of those are CASH FLOW, as their names say — money reaching the household. This chart is
+ * never a statement of taxable income, and the two genuinely differ: a home down payment's
+ * realized gain is taxed and appears in neither.
  */
 
 import { apportionByWeight, type IncomeSourceCategory, type ProjectionSeries } from "@finley/engine";

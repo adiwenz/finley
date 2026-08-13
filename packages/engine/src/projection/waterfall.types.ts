@@ -53,7 +53,7 @@ export interface IncomeSourceMonth {
   readonly cashInflowCents?: Cents;
   /**
    * OVERRIDES the tax-category axis for display/grouping
-   * ({@link import("./simulate.types").ProjectionIncomeSource.category}). Savings interest
+   * ({@link import("./simulate.types").ProjectionCashFlowIncomeSource.category}). Savings interest
    * sets `"savingsInterest"` so the UI groups it without parsing source ids, even though it
    * is taxed as `ordinaryIncome` (where it still buckets in the taxable rollup). Absent →
    * reports under its {@link taxCategory}.

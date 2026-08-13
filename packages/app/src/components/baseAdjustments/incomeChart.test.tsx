@@ -7,12 +7,12 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { dollarsToCents, type ProjectionIncomeSource, type ProjectionSeries } from "@finley/engine";
+import { dollarsToCents, type ProjectionCashFlowIncomeSource, type ProjectionSeries } from "@finley/engine";
 import { buildIncomeChartData } from "./incomeChartData";
 import { IncomeChart, IncomeTooltipContent } from "./incomeChart";
 import { SPENDING_NEED_KEY } from "./incomeChartModel";
 
-function seriesOf(...perMonth: ProjectionIncomeSource[][]): ProjectionSeries {
+function seriesOf(...perMonth: ProjectionCashFlowIncomeSource[][]): ProjectionSeries {
   const months = [
     { month: 0 },
     ...perMonth.map((incomeSources, i) => ({ month: i + 1, flows: { incomeSources } })),
@@ -23,15 +23,15 @@ function seriesOf(...perMonth: ProjectionIncomeSource[][]): ProjectionSeries {
 function source(
   sourceId: string,
   cashInflowCents: number,
-  category: ProjectionIncomeSource["category"],
-): ProjectionIncomeSource {
+  category: ProjectionCashFlowIncomeSource["category"],
+): ProjectionCashFlowIncomeSource {
   return {
     sourceId,
     label: sourceId,
     category,
     cashInflowCents,
     netCashFlowCents: cashInflowCents,
-  } as ProjectionIncomeSource;
+  } as ProjectionCashFlowIncomeSource;
 }
 
 const wages = source("Software Engineer", dollarsToCents(5_000), "wages");
