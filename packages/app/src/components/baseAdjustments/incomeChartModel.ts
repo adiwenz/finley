@@ -301,11 +301,20 @@ export function buildIncomeChartModel(
   // This is a chart of FLOWS, so the axis' today slot stays empty — no flow has run at "now" —
   // and the bands start at end-of-month-0. The slot is still reserved, so this chart's x lines
   // up with the net-worth charts above it.
-  const rows: IncomeChartRow[] = view.rows.map((r) => ({
-    month: toAxisX(r.month),
-    [SPENDING_NEED_KEY]: r.spendingNeedCents,
-    ...clampBandsForStack(r.centsBySource),
-  }));
+  const rows: IncomeChartRow[] = view.rows.map((r) => {
+    const clamped = clampBandsForStack(r.centsBySource);
+    const row: Record<string, number> = {
+      month: toAxisX(r.month),
+      [SPENDING_NEED_KEY]: r.spendingNeedCents,
+    };
+    // EVERY band in EVERY row, zero-filled. A band that pays once a year — an RMD, a December
+    // tax settlement — is otherwise absent from the eleven months between, and a stacked area
+    // whose neighbours are `undefined` draws zero-width: the spike vanishes while still
+    // stretching the y-axis to its value. Simple hid the bug by folding those months into a
+    // band that pays continuously.
+    for (const b of bands) row[b.id] = clamped[b.id] ?? 0;
+    return row;
+  });
   const lastX = toAxisX(view.rows[view.rows.length - 1]?.month ?? 0);
   const brokeMonth = data.firstInsolventMonth;
   const summary = describeIncomeGap(data);

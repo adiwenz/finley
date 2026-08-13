@@ -49,6 +49,25 @@ describe("buildIncomeChartModel", () => {
     expect(firstRow["job:a"]).toBe(dollarsToCents(5_000));
   });
 
+  it("carries every band in every row, so a once-a-year band still draws a spike", () => {
+    // An RMD pays in one month and nothing in the eleven around it. Left absent from those
+    // rows, its stacked area has no neighbouring points and Recharts draws it zero-width —
+    // invisible, while the y-axis still stretches to it. Simple never showed the bug: it folds
+    // the same money into a drawdown band that pays continuously.
+    const data = buildIncomeChartData(
+      seriesOf(
+        [wages],
+        [wages, source("rmd:p1", dollarsToCents(80_000), "ordinaryIncome")],
+        [wages],
+      ),
+    );
+    const model = buildIncomeChartModel(data, { mode: "advanced" });
+    for (const row of model.rows) {
+      for (const band of model.bands) expect(row[band.id]).toBeTypeOf("number");
+    }
+    expect(model.rows.map((r) => r["rmd:p1"])).toEqual([0, dollarsToCents(80_000), 0]);
+  });
+
   it("collapses drawdowns onto one 'Living off savings' band in Simple mode", () => {
     const data = buildIncomeChartData(
       seriesOf([source("acct:a", dollarsToCents(1_000), "savingsDrawdown")]),
