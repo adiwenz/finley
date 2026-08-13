@@ -9,7 +9,7 @@
  * `incomeByCategoryCents` (a tax classification) collapsed two jobs into one band.
  */
 
-import type { IncomeSourceCategory, ProjectionSeries } from "@finley/engine";
+import { apportionByWeight, type IncomeSourceCategory, type ProjectionSeries } from "@finley/engine";
 
 export interface IncomeSourceBand {
   readonly id: string;
@@ -84,6 +84,30 @@ function categoryRank(category: string): number {
 }
 
 /**
+ * Savings interest is NOT a cash flow to the household, and does not band here.
+ *
+ * It is credited straight into the account that earned it — the balance rises, and nothing
+ * arrives for the month to spend (the engine says as much: `waterfallInflowCents` 0). Banding it
+ * counts the same dollar twice, once entering the account and again inside the draw that later
+ * takes it out: a month drawing $4,130.07 from a fund just credited $13.68 of interest showed
+ * $4,143.75 of cash against $4,130.07 the account actually released.
+ *
+ * The band only ever existed because of a TAX fact — the engine reports accrued return exactly
+ * when the jurisdiction taxes it at accrual (`taxAtAccrual`), which is why a savings account's
+ * interest gets a band and the retirement account's identical growth does not. That belongs on
+ * the tax chart, where interest genuinely is income and is what can pull a benefit into
+ * taxability; on a chart whose contract is money that reaches the checking account, it is the
+ * same overstatement the take-home basis exists to avoid.
+ *
+ * Dropped in BOTH bases. Gross reads "raw earning power", which is arguable — but a band that
+ * appears and vanishes with a checkbox reads worse than either consistent answer, and the
+ * double-count is at its most visible in gross.
+ */
+function isHouseholdCashFlow(category: string): boolean {
+  return category !== "savingsInterest";
+}
+
+/**
  * One row per flowed month. Every entry in `months` is processed now — the flow-free "now" is
  * `series.opening`, outside this loop — so month 0 is the first row. Sources carrying nothing
  * across the whole horizon are dropped rather than shown as empty bands.
@@ -104,8 +128,18 @@ export function buildIncomeChartData(series: ProjectionSeries): IncomeChartData 
     const netCentsBySource: Record<string, number> = {};
     let totalCents = 0;
     let takeHomeCents = 0;
+    // Tax borne by a source this chart does not band (see {@link isHouseholdCashFlow}). The band
+    // goes, the tax stays: it was really charged, so dropping it with the band would hand the
+    // household back money it actually paid and put the overstatement straight back. Moved onto
+    // the bands that remain, the same rule the engine applies to tax stranded on a source that
+    // banded no cash at all.
+    let droppedHaircutCents = 0;
     for (const s of sources) {
       if (s.cashInflowCents === 0) continue;
+      if (!isHouseholdCashFlow(s.category)) {
+        droppedHaircutCents += s.cashInflowCents - s.netCashFlowCents;
+        continue;
+      }
       centsBySource[s.sourceId] = (centsBySource[s.sourceId] ?? 0) + s.cashInflowCents;
       totalCents += s.cashInflowCents;
       netCentsBySource[s.sourceId] = (netCentsBySource[s.sourceId] ?? 0) + s.netCashFlowCents;
@@ -121,6 +155,19 @@ export function buildIncomeChartData(series: ProjectionSeries): IncomeChartData 
       }
       if (s.category === "savingsDrawdown" && firstSavingsDrawdownMonth === null) {
         firstSavingsDrawdownMonth = m.month;
+      }
+    }
+    // Pro rata by cash delivered, largest-remainder, so the shares sum to the dropped haircut
+    // exactly and the stack still lands on the cent. Only `netCentsBySource` moves — gross is
+    // pre-tax by definition and has nothing to redistribute.
+    if (droppedHaircutCents !== 0) {
+      const shares = apportionByWeight(
+        droppedHaircutCents,
+        Object.entries(centsBySource).map(([id, cents]) => [id, cents] as const),
+      );
+      for (const [id, share] of shares) {
+        netCentsBySource[id] = (netCentsBySource[id] ?? 0) - share;
+        takeHomeCents -= share;
       }
     }
     if (totalCents === 0 && firstMonthWithNoIncome === null) firstMonthWithNoIncome = m.month;
@@ -139,22 +186,18 @@ export function buildIncomeChartData(series: ProjectionSeries): IncomeChartData 
 
 /** Band ids the Simple view collapses onto; wages stay per job. */
 const SIMPLE_SOCIAL_SECURITY_ID = "social-security";
-const SIMPLE_SAVINGS_INTEREST_ID = "savings-interest";
 const SIMPLE_LIVING_OFF_SAVINGS_ID = "living-off-savings";
 
 /**
- * Wages stay per job; savings interest keeps its own band (income the savings EARN, not
- * principal spent); the government benefit collapses per person, since two members claim at
+ * Wages stay per job; the government benefit collapses per person, since two members claim at
  * their own ages; every drawdown folds into one "Living off savings" band.
  *
- * Interest is matched on the `"savingsInterest"` provenance category, not its id: it is
- * *taxed* as `ordinaryIncome`, shared with pre-tax account draws.
+ * Savings interest has no case here because it never reaches this far — {@link
+ * isHouseholdCashFlow} drops it before banding, as growth credited to an account rather than
+ * cash paid to the household.
  */
 function simpleBandOf(band: IncomeSourceBand): IncomeSourceBand {
   if (band.category === "wages") return band;
-  if (band.category === "savingsInterest") {
-    return { id: SIMPLE_SAVINGS_INTEREST_ID, label: "Savings interest", category: "savingsInterest" };
-  }
   if (band.category === "governmentRetirementBenefit") {
     return {
       id: band.ownerId === undefined ? SIMPLE_SOCIAL_SECURITY_ID : `${SIMPLE_SOCIAL_SECURITY_ID}:${band.ownerId}`,
@@ -193,24 +236,6 @@ function withEarnerNames(
 }
 
 /**
- * The engine reports one interest band per cash account, labelled by the account's name.
- * Prefix it (`Savings interest: Cash savings`) only when two or more are on the chart, so a
- * single account reads as the plain band Simple shows.
- */
-function qualifySavingsInterestNames(
-  sources: readonly IncomeSourceBand[],
-): readonly IncomeSourceBand[] {
-  const interest = sources.filter((s) => s.category === "savingsInterest");
-  if (interest.length === 0) return sources;
-  return sources.map((s) => {
-    if (s.category !== "savingsInterest") return s;
-    return interest.length === 1
-      ? { ...s, label: "Savings interest" }
-      : { ...s, label: `Savings interest: ${s.label}` };
-  });
-}
-
-/**
  * `advanced` keeps every source its own band; `simple` collapses via {@link simpleBandOf}.
  * The returned rows' `centsBySource` carries whichever {@link IncomeBasis} was chosen, so
  * the chart renders it without knowing which; `totalCents` is recomputed to match.
@@ -227,7 +252,7 @@ export function incomeBandsForMode(
       const totalCents = Object.values(centsBySource).reduce((s, c) => s + c, 0);
       return { ...r, centsBySource, totalCents };
     });
-    return { sources: qualifySavingsInterestNames(withEarnerNames(data.sources, personNames)), rows };
+    return { sources: withEarnerNames(data.sources, personNames), rows };
   }
 
   const bandForSource = new Map<string, IncomeSourceBand>();

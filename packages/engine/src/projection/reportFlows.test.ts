@@ -210,3 +210,100 @@ describe("buildFlows", () => {
     expect(flows.incomeSources.some((s) => s.category === "savingsDrawdown")).toBe(false);
   });
 });
+
+/**
+ * Federal income tax is an annual liability paid in twelfths, so the month a dollar of tax is
+ * CHARGED is routinely not the month the income arrived. The per-source haircut then has a share
+ * of tax and no cash to take it from — and if that share is simply dropped, Σ `netCashFlowCents`
+ * (the cash-flow chart's whole stack) claims more spendable cash than the household has.
+ */
+describe("buildFlows — tax charged against income that arrived in another month", () => {
+  const RMD_IN_JANUARY = { sourceId: "rmd:p1", label: "Required distribution" };
+
+  it("charges a band-less source's tax against the bands that did deliver cash", () => {
+    // April of a retired year: the RMD landed in January and carries $150 of this month's
+    // instalment, but no cash. The benefit ($900) and the account draw ($100) are what the
+    // household actually has, so they are where the $150 was found — split 9:1 by cash.
+    const flows = buildFlows(
+      [
+        src("p1", 900_00, "governmentRetirementBenefit", { sourceId: "benefit:p1", label: "Government benefit" }),
+        src("p1", 100_00, "ordinaryIncome", { sourceId: "retirement", label: "Retirement account" }),
+      ],
+      150_00,
+      [],
+      0,
+      { ordinaryIncome: 150_00 },
+      { [RMD_IN_JANUARY.sourceId]: 150_00 },
+    );
+    const net = (id: string) => flows.incomeSources.find((s) => s.sourceId === id)!.netCashFlowCents;
+    expect(net("benefit:p1")).toBe(900_00 - 135_00);
+    expect(net("retirement")).toBe(100_00 - 15_00);
+    // The invariant the chart rests on: what the bands add up to IS what the month can spend.
+    const takeHome = flows.incomeSources.reduce((s, x) => s + x.netCashFlowCents, 0);
+    expect(takeHome).toBe(1_000_00 - 150_00);
+  });
+
+  it("stacks the stranded share on top of a band's own tax rather than replacing it", () => {
+    const flows = buildFlows(
+      [src("p1", 1_000_00, "ordinaryIncome", { sourceId: "retirement", label: "Retirement account" })],
+      150_00,
+      [],
+      0,
+      { ordinaryIncome: 150_00 },
+      { retirement: 50_00, [RMD_IN_JANUARY.sourceId]: 100_00 },
+    );
+    expect(flows.incomeSources[0]!.netCashFlowCents).toBe(1_000_00 - 50_00 - 100_00);
+  });
+
+  it("can charge it against a savings drawdown, which is also cash in hand", () => {
+    // A month whose only cash is the liquid buffer. The buffer bears no tax of its own — but
+    // the instalment was genuinely paid out of it, and leaving the share stranded would report
+    // the drawdown as covering more spending than it did.
+    const flows = buildFlows([], 80_00, [line("rent", 500_00)], 500_00, { ordinaryIncome: 80_00 }, {
+      [RMD_IN_JANUARY.sourceId]: 80_00,
+    });
+    const drawdown = flows.incomeSources.find((s) => s.sourceId === SAVINGS_DRAWDOWN_SOURCE_ID)!;
+    expect(drawdown.cashInflowCents).toBe(500_00);
+    expect(drawdown.netCashFlowCents).toBe(500_00 - 80_00);
+  });
+
+  it("splits to the exact cent, leaving no residue for the stack to lose", () => {
+    // Three bands and a total that does not divide evenly — largest-remainder, like every other
+    // apportionment in the engine, so Σ net is exact rather than a cent or two adrift.
+    const flows = buildFlows(
+      [
+        src("p1", 333_33, "wages", { sourceId: "a", label: "A" }),
+        src("p1", 333_33, "wages", { sourceId: "b", label: "B" }),
+        src("p1", 333_34, "wages", { sourceId: "c", label: "C" }),
+      ],
+      100_01,
+      [],
+      0,
+      { wages: 100_01 },
+      { [RMD_IN_JANUARY.sourceId]: 100_01 },
+    );
+    const takeHome = flows.incomeSources.reduce((s, x) => s + x.netCashFlowCents, 0);
+    expect(takeHome).toBe(1_000_00 - 100_01);
+  });
+
+  it("leaves the haircut stranded when no source delivered any cash to charge it against", () => {
+    // Nothing to apportion onto, and inventing a negative band out of thin air would be worse
+    // than the honest gap. Degenerate — a month with tax and no cash at all.
+    const flows = buildFlows([], 60_00, [], 0, { ordinaryIncome: 60_00 }, {
+      [RMD_IN_JANUARY.sourceId]: 60_00,
+    });
+    expect(flows.incomeSources).toEqual([]);
+  });
+
+  it("leaves an ordinary month alone — nothing is stranded when every taxed source has cash", () => {
+    const flows = buildFlows(
+      [src("p1", 1_000_00, "wages", { sourceId: "job:a", label: "Job A" })],
+      200_00,
+      [],
+      0,
+      { wages: 200_00 },
+      { "job:a": 200_00 },
+    );
+    expect(flows.incomeSources[0]!.netCashFlowCents).toBe(800_00);
+  });
+});

@@ -207,6 +207,12 @@ export { nullJurisdiction } from "./jurisdiction/jurisdiction";
 // would be an instance in search of a use.
 export { dollarsToCents, centsToDollars } from "./money/cashFlowSeries";
 
+// Splitting an already-decided total across weighted shares in whole cents, exactly. Published
+// because a chart that drops or regroups a band has to redistribute what that band bore, and the
+// alternative is the app growing its own rounding rule — a second answer to a question this
+// engine already answers everywhere it apportions tax.
+export { apportionByWeight } from "./money/money";
+
 // A total function of one enum value, with no projection to ask.
 export { liabilityKindLabel } from "./liability/liability";
 

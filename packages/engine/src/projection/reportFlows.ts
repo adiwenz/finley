@@ -11,7 +11,7 @@
  * recomputed, only re-shaped.
  */
 
-import type { Cents } from "../money/money";
+import { apportionByWeight, type Cents } from "../money/money";
 import type { IncomeSourceMonth } from "./waterfall";
 import type { MonthlyWages, ProjectionIncomeSource, ProjectionMonthFlows } from "./simulate.types";
 import {
@@ -23,6 +23,54 @@ import {
 
 export const SAVINGS_DRAWDOWN_SOURCE_ID = "savings-drawdown";
 const SAVINGS_DRAWDOWN_LABEL = "Savings drawdown";
+
+/**
+ * Charge the month's STRANDED haircut — tax or deferral attributed to a source that banded no
+ * cash this month — against the sources that did deliver cash, pro rata.
+ *
+ * Federal income tax is an ANNUAL liability paid in twelfths, so the month a dollar of tax is
+ * charged is routinely not the month the income arrived. A retiree's whole RMD lands in January
+ * and its tax is spread over all twelve months; from February on, the RMD band carries a share of
+ * the instalment and no cash at all. The per-source haircut has nothing to subtract from, so
+ * without this the tax simply disappears from the accounting and Σ `netCashFlowCents` — the
+ * cash-flow chart's whole stack — claims more spendable cash than the household has. That was
+ * eleven months a year for the rest of a retired plan.
+ *
+ * Spreading it is not a fudge. The cash to pay April's instalment genuinely came out of April's
+ * benefit and April's account draws; that IS where the money was found. Apportioned by cash
+ * delivered, with {@link apportionByWeight}'s largest-remainder split, so the shares sum to the
+ * stranded total exactly and Σ net lands on the cent.
+ *
+ * Nets are SIGNED and stay unclamped, matching {@link buildFlows}'s contract — a thin month can
+ * push a small band negative, and hiding that would recreate the overstatement in miniature. When
+ * no source delivered cash at all there is nothing to charge against, and the haircut stays
+ * stranded rather than being invented onto an empty band.
+ */
+function applyStrandedHaircut(
+  sources: ProjectionIncomeSource[],
+  haircutMaps: readonly Readonly<Record<string, Cents>>[],
+): void {
+  const banded = new Set(sources.map((s) => s.sourceId));
+  let strandedCents = 0;
+  for (const map of haircutMaps) {
+    for (const [sourceId, cents] of Object.entries(map)) {
+      if (!banded.has(sourceId)) strandedCents += cents;
+    }
+  }
+  if (strandedCents === 0) return;
+
+  const weights = sources
+    .filter((s) => s.cashInflowCents > 0)
+    .map((s) => [s.sourceId, s.cashInflowCents] as const);
+  if (weights.length === 0) return;
+
+  const shares = new Map(apportionByWeight(strandedCents, weights));
+  for (const [i, source] of sources.entries()) {
+    const share = shares.get(source.sourceId);
+    if (share === undefined || share === 0) continue;
+    sources[i] = { ...source, netCashFlowCents: source.netCashFlowCents - share };
+  }
+}
 
 /**
  * Two income views from one pass: the `incomeByCategoryCents` tax-category rollup (kept for
@@ -129,8 +177,10 @@ export function buildFlows(
       netCashFlowCents: netCashFlow(id, s.cashInflowCents),
     };
   });
-  // Reporting-only, never a tax bucket: spending an asset bears no tax or deferral, so its
-  // net equals its cash.
+  // Spending an asset bears no tax or deferral of its OWN, so its net opens at its cash — but
+  // it is still cash the household has in hand, so the stranded-haircut pass below may charge
+  // part of another source's tax against it. That is not a reclassification: if the month's
+  // instalment was funded out of the liquid buffer, the buffer is where the money came from.
   if (liquidDrawdownCents > 0) {
     sources.push({
       sourceId: SAVINGS_DRAWDOWN_SOURCE_ID,
@@ -140,6 +190,11 @@ export function buildFlows(
       netCashFlowCents: liquidDrawdownCents,
     });
   }
+  applyStrandedHaircut(sources, [
+    deferralBySourceCents ?? {},
+    taxBySourceCents,
+    payrollTaxBySourceCents,
+  ]);
   // Pay for work, per earner — a regrouping of the bands above, so it cannot disagree with what
   // the sim paid. Reading the banded `sources` is the whole point: a job outside its span banded
   // nothing, which is why `jobCount` is how many jobs PAID this month rather than how many were

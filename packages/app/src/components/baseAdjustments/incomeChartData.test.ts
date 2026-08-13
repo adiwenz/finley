@@ -194,9 +194,11 @@ describe("incomeBandsForMode", () => {
     ]);
   });
 
-  it("keeps savings interest its own band in both views — not folded into living off savings", () => {
-    // Savings interest is income the savings EARN (engine-tagged `savingsInterest`), not
-    // savings being spent down — and the app never parses the id to decide that.
+  it("leaves savings interest off the chart — it is credited to the account, never paid out", () => {
+    // Interest raises the balance of the account that earned it; nothing arrives for the month
+    // to spend. Banding it counted the same dollar twice — once going into the account, again
+    // inside the draw that later takes it out — so a month drawing $1,500 from a fund just
+    // credited $50 of interest read as $1,550 of cash the household never had.
     const data = buildIncomeChartData(
       seriesOf([
         source("job:a", dollarsToCents(5_000), "wages", "Job A"),
@@ -207,52 +209,67 @@ describe("incomeBandsForMode", () => {
     );
     expect(incomeBandsForMode(data, "advanced").sources.map((s) => s.label)).toEqual([
       "Job A",
-      "Savings interest",
       "Brokerage draw",
       "Savings drawdown",
     ]);
     const simple = incomeBandsForMode(data, "simple");
-    expect(simple.sources.map((s) => s.label)).toEqual(["Job A", "Savings interest", "Living off savings"]);
-    expect(simple.rows[0]!.centsBySource["savings-interest"]).toBe(dollarsToCents(50));
+    expect(simple.sources.map((s) => s.label)).toEqual(["Job A", "Living off savings"]);
+    // Not quietly rolled into the drawdown either — it is absent, not relabelled.
     expect(simple.rows[0]!.centsBySource["living-off-savings"]).toBe(dollarsToCents(2_500));
+    expect(data.rows[0]!.totalCents).toBe(dollarsToCents(7_500));
   });
 
-  it("collapses multiple savings-interest sources into the one Savings interest band (Simple)", () => {
+  it("drops it from the gross view too, where the double-count is largest", () => {
+    // Gross reads "raw earning power", which is the arguable case for keeping it — but a band
+    // that appears and vanishes with a checkbox reads worse than either consistent answer.
     const data = buildIncomeChartData(
       seriesOf([
-        source("interest:p1:ordinaryIncome", dollarsToCents(30), "savingsInterest", "Savings interest"),
-        source("interest:p2:ordinaryIncome", dollarsToCents(20), "savingsInterest", "Savings interest"),
-      ]),
-    );
-    const simple = incomeBandsForMode(data, "simple");
-    expect(simple.sources.map((s) => s.label)).toEqual(["Savings interest"]);
-    expect(simple.rows[0]!.centsBySource["savings-interest"]).toBe(dollarsToCents(50));
-  });
-
-  it("breaks savings interest out per account in Advanced — 'Savings interest: <account>'", () => {
-    // The engine reports one interest band per cash account; Advanced qualifies each with
-    // the kind of income. A merged single line hid a drained buffer that looked like it
-    // was still earning its neighbour's interest.
-    const data = buildIncomeChartData(
-      seriesOf([
+        source("job:a", dollarsToCents(5_000), "wages", "Job A"),
         source("interest:savings", dollarsToCents(30), "savingsInterest", "Cash savings"),
-        source("interest:goal-emergency", dollarsToCents(20), "savingsInterest", "Emergency fund"),
       ]),
     );
-    const advanced = incomeBandsForMode(data, "advanced");
-    expect(advanced.sources.map((s) => s.label)).toEqual([
-      "Savings interest: Cash savings",
-      "Savings interest: Emergency fund",
-    ]);
-    expect(advanced.rows[0]!.centsBySource["interest:savings"]).toBe(dollarsToCents(30));
-    expect(advanced.rows[0]!.centsBySource["interest:goal-emergency"]).toBe(dollarsToCents(20));
-    // A single cash account needs no disambiguation.
-    const one = buildIncomeChartData(
-      seriesOf([source("interest:savings", dollarsToCents(30), "savingsInterest", "Cash savings")]),
+    for (const basis of ["gross", "takeHome"] as const) {
+      const { sources, rows } = incomeBandsForMode(data, "advanced", basis);
+      expect(sources.map((s) => s.label)).toEqual(["Job A"]);
+      expect(rows[0]!.totalCents).toBe(dollarsToCents(5_000));
+    }
+  });
+
+  it("keeps the tax the dropped band bore, moving it onto the bands that remain", () => {
+    // The band goes; the tax does not. It was really charged, so letting it leave with the band
+    // would hand the household back money it paid and put the overstatement straight back.
+    // $50 of interest bearing $10 of tax, beside $1,000 of wages and $1,000 of brokerage: the
+    // $10 splits evenly across the two survivors.
+    const data = buildIncomeChartData(
+      seriesOf([
+        source("job:a", dollarsToCents(1_000), "wages", "Job A"),
+        source("brokerage", dollarsToCents(1_000), "capitalGains", "Brokerage draw"),
+        source(
+          "interest:savings",
+          dollarsToCents(50),
+          "savingsInterest",
+          "Cash savings",
+          dollarsToCents(40), // $10 of tax
+        ),
+      ]),
     );
-    expect(incomeBandsForMode(one, "advanced").sources.map((s) => s.label)).toEqual([
-      "Savings interest",
-    ]);
+    const row = data.rows[0]!;
+    expect(row.netCentsBySource["job:a"]).toBe(dollarsToCents(995));
+    expect(row.netCentsBySource["brokerage"]).toBe(dollarsToCents(995));
+    // The invariant: what the stack adds up to is what the month can actually spend.
+    expect(row.takeHomeCents).toBe(dollarsToCents(1_990));
+  });
+
+  it("splits that tax to the exact cent across uneven bands", () => {
+    const data = buildIncomeChartData(
+      seriesOf([
+        source("job:a", dollarsToCents(1_000), "wages", "Job A"),
+        source("brokerage", 33_33, "capitalGains", "Brokerage draw"),
+        source("interest:savings", dollarsToCents(50), "savingsInterest", "Cash savings", dollarsToCents(50) - 7),
+      ]),
+    );
+    const row = data.rows[0]!;
+    expect(row.takeHomeCents).toBe(dollarsToCents(1_000) + 33_33 - 7);
   });
 
   // Two claimants: a benefit band names its kind, never its earner.
