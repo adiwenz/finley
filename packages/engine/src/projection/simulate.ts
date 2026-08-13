@@ -482,6 +482,12 @@ export function simulateHousehold(
     // The settlement's own account sales, reported the same way a funding draw's are:
     // reporting-only gain bands, and their returned principal folded into the savings
     // drawdown so a December settlement funded from savings isn't invisible in the chart.
+    //
+    // The band is NAMED apart from the account's ordinary draw, which it sits beside in the
+    // same December. Sharing the account's bare label put two differently-coloured entries
+    // reading "Retirement account" in one legend — and next to "Required distribution" in a
+    // retired year, the pair was read as the plan taking RMDs a decade before it does. The
+    // suffix follows the FICA band's convention: same source, distinct levy.
     const settlementGainSources = settlement.draws
       .filter((d) => d.gainCents > 0)
       .map((d) => ({
@@ -491,7 +497,7 @@ export function simulateHousehold(
         taxCategory: d.category,
         taxableCents: 0,
         sourceId: `tax-settlement:${d.accountId}`,
-        label: d.label,
+        label: `${d.label} — sold to settle tax`,
       }));
     const settlementPrincipalCents = settlement.draws.reduce((s, d) => s + d.principalCents, 0);
     const bands = buildFlows(

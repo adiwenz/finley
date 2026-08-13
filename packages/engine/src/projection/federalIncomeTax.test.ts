@@ -298,6 +298,23 @@ describe("Federal income tax — December reconciles against the year's ACTUAL i
     );
   });
 
+  it("names the settlement's own sale apart from the account's ordinary draw", () => {
+    // A December that both funds an obligation from the pre-tax account AND sells more of it to
+    // settle the year: two bands, same account, same month. Sharing the account's bare label put
+    // two differently-coloured legend entries reading the same words on the charts, which next
+    // to "Required distribution" in a retired year read as an RMD a decade early.
+    const projection = simulateHousehold(
+      baseInput([account("pretax", PRE_TAX_TAX_PROFILE, 1_000_000)], {
+        expenseSeries: [series(10_000, 11, 11)],
+      }),
+      flatAnnual(0.25),
+    );
+    const bands = projection.months[11].flows!.incomeSources;
+    const labelOf = (sourceId: string) => bands.find((s) => s.sourceId === sourceId)?.label;
+    expect(labelOf("pretax")).toBe("pretax");
+    expect(labelOf("tax-settlement:pretax")).toBe("pretax — sold to settle tax");
+  });
+
   it("charges exactly the jurisdiction's annual tax on the year's actual base, under a progressive schedule", () => {
     const jurisdiction = progressiveAnnual();
     // $96k of wages the estimate paces on, and a $40k obligation in month 6 that only the
