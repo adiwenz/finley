@@ -6,6 +6,7 @@
  * rendering React; the component owns only local UI state, event handling and JSX.
  */
 
+import { apportionByWeight } from "@finley/engine";
 import { formatDollars } from "../../format";
 import { toAxisX } from "../monthAxis";
 import {
@@ -67,14 +68,42 @@ function formatMomentLabel(currentAge: number, month: number): string {
 }
 
 /**
- * The engine reports a signed per-source net cash flow — negative when a source's tax + deferral
- * exceed its cash inflow — but a negative segment renders below the axis and distorts the stack.
- * This is the ONLY place the clamp lives; the engine and the data model keep the honest signed
- * figures. No-op on the gross basis.
+ * The engine reports a signed per-source net cash flow, and it can genuinely be negative: payroll
+ * tax rides the GROSS wage while a 401(k) deferral removes the cash, so a paycheck deferred to the
+ * hilt costs the household more than it hands over. True, but undrawable — a negative segment
+ * renders below the axis and distorts the stack. This is the ONLY place the clamp lives; the
+ * engine and the data model keep the honest signed figures.
+ *
+ * Clamping alone would put back the very overstatement the engine's stranded-haircut pass exists
+ * to remove: zero the −$76 band, leave its neighbours untouched, and the drawn stack claims $76
+ * the month never had. So the clamped shortfall is CHARGED ON to the bands that do hold cash,
+ * weighted by what they hold — the same rule and the same reasoning as the engine's, because it is
+ * the same fact: a source that delivered less than nothing was covered by the ones that delivered
+ * something. Σ of the drawn bands still equals the month's spendable cash.
+ *
+ * Weighting by the (positive) values themselves is what keeps this from cascading: every share is
+ * `shortfall × valueᵢ / Σvalue ≤ valueᵢ`, so charging one band's shortfall can never open another.
+ * If the shortfall swallows everything the month had, all bands land at zero — never below.
+ *
+ * No-op on the gross basis, which is pre-tax by definition and has nothing negative in it.
  */
 function clampBandsForStack(centsBySource: Readonly<Record<string, number>>): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const [id, cents] of Object.entries(centsBySource)) out[id] = Math.max(0, cents);
+  let shortfallCents = 0;
+  let availableCents = 0;
+  for (const [id, cents] of Object.entries(centsBySource)) {
+    out[id] = Math.max(0, cents);
+    if (cents < 0) shortfallCents -= cents;
+    else availableCents += cents;
+  }
+  if (shortfallCents === 0 || availableCents === 0) return out;
+
+  const weights = Object.entries(out).filter(([, cents]) => cents > 0);
+  const shares =
+    shortfallCents >= availableCents
+      ? new Map(weights)
+      : apportionByWeight(shortfallCents, weights);
+  for (const [id, share] of shares) out[id] = (out[id] ?? 0) - share;
   return out;
 }
 

@@ -37,14 +37,21 @@ const SAVINGS_DRAWDOWN_LABEL = "Savings drawdown";
  * eleven months a year for the rest of a retired plan.
  *
  * Spreading it is not a fudge. The cash to pay April's instalment genuinely came out of April's
- * benefit and April's account draws; that IS where the money was found. Apportioned by cash
- * delivered, with {@link apportionByWeight}'s largest-remainder split, so the shares sum to the
- * stranded total exactly and Σ net lands on the cent.
+ * benefit and April's account draws; that IS where the money was found.
  *
- * Nets are SIGNED and stay unclamped, matching {@link buildFlows}'s contract — a thin month can
- * push a small band negative, and hiding that would recreate the overstatement in miniature. When
- * no source delivered cash at all there is nothing to charge against, and the haircut stays
- * stranded rather than being invented onto an empty band.
+ * Weighted by each source's REMAINING NET, not by its gross cash. A paycheck deferred 90% into a
+ * 401(k) has plenty of gross and almost nothing left to pay anything with — the money is in the
+ * retirement account — so charging it a gross-proportional share would take more than it had and
+ * report the band as negative. Net is the honest measure of what a source can contribute, and it
+ * also makes the overdraw impossible rather than merely unlikely: every share is
+ * `stranded × netᵢ / Σnet ≤ netᵢ` whenever the stranded total fits inside `Σnet`, so no band this
+ * touches can cross zero. {@link apportionByWeight}'s largest-remainder split keeps Σ shares equal
+ * to the stranded total exactly, so Σ net still lands on the cent.
+ *
+ * Two cases leave a residue rather than inventing one. No source delivered net cash → nothing to
+ * charge against. The stranded total exceeds Σ net → the month's tax outran every source that
+ * paid, which means it was funded from balances or credit; the bands go to zero and the rest stays
+ * stranded, because the alternative is a negative band that says a source took money back.
  */
 function applyStrandedHaircut(
   sources: ProjectionIncomeSource[],
@@ -57,14 +64,19 @@ function applyStrandedHaircut(
       if (!banded.has(sourceId)) strandedCents += cents;
     }
   }
-  if (strandedCents === 0) return;
+  if (strandedCents <= 0) return;
 
   const weights = sources
-    .filter((s) => s.cashInflowCents > 0)
-    .map((s) => [s.sourceId, s.cashInflowCents] as const);
-  if (weights.length === 0) return;
+    .filter((s) => s.netCashFlowCents > 0)
+    .map((s) => [s.sourceId, s.netCashFlowCents] as const);
+  const availableCents = weights.reduce((total, [, net]) => total + net, 0);
+  if (availableCents <= 0) return;
 
-  const shares = new Map(apportionByWeight(strandedCents, weights));
+  // Nothing survives the charge: zero every contributing band rather than pushing any below it.
+  const shares =
+    strandedCents >= availableCents
+      ? new Map(weights)
+      : new Map(apportionByWeight(strandedCents, weights));
   for (const [i, source] of sources.entries()) {
     const share = shares.get(source.sourceId);
     if (share === undefined || share === 0) continue;

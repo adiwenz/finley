@@ -307,3 +307,79 @@ describe("buildFlows — tax charged against income that arrived in another mont
     expect(flows.incomeSources[0]!.netCashFlowCents).toBe(800_00);
   });
 });
+
+describe("buildFlows — the stranded haircut never takes more than a source has", () => {
+  it("charges a heavily-deferred paycheck only what it actually delivered", () => {
+    // A 76-year-old working part time and deferring $900 of a $1,000 paycheck, in a month
+    // carrying $500 of tax on an RMD taken back in January. Weighted by GROSS cash the job
+    // would owe $50 against the $20 it had left — a −$30 band, reading as though the paycheck
+    // clawed money back. Weighted by what it delivered, it owes $20/8,520 of the $500 instead.
+    const flows = buildFlows(
+      [
+        src("p1", 1_000_00, "wages", { sourceId: "job:a", label: "Part-time job" }),
+        src("p1", 9_000_00, "governmentRetirementBenefit", { sourceId: "benefit:p1", label: "Government benefit" }),
+      ],
+      580_00,
+      [],
+      0,
+      { ordinaryIncome: 580_00 },
+      { "job:a": 80_00, "rmd:p1": 500_00 },
+      { "job:a": 900_00 }, // deferral
+    );
+    const net = (id: string) => flows.incomeSources.find((s) => s.sourceId === id)!.netCashFlowCents;
+    expect(net("job:a")).toBeGreaterThanOrEqual(0);
+    expect(net("benefit:p1")).toBeGreaterThan(0);
+    // Still exact: the month's spendable cash is its gross less deferral and the whole tax.
+    const takeHome = flows.incomeSources.reduce((s, x) => s + x.netCashFlowCents, 0);
+    expect(takeHome).toBe(10_000_00 - 900_00 - 580_00);
+  });
+
+  it("zeroes every contributing band rather than pushing one under, when the tax outruns them all", () => {
+    // $200 of tax charged against $100 of net cash — the month funded the rest from balances or
+    // credit. Bands bottom out at zero; the $100 that has nowhere to go stays stranded, because
+    // the alternative says a source took money back out of the household.
+    const flows = buildFlows(
+      [src("p1", 100_00, "governmentRetirementBenefit", { sourceId: "benefit:p1", label: "Government benefit" })],
+      200_00,
+      [],
+      0,
+      { ordinaryIncome: 200_00 },
+      { "rmd:p1": 200_00 },
+    );
+    expect(flows.incomeSources[0]!.netCashFlowCents).toBe(0);
+  });
+
+  it("never drives a band below zero that its own deductions had not already taken there", () => {
+    // The property behind the two cases above, stated against the right baseline. A source CAN
+    // still be negative on its own account — payroll tax rides the gross wage while a 401(k)
+    // deferral removes the cash, so a fully-deferred paycheck really does cost the household
+    // more than it delivered. That is the source's own arithmetic, and this pass must neither
+    // cause it nor deepen it: a band standing at or above zero stays there, and one already
+    // under is left exactly where its own deductions put it.
+    const run = (deferredCents: number, strandedCents: number) => {
+      const ownTaxCents = 80_00;
+      return buildFlows(
+        [
+          src("p1", 1_000_00, "wages", { sourceId: "job:a", label: "Part-time job" }),
+          src("p1", 9_000_00, "governmentRetirementBenefit", { sourceId: "benefit:p1", label: "Government benefit" }),
+        ],
+        ownTaxCents + strandedCents,
+        [],
+        0,
+        { ordinaryIncome: ownTaxCents + strandedCents },
+        { "job:a": ownTaxCents, "rmd:p1": strandedCents },
+        { "job:a": deferredCents },
+      ).incomeSources;
+    };
+    for (const deferredCents of [0, 250_00, 500_00, 900_00, 1_000_00]) {
+      const baseline = new Map(run(deferredCents, 0).map((s) => [s.sourceId, s.netCashFlowCents]));
+      for (const strandedCents of [100_00, 500_00, 900_00]) {
+        for (const s of run(deferredCents, strandedCents)) {
+          const floor = Math.min(0, baseline.get(s.sourceId)!);
+          expect(s.netCashFlowCents, `deferred ${deferredCents}, stranded ${strandedCents}, ${s.sourceId}`)
+            .toBeGreaterThanOrEqual(floor);
+        }
+      }
+    }
+  });
+});
