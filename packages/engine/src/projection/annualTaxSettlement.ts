@@ -34,7 +34,7 @@ import type { Cents } from "../money/money";
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
 import type { TaxCategory } from "../money/cashFlowSeries";
 import type { SimState } from "./runState";
-import { DEFAULT_LIQUIDATION_ORDER } from "./withdrawal";
+import { orderedLiquidationAccounts } from "./withdrawal";
 import {
   addCategory,
   attributeTaxToSources,
@@ -125,7 +125,6 @@ function settlePerson(
   ownerId: string,
   annualBase: TaxableByCategory,
   paidCents: Cents,
-  rankMap: Partial<Record<TaxCategory, number>>,
 ): {
   finalTaxCents: Cents;
   finalBase: TaxableByCategory;
@@ -144,16 +143,10 @@ function settlePerson(
     return { finalTaxCents: initialTax, finalBase: runningBase, raisedCents: 0, draws: [] };
   }
 
-  const sources = state.accounts
-    .filter((a) => a.ownerId === ownerId)
-    .sort((a, b) => {
-      const aLiquid = state.liquidAccount !== null && a.id === state.liquidAccount.id;
-      const bLiquid = state.liquidAccount !== null && b.id === state.liquidAccount.id;
-      if (aLiquid !== bLiquid) return aLiquid ? -1 : 1;
-      const ra = rankMap[a.taxProfile.withdrawalCategory] ?? 99;
-      const rb = rankMap[b.taxProfile.withdrawalCategory] ?? 99;
-      return ra - rb;
-    });
+  const sources = orderedLiquidationAccounts(
+    state.accounts.filter((a) => a.ownerId === ownerId),
+    state.liquidAccount?.id ?? null,
+  );
 
   let raised = 0;
   const draws: SettlementDraw[] = [];
@@ -244,11 +237,6 @@ export function settleAnnualTax(
 ): AnnualTaxSettlementResult {
   if (!isAnnualSettlementMonth(month) && !isFinalMonth) return EMPTY_RESULT;
 
-  const rankMap: Partial<Record<TaxCategory, number>> = {};
-  DEFAULT_LIQUIDATION_ORDER.forEach((category, i) => {
-    if (rankMap[category] === undefined) rankMap[category] = i;
-  });
-
   let totalTaxCents = 0;
   let totalRaisedCents = 0;
   let totalShortfallCents = 0;
@@ -268,7 +256,6 @@ export function settleAnnualTax(
       pid,
       annualBase,
       paid.totalCents,
-      rankMap,
     );
     // The whole point of the year: charge (or refund) only the gap between what the year
     // actually owes and what its estimated installments already collected.

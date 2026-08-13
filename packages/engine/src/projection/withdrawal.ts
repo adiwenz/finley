@@ -44,21 +44,34 @@ function liquidationRankMap(order: readonly TaxCategory[]): Partial<Record<TaxCa
   return map;
 }
 
-function liquidationRank(
-  account: SimAccount,
-  rankMap: Partial<Record<TaxCategory, number>>,
-): number {
-  return rankMap[account.taxProfile.withdrawalCategory] ?? 99;
+/** The shape {@link orderedLiquidationAccounts} ranks by — every account state in the engine has it. */
+export interface LiquidationRankable {
+  readonly id: string;
+  readonly taxProfile: { readonly withdrawalCategory: TaxCategory };
 }
 
 /**
- * Distinct from the `liquid` flag, which means "eligible to *receive* deposits". A drawdown
- * runs the other direction, so every investment account is a valid source. The one
- * exclusion is the liquid cash account, already spent down by the shortfall charge.
+ * The ONE account order every money-out path drains in: the liquid cash account first — it is
+ * spent before anything is sold — then by `liquidationOrder` rank, ties held in the roster's own
+ * order by a stable sort.
+ *
+ * Shared rather than re-derived, because three callers must agree on it: decumulation ({@link
+ * buildWithdrawalSources}, which then drops the liquid account because the shortfall charge
+ * already spent it), the December settlement ({@link
+ * import("./annualTaxSettlement").settleAnnualTax}), and the year-start funding forecast ({@link
+ * import("./fundingForecast").forecastFundingDraws}). The forecast's whole value is that it
+ * predicts the draws the real waterfall will take, which it cannot do from a second copy of this
+ * ranking free to drift from the first.
  */
-function isLiquidatable(account: SimAccount, state: WithdrawalState): boolean {
-  if (state.liquidAccount !== null && account.id === state.liquidAccount.id) return false;
-  return true;
+export function orderedLiquidationAccounts<T extends LiquidationRankable>(
+  accounts: readonly T[],
+  liquidAccountId: string | null,
+  liquidationOrder: readonly TaxCategory[] = DEFAULT_LIQUIDATION_ORDER,
+): readonly T[] {
+  const rankMap = liquidationRankMap(liquidationOrder);
+  const rank = (a: T): number =>
+    a.id === liquidAccountId ? -1 : (rankMap[a.taxProfile.withdrawalCategory] ?? 99);
+  return [...accounts].sort((a, b) => rank(a) - rank(b));
 }
 
 /**
@@ -146,10 +159,17 @@ export function buildWithdrawalSources(
   let need = gap - liquidBuffer;
   if (need <= 0) return { sources: [], liquidDrawdownCents, decumulationDraws: [] };
 
-  const rankMap = liquidationRankMap(liquidationOrder);
-  const orderedSources = state.accounts
-    .filter((a) => isLiquidatable(a, state))
-    .sort((a, b) => liquidationRank(a, rankMap) - liquidationRank(b, rankMap));
+  // The shared order, minus the liquid account: it is not exempt from being drawn — it is drawn
+  // FIRST, above, as `liquidDrawdownCents`, and the cascade charges whatever is left against it
+  // directly. Selling it again here would double-spend the same cash. (The `liquid` flag itself
+  // means "eligible to *receive* deposits"; a drawdown runs the other way, so every other
+  // account — investment or not — is a valid source.)
+  const liquidId = state.liquidAccount?.id ?? null;
+  const orderedSources = orderedLiquidationAccounts(
+    state.accounts,
+    liquidId,
+    liquidationOrder,
+  ).filter((a) => a.id !== liquidId);
 
   const sources: IncomeSourceMonth[] = [];
   const decumulationDraws: DecumulationDrawResult[] = [];

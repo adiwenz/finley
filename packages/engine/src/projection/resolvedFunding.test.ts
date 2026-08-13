@@ -699,11 +699,17 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
     // Every slice's applied amount is its own net; no slice flattens gross into the amount.
     for (const s of slices) expect(s.amountCents).toBe(s.withdrawal!.netDeliveredCents);
 
-    const grossReduction = dollarsToCents(100000) - month.accountBalancesCents["pretax"];
+    // The month's liquidation funds TWO things: the obligations, and the estimated tax
+    // instalment on the decumulation itself, which the year-start estimate now anticipates. Only
+    // the first is partitioned across obligations — the tax funds none of them — so the slices
+    // sum to the balance drop NET of the tax charged. The difference is the tax, not a lost cent.
+    const grossReduction =
+      dollarsToCents(100000) - month.accountBalancesCents["pretax"] - month.flows!.taxCents;
+    expect(month.flows!.taxCents).toBeGreaterThan(0);
     const sum = (pick: (w: NonNullable<(typeof slices)[number]["withdrawal"]>) => number) =>
       slices.reduce((t, s) => t + pick(s.withdrawal!), 0);
-    // The slices partition the one liquidation exactly: gross sums to the balance reduction, and
-    // tax sums to gross minus the total net delivered — no cent gained or lost in the split.
+    // The slices partition that liquidation exactly: gross sums to it, and tax sums to gross
+    // minus the total net delivered — no cent gained or lost in the split.
     expect(sum((w) => w.grossWithdrawnCents)).toBe(grossReduction);
     expect(sum((w) => w.taxCents)).toBe(grossReduction - sum((w) => w.netDeliveredCents));
     expect(sum((w) => w.principalCents) + sum((w) => w.realizedGainCents)).toBe(grossReduction);
@@ -751,7 +757,10 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
       );
     }
 
-    const grossReduction = dollarsToCents(50_000_000) - month.accountBalancesCents["pretax"];
+    // Net of the month's tax instalment, which the same liquidation also raised and which funds
+    // no obligation — see the sibling test above.
+    const grossReduction =
+      dollarsToCents(50_000_000) - month.accountBalancesCents["pretax"] - month.flows!.taxCents;
     // whole * after (e.g. grossCents * consumedNetCents) here comfortably exceeds
     // Number.MAX_SAFE_INTEGER — the exact case a naive `Math.round((whole * after) / net)` breaks.
     expect(grossReduction * dollarsToCents(2_000_000)).toBeGreaterThan(Number.MAX_SAFE_INTEGER);

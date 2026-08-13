@@ -1990,3 +1990,55 @@ describe("solveRetirement — horizonAnchor names the longest-lived member", () 
     });
   });
 });
+
+/**
+ * The solver is the engine's most expensive caller: it runs a FULL projection per candidate
+ * retirement age while it searches. Anything the projection does per month is therefore paid for
+ * once per candidate, which is why the year-start tax estimate forecasts the year's funding
+ * analytically instead of simulating it — a forecast that re-entered `simulateHousehold` would
+ * multiply the solver's cost by the horizon rather than adding to it.
+ */
+describe("retirementSolver — the search's projection count", () => {
+  /**
+   * Counts calls to the one seam every projection is guaranteed to hit, then reads the number of
+   * PASSES off the ratio to a single projection of the same scenario. Deliberately measured as a
+   * ratio: a change to how much tax work one projection does moves numerator and denominator
+   * together and leaves the pass count alone, which is exactly the quantity being pinned.
+   *
+   * `mockJurisdiction` taxes nothing, so every pass costs the same and the ratio is exact.
+   */
+  function projectionPasses(scenario: Scenario, run: (ctx: ProjectionContext) => void): number {
+    const base = mockJurisdiction();
+    let calls = 0;
+    const ctx: ProjectionContext = {
+      jurisdiction: {
+        ...base,
+        computeTaxCents: (byCategory, jctx) => {
+          calls += 1;
+          return base.computeTaxCents(byCategory, jctx);
+        },
+      },
+      startYear: START_YEAR,
+    };
+    projectScenario(scenario, ctx);
+    const perProjection = calls;
+    expect(perProjection).toBeGreaterThan(0);
+    calls = 0;
+    run(ctx);
+    expect(calls % perProjection).toBe(0);
+    return calls / perProjection;
+  }
+
+  it("solves the sample plan in exactly seven full projections", () => {
+    const scenario = scenarioOf(samplePlan);
+    expect(projectionPasses(scenario, (ctx) => solveRetirement(scenario, ctx))).toBe(7);
+  });
+
+  it("costs one projection per candidate age, whatever the estimate does inside a month", () => {
+    // The same count for a household that decumulates hard (so the year-start estimate has a
+    // real funding forecast to solve every January) as for one that does not. The estimate's
+    // fixed point runs INSIDE a month; it never adds a pass.
+    const scenario = scenarioOf(baristaPlan);
+    expect(projectionPasses(scenario, (ctx) => solveRetirement(scenario, ctx))).toBe(7);
+  });
+});

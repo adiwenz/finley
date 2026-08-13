@@ -197,11 +197,19 @@ export function simulateHousehold(
       ...buildRmdSources(state, jurisdiction, month, startYear),
     ];
 
+    // The month's scheduled debt payments. Computed HERE, above the tax-year block, because the
+    // year-start estimate needs them for the outflow half of the year's funding need; nothing
+    // between here and its old position touches a liability balance, so the figures are the same
+    // ones the obligation list below is built from.
+    const payments = computeLiabilityPayments(state, month);
+
     // Price the tax year ONCE, at its first processed month, off the taxable income the
-    // projection already knows this calendar year will bring — wages, pensions, benefits, this
-    // year's RMD. Held for the rest of the year, so no later month re-estimates from
-    // year-to-date income. Endogenous taxable withdrawals are deliberately unpredicted; the
-    // December reconciliation settles the tax they cause.
+    // projection already knows this calendar year will bring — wages, pensions and benefits, this
+    // year's RMD, the resolved funding of this year's events, and a lightweight forecast of the
+    // decumulation the year's spending will require. Held for the rest of the year, so no later
+    // month re-estimates from year-to-date income. What the estimate cannot anticipate — the real
+    // waterfall's exact draws, month by month, against balances that move — the December
+    // reconciliation still settles.
     if (month % MONTHS_IN_TAX_YEAR === 0) {
       const estimates = projectKnownTaxYear({
         state,
@@ -210,6 +218,8 @@ export function simulateHousehold(
         month,
         startYear,
         incomeSeries: input.incomeSeries,
+        expenseSeries: input.expenseSeries,
+        liabilityPaymentsCents: payments,
         benefitColaRate: input.benefitColaRate ?? input.annualInflationRate,
         openingMonthSources: nonWithdrawalSources,
         remainingDeferralRoomCents: (pid) => remainingDeferralRoomCents(state, jurisdiction, ctx, pid),
@@ -231,8 +241,6 @@ export function simulateHousehold(
       estimatedTaxPayments.set(pid, payment);
       estimatedTaxCents += payment.totalCents;
     }
-
-    const payments = computeLiabilityPayments(state, month);
 
     // The month's obligation list, built BEFORE decumulation sizes its gap: every downstream
     // "what must this month fund?" total now derives from this one list rather than being

@@ -248,28 +248,44 @@ describe("Federal income tax — a smooth monthly estimated payment", () => {
 });
 
 describe("Federal income tax — December reconciles against the year's ACTUAL income", () => {
-  it("charges an endogenous taxable withdrawal in December, leaving earlier months untouched", () => {
+  it("anticipates the decumulation an ordinary spend forces, rather than saving it all for December", () => {
     const rate = 0.25;
     const wages = series(2_000, 0, 11); // $24k/yr — nowhere near enough to fund the spend below
     const run = (expenseSeries: SimOwnedSeries[]): ProjectionSeries =>
       simulateHousehold(
-        baseInput([account("pretax", PRE_TAX_TAX_PROFILE, 500_000)], {
-          incomeSeries: [wages],
-          expenseSeries,
-        }),
+        baseInput(
+          [
+            account("checking", CAPITAL_GAINS_TAX_PROFILE, 0, true),
+            account("pretax", PRE_TAX_TAX_PROFILE, 500_000),
+          ],
+          { incomeSeries: [wages], expenseSeries },
+        ),
         flatAnnual(rate),
       );
     const steady = monthlyTax(run([]));
-    // A $50k obligation in month 6 that only a fully-taxable pre-tax draw can fund: taxable
-    // income the year's estimate could not have known about.
+    // A $50k obligation in month 6 that only a fully-taxable pre-tax draw can fund. The ACCOUNT
+    // it comes out of is discovered by the waterfall — but that the household will be $50k short
+    // is plain from the compiled expense series before the year starts, so the year-start
+    // forecast prices the withdrawal it will take.
     const withDraw = monthlyTax(run([series(50_000, 6, 6)]));
 
-    // Every month before December is the SAME estimate in both runs — the mid-year draw does
-    // not retroactively raise the instalments already paid, nor the month it lands in.
-    expect(withDraw.slice(0, 11)).toEqual(steady.slice(0, 11));
-    // The whole difference lands in December's reconciliation.
-    expect(withDraw[11]).toBeGreaterThan(steady[11]);
-    expect(sum(withDraw) - sum(steady)).toBe(withDraw[11] - steady[11]);
+    // Anticipated, so every month pays a share — including the eleven before December, and
+    // including the months BEFORE the spend even lands. That is the whole point: the liability
+    // is annual, so the payments are annual too.
+    for (let m = 0; m < 11; m++) expect(withDraw[m]!).toBeGreaterThan(steady[m]!);
+    // Those eleven are the one estimate, unchanged all year — a later month never re-prices;
+    // they differ only by the cumulative rounding that makes twelve instalments sum exactly.
+    expect(Math.max(...withDraw.slice(0, 11)) - Math.min(...withDraw.slice(0, 11))).toBeLessThanOrEqual(1);
+    // December is a true-up, not the bill. It is still the largest month — an ANNUAL forecast
+    // cannot know that the six months of surplus banked before the spend land too late to
+    // shrink the month-6 draw — but it is now the same order of magnitude as its neighbours,
+    // where deferring all decumulation tax made it roughly twenty-five times them.
+    expect(withDraw[11]!).toBeGreaterThan(withDraw[10]!);
+    expect(withDraw[11]!).toBeLessThan(withDraw[10]! * 2);
+    // Still exactly right in total — a smoother schedule, not a different bill. $24k of wages
+    // plus the whole gross withdrawal (basis 0), at 25%.
+    const drawn = dollarsToCents(500_000) - run([series(50_000, 6, 6)]).months[11].accountBalancesCents.pretax;
+    expect(sum(withDraw)).toBe(Math.round((dollarsToCents(24_000) + drawn) * rate));
   });
 
   it("makes the year's total charge equal the annual tax on the year's actual taxable income", () => {
@@ -284,8 +300,10 @@ describe("Federal income tax — December reconciles against the year's ACTUAL i
       flatAnnual(rate),
     );
     const taxes = monthlyTax(projection);
-    // Nothing was scheduled, so no instalment was estimated; the whole year settles in December.
-    expect(taxes.slice(0, 11)).toEqual(Array(11).fill(0));
+    // No SCHEDULED income at all — yet the year is not tax-free, and the estimate knows it: the
+    // spend has to come from the pre-tax account, so the forecast prices that withdrawal and
+    // charges a twelfth of the result every month.
+    for (const tax of taxes.slice(0, 11)) expect(tax).toBeGreaterThan(0);
     // Closed form for a fully-taxable (basis 0) source at flat rate r on an initial withdrawal
     // S: the recursive gross-up converges to tax = r·S / (1 − r). Integer-cent rounding at each
     // step of the climb can land a couple of cents off.
@@ -347,15 +365,15 @@ describe("Federal income tax — December reconciles against the year's ACTUAL i
     // come to the annual liability on the year's actual taxable income, to the cent — no
     // rounding residue, and no dependence on which month the $40k landed in.
     expect(sum(taxes)).toBe(jurisdiction.computeTaxCents(actualBase, { year: 2026 }));
-    // And the estimate really was wrong, so the equality is doing work rather than holding
-    // because nothing needed reconciling: the eleven months before December are the wages-only
-    // estimate to the cent, and December carries the whole difference.
-    const estimated = jurisdiction.computeTaxCents(
-      { ordinaryIncome: dollarsToCents(96_000) },
-      { year: 2026 },
-    );
+    // The spend's funding is EXPLICIT — the obligation names `pretax` and the amount — so the
+    // estimate does not have to forecast which account pays or guess at the gain: it prices the
+    // draw through the same resolver the simulator will use, and the year is estimated on the
+    // full $136k from January. December is therefore an ordinary twelfth like every other month,
+    // not the reconciliation of a $40k surprise, even though the rate genuinely jumps a bracket.
+    const estimated = jurisdiction.computeTaxCents(actualBase, { year: 2026 });
     expect(sum(taxes.slice(0, 11))).toBe(estimated - monthlyInstallmentCents(estimated, 11));
-    expect(taxes[11]).toBeGreaterThan(taxes[0]);
+    expect(taxes[11]).toBe(monthlyInstallmentCents(estimated, 11));
+    expect(Math.max(...taxes) - Math.min(...taxes)).toBeLessThanOrEqual(1);
   });
 
   it("combines two mid-year withdrawals into one annual base rather than two separate bills", () => {
@@ -430,13 +448,148 @@ describe("Federal income tax — December reconciles against the year's ACTUAL i
 });
 
 /**
- * A funding draw's taxable slice depends on the funding account's balance and cost basis in the
- * month it lands — both of them products of the year's returns, earlier draws and tax already
- * paid — so it is unknowable at the year's start and belongs to December. These pin both halves:
- * the draw is not enlarged to prepay its own tax, and the tax still gets collected.
+ * THE REGRESSION. A retired household living off its accounts: the shape in which deferring
+ * every decumulation dollar of tax to December produced a five-figure December charge, year
+ * after year, against near-zero months either side of it — a sawtooth in the tax chart and a
+ * matching one in net worth.
+ *
+ * Nothing here is scheduled income. The whole tax bill comes from withdrawals the funding
+ * waterfall decides on month by month, which is exactly what the year-start estimate could not
+ * see and now forecasts.
  */
-describe("Federal income tax — funding draws are not knowable at year start", () => {
-  const WAGE_MONTHLY_TAX = dollarsToCents(2_500); // 25% of $120k/yr, in twelfths
+describe("Federal income tax — a retired household decumulating, over four full years", () => {
+  // A $15k allowance, then 10% and 35% — bracketed on purpose, so the estimate's marginal rate
+  // genuinely differs from the year's and the twelve instalments cannot agree with the annual
+  // liability by linear arithmetic alone.
+  const jurisdiction = ((): Jurisdiction => {
+    const scalar = (byCat: Partial<Record<string, number>>): Cents => {
+      const total = CATEGORIES.reduce((s, c) => s + (byCat[c] ?? 0), 0);
+      const over = Math.max(0, total - dollarsToCents(15_000));
+      const lower = Math.min(over, dollarsToCents(60_000));
+      return Math.round(lower * 0.1 + Math.max(0, over - lower) * 0.35);
+    };
+    return {
+      id: "retired-progressive",
+      computeTaxCents: scalar,
+      computeTaxByCategoryCents: (byCat) =>
+        Object.fromEntries(
+          apportionByWeight(scalar(byCat), CATEGORIES.map((c) => [c, byCat[c] ?? 0] as const)),
+        ),
+      // Pro-rata return of capital, as a real jurisdiction defines it — without this seam the
+      // engine's fallback is "the whole draw is taxable", which would make even the cash
+      // accounts' drawdowns taxable income and obscure what this scenario is about.
+      taxableWithdrawalCents: ({ grossCents, basisCents, balanceCents }) =>
+        grossCents -
+        Math.round(grossCents * (balanceCents > 0 ? Math.min(1, basisCents / balanceCents) : 0)),
+    };
+  })();
+  const SPEND = 6_000; // $72k/yr — far past what the $20k of cash and brokerage can carry
+  const YEARS = 4;
+
+  /**
+   * The reported shape: cash and brokerage a tenth of the pre-tax account each, no wages, no
+   * benefit, and ordinary living costs that can only come out of the retirement account once the
+   * first $20k is gone. The pre-tax balance is sized so FOUR complete years of decumulation fit —
+   * at the reported $100k it would be exhausted inside two, and the recurring December spike is
+   * the whole point of the regression.
+   *
+   * Nothing compounds (every rate is 0), which keeps the brokerage's basis equal to its balance:
+   * its draws realize NO gain, so the year's entire taxable base is the pre-tax withdrawal,
+   * readable straight off that account's balance.
+   */
+  const retired = (): ProjectionSeries =>
+    simulateHousehold(
+      baseInput(
+        [
+          account("savings", CAPITAL_GAINS_TAX_PROFILE, 10_000, true),
+          account("retirement", PRE_TAX_TAX_PROFILE, 500_000),
+          account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 10_000),
+        ],
+        { horizonMonths: 12 * YEARS, expenseSeries: [series(SPEND, 0, 12 * YEARS - 1)] },
+      ),
+      jurisdiction,
+    );
+
+  /** The twelve monthly charges of tax year `y`. */
+  const yearOf = (taxes: readonly Cents[], y: number): Cents[] => taxes.slice(y * 12, y * 12 + 12);
+
+  it("anticipates the taxable decumulation and charges it across the year, not in December", () => {
+    const taxes = monthlyTax(retired());
+
+    for (let y = 0; y < YEARS; y++) {
+      const months = yearOf(taxes, y);
+      const december = months[11]!;
+      const annual = sum(months);
+      // The year-start estimate saw the decumulation coming: January charges, and so does every
+      // month after it. Before this, a year with no scheduled income estimated $0 and charged
+      // nothing at all until December.
+      for (const [i, tax] of months.entries()) {
+        expect(tax, `year ${y} month ${i}`).toBeGreaterThan(0);
+      }
+      // The eleven instalments are one flat estimate, not a ramp — the year is priced once, in
+      // January, and never re-priced from year-to-date income.
+      const instalments = months.slice(0, 11);
+      expect(Math.max(...instalments) - Math.min(...instalments)).toBeLessThanOrEqual(1);
+      // December is a TRUE-UP now. Deferring all of it made December the entire annual bill —
+      // 100% of the year — against $0 in the eleven months before. It is now a small correction
+      // for what an annual forecast cannot know (which month each draw lands in, and against
+      // what balances), comfortably under a fifth of the year.
+      expect(december, `year ${y} December`).toBeLessThan(Math.round(annual * 0.2));
+    }
+  });
+
+  it("still charges exactly the jurisdiction's annual tax on the year's actual taxable income", () => {
+    const projection = retired();
+    const taxes = monthlyTax(projection);
+    const retirementAt = (m: number): Cents => projection.months[m]!.accountBalancesCents.retirement!;
+
+    for (let y = 0; y < YEARS; y++) {
+      // Basis 0, so every cent that left the pre-tax account in this year IS this year's taxable
+      // income — including whatever December's settlement itself had to sell.
+      const opening = y === 0 ? dollarsToCents(500_000) : retirementAt(y * 12 - 1);
+      const drawn = opening - retirementAt(y * 12 + 11);
+      expect(sum(yearOf(taxes, y)), `year ${y}`).toBe(
+        jurisdiction.computeTaxCents({ ordinaryIncome: drawn }, { year: 2026 + y }),
+      );
+    }
+  });
+
+  it("draws net worth down smoothly, with no December cliff", () => {
+    const netWorth = retired().months.map((m) => m.netWorthNominalCents!);
+    const drops = netWorth.slice(1).map((v, i) => netWorth[i]! - v);
+    // A spending household's net worth falls every month; the question is whether it falls a
+    // roughly equal amount each time. The recurring December cliff was several times the
+    // surrounding months. Every month is now within 2× the median.
+    const median = [...drops].sort((a, b) => a - b)[Math.floor(drops.length / 2)]!;
+    expect(median).toBeGreaterThan(0);
+    for (const december of [11, 23, 35]) {
+      expect(drops[december], `December of year ${Math.floor(december / 12)}`).toBeLessThan(
+        median * 2,
+      );
+    }
+    expect(Math.max(...drops)).toBeLessThan(median * 2);
+  });
+
+  it("keeps the year's estimate in the accounts the waterfall will actually draw", () => {
+    // The estimate's per-source attribution has to name the same bands the real draws do,
+    // or the tax chart shows an estimated band beside an actual band for one account.
+    const flows = retired().months[0]!.flows!;
+    expect(Object.keys(flows.taxBySourceCents)).toEqual(["retirement"]);
+    expect(flows.taxBySourceCents["retirement"]).toBe(flows.taxCents);
+  });
+});
+
+/**
+ * An explicitly-funded event states its own allocation — which accounts, in what order, for how
+ * much — so its taxable income is not a forecast at all: the year-start estimate prices the draw
+ * through the simulator's own resolver against the balances the year opens with. These pin both
+ * halves of what that does and does not mean: the draw itself is NOT enlarged to prepay its own
+ * tax (no gross-up at the taxable event), and the tax it causes is nonetheless spread across the
+ * year's instalments rather than dropped on December.
+ */
+describe("Federal income tax — an explicitly-funded event is priced from its own allocation", () => {
+  // The year's whole liability: 25% of $120k of wages plus the whole $100k pre-tax draw.
+  const ANNUAL_TAX = dollarsToCents(55_000);
 
   /** $120k of wages and a $500k pre-tax account, with one draw against it in month 4. */
   function withDraw(treatment: "asset-acquisition" | "expense"): ProjectionSeries {
@@ -464,11 +617,13 @@ describe("Federal income tax — funding draws are not knowable at year start", 
   it.each([
     ["a home purchase's down payment", "asset-acquisition"],
     ["a one-time spend", "expense"],
-  ] as const)("does not gross up %s, and settles its tax in December", (_label, treatment) => {
+  ] as const)("does not gross up %s, and spreads its tax across the year", (_label, treatment) => {
     const projection = withDraw(treatment);
     const taxes = monthlyTax(projection);
 
     // Exactly $100k left the account — not $133k sold to prepay the tax the sale itself causes.
+    // Knowing the tax in advance is not the same as charging it at the taxable event, and this
+    // is the difference: the allocation is honoured to the cent.
     expect(projection.months[4].accountBalancesCents.pretax).toBe(
       dollarsToCents(500_000 - 100_000),
     );
@@ -477,12 +632,30 @@ describe("Federal income tax — funding draws are not knowable at year start", 
     const ordinaryIn = (m: number): Cents =>
       projection.months[m].flows!.incomeByCategoryCents["ordinaryIncome"] ?? 0;
     expect(ordinaryIn(4) - ordinaryIn(3)).toBe(dollarsToCents(100_000));
-    // The estimate never saw it: every month up to December is the wages-only instalment, and
-    // the month of the draw is no heavier than the others.
-    expect(taxes.slice(0, 11)).toEqual(Array(11).fill(WAGE_MONTHLY_TAX));
-    // December trues up the whole $100k at once, out of the cash the year's wages built up.
-    expect(taxes[11]).toBe(WAGE_MONTHLY_TAX + dollarsToCents(25_000));
-    expect(sum(taxes)).toBe(dollarsToCents(30_000 + 25_000));
+    // The estimate DID see it — the obligation named its account and amount in January — so the
+    // year is paced on $220k from month 0. The month the draw lands in is no heavier than any
+    // other, and neither is December.
+    expect(taxes).toEqual(
+      Array.from({ length: 12 }, (_, i) => monthlyInstallmentCents(ANNUAL_TAX, i)),
+    );
+    expect(sum(taxes)).toBe(ANNUAL_TAX);
+  });
+
+  it("counts an event's funding once — its amount never re-enters the unresolved annual deficit", () => {
+    // The double-count trap. The $100k draw is BOTH an outflow the household must fund and an
+    // explicitly-allocated one already priced from its own sources. Counting it in both places
+    // would forecast a second $100k of decumulation on top of the real one and roughly double
+    // the year's estimate. The control is a run with no draw at all: the difference between the
+    // two years' estimates must be the tax on ONE $100k of ordinary income, not two.
+    const withoutDraw = simulateHousehold(
+      baseInput(
+        [account("checking", CAPITAL_GAINS_TAX_PROFILE, 0, true), account("pretax", PRE_TAX_TAX_PROFILE, 500_000)],
+        { incomeSeries: [series(10_000, 0, 11)] },
+      ),
+      flatAnnual(0.25),
+    );
+    const delta = sum(monthlyTax(withDraw("expense"))) - sum(monthlyTax(withoutDraw));
+    expect(delta).toBe(dollarsToCents(25_000));
   });
 });
 
@@ -522,5 +695,50 @@ describe("Federal income tax — attribution", () => {
     const december = projection.months[11].flows!;
     // Wages paced the estimate all year; December adds the capital gain the draw realized.
     expect(december.taxByCategoryCents?.capitalGains).toBeGreaterThan(0);
+  });
+});
+
+describe("Federal income tax — payroll tax is a separate levy, untouched by any of this", () => {
+  it("charges the same payroll tax whether or not the household decumulates", () => {
+    // Payroll tax is charged on WAGES as they are earned, per month, by its own jurisdiction
+    // seam — it is not annual, it is not estimated, and it has no December reconciliation.
+    // Forecasting the year's income-tax funding must not perturb it: the two runs below share
+    // one wage stream and differ only in a spending line big enough to force a taxable pre-tax
+    // withdrawal (and so a much larger income-tax estimate) every month.
+    const jurisdiction: Jurisdiction = {
+      ...flatAnnual(0.25),
+      computePayrollTaxCents: (byCategory) => Math.round((byCategory.wages ?? 0) * 0.0765),
+      computePayrollTaxByCategoryCents: (byCategory) => {
+        const t = Math.round((byCategory.wages ?? 0) * 0.0765);
+        return t > 0 ? { wages: t } : {};
+      },
+    };
+    // Tagged `wages` explicitly — the point of the levy is that it rides EARNINGS, so a pre-tax
+    // withdrawal (`ordinaryIncome`) must not attract it however large the decumulation gets.
+    const wages: SimOwnedSeries = {
+      series: new SimCashFlowSeries(0, dollarsToCents(5_000), { type: "fixed" }, {
+        baselineUnit: "monthly",
+        endMonth: 11,
+        taxCategory: "wages",
+      }),
+      ownerId: "p1",
+    };
+    const run = (expenseSeries: SimOwnedSeries[]): Cents[] =>
+      simulateHousehold(
+        baseInput(
+          [
+            account("checking", CAPITAL_GAINS_TAX_PROFILE, 0, true),
+            account("pretax", PRE_TAX_TAX_PROFILE, 500_000),
+          ],
+          { incomeSeries: [wages], expenseSeries },
+        ),
+        jurisdiction,
+      ).months.map((m) => m.flows!.payrollTaxCents);
+
+    const idle = run([]);
+    const decumulating = run([series(9_000, 0, 11)]);
+    // 7.65% of $5,000, every month, in both runs.
+    expect(idle).toEqual(Array(12).fill(Math.round(dollarsToCents(5_000) * 0.0765)));
+    expect(decumulating).toEqual(idle);
   });
 });
