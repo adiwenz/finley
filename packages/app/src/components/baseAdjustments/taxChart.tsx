@@ -86,20 +86,28 @@ const TOOLTIP_BOX_STYLE: CSSProperties = {
  * this month — the reason `describeTaxes`' "peaking around $X/mo" figure and this hover
  * figure should always agree. Only drawn stacked (>1 band); the single-band case would just
  * repeat the one line above it.
+ *
+ * Bands paying nothing this month are dropped. Every band carries an explicit 0 in every row
+ * (see `rows` below), so the unfiltered hover is one line per band the plan ever charges —
+ * nine of them in a plan with two jobs and a few accounts, of which one or two carry money.
+ * A dropped band contributes nothing to the Total either, so the figure is unchanged.
  */
-function TaxTooltipContent(props: TooltipContentProps<ValueType, NameType>) {
+export function TaxTooltipContent(props: TooltipContentProps<ValueType, NameType>) {
   const { active, payload } = props;
   if (!active || !payload || payload.length === 0) return null;
-  const total = payload.reduce((sum, entry) => sum + (Number(entry.value) || 0), 0);
+  const paying = payload.filter((entry) => Number(entry.value) !== 0);
+  if (paying.length === 0) return null;
+  const total = paying.reduce((sum, entry) => sum + (Number(entry.value) || 0), 0);
   return (
     <div style={TOOLTIP_BOX_STYLE}>
       <DefaultTooltipContent
         {...props}
+        payload={paying}
         contentStyle={{ margin: 0, padding: 0, border: "none", backgroundColor: "transparent" }}
         formatter={(value, name) => [formatDollars(Number(value)), name]}
         labelFormatter={(l) => axisPointLabel(Number(l), monthLabel)}
       />
-      {payload.length > 1 && (
+      {paying.length > 1 && (
         <div
           style={{
             display: "flex",
