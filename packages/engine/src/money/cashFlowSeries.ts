@@ -56,7 +56,18 @@ export type TaxCategory =
   // taxed. Holding it is worth something, so it is drawn LAST; and where a jurisdiction counts
   // exempt interest toward a benefit test, it is real income for that purpose.
   | "taxedAtAccrual"
-  | "taxExempt";
+  | "taxExempt"
+  // Borrowed principal — a liability's proceeds, not income of any kind. Distinct from both
+  // untaxed categories above: those are money the household OWNS that some rule declines to tax,
+  // whereas this is money it owes back. It bears no tax, reaches no benefit test, and belongs to
+  // no rate regime, so a jurisdiction has nothing to decide about it.
+  //
+  // Stated rather than borrowed from a neighbouring label, because "bears no tax" is where the
+  // similarity ends: a flow labelled `taxExempt` counts toward the US benefit test and one
+  // labelled `taxedAtAccrual` asserts the tax was already paid at accrual. Neither is true of a
+  // loan, and a future source that DOES realize something on borrowing (a margin call's forced
+  // sale, a policy loan's taxable slice) must be forced to say so rather than inherit silence.
+  | "borrow";
 
 export interface SimCashFlowSeriesOptions {
   /**

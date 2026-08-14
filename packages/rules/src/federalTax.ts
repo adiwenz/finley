@@ -27,7 +27,9 @@ export { federalAnnualTaxByCategoryCents } from "./federalTaxAttribution";
  * ordinary taxable income; only part of a `governmentRetirementBenefit` (US: Social Security)
  * taxable, by provisional income (0 / up-to-50% / up-to-85%). `taxExempt` income is untaxed
  * but raises provisional income, pulling the benefit into range; `taxedAtAccrual` — a cash
- * balance drawn down, already taxed at accrual — is neither.
+ * balance drawn down, already taxed at accrual — is neither, and neither is `borrow`. The
+ * category-to-base sort is an exhaustive switch, so a new category cannot arrive here untaxed
+ * by default: it fails to compile until someone says what it costs.
  *
  * NEUTRALITY: every US constant lives in ./federalTaxTables, never in `packages/engine/src`.
  *

@@ -335,7 +335,7 @@ defers: `taxedAtAccrual` (a cash balance, already taxed as its interest was cred
 the only thing the drawdown order ranks on.
 **`taxCategory`** is a property of the FLOW — an income `CashFlowSeries`, or a withdrawal —
 and names what the money IS when it arrives, for the jurisdiction to price:
-`wages`/`socialSecurity`/`ordinaryIncome`/`capitalGains`/`taxedAtAccrual`/`taxExempt`.
+`wages`/`socialSecurity`/`ordinaryIncome`/`capitalGains`/`taxedAtAccrual`/`taxExempt`/`borrow`.
 One account carries both, and they answer different questions: a pre-tax retirement account is
 `taxDeferred` (so it is drawn third) and pays `ordinaryIncome` (so the brackets tax it).
 _Avoid_: using "tax treatment" loosely to mean either — name the specific field; and never rank
@@ -349,8 +349,14 @@ a benefit's provisional-income test, and is drawn FIRST — holding it defers no
 **`taxExempt`** is a genuinely untaxed vehicle (Roth-like, or exempt interest) whose growth is
 never taxed: holding it is worth something, so it is drawn LAST, and where a jurisdiction counts
 exempt interest toward a benefit test it is real income for that purpose.
-_Avoid_: "tax-free" for either — it is true of both withdrawals and hides the distinction that
-decides the drawdown order.
+**`borrow`** is the third: loan proceeds, which are not income under any regime and belong to no
+rate regime at all. Distinct from both, because those describe money the household OWNS that some
+rule declines to tax, and this is money it owes back.
+The category-to-base sort in `federalTaxParts` is an exhaustive switch over `TaxCategory`, so a
+new category cannot be added and silently priced at zero: it fails to compile until someone
+states which base it enters, or that it enters none.
+_Avoid_: "tax-free" for any of them — it is true of all three withdrawals and hides the
+distinction that decides the drawdown order and the benefit test.
 
 **GovernmentProgram**:
 A modeled income or cost change whose amount/availability is *derived* from the

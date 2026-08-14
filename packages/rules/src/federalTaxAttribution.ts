@@ -40,7 +40,8 @@ function apportionByWeight(
  *     by ordinary-taxable weight (the benefit by its INCLUDED portion only).
  *   • `taxExempt` never bears tax; it counts only for the benefit test. `taxedAtAccrual` — a
  *     drawn-down cash balance — bears none and counts for nothing, its interest having been
- *     taxed as `ordinaryIncome` at accrual.
+ *     taxed as `ordinaryIncome` at accrual. `borrow` is loan proceeds and bears none either.
+ *     None of the three can appear below, so Σ is unaffected.
  *
  * ⚠ LIMITATION: average-rate within the ordinary regime, not marginal incidence — it misses
  * notch/inclusion effects (an ordinary dollar can raise the taxable benefit or push gains out

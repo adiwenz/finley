@@ -58,6 +58,68 @@ export function taxableSocialSecurityCents(
   return Math.round(Math.min(benefit * SS_MAX_SHARE, taxable));
 }
 
+/**
+ * The four bases the US single-filer computation actually runs on, summed from an arbitrary
+ * {@link TaxCategory} map. Negative entries are floored at zero per category.
+ */
+interface TaxableBases {
+  /** Wages — ordinary, and its own attribution weight. */
+  wages: Cents;
+  /** Non-wage ordinary income: interest, pre-tax withdrawals, everything ordinary but not paid. */
+  ordinaryIncome: Cents;
+  /** Realized long-term gains, priced at the preferential rates. */
+  capitalGains: Cents;
+  /** Gross government benefit; only the included slice reaches the brackets. */
+  governmentRetirementBenefit: Cents;
+  /** Exempt INTEREST: never taxed, but statutorily added back to provisional income. */
+  taxExempt: Cents;
+}
+
+/**
+ * Sort every category in `annualByCategory` into the base it belongs to.
+ *
+ * EXHAUSTIVE by construction: the `default` arm assigns to `never`, so adding a
+ * {@link TaxCategory} fails to compile here until someone decides what it costs. That is the
+ * whole point of the switch — a lookup-by-name would silently drop an unrecognised category,
+ * which for a tax computation means income that vanishes with nothing raising a hand. Untaxed
+ * categories are listed and fall through to no base, so "bears no tax" is a decision on the
+ * record rather than an omission.
+ */
+function taxableBases(annualByCategory: Partial<Record<TaxCategory, Cents>>): TaxableBases {
+  const bases: TaxableBases = {
+    wages: 0,
+    ordinaryIncome: 0,
+    capitalGains: 0,
+    governmentRetirementBenefit: 0,
+    taxExempt: 0,
+  };
+  for (const [key, value] of Object.entries(annualByCategory)) {
+    const category = key as TaxCategory;
+    const cents = Math.max(0, value ?? 0);
+    switch (category) {
+      case "wages":
+      case "ordinaryIncome":
+      case "capitalGains":
+      case "governmentRetirementBenefit":
+      case "taxExempt":
+        bases[category] += cents;
+        break;
+      // Bear no tax and enter no base, for two different reasons: `taxedAtAccrual` is a return of
+      // principal whose interest was already taxed as `ordinaryIncome` in the year it was
+      // credited (taxing it again here would double-count it, and adding it to provisional income
+      // would double-count it in the benefit test); `borrow` is loan proceeds, never income.
+      case "taxedAtAccrual":
+      case "borrow":
+        break;
+      default: {
+        const unhandled: never = category;
+        throw new Error(`Unhandled tax category: ${String(unhandled)}`);
+      }
+    }
+  }
+  return bases;
+}
+
 /** Progressive tax on `taxableCents` through the ascending marginal `brackets`. */
 function ordinaryTaxCents(taxableCents: Cents, brackets: readonly OrdinaryBracket[]): Cents {
   const taxable = Math.max(0, taxableCents);
@@ -130,11 +192,13 @@ export function federalTaxParts(
   year: number,
 ): FederalTaxParts {
   const tables = federalTaxTables(year);
-  const wages = Math.max(0, annualByCategory.wages ?? 0);
-  const ordinaryOther = Math.max(0, annualByCategory.ordinaryIncome ?? 0);
-  const gains = Math.max(0, annualByCategory.capitalGains ?? 0);
-  const benefit = Math.max(0, annualByCategory.governmentRetirementBenefit ?? 0);
-  const taxExempt = Math.max(0, annualByCategory.taxExempt ?? 0);
+  const {
+    wages,
+    ordinaryIncome: ordinaryOther,
+    capitalGains: gains,
+    governmentRetirementBenefit: benefit,
+    taxExempt,
+  } = taxableBases(annualByCategory);
 
   const ordinaryNonBenefit = wages + ordinaryOther;
 
@@ -142,10 +206,10 @@ export function federalTaxParts(
   //    (ordinary + capital gains) plus tax-exempt interest — never taxed itself, but it
   //    still counts toward the benefit test.
   //
-  //    `taxedAtAccrual` is deliberately NOT in it. Spending down a bank balance is a return of
-  //    principal already taxed the month its interest was credited: not income, so it cannot
-  //    drag a benefit into tax. Only `taxExempt` — exempt INTEREST, real income the statute
-  //    merely declines to tax — belongs in the test.
+  //    Cash interest DOES belong here, and reaches it as `ordinaryIncome` in the year it is
+  //    credited — the 1099-INT. What stays out is the later DRAWDOWN of that balance
+  //    (`taxedAtAccrual`), which is the same money a second time: principal the household has
+  //    finished paying tax on. Counting both would test one dollar of interest twice.
   const taxableBenefit = taxableSocialSecurityCents(benefit, ordinaryNonBenefit + gains + taxExempt);
 
   // 2. Standard deduction: off ordinary income first, remainder off capital gains.

@@ -121,6 +121,38 @@ describe("federalAnnualTaxCents — government benefit inclusion end to end", ()
     expect(taxableSocialSecurityCents(30_000_00, 200_000_00)).toBeGreaterThan(0);
   });
 
+  it("counts cash interest toward provisional income ONCE, at accrual", () => {
+    // The other half of the test above, and the reason it is not a loophole: interest on a cash
+    // balance is ordinary income in the year it is credited, and reaches the benefit test there
+    // like any other ordinary dollar. Only the later drawdown of the balance it grew is excluded.
+    const interestAccrued = federalAnnualTaxCents(
+      { ordinaryIncome: 20_000_00, governmentRetirementBenefit: 30_000_00 },
+      2026,
+    );
+    expect(interestAccrued).toBeGreaterThan(
+      federalAnnualTaxCents({ governmentRetirementBenefit: 30_000_00 }, 2026),
+    );
+    // Spending the balance that interest accumulated into adds nothing on top: one dollar of
+    // interest, one appearance in the test.
+    expect(
+      federalAnnualTaxCents(
+        { ordinaryIncome: 20_000_00, taxedAtAccrual: 200_000_00, governmentRetirementBenefit: 30_000_00 },
+        2026,
+      ),
+    ).toBe(interestAccrued);
+  });
+
+  it("keeps borrowed principal out of both the brackets and the benefit test", () => {
+    // Loan proceeds are not income under any regime. Asserted against a benefit big enough that
+    // any leak into provisional income would show as tax.
+    const borrowed = federalAnnualTaxCents(
+      { borrow: 500_000_00, governmentRetirementBenefit: 30_000_00 },
+      2026,
+    );
+    expect(borrowed).toBe(federalAnnualTaxCents({ governmentRetirementBenefit: 30_000_00 }, 2026));
+    expect(borrowed).toBe(0);
+  });
+
   it("counts tax-exempt income toward provisional income for the SS test", () => {
     const withTaxExempt = federalAnnualTaxCents(
       { taxExempt: 30_000_00, governmentRetirementBenefit: 30_000_00 },

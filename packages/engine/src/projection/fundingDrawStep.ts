@@ -78,7 +78,7 @@ export interface ResolvedFundingSource {
   readonly kind: "account" | "credit";
   readonly id: string;
   readonly ownerId: string;
-  /** The account's withdrawal tax category; `"taxedAtAccrual"` for a credit borrow, which realizes none. */
+  /** The account's withdrawal tax category; `"borrow"` for a credit borrow, which realizes none. */
   readonly category: TaxCategory;
   readonly label?: string;
   /** Sold from the account, exactly the amount asked; for credit, the amount borrowed. */
@@ -197,10 +197,13 @@ export function resolveOrderedFundingDraw(
         kind: "credit",
         id: source.id,
         ownerId: source.ownerId,
-        // Borrowed principal is not income and bears no tax. Inert either way — every tax field
-        // below is 0 — but NOT `taxExempt`, which now means "untaxed yet counts toward a benefit
-        // test"; a loan must never reach that test.
-        category: "taxedAtAccrual",
+        // Borrowed principal is not income, and `borrow` is the category that says only that.
+        // Nothing prices it today — the tax fields below are pinned to 0 and every downstream
+        // reader is gated on `gainCents > 0` — so the label is doing documentation, not
+        // arithmetic. It is stated anyway because the next credit-like source may not be inert
+        // (a margin loan realizing gain on a forced sale), and inheriting a category chosen on
+        // the assumption that nothing is ever booked under it is how income goes missing.
+        category: "borrow",
         label: source.label,
         grossCents: borrowed,
         gainCents: 0,
