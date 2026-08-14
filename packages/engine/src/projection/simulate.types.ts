@@ -11,6 +11,7 @@ import type { SimGoal } from "../goal/goal";
 import type { BudgetLine } from "../budget/budgetLine";
 import type { FinancialObligation, ObligationId, ObligationSource } from "./financialObligation";
 import type { ResolvedFunding } from "./resolvedFunding";
+import type { EstateSettlement } from "./estateSettlement";
 import type { FundingFailure } from "./fundingFailure";
 import type {
   PlanDescriptor,
@@ -444,6 +445,16 @@ export interface ProjectionSeries {
    */
   readonly status: "ran-to-horizon" | "blocked";
   /**
+   * The estate weighed against what it owes, present iff the run reached the month the last member
+   * died ({@link HouseholdSimInput.householdDeathMonthExclusive}) without being blocked first.
+   *
+   * Absent on every other run — a truncated horizon, a debug span, a blocked projection — because
+   * none of those is a death, and a terminal-solvency verdict on one would be an answer to a
+   * question nobody asked. Insolvency does NOT suppress it: an insolvent household still dies on
+   * schedule, and what it left behind is still worth stating.
+   */
+  readonly estateSettlement?: EstateSettlement;
+  /**
    * The index of the last emitted month (`months.length - 1`). Equals {@link blockedAtMonth} when
    * blocked — the blocked month IS emitted — so a consumer never has to special-case truncation.
    */
@@ -594,6 +605,19 @@ export interface SimProperty {
 
 export interface HouseholdSimInput {
   readonly horizonMonths: number;
+  /**
+   * The exclusive month the LAST surviving member dies — the household's end, as opposed to the
+   * run's end. Present → the projection settles the estate once it reaches that month
+   * ({@link ProjectionSeries.estateSettlement}).
+   *
+   * Stated rather than inferred from `horizonMonths`, because the two coincide only when the run
+   * was sized by the household's lifetime. A debug run, a deliberately truncated span, or any
+   * safety horizon ends without anybody dying, and settling an estate there would invent a death
+   * the caller never modelled. {@link import("./buildHouseholdInput").buildHouseholdSimInput}
+   * fills it from the same `memberHorizonReach` reduce that sizes the horizon, so a plan-derived
+   * run always has it and a hand-built engine fixture never does.
+   */
+  readonly householdDeathMonthExclusive?: number;
   readonly annualInflationRate: number;
   /**
    * Unset → COUPLED to {@link annualInflationRate}. Set it for a benefit indexed away

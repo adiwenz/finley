@@ -104,6 +104,21 @@ export class SimAccount {
   readonly label?: string;
   /** liquid=true: eligible to receive net cash flow from the allocation waterfall. */
   readonly liquid: boolean;
+  /**
+   * Passes DIRECTLY to a named beneficiary at death, outside the estate — so it is neither
+   * available to pay the final tax bill and the debts left behind, nor at risk from them
+   * ({@link import("../projection/estateSettlement").settleEstate}). True for retirement
+   * vehicles, false for cash and ordinary taxable holdings.
+   *
+   * Orthogonal to {@link liquid}, which is about receiving the waterfall's surplus: a taxable
+   * brokerage account is illiquid in that sense and still squarely in the estate.
+   *
+   * Defaults to false — in the estate. Every account the plan compiles states it explicitly
+   * ({@link import("../compile/projectionBase").buildPlanAccounts}), so the default is only ever
+   * reached by a hand-built engine fixture, which reads it only if it also declares a household
+   * death month.
+   */
+  readonly beneficiaryDesignated: boolean;
   readonly taxProfile: SimAccountTaxProfile;
   readonly openingBalanceCents: Cents;
 
@@ -115,6 +130,7 @@ export class SimAccount {
     ownerId: string;
     label?: string;
     liquid: boolean;
+    beneficiaryDesignated?: boolean;
     taxProfile: SimAccountTaxProfile;
     openingBalanceCents: Cents;
     initialAnnualRate: number;
@@ -124,6 +140,7 @@ export class SimAccount {
     this.kind = "asset";
     this.label = params.label;
     this.liquid = params.liquid;
+    this.beneficiaryDesignated = params.beneficiaryDesignated ?? false;
     this.taxProfile = params.taxProfile;
     this.openingBalanceCents = params.openingBalanceCents;
     this.rateSegments = [{ startMonth: 0, annualRate: params.initialAnnualRate }];
@@ -172,6 +189,7 @@ export class SimAccount {
       ownerId: this.ownerId,
       label: this.label,
       liquid: this.liquid,
+      beneficiaryDesignated: this.beneficiaryDesignated,
       taxProfile: this.taxProfile,
       openingBalanceCents: this.openingBalanceCents,
       initialAnnualRate: this.rateSegments[0].annualRate,

@@ -83,11 +83,12 @@ function settlementKey(personId: string, taxYear: number): string {
  * import("./allocationStep").allocateMonth}), so the base read here is the COMPLETE year
  * regardless of which month each dollar landed in.
  *
- * A run that stops before its next April — blocked mid-year, or simply out of horizon — leaves
- * the last year's balance parked and unsettled. That is the same fact as a real household's final
- * filing falling after the last month anyone modelled, and it is deliberately NOT hurried forward
- * into December: doing so would restore the very spike (and the recursion behind it) this
- * arrangement removes.
+ * A run that stops before its next April leaves the last year's balance parked and unsettled, and
+ * it is deliberately NOT hurried forward into December: doing so would restore the very spike
+ * (and the recursion behind it) this arrangement removes. Where the run stopped because the
+ * household DIED, the parked balance is not simply abandoned — it becomes an estate obligation,
+ * weighed against estate assets rather than charged to a month
+ * ({@link import("./estateSettlement").settleEstate}).
  */
 export function finalizeTaxYear(
   state: SimState,
@@ -180,6 +181,32 @@ export function dueTaxYearSettlements(
     due.set(pid, settlement);
   }
   return due;
+}
+
+/**
+ * Every parked balance belonging to a year BEFORE `ctx.year`, summed and signed — what a run
+ * ending in `ctx.year` accrued and never settled, because each of those balances was waiting for
+ * an April that the run did not reach.
+ *
+ * `ctx.year`'s own entry is excluded: the caller ({@link
+ * import("./estateSettlement").settleEstate}) prices that year from its actual income directly,
+ * and December of a final year parks exactly that same figure.
+ *
+ * Ordinarily empty — a year's balance is consumed the following April, so at most one year can be
+ * outstanding at once, and only where the run ends between January and March.
+ */
+export function unsettledBalancesFromEarlierYearsCents(
+  state: SimState,
+  ctx: JurisdictionContext,
+): Cents {
+  let total = 0;
+  for (const [key, settlement] of state.pendingTaxSettlementsByPersonYear) {
+    // The key is `${personId}|${taxYear}`; a person id never contains the separator, but a
+    // last-index split is right whether or not that stays true.
+    const taxYear = Number(key.slice(key.lastIndexOf("|") + 1));
+    if (taxYear !== ctx.year) total += settlement.totalCents;
+  }
+  return total;
 }
 
 /**

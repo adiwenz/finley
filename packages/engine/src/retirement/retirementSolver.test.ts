@@ -983,15 +983,20 @@ describe("retirementSolver — which job a later candidate age continues", () =>
 
     // Was [71, 71, 71].
     const ages = [400_000, 450_000, 600_000].map(solveAt);
-    expect(ages).toEqual([70, 69, 67]);
+    // $450k stops at 70 rather than 69 because stopping at 69 dies owing about $9k on the
+    // shortfall card with an empty estate — lifetime-solvent every month, and still not a plan
+    // that pays for itself. That is the terminal estate test, not the continuity this asserts.
+    expect(ages).toEqual([70, 70, 67]);
     // Each lands strictly inside the dead band — past the career's own end, at or before the
     // token job's — which is what makes them answers the old rule could not produce at all.
     for (const age of ages) {
       expect(age).toBeGreaterThan(65);
       expect(age).toBeLessThanOrEqual(70);
     }
-    // And the response is monotone: more savings never costs a household a later stop age.
-    for (let i = 1; i < ages.length; i++) expect(ages[i]!).toBeLessThan(ages[i - 1]!);
+    // And the response is monotone: more savings never costs a household a later stop age, and
+    // enough of it buys real years.
+    for (let i = 1; i < ages.length; i++) expect(ages[i]!).toBeLessThanOrEqual(ages[i - 1]!);
+    expect(ages[2]!).toBeLessThan(ages[0]!);
   });
 
   it("never starts a job the candidate boundary falls before", () => {
@@ -2035,10 +2040,11 @@ describe("retirementSolver — the search's projection count", () => {
   });
 
   it("costs one projection per candidate age, whatever the estimate does inside a month", () => {
-    // The same count for a household that decumulates hard (so the year-start estimate has a
-    // real funding forecast to solve every January) as for one that does not. The estimate's
-    // fixed point runs INSIDE a month; it never adds a pass.
+    // A household that decumulates hard, so the year-start estimate has a real funding forecast
+    // to solve every January and the terminal estate has a real bill to price. Both run INSIDE
+    // one projection — which is what the exact ratio above pins: neither adds a pass. Eight, not
+    // the sample plan's seven, because this plan's threshold age sits one bisection deeper.
     const scenario = scenarioOf(baristaPlan);
-    expect(projectionPasses(scenario, (ctx) => solveRetirement(scenario, ctx))).toBe(7);
+    expect(projectionPasses(scenario, (ctx) => solveRetirement(scenario, ctx))).toBe(8);
   });
 });

@@ -120,18 +120,33 @@ function monthSurvives(m: ProjectionSeries["months"][number]): boolean {
 export type SurvivalOutcome = "survives" | "fails" | "blocked";
 
 /**
- * Survival read off the projection, block-aware. A blocked series is `"blocked"` BEFORE the
- * per-month test, because `Array.every` over a truncated series is vacuously `true` — a blocked
- * plan would otherwise report as surviving, promising a retirement age beside a graph that stops.
+ * Survival read off the projection, block-aware. Two conditions, both necessary:
+ *
+ *  - **lifetime solvency** — every month funded its obligations from savings or credit;
+ *  - **terminal estate solvency** — what the household died holding OUTSIDE its beneficiary-
+ *    designated retirement accounts covered the final tax bill and the debts left behind
+ *    ({@link ProjectionSeries.estateSettlement}).
+ *
+ * The second exists because the first can be satisfied by a bill that simply falls after the last
+ * modelled month. A household dying in October never reaches the April that would have settled its
+ * final tax year, and one dying with a mortgage outstanding never amortizes it away; judged on
+ * months alone, both retire early and comfortably on obligations nobody ever pays. Absent — an
+ * arbitrary horizon, a debug span — the lifetime test stands alone, unchanged.
+ *
+ * A blocked series is `"blocked"` BEFORE either test, because `Array.every` over a truncated
+ * series is vacuously `true` — a blocked plan would otherwise report as surviving, promising a
+ * retirement age beside a graph that stops.
  */
 export function planOutcome(series: ProjectionSeries): SurvivalOutcome {
   if (series.status === "blocked") return "blocked";
-  return series.months.every(monthSurvives) ? "survives" : "fails";
+  if (!series.months.every(monthSurvives)) return "fails";
+  return series.estateSettlement?.isSolvent === false ? "fails" : "survives";
 }
 
 /**
- * Does the plan fund itself through life expectancy? The signal every mode reads. A truncated
- * (blocked) projection is never a success — {@link planOutcome} guards the vacuous `every`.
+ * Does the plan fund itself through life expectancy, and leave an estate that can settle what it
+ * still owes? The signal every mode reads. A truncated (blocked) projection is never a success —
+ * {@link planOutcome} guards the vacuous `every`.
  */
 export function planSurvives(series: ProjectionSeries): boolean {
   return planOutcome(series) === "survives";

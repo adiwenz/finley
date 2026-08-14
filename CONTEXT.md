@@ -273,6 +273,34 @@ Marks an `Account` as eligible to fund an obligation and usable by the shortfall
 drawdown step. `checking`/`savings`/`brokerage` = liquid; retirement accounts
 (`401k`/`Roth`/`HSA`) = not liquid.
 
+### The end of the plan
+
+**Estate settlement**:
+The one calculation that happens after the last household member dies, replacing the monthly
+cash-flow simulation rather than extending it. Weighs **estate assets** against the final
+federal income tax and the debt balances outstanding on the day, and states the surplus. No
+month, no waterfall, no sale — the run's balances and net worth are untouched by it.
+_Avoid_: probate (this is a deliberately simplified planning model, not a legal one), final
+year, wind-down.
+
+**Estate assets** vs **beneficiary retirement assets**:
+The two pools a household dies holding, never conflated. **Estate assets** — cash, taxable
+investments at death-date value, property — are what the final tax and the debts are paid
+from. **Beneficiary retirement assets** pass directly to a named beneficiary, are reported
+separately, and are never spent to settle the estate or grossed up for tax. A household can
+die with a large retirement balance and still fail terminal solvency.
+
+**Terminal estate solvency**:
+Estate assets ≥ final tax due + outstanding debt. The second half of the retirement solver's
+feasibility test, beside lifetime solvency: a candidate age is feasible only if the household
+funds every month AND leaves an estate that can settle what it still owes. Stops a plan from
+qualifying on a tax bill or a mortgage that simply falls after the last modeled month.
+
+**Basis reset at death** (simplified):
+Taxable investments enter the estate at their death-date value with no capital gain realized
+on liquidation. A terminal valuation rule only — every sale made while the household was
+alive prices its gain against the ordinary basis model.
+
 ### Engine purity and the jurisdiction seam
 
 **Engine purity**:

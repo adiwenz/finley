@@ -103,8 +103,8 @@ export interface Jurisdiction {
    * CONTRACT: Σ of the returned map MUST equal {@link computeTaxCents} for the same input,
    * enforced at runtime to the exact cent (`assertPersonTaxBreakdownReconciles`).
    *
-   * Required; no tax → `{}`. Reporting only — the scalar {@link computeTaxCents} stays the
-   * year-end settlement's recursive gross-up climb's marginal-tax probe.
+   * Required; no tax → `{}`. Reporting only: the scalar {@link computeTaxCents} is what every
+   * pricing decision reads.
    */
   computeTaxByCategoryCents(
     taxableByCategory: Partial<Record<TaxCategory, Cents>>,
@@ -124,9 +124,10 @@ export interface Jurisdiction {
    * average-cost); the engine reduces basis by `grossCents − taxable`, so the state update
    * stays method-agnostic.
    *
-   * The gross-up loop probes it repeatedly, so it MUST be pure and monotone non-decreasing
-   * in `grossCents` — that is what lets the loop climb to its least fixed point. Absent →
-   * the whole `grossCents` is taxable.
+   * The year-start estimate's decumulation fixed point ({@link
+   * import("../projection/taxYearProjection").projectKnownTaxYear}) probes it repeatedly, so it
+   * MUST be pure and monotone non-decreasing in `grossCents` — that is what lets the estimate
+   * climb to its least fixed point. Absent → the whole `grossCents` is taxable.
    */
   taxableWithdrawalCents?(basis: WithdrawalTaxBasis, ctx: JurisdictionContext): Cents;
 

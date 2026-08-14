@@ -28,7 +28,7 @@ describe("taxableWithdrawalCents — US pro-rata return of capital", () => {
     expect(taxableWithdrawalCents(draw(2_000, 0, 100_000))).toBe(2_000_00);
   });
 
-  it("is monotone non-decreasing in the gross (the gross-up loop depends on it)", () => {
+  it("is monotone non-decreasing in the gross (the tax-year estimate's fixed point depends on it)", () => {
     let prev = -1;
     for (let g = 0; g <= 50_000; g += 2_500) {
       const taxable = taxableWithdrawalCents(draw(g, 40_000, 100_000));

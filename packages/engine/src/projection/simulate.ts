@@ -37,6 +37,7 @@ import {
   pendingSettlementTotalCents,
 } from "./taxYearSettlement";
 import { projectKnownTaxYear } from "./taxYearProjection";
+import { settleEstate, type EstateSettlement } from "./estateSettlement";
 import {
   estimatedPaymentForMonth,
   MONTHS_IN_TAX_YEAR,
@@ -61,6 +62,7 @@ export type {
   ObligationOutcome,
   SimProperty,
 } from "./simulate.types";
+export type { EstateSettlement } from "./estateSettlement";
 
 const DEFAULT_START_YEAR = 2026;
 
@@ -119,7 +121,10 @@ function classifyObligationOutcomes(
  * owns: twelve even estimated instalments through the waterfall, then — after the year's actual
  * taxable income is complete at December — a single remaining balance carried to the FOLLOWING
  * April, where it is charged (or refunded) through that month's ordinary waterfall. A closed year
- * is never reopened: the April draw that funds its balance is income in the year of the draw. The
+ * is never reopened: the April draw that funds its balance is income in the year of the draw.
+ * Where the run ends because the household DIED, the April that would have settled the last year
+ * never comes; that balance is weighed against estate assets instead, once, after the loop
+ * ({@link import("./estateSettlement").settleEstate}). The
  * pre-flow state is captured once as {@link ProjectionSeries.opening}; every entry in `months` is
  * a real, processed month, `months[i]` folding in `months[i-1]`'s flows plus its own.
  */
@@ -577,10 +582,26 @@ export function simulateHousehold(
   }
 
   const blockedAtMonth = blockingObligation?.month;
+
+  // The run reached the month the household ends, so there is an estate to settle: the final tax
+  // year is finished, every balance is where death left it, and what remains is arithmetic on that
+  // state — no month, no waterfall, no second pass. Only for a run the caller sized by the
+  // household's own lifetime and that reached the end of it; a horizon stopping early, running
+  // past the last death, or truncated by a block is not a death, and says so by settling nothing.
+  const diedAtHorizon =
+    blockedAtMonth === undefined &&
+    input.householdDeathMonthExclusive === input.horizonMonths &&
+    months.length === input.horizonMonths;
+  const finalMonth = months.length - 1;
+  const estateSettlement: EstateSettlement | undefined = diedAtHorizon
+    ? settleEstate(state, jurisdiction, { year: startYear + Math.floor(finalMonth / 12) }, finalMonth)
+    : undefined;
+
   return {
     opening,
     months,
     status: blockedAtMonth !== undefined ? "blocked" : "ran-to-horizon",
+    ...(estateSettlement !== undefined ? { estateSettlement } : {}),
     // The last emitted month's index; equals `blockedAtMonth` when blocked, since the loop breaks
     // right after pushing that month.
     simulatedThroughMonth: months.length - 1,

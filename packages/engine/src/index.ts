@@ -145,6 +145,7 @@ export type {
   InsolvencyReport,
   IncomeSourceCategory,
 } from "./projection/simulate.types";
+export type { EstateSettlement } from "./projection/estateSettlement";
 export type { SharedContributionScheme } from "./projection/waterfall.types";
 // Why a blocked projection fell short, and the engine-owned rule for which accounts may fund a
 // draw — the UI classifies and picks sources through these, never re-implementing eligibility.

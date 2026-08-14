@@ -158,13 +158,24 @@ export function buildHouseholdSimInput(
   //
   // `base.horizonMonths` (the primary's) is the floor, so a shorter-lived member can only fail to
   // raise it, never shorten the run.
-  const horizonMonths = resolvedMembers.reduce((reach, r) => {
+  //
+  // The same reduce answers a SECOND question the simulator needs kept apart from the first: not
+  // "how far must the run reach?" but "when does the household end?". They coincide whenever a
+  // death is what sized the run, and diverge whenever something else did — a hand-built base
+  // carrying its own span, or one with no frozen "now" to reckon a death against. Only the
+  // coincidence licenses an estate settlement, so the death month is reported only when it IS the
+  // horizon; anything else ends the run without anybody dying.
+  const lastDeathMonth = resolvedMembers.reduce<number | null>((last, r) => {
     const memberReach = memberHorizonReach(r.lifeEnd, r.separationMonth, primaryLifeEnd);
-    return memberReach === null ? reach : Math.max(reach, memberReach);
-  }, base.horizonMonths);
+    return memberReach === null ? last : Math.max(last ?? memberReach, memberReach);
+  }, null);
+  const horizonMonths = Math.max(base.horizonMonths, lastDeathMonth ?? base.horizonMonths);
 
   return {
     horizonMonths,
+    ...(lastDeathMonth === horizonMonths
+      ? { householdDeathMonthExclusive: lastDeathMonth }
+      : {}),
     annualInflationRate: base.annualInflationRate,
     benefitColaRate: base.benefitColaRate,
     startYear: base.startYear,
