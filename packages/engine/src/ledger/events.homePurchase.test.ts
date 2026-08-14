@@ -1249,7 +1249,15 @@ describe("HomePurchaseEvent — §4.5 gate == sim across a decumulation month", 
     horizonMonths: 24,
     annualInflationRate: 0,
     initialPersons: [personLit("p1", "Alice")],
-    initialAccounts: [liquidAcct("cash", DOWN, 0), liquidAcct("nest", 20_000_000, 0.1)],
+    // `cash` carries a little more than the down payment: it is the liquid buffer, so it also
+    // pays the year's estimated tax instalments, and the $150k decumulation below really does
+    // realize ~$25k of gain on `nest` — over this jurisdiction's $15k threshold. Sizing `cash` at
+    // exactly `DOWN` made the fixture depend on those instalments being missed. Decumulation
+    // spends the remainder in the same month either way, so end-of-month `cash` still reads $0.
+    initialAccounts: [
+      liquidAcct("cash", DOWN + dollarsToCents(5_000), 0),
+      liquidAcct("nest", 20_000_000, 0.1),
+    ],
     initialExpenseSeries: [
       {
         series: new SimCashFlowSeries(

@@ -771,6 +771,95 @@ describe("Federal income tax — an explicitly-funded event is priced from its o
   });
 });
 
+describe("Federal income tax — the year a retirement account is exhausted", () => {
+  // The regression: the year-start estimate forecasts decumulation against the accounts, and it
+  // used to cap each account's whole-year draw at its JANUARY balance. An account being spent
+  // goes on earning on whatever has not been spent yet, so in the one year it is drained it funds
+  // MORE than it ever held at once — and the tax on that slice had nowhere to go but the
+  // following April, landing as a lone spike months after the household had stopped paying tax.
+  //
+  // On the shipped default plan at $10k/$100k/$10k the spike was $549.67 in April 2076, against a
+  // retirement account that opened 2075 holding $82,092.22 and funded $84,568.18 of withdrawals.
+  // This fixture is the same shape in miniature, and is discriminating: under the old cap its
+  // April charge is $138.29, and it is $0.00 once the forecast compounds.
+  const jurisdiction = ((): Jurisdiction => {
+    const scalar = (byCat: Partial<Record<string, number>>): Cents => {
+      const total = CATEGORIES.reduce((s, c) => s + (byCat[c] ?? 0), 0);
+      const over = Math.max(0, total - dollarsToCents(15_000));
+      const lower = Math.min(over, dollarsToCents(60_000));
+      return Math.round(lower * 0.1 + Math.max(0, over - lower) * 0.35);
+    };
+    return {
+      id: "exhaustion-progressive",
+      computeTaxCents: scalar,
+      computeTaxByCategoryCents: (byCat) =>
+        Object.fromEntries(
+          apportionByWeight(scalar(byCat), CATEGORIES.map((c) => [c, byCat[c] ?? 0] as const)),
+        ),
+      taxableWithdrawalCents: ({ grossCents, basisCents, balanceCents }) =>
+        grossCents -
+        Math.round(grossCents * (balanceCents > 0 ? Math.min(1, basisCents / balanceCents) : 0)),
+    };
+  })();
+
+  /**
+   * Three years. A pre-tax account compounding at 7% funds $6,000/month of living costs and
+   * empties partway through year two. Spending STOPS at the end of that year, which is what keeps
+   * year three solvent — so if an April settlement were owed there, the run could actually charge
+   * it, and this test's central assertion cannot pass by the household simply being broke.
+   */
+  const exhausting = (): ProjectionSeries =>
+    simulateHousehold(
+      baseInput(
+        [
+          account("savings", CAPITAL_GAINS_TAX_PROFILE, 1_000, true),
+          account("retirement", PRE_TAX_TAX_PROFILE, 130_000, false, 0.07),
+        ],
+        { horizonMonths: 36, expenseSeries: [series(6_000, 0, 23)] },
+      ),
+      jurisdiction,
+    );
+
+  // The premise, pinned separately because it is a fact about the SIMULATOR rather than the
+  // forecast: this is the thing a January-balance cap structurally cannot predict, and it holds
+  // whether or not the forecast has been taught to see it. The regression is the test below.
+  it("draws more from the account than it opened the year holding", () => {
+    const projection = exhausting();
+    const openingCents = projection.months[11]!.accountBalancesCents.retirement;
+    const drawnCents = sum(
+      projection.months.slice(12, 24).map((m) =>
+        m.flows!.incomeSources
+          .filter((s) => s.sourceId === "retirement")
+          .reduce((t, s) => t + s.cashInflowCents, 0),
+      ),
+    );
+
+    // The account is genuinely exhausted in year two...
+    expect(projection.months[23]!.accountBalancesCents.retirement).toBe(0);
+    // ...and funded more than it opened the year holding. This slice — the growth earned before
+    // depletion — is exactly what a January-balance cap cannot see.
+    expect(drawnCents).toBeGreaterThan(openingCents);
+    expect(drawnCents - openingCents).toBeGreaterThan(dollarsToCents(1_000));
+  });
+
+  it("leaves the following April with nothing to settle", () => {
+    const projection = exhausting();
+    // Year three is solvent, so an unpaid balance WOULD be charged here — the assertion below is
+    // about the estimate having been right, not about there being no money to charge.
+    expect(projection.months.slice(24, 36).every((m) => !m.isInsolvent)).toBe(true);
+
+    // April of year three: $138.29 under the old opening-balance cap, nothing now. The exhaustion
+    // year's own twelve instalments carried its liability, which is the whole point of pacing.
+    expect(projection.months[27]!.flows!.taxCents).toBe(0);
+    // And no other month of year three picked it up instead.
+    expect(sum(projection.months.slice(24, 36).map((m) => m.flows!.taxCents))).toBe(0);
+    // Not vacuous: the exhaustion year really did pay tax, month by month.
+    expect(sum(projection.months.slice(12, 24).map((m) => m.flows!.taxCents))).toBeGreaterThan(
+      dollarsToCents(4_000),
+    );
+  });
+});
+
 describe("Federal income tax — the monthly instalment", () => {
   it("splits any annual liability into twelve near-equal payments summing to it exactly", () => {
     // Exactness is what makes December a genuine `actual − paid` difference rather than a

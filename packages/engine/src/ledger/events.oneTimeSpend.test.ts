@@ -453,8 +453,15 @@ describe("OneTimeSpendEvent — gate == sim across a decumulation month", () => 
       horizonMonths: 24,
       annualInflationRate: 0,
       initialPersons: [personLit("p1", "Alice")],
-      // `cash` covers the spend exactly, no gain; `nest` funds decumulation alone.
-      initialAccounts: [liquidAcct("cash", DOWN, 0), liquidAcct("nest", 20_000_000, 0.1)],
+      // `cash` covers the spend with a little room, no gain; `nest` funds decumulation alone.
+      // The room is for the year's estimated tax instalments, which `cash` pays as the liquid
+      // buffer: the $150k decumulation really does realize ~$25k of gain on `nest`, over this
+      // jurisdiction's $15k threshold, so the year owes tax and paces it monthly. Sizing `cash`
+      // at exactly the spend made the fixture depend on those instalments being missed.
+      initialAccounts: [
+        liquidAcct("cash", DOWN + dollarsToCents(5_000), 0),
+        liquidAcct("nest", 20_000_000, 0.1),
+      ],
       initialExpenseSeries: [
         {
           series: new SimCashFlowSeries(

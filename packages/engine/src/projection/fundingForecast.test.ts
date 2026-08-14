@@ -5,7 +5,7 @@
  * arithmetic and the seams.
  */
 import { describe, it, expect } from "vitest";
-import { dollarsToCents } from "../money/cashFlowSeries";
+import { dollarsToCents, preciseMonthlyRate } from "../money/cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction/jurisdiction";
 import { CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE, SimAccount } from "../plan/simAccount";
 import { forecastFundingDraws, type ForecastAccount } from "./fundingForecast";
@@ -135,6 +135,101 @@ describe("forecastFundingDraws — how a year's shortfall gets paid for", () => 
       CTX,
     ).draws;
     expect(draws.map((d) => d.accountId)).toEqual(["pretax"]);
+  });
+});
+
+describe("forecastFundingDraws — growth earned before depletion", () => {
+  /** Twelve months of an annual rate, the same figures `SimAccount.getMonthlyRateAt` returns. */
+  const monthlyRates = (annualRate: number): number[] =>
+    Array.from({ length: 12 }, () => preciseMonthlyRate(annualRate));
+
+  const growing = (dollars: number, annualRate: number): ForecastAccount => ({
+    ...acct("pretax", "ordinaryIncome", dollars, 0),
+    monthlyRates: monthlyRates(annualRate),
+  });
+
+  it("funds MORE than the opening balance out of an account that is still growing", () => {
+    // The regression this exists for. A pre-tax balance opening the year at $82,092.22 really did
+    // fund $84,568 of withdrawals over the year it was exhausted — $2,476 more than it ever held
+    // at once — because it went on earning 7% on whatever had not yet been spent.
+    const need = dollarsToCents(90_000);
+    const opening = 82_092_22;
+
+    const capped = forecastFundingDraws(need, [acct("pretax", "ordinaryIncome", 0, 0)], proRata, CTX);
+    expect(capped.draws).toEqual([]);
+
+    const flat = forecastFundingDraws(
+      need,
+      [{ ...acct("pretax", "ordinaryIncome", 0, 0), balanceCents: opening }],
+      proRata,
+      CTX,
+    );
+    const grown = forecastFundingDraws(
+      need,
+      [{ ...growing(0, 0.07), balanceCents: opening }],
+      proRata,
+      CTX,
+    );
+
+    // Without rates the year can never draw more than January held — the old blind spot.
+    expect(flat.draws[0]!.grossCents).toBe(opening);
+    // With them it draws the balance PLUS the growth earned before depletion, and lands within a
+    // few dollars of the $84,568 the simulator actually withdrew.
+    expect(grown.draws[0]!.grossCents).toBeGreaterThan(opening);
+    expect(Math.abs(grown.draws[0]!.grossCents - 84_568_18)).toBeLessThan(dollarsToCents(100));
+    // Every dollar of it taxable: a pre-tax account carries no basis.
+    expect(grown.draws[0]!.taxableCents).toBe(grown.draws[0]!.grossCents);
+    // The residue is honestly reported rather than conjured out of a balance that never existed.
+    expect(grown.unfundedCents).toBe(need - grown.draws[0]!.grossCents);
+  });
+
+  it("stops compounding an account once it is drained", () => {
+    // A $10k account against a $50k need, at a rate absurd enough that the difference cannot
+    // hide: 100% a year. Spread evenly the need takes ~$4,167 a month, so the account survives
+    // into its third month and earns growth on what is left each time — but the moment it is
+    // empty it must stop earning, and the eleven months that follow must add nothing.
+    const drained = forecastFundingDraws(
+      dollarsToCents(50_000),
+      [{ ...growing(10_000, 1.0), balanceCents: dollarsToCents(10_000) }],
+      proRata,
+      CTX,
+    );
+    const gross = drained.draws[0]!.grossCents;
+    // More than it opened with, because two months' growth landed before it ran dry...
+    expect(gross).toBeGreaterThan(dollarsToCents(10_000));
+    // ...and nowhere near the $20,000 a full year of doubling would have supplied. A forecast
+    // that went on compounding a spent balance would land there instead.
+    expect(gross).toBeLessThan(dollarsToCents(11_000));
+    expect(drained.unfundedCents).toBe(dollarsToCents(50_000) - gross);
+  });
+
+  it("leaves a household whose accounts comfortably cover the year unaffected", () => {
+    // Growth only ever moves the CAP. Where the need binds instead, the forecast is the same
+    // figure with or without rates — so this changes nothing for the years before exhaustion.
+    const need = dollarsToCents(40_000);
+    const flat = forecastFundingDraws(need, [acct("pretax", "ordinaryIncome", 500_000, 0)], proRata, CTX);
+    const grown = forecastFundingDraws(need, [growing(500_000, 0.07)], proRata, CTX);
+    expect(grown.draws[0]!.grossCents).toBe(flat.draws[0]!.grossCents);
+    expect(grown.draws[0]!.grossCents).toBe(need);
+  });
+
+  it("spends a growing account in waterfall order, cash before investments", () => {
+    // Order is not renegotiated by growth: the liquid buffer still goes first and still realizes
+    // nothing, and only what it cannot cover reaches the account behind it.
+    const { draws } = forecastFundingDraws(
+      dollarsToCents(30_000),
+      [
+        { ...acct("cash", "taxedAtAccrual", 12_000, 0, true), monthlyRates: monthlyRates(0.01) },
+        growing(500_000, 0.07),
+      ],
+      proRata,
+      CTX,
+    );
+    expect(draws.map((d) => d.accountId)).toEqual(["cash", "pretax"]);
+    expect(draws[0]!.taxableCents).toBe(0);
+    // The cash buffer covers its own balance plus the pennies of interest it earned on the way.
+    expect(draws[0]!.grossCents).toBeGreaterThan(dollarsToCents(12_000));
+    expect(draws[0]!.grossCents + draws[1]!.grossCents).toBe(dollarsToCents(30_000));
   });
 });
 

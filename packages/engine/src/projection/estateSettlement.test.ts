@@ -361,7 +361,17 @@ describe("Estate settlement — what the estate holds", () => {
     });
     const last = spent.months[11];
     const settlement = settlementOf(spent);
-    const grossDrawnCents = dollarsToCents(48_000);
+    // Read off the run, not assumed: the brokerage funds the $48k of expenses AND the year's
+    // estimated tax instalments, which the forecast now sizes off a compounding balance rather
+    // than January's. Hardcoding the expenses here asserted a year in which no tax was paced.
+    const grossDrawnCents = sum(
+      spent.months.map((m) =>
+        m.flows!.incomeSources
+          .filter((s) => s.sourceId === "brokerage")
+          .reduce((t, s) => t + s.cashInflowCents, 0),
+      ),
+    );
+    expect(grossDrawnCents).toBeGreaterThan(dollarsToCents(48_000));
     const basisConsumedCents = dollarsToCents(100_000) - last.accountBasisCents.brokerage;
     expect(basisConsumedCents).toBeGreaterThan(0);
     expect(basisConsumedCents).toBeLessThan(grossDrawnCents);

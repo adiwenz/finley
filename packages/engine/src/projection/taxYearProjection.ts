@@ -329,6 +329,11 @@ export function projectKnownTaxYear(
     balanceCents: workingBalances.get(a.id) ?? 0,
     basisCents: Math.max(0, workingBasis.get(a.id) ?? 0),
     liquidBuffer: a.id === liquidId,
+    // The account's OWN rates for these twelve months, read the same way `compoundAssets` reads
+    // them, so a schedule that steps mid-year is forecast as it will actually be earned. Without
+    // these the forecast caps the year's draw at January's balance and understates the final year
+    // of a decumulating plan by the growth earned before the account ran dry.
+    monthlyRates: Array.from({ length: MONTHS_IN_TAX_YEAR }, (_, i) => a.getMonthlyRateAt(month + i)),
   }));
 
   // ── 4. Solve the tax/funding circularity ────────────────────────────────────────────────────
