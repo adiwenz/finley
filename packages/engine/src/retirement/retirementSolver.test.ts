@@ -984,8 +984,9 @@ describe("retirementSolver — which job a later candidate age continues", () =>
     // Was [71, 71, 71].
     const ages = [400_000, 450_000, 600_000].map(solveAt);
     // $450k stops at 70 rather than 69 because stopping at 69 dies owing about $9k on the
-    // shortfall card with an empty estate — lifetime-solvent every month, and still not a plan
-    // that pays for itself. That is the terminal estate test, not the continuity this asserts.
+    // shortfall card with nothing left to answer for it — lifetime-solvent every month, and still
+    // not a plan that pays for itself. That is the terminal ECONOMIC test (all assets less all
+    // debt, and here there are no assets), not the continuity this asserts.
     expect(ages).toEqual([70, 70, 67]);
     // Each lands strictly inside the dead band — past the career's own end, at or before the
     // token job's — which is what makes them answers the old rule could not produce at all.
