@@ -131,9 +131,10 @@ export function buildPlanAccounts(budget: Plan): PlanAccount[] {
       owners,
       label: SAVINGS_LABEL,
       liquid: true,
-      // Not capital-gains: such a draw counts toward provisional income and pulls the
-      // government benefit into tax. Not tax-exempt either: withdrawal is free only
-      // BECAUSE the interest is taxed as ordinary income at accrual.
+      // Neither capital-gains nor tax-exempt: both count toward provisional income and would
+      // pull the government benefit into tax, and tax-exempt would also send this to the BACK of
+      // the drawdown order. `taxedAtAccrual` says the true thing — withdrawal is free because the
+      // interest was already taxed as ordinary income when it was credited.
       taxProfile: CASH_INTEREST_TAX_PROFILE,
       balanceCents: budget.openingBalanceCents,
       initialAnnualRate: budget.savingsReturnPct / 100,

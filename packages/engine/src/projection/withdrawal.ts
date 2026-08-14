@@ -24,14 +24,24 @@ export interface WithdrawalState {
 /**
  * Default liquidation order, keyed by an account's {@link
  * import("../plan/simAccount").SimAccountTaxProfile.withdrawalCategory} — earlier is drawn
- * first. `capitalGains` leads (least tax friction under a preferential-rate regime),
- * `taxExempt` last to preserve tax-free growth. No gross-up happens here — an ordinary
- * mid-year decumulation's own tax is settled with the rest of the year's, through the year's
- * instalments and its closing balance (see {@link
+ * first, ranking accounts by what HOLDING each one is still worth:
+ *
+ *  - `taxedAtAccrual` (a cash balance) first: its return is taxed the month it is credited, so
+ *    holding it defers nothing. Spending it costs a household nothing at all, and every month it
+ *    is skipped is a month something taxable was sold instead.
+ *  - `capitalGains` next — least friction of the taxable draws under a preferential-rate regime.
+ *  - `ordinaryIncome` after that.
+ *  - `taxExempt` last, because there its growth is genuinely never taxed and holding it compounds
+ *    that. The two untaxed-on-withdrawal categories sit at OPPOSITE ends for that reason alone;
+ *    collapsing them stranded cash behind a pre-tax account and sold the account to avoid it.
+ *
+ * No gross-up happens here — an ordinary mid-year decumulation's own tax is settled with the rest
+ * of the year's, through the year's instalments and its closing balance (see {@link
  * import("../jurisdiction/jurisdiction").Jurisdiction.computeTaxCents}'s ANNUAL contract) — so
  * the order ranks accounts by preference alone, not by gross-up cost.
  */
 export const DEFAULT_LIQUIDATION_ORDER: readonly TaxCategory[] = [
+  "taxedAtAccrual",
   "capitalGains",
   "ordinaryIncome",
   "taxExempt",

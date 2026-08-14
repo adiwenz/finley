@@ -79,6 +79,7 @@ const TAX_CATEGORY_LABELS: Readonly<Record<string, string>> = {
   governmentRetirementBenefit: "Social Security",
   ordinaryIncome: "Ordinary income",
   capitalGains: "Capital gains",
+  taxedAtAccrual: "Cash savings",
   taxExempt: "Tax-exempt",
 };
 
@@ -90,6 +91,7 @@ const CATEGORY_ORDER: readonly IncomeSourceCategory[] = [
   "ordinaryIncome",
   "capitalGains",
   "taxExempt",
+  "taxedAtAccrual",
   "savingsDrawdown",
 ];
 

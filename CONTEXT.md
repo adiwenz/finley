@@ -331,9 +331,20 @@ _Avoid_: earnings history, wage record (this is the specific accumulator type).
 Two distinct tax seams, not synonyms. **`taxTreatment`** is on `Account`
 (`preTax`/`roth`/`taxable`/`hsa`) — how a balance/its withdrawals are taxed.
 **`taxCategory`** is on an income `CashFlowSeries`
-(`wages`/`socialSecurity`/`ordinaryIncome`/`capitalGains`/`taxExempt`) — how an income
-stream is taxed. Both are present but ignored in v1.
+(`wages`/`socialSecurity`/`ordinaryIncome`/`capitalGains`/`taxedAtAccrual`/`taxExempt`) — how an
+income stream is taxed. Both are present but ignored in v1.
 _Avoid_: using "tax treatment" loosely to mean either — name the specific field.
+
+**`taxedAtAccrual`** vs **`taxExempt`**:
+The two tax categories that bear no tax on withdrawal, and never interchangeable.
+**`taxedAtAccrual`** is a cash balance whose interest was taxed as ordinary income the month it
+was credited: drawing it down returns already-taxed principal, so it is not income, stays out of
+a benefit's provisional-income test, and is drawn FIRST — holding it defers nothing.
+**`taxExempt`** is a genuinely untaxed vehicle (Roth-like, or exempt interest) whose growth is
+never taxed: holding it is worth something, so it is drawn LAST, and where a jurisdiction counts
+exempt interest toward a benefit test it is real income for that purpose.
+_Avoid_: "tax-free" for either — it is true of both withdrawals and hides the distinction that
+decides the drawdown order.
 
 **GovernmentProgram**:
 A modeled income or cost change whose amount/availability is *derived* from the

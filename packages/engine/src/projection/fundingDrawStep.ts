@@ -78,7 +78,7 @@ export interface ResolvedFundingSource {
   readonly kind: "account" | "credit";
   readonly id: string;
   readonly ownerId: string;
-  /** The account's withdrawal tax category; `"taxExempt"` for a credit borrow, which realizes none. */
+  /** The account's withdrawal tax category; `"taxedAtAccrual"` for a credit borrow, which realizes none. */
   readonly category: TaxCategory;
   readonly label?: string;
   /** Sold from the account, exactly the amount asked; for credit, the amount borrowed. */
@@ -197,7 +197,10 @@ export function resolveOrderedFundingDraw(
         kind: "credit",
         id: source.id,
         ownerId: source.ownerId,
-        category: "taxExempt",
+        // Borrowed principal is not income and bears no tax. Inert either way — every tax field
+        // below is 0 — but NOT `taxExempt`, which now means "untaxed yet counts toward a benefit
+        // test"; a loan must never reach that test.
+        category: "taxedAtAccrual",
         label: source.label,
         grossCents: borrowed,
         gainCents: 0,

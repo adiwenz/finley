@@ -141,6 +141,11 @@ export function federalTaxParts(
   // 1. Government-benefit inclusion. Provisional income is all other income reaching AGI
   //    (ordinary + capital gains) plus tax-exempt interest — never taxed itself, but it
   //    still counts toward the benefit test.
+  //
+  //    `taxedAtAccrual` is deliberately NOT in it. Spending down a bank balance is a return of
+  //    principal already taxed the month its interest was credited: not income, so it cannot
+  //    drag a benefit into tax. Only `taxExempt` — exempt INTEREST, real income the statute
+  //    merely declines to tax — belongs in the test.
   const taxableBenefit = taxableSocialSecurityCents(benefit, ordinaryNonBenefit + gains + taxExempt);
 
   // 2. Standard deduction: off ordinary income first, remainder off capital gains.

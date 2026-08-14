@@ -61,10 +61,11 @@ export const PRE_TAX_TAX_PROFILE: SimAccountTaxProfile = {
 /**
  * The return is bank interest the jurisdiction may tax at accrual whether or not the buffer
  * is ever withdrawn — which is exactly why the withdrawal itself is tax-free. Distinct from
- * {@link TAX_EXEMPT_TAX_PROFILE}, whose growth is genuinely never taxed.
+ * {@link TAX_EXEMPT_TAX_PROFILE}, whose growth is genuinely never taxed, and the withdrawal
+ * category says so: holding this buys nothing, so nothing is lost by spending it first.
  */
 export const CASH_INTEREST_TAX_PROFILE: SimAccountTaxProfile = {
-  withdrawalCategory: "taxExempt",
+  withdrawalCategory: "taxedAtAccrual",
   contributionsPreTax: false,
   forcedDistributionEligible: false,
   returnKind: "interest",

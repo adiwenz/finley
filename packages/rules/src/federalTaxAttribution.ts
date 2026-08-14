@@ -38,7 +38,9 @@ function apportionByWeight(
  *   • Gains tax rides `capitalGains` alone, keeping its own 0/15/20% rates.
  *   • Ordinary tax splits among `wages`, `ordinaryIncome` and `governmentRetirementBenefit`
  *     by ordinary-taxable weight (the benefit by its INCLUDED portion only).
- *   • `taxExempt` never bears tax; it counts only for the benefit test.
+ *   • `taxExempt` never bears tax; it counts only for the benefit test. `taxedAtAccrual` — a
+ *     drawn-down cash balance — bears none and counts for nothing, its interest having been
+ *     taxed as `ordinaryIncome` at accrual.
  *
  * ⚠ LIMITATION: average-rate within the ordinary regime, not marginal incidence — it misses
  * notch/inclusion effects (an ordinary dollar can raise the taxable benefit or push gains out

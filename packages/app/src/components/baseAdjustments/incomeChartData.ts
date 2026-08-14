@@ -79,6 +79,7 @@ const CATEGORY_ORDER: readonly IncomeSourceCategory[] = [
   "ordinaryIncome",
   "capitalGains",
   "taxExempt",
+  "taxedAtAccrual",
   "savingsDrawdown",
 ];
 

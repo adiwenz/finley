@@ -44,6 +44,18 @@ export type TaxCategory =
   | "governmentRetirementBenefit"
   | "ordinaryIncome"
   | "capitalGains"
+  // Two different reasons a flow bears no tax, and they are NOT interchangeable — the engine's
+  // drawdown order and the jurisdiction's benefit test both turn on which one it is.
+  //
+  // `taxedAtAccrual`: a bank/cash balance, whose return was already taxed as ordinary income the
+  // month it was credited. Drawing it down returns principal the household has finished paying
+  // for — no tax, and no income either, so nothing about it can raise a benefit's taxability.
+  // There is nothing left to preserve by holding it, which is why it is drawn FIRST.
+  //
+  // `taxExempt`: a genuinely untaxed vehicle (Roth-like, or muni interest), whose GROWTH is never
+  // taxed. Holding it is worth something, so it is drawn LAST; and where a jurisdiction counts
+  // exempt interest toward a benefit test, it is real income for that purpose.
+  | "taxedAtAccrual"
   | "taxExempt";
 
 export interface SimCashFlowSeriesOptions {

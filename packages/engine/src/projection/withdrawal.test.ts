@@ -426,8 +426,47 @@ describe("Drawdown order — RMD-first, tax-efficient default, overridable", () 
     expect(electiveTotal).toBe(dollarsToCents(2_000));
   });
 
+  it("spends a cash account before selling anything taxable", () => {
+    // The two untaxed-on-withdrawal categories, side by side. Cash is drawn first: its interest
+    // was taxed the month it was credited, so holding it defers nothing — while every dollar of
+    // pre-tax sold in its place is ordinary income the household did not have to realize.
+    const accounts = [
+      account("pretax", PRE_TAX_TAX_PROFILE, 0),
+      account("cash", CASH_INTEREST_TAX_PROFILE, 0),
+      account("roth", TAX_EXEMPT_TAX_PROFILE, 0),
+    ];
+    const st = state(accounts, { pretax: 10_000, cash: 10_000, roth: 10_000 });
+    const { sources } = buildWithdrawalSources(st, nullJurisdiction, [], dollarsToCents(5_000), ctx);
+    expect(st.assetBalances.get("cash")).toBe(dollarsToCents(5_000));
+    expect(st.assetBalances.get("pretax")).toBe(dollarsToCents(10_000));
+    expect(st.assetBalances.get("roth")).toBe(dollarsToCents(10_000));
+    expect(sources[0].taxCategory).toBe("taxedAtAccrual");
+  });
+
+  it("still keeps genuinely tax-free growth for last", () => {
+    // The Roth is untouched until the cash AND the pre-tax account are gone: what is preserved by
+    // holding it is real, which is exactly what is not true of the cash beside it.
+    const accounts = [
+      account("roth", TAX_EXEMPT_TAX_PROFILE, 0),
+      account("cash", CASH_INTEREST_TAX_PROFILE, 0),
+      account("pretax", PRE_TAX_TAX_PROFILE, 0),
+    ];
+    const st = state(accounts, { roth: 10_000, cash: 4_000, pretax: 4_000 });
+    buildWithdrawalSources(st, nullJurisdiction, [], dollarsToCents(9_000), ctx);
+    expect(st.assetBalances.get("cash")).toBe(0);
+    expect(st.assetBalances.get("pretax")).toBe(0);
+    expect(st.assetBalances.get("roth")).toBe(dollarsToCents(9_000));
+  });
+
   it("exposes the tax-efficient default order as a named constant", () => {
-    expect(DEFAULT_LIQUIDATION_ORDER).toEqual(["capitalGains", "ordinaryIncome", "taxExempt"]);
+    // Cash first (its return was already taxed at accrual, so holding it defers nothing),
+    // genuinely tax-free growth last.
+    expect(DEFAULT_LIQUIDATION_ORDER).toEqual([
+      "taxedAtAccrual",
+      "capitalGains",
+      "ordinaryIncome",
+      "taxExempt",
+    ]);
   });
 });
 

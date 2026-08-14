@@ -348,7 +348,9 @@ describe("createProjectionBase — savings account tax profile is never-sold-con
       .find((a) => a.id === "savings")!;
     expect(savings.liquid).toBe(true);
     expect(savings.taxProfile.withdrawalCategory).not.toBe("capitalGains");
-    expect(savings.taxProfile.withdrawalCategory).toBe("taxExempt");
+    // `taxedAtAccrual`, NOT `taxExempt`: nothing is being preserved by holding it, so the
+    // drawdown order spends it first rather than last.
+    expect(savings.taxProfile.withdrawalCategory).toBe("taxedAtAccrual");
     expect(savings.taxProfile.returnKind).toBe("interest");
   });
 });
@@ -371,7 +373,7 @@ describe("createProjectionBase — a goal declares its account type", () => {
     // An emergency fund exists to be reachable, so its fund stays liquid.
     const fund = goalFund(withEmergencyType("cash"));
     expect(fund.taxProfile).toEqual(CASH_INTEREST_TAX_PROFILE);
-    expect(fund.taxProfile.withdrawalCategory).toBe("taxExempt");
+    expect(fund.taxProfile.withdrawalCategory).toBe("taxedAtAccrual");
     expect(fund.taxProfile.returnKind).toBe("interest");
     expect(fund.liquid).toBe(true);
   });
@@ -427,7 +429,7 @@ describe("createProjectionBase — a goal declares its account type", () => {
     // Not vacuous: it IS drawn down, tax-free, under the goal's name.
     const drawnByName = series.months.some((m) =>
       (m.flows?.incomeSources ?? []).some(
-        (s) => s.label === "Emergency fund" && s.category === "taxExempt",
+        (s) => s.label === "Emergency fund" && s.category === "taxedAtAccrual",
       ),
     );
     expect(drawnByName).toBe(true);

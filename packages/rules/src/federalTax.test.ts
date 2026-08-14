@@ -107,6 +107,20 @@ describe("federalAnnualTaxCents — government benefit inclusion end to end", ()
     ).toBe(3_082_00);
   });
 
+  it("keeps a drawn-down cash balance OUT of provisional income", () => {
+    // `taxedAtAccrual` is not income at all — it is principal the household finished paying tax on
+    // the month the interest was credited. Spending savings must not drag Social Security into
+    // tax, which is exactly what `taxExempt` (real, merely-untaxed income) does below.
+    const spendingSavings = federalAnnualTaxCents(
+      { taxedAtAccrual: 200_000_00, governmentRetirementBenefit: 30_000_00 },
+      2026,
+    );
+    expect(spendingSavings).toBe(federalAnnualTaxCents({ governmentRetirementBenefit: 30_000_00 }, 2026));
+    expect(spendingSavings).toBe(0);
+    // Not vacuous: the same figure under the exempt-INTEREST category does reach the test.
+    expect(taxableSocialSecurityCents(30_000_00, 200_000_00)).toBeGreaterThan(0);
+  });
+
   it("counts tax-exempt income toward provisional income for the SS test", () => {
     const withTaxExempt = federalAnnualTaxCents(
       { taxExempt: 30_000_00, governmentRetirementBenefit: 30_000_00 },
