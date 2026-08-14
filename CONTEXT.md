@@ -328,12 +328,18 @@ financial-input exception). Pure engine bookkeeping with no jurisdiction knowled
 _Avoid_: earnings history, wage record (this is the specific accumulator type).
 
 **taxTreatment** vs. **taxCategory**:
-Two distinct tax seams, not synonyms. **`taxTreatment`** is on `Account`
-(`preTax`/`roth`/`taxable`/`hsa`) — how a balance/its withdrawals are taxed.
-**`taxCategory`** is on an income `CashFlowSeries`
-(`wages`/`socialSecurity`/`ordinaryIncome`/`capitalGains`/`taxedAtAccrual`/`taxExempt`) — how an
-income stream is taxed. Both are present but ignored in v1.
-_Avoid_: using "tax treatment" loosely to mean either — name the specific field.
+Two distinct tax seams, not synonyms, and the distinction is load-bearing.
+**`taxTreatment`** is a property of the STOCK — an account — and names what HOLDING it still
+defers: `taxedAtAccrual` (a cash balance, already taxed as its interest was credited),
+`taxable` (gain deferred to sale), `taxDeferred` (pre-tax), `taxExempt` (never taxed). It is
+the only thing the drawdown order ranks on.
+**`taxCategory`** is a property of the FLOW — an income `CashFlowSeries`, or a withdrawal —
+and names what the money IS when it arrives, for the jurisdiction to price:
+`wages`/`socialSecurity`/`ordinaryIncome`/`capitalGains`/`taxedAtAccrual`/`taxExempt`.
+One account carries both, and they answer different questions: a pre-tax retirement account is
+`taxDeferred` (so it is drawn third) and pays `ordinaryIncome` (so the brackets tax it).
+_Avoid_: using "tax treatment" loosely to mean either — name the specific field; and never rank
+a drawdown on a tax category, which collapses accounts that merely share a label.
 
 **`taxedAtAccrual`** vs **`taxExempt`**:
 The two tax categories that bear no tax on withdrawal, and never interchangeable.

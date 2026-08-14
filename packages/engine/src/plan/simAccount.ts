@@ -19,11 +19,34 @@ import { preciseMonthlyRate, type TaxCategory } from "../money/cashFlowSeries";
 export type AccountReturnKind = "interest" | "appreciation";
 
 /**
+ * **What holding this account still defers** — a property of the STOCK, and the only thing the
+ * drawdown order ranks on ({@link
+ * import("../projection/withdrawal").orderedLiquidationAccounts}).
+ *
+ * Deliberately not a {@link TaxCategory}. That vocabulary describes a FLOW — what money is when it
+ * arrives — and the two answer different questions about the same account: a traditional 401(k)
+ * pays `ordinaryIncome` (which is what the brackets need to know) and is `taxDeferred` (which is
+ * why it is drawn third). Ranking on the flow category worked only while every account happened to
+ * have a distinct one, and it silently mis-ranked the moment two did not.
+ *
+ *  - `taxedAtAccrual` — a cash balance, taxed as its interest is credited. Holding it defers
+ *    nothing at all.
+ *  - `taxable` — a taxable investment: the gain is deferred until sale, then taxed at whatever
+ *    preference the jurisdiction gives it.
+ *  - `taxDeferred` — pre-tax: contributions and growth untaxed until withdrawal, then ordinary.
+ *  - `taxExempt` — never taxed. Holding it compounds that, which is why it is drawn last.
+ */
+export type AccountTaxTreatment = "taxedAtAccrual" | "taxable" | "taxDeferred" | "taxExempt";
+
+/**
  * An account's tax *behavior* in engine terms (seam 2), never a jurisdiction's branded
  * vehicle name; the jurisdiction owns the *consequence*.
  */
 export interface SimAccountTaxProfile {
+  /** The FLOW question: what a withdrawal from here IS, for the jurisdiction to price. */
   readonly withdrawalCategory: TaxCategory;
+  /** The STOCK question: what holding it defers, and so where it sits in the drawdown order. */
+  readonly taxTreatment: AccountTaxTreatment;
   /** Whether contributions reduce current taxable income. */
   readonly contributionsPreTax: boolean;
   /** Subject to jurisdiction forced distributions (RMD-like). */
@@ -45,6 +68,7 @@ export interface SimAccountTaxProfile {
  */
 export const CAPITAL_GAINS_TAX_PROFILE: SimAccountTaxProfile = {
   withdrawalCategory: "capitalGains",
+  taxTreatment: "taxable",
   contributionsPreTax: false,
   forcedDistributionEligible: false,
   // Stated rather than left absent, so the deferral is the JURISDICTION's call through
@@ -54,6 +78,7 @@ export const CAPITAL_GAINS_TAX_PROFILE: SimAccountTaxProfile = {
 
 export const PRE_TAX_TAX_PROFILE: SimAccountTaxProfile = {
   withdrawalCategory: "ordinaryIncome",
+  taxTreatment: "taxDeferred",
   contributionsPreTax: true,
   forcedDistributionEligible: true,
 };
@@ -66,6 +91,7 @@ export const PRE_TAX_TAX_PROFILE: SimAccountTaxProfile = {
  */
 export const CASH_INTEREST_TAX_PROFILE: SimAccountTaxProfile = {
   withdrawalCategory: "taxedAtAccrual",
+  taxTreatment: "taxedAtAccrual",
   contributionsPreTax: false,
   forcedDistributionEligible: false,
   returnKind: "interest",
@@ -73,6 +99,7 @@ export const CASH_INTEREST_TAX_PROFILE: SimAccountTaxProfile = {
 
 export const TAX_EXEMPT_TAX_PROFILE: SimAccountTaxProfile = {
   withdrawalCategory: "taxExempt",
+  taxTreatment: "taxExempt",
   contributionsPreTax: false,
   forcedDistributionEligible: false,
 };

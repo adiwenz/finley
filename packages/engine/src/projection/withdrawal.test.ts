@@ -399,7 +399,7 @@ describe("Drawdown order — RMD-first, tax-efficient default, overridable", () 
       [],
       dollarsToCents(5_000),
       ctx,
-      ["taxExempt", "capitalGains", "ordinaryIncome"],
+      ["taxExempt", "taxable", "taxDeferred"],
     );
     expect(st.assetBalances.get("taxexempt")).toBe(dollarsToCents(5_000));
     expect(st.assetBalances.get("brokerage")).toBe(dollarsToCents(10_000));
@@ -458,13 +458,40 @@ describe("Drawdown order — RMD-first, tax-efficient default, overridable", () 
     expect(st.assetBalances.get("roth")).toBe(dollarsToCents(9_000));
   });
 
+  it("ranks on what an account DEFERS, not on what its withdrawal is taxed as", () => {
+    // An annuity-like account: it pays ordinary income, exactly as a 401(k) does, out of principal
+    // that was already taxed. Same withdrawal category as the pre-tax account, opposite treatment
+    // — and the order follows the treatment, drawing it first and leaving the 401(k) whole.
+    //
+    // Under the old ranking these two shared a category and therefore a rank, and which one got
+    // drained came down to roster order. That is the failure this decoupling exists to make
+    // impossible; it is not hypothetical, it is what stranded a cash goal fund behind a
+    // retirement account.
+    const alreadyTaxed: SimAccountTaxProfile = {
+      withdrawalCategory: "ordinaryIncome",
+      taxTreatment: "taxedAtAccrual",
+      contributionsPreTax: false,
+      forcedDistributionEligible: false,
+    };
+    const accounts = [
+      account("pretax", PRE_TAX_TAX_PROFILE, 0),
+      account("annuity", alreadyTaxed, 0),
+    ];
+    const st = state(accounts, { pretax: 10_000, annuity: 10_000 });
+    const { sources } = buildWithdrawalSources(st, nullJurisdiction, [], dollarsToCents(4_000), ctx);
+    expect(st.assetBalances.get("annuity")).toBe(dollarsToCents(6_000));
+    expect(st.assetBalances.get("pretax")).toBe(dollarsToCents(10_000));
+    // The flow is still reported as what it IS — ordinary income, for the brackets to price.
+    expect(sources[0].taxCategory).toBe("ordinaryIncome");
+  });
+
   it("exposes the tax-efficient default order as a named constant", () => {
-    // Cash first (its return was already taxed at accrual, so holding it defers nothing),
-    // genuinely tax-free growth last.
+    // Account TREATMENTS, not withdrawal categories: cash first (its return was already taxed at
+    // accrual, so holding it defers nothing), genuinely tax-free growth last.
     expect(DEFAULT_LIQUIDATION_ORDER).toEqual([
       "taxedAtAccrual",
-      "capitalGains",
-      "ordinaryIncome",
+      "taxable",
+      "taxDeferred",
       "taxExempt",
     ]);
   });

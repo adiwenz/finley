@@ -1,6 +1,5 @@
 import type { Cents } from "../money/money";
-import type { SimAccount } from "../plan/simAccount";
-import type { TaxCategory } from "../money/cashFlowSeries";
+import type { AccountTaxTreatment, SimAccount } from "../plan/simAccount";
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
 import type { IncomeSourceMonth } from "./waterfall";
 
@@ -23,34 +22,43 @@ export interface WithdrawalState {
 
 /**
  * Default liquidation order, keyed by an account's {@link
- * import("../plan/simAccount").SimAccountTaxProfile.withdrawalCategory} — earlier is drawn
- * first, ranking accounts by what HOLDING each one is still worth:
+ * import("../plan/simAccount").AccountTaxTreatment} — earlier is drawn first, ranking accounts by
+ * what HOLDING each one still defers:
  *
  *  - `taxedAtAccrual` (a cash balance) first: its return is taxed the month it is credited, so
  *    holding it defers nothing. Spending it costs a household nothing at all, and every month it
  *    is skipped is a month something taxable was sold instead.
- *  - `capitalGains` next — least friction of the taxable draws under a preferential-rate regime.
- *  - `ordinaryIncome` after that.
- *  - `taxExempt` last, because there its growth is genuinely never taxed and holding it compounds
- *    that. The two untaxed-on-withdrawal categories sit at OPPOSITE ends for that reason alone;
- *    collapsing them stranded cash behind a pre-tax account and sold the account to avoid it.
+ *  - `taxable` next — a realized gain is the least friction of the taxable draws under a
+ *    preferential-rate regime.
+ *  - `taxDeferred` after that: the whole withdrawal is ordinary income.
+ *  - `taxExempt` last, because its growth is genuinely never taxed and holding it compounds that.
+ *    The two accounts that owe nothing on withdrawal sit at OPPOSITE ends for that reason alone.
+ *
+ * Keyed on the TREATMENT and not on the withdrawal {@link import("../money/cashFlowSeries").TaxCategory}, though the two line up
+ * one-for-one across today's four profiles. The category answers "what is this money when it
+ * arrives" — a question for the brackets — and reusing it here made the order right only by
+ * coincidence: two accounts sharing a category would have shared a rank whatever their treatment,
+ * and a cash buffer inherited "draw last to preserve tax-free growth" from a Roth on the strength
+ * of a shared label.
  *
  * No gross-up happens here — an ordinary mid-year decumulation's own tax is settled with the rest
  * of the year's, through the year's instalments and its closing balance (see {@link
  * import("../jurisdiction/jurisdiction").Jurisdiction.computeTaxCents}'s ANNUAL contract) — so
  * the order ranks accounts by preference alone, not by gross-up cost.
  */
-export const DEFAULT_LIQUIDATION_ORDER: readonly TaxCategory[] = [
+export const DEFAULT_LIQUIDATION_ORDER: readonly AccountTaxTreatment[] = [
   "taxedAtAccrual",
-  "capitalGains",
-  "ordinaryIncome",
+  "taxable",
+  "taxDeferred",
   "taxExempt",
 ];
 
-function liquidationRankMap(order: readonly TaxCategory[]): Partial<Record<TaxCategory, number>> {
-  const map: Partial<Record<TaxCategory, number>> = {};
-  order.forEach((category, index) => {
-    if (map[category] === undefined) map[category] = index;
+function liquidationRankMap(
+  order: readonly AccountTaxTreatment[],
+): Partial<Record<AccountTaxTreatment, number>> {
+  const map: Partial<Record<AccountTaxTreatment, number>> = {};
+  order.forEach((treatment, index) => {
+    if (map[treatment] === undefined) map[treatment] = index;
   });
   return map;
 }
@@ -58,7 +66,7 @@ function liquidationRankMap(order: readonly TaxCategory[]): Partial<Record<TaxCa
 /** The shape {@link orderedLiquidationAccounts} ranks by — every account state in the engine has it. */
 export interface LiquidationRankable {
   readonly id: string;
-  readonly taxProfile: { readonly withdrawalCategory: TaxCategory };
+  readonly taxProfile: { readonly taxTreatment: AccountTaxTreatment };
 }
 
 /**
@@ -76,11 +84,11 @@ export interface LiquidationRankable {
 export function orderedLiquidationAccounts<T extends LiquidationRankable>(
   accounts: readonly T[],
   liquidAccountId: string | null,
-  liquidationOrder: readonly TaxCategory[] = DEFAULT_LIQUIDATION_ORDER,
+  liquidationOrder: readonly AccountTaxTreatment[] = DEFAULT_LIQUIDATION_ORDER,
 ): readonly T[] {
   const rankMap = liquidationRankMap(liquidationOrder);
   const rank = (a: T): number =>
-    a.id === liquidAccountId ? -1 : (rankMap[a.taxProfile.withdrawalCategory] ?? 99);
+    a.id === liquidAccountId ? -1 : (rankMap[a.taxProfile.taxTreatment] ?? 99);
   return [...accounts].sort((a, b) => rank(a) - rank(b));
 }
 
@@ -151,7 +159,7 @@ export function buildWithdrawalSources(
   nonWithdrawalSources: readonly IncomeSourceMonth[],
   obligationsCents: Cents,
   ctx: JurisdictionContext,
-  liquidationOrder: readonly TaxCategory[] = DEFAULT_LIQUIDATION_ORDER,
+  liquidationOrder: readonly AccountTaxTreatment[] = DEFAULT_LIQUIDATION_ORDER,
   estimatedIncomeTaxCents: Cents = 0,
 ): WithdrawalPlan {
   const netIncomeCents = estimateNetIncome(nonWithdrawalSources, estimatedIncomeTaxCents);
