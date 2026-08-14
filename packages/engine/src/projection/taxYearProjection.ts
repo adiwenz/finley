@@ -17,9 +17,11 @@
  *     scheduled income and a five-figure annual tax bill, and an estimate that saw only (1) left
  *     essentially the whole of it to the year-end true-up.
  *
- * The forecast in (3) is LIGHTWEIGHT and annual: {@link forecastFundingDraws} against {@link
- * orderedLiquidationAccounts}, the real waterfall's own account priority. It runs no months,
- * compounds nothing, replays no events, and never re-enters `simulateHousehold`.
+ * The forecast in (3) is LIGHTWEIGHT: {@link forecastFundingDraws} against {@link
+ * orderedLiquidationAccounts}, the real waterfall's own account priority. It walks the year's
+ * twelve months and compounds what is left of each account as it goes — a month's balance and a
+ * month's need are both things the year's shape decides — but it holds no state, replays no
+ * events, takes no snapshot, and never re-enters `simulateHousehold`.
  *
  * TAX AND FUNDING ARE CIRCULAR — paying the tax is itself a cash need, which is funded by
  * withdrawals, which are taxable. That is solved here as a small fixed point (below), the annual
@@ -48,7 +50,13 @@ import { annualFederalTax, MONTHS_IN_TAX_YEAR, type EstimatedTaxYear } from "./f
 import { automaticFundingTotal, buildObligations } from "./financialObligation";
 import { resolveOrderedFundingDraw, type FundingSourceState } from "./fundingDrawStep";
 import { orderedLiquidationAccounts } from "./withdrawal";
-import { forecastFundingDraws, type ForecastAccount, type ForecastDraw } from "./fundingForecast";
+import {
+  evenMonthlyShares,
+  forecastFundingDraws,
+  type ForecastAccount,
+  type ForecastDraw,
+} from "./fundingForecast";
+import { isTaxSettlementMonth } from "./taxYearSettlement";
 import { RevolvingCard, SYNTHETIC_CARD_ID } from "../liability/liability";
 
 export interface TaxYearProjectionInput {
@@ -179,11 +187,13 @@ export function projectKnownTaxYear(
   // The INFLOW half of the year's funding need: gross cash reaching the waterfall, which is what
   // `buildWithdrawalSources` sizes its monthly gap against (it nets the tax instalment off this
   // same gross figure, which is precisely the circularity the fixed point below resolves).
-  let expectedInflowCents = 0;
+  // Kept MONTH BY MONTH, because a salary that stops in June and a benefit that starts in July
+  // are not the same year as their average — the forecast draws when the gap actually opens.
+  const inflowByMonth: Cents[] = Array.from({ length: MONTHS_IN_TAX_YEAR }, () => 0);
 
-  const fold = (sources: readonly IncomeSourceMonth[]): void => {
+  const fold = (sources: readonly IncomeSourceMonth[], monthIndex: number): void => {
     for (const src of sources) {
-      expectedInflowCents += src.waterfallInflowCents;
+      inflowByMonth[monthIndex] = (inflowByMonth[monthIndex] ?? 0) + src.waterfallInflowCents;
       const room = roomRemaining.get(src.ownerId) ?? Infinity;
       const deferred = deferralForSourceCents(src, room);
       if (deferred > 0) roomRemaining.set(src.ownerId, room - deferred);
@@ -197,7 +207,7 @@ export function projectKnownTaxYear(
     }
   };
 
-  fold(input.openingMonthSources);
+  fold(input.openingMonthSources, 0);
   // The remaining eleven months, from the compiled series alone. The same active-window gate
   // the simulator applies each month: a series stops paying this household when its owner
   // leaves it or dies, and an estimate that ignored that would over-withhold all year.
@@ -206,10 +216,13 @@ export function projectKnownTaxYear(
       const owner = state.personsById.get(s.ownerId);
       return owner === undefined || isPersonActiveAt(owner, m);
     });
-    fold([
-      ...buildIncomeSources(active, m),
-      ...buildGovernmentBenefitSources(benefitState, jurisdiction, m, startYear, benefitColaRate),
-    ]);
+    fold(
+      [
+        ...buildIncomeSources(active, m),
+        ...buildGovernmentBenefitSources(benefitState, jurisdiction, m, startYear, benefitColaRate),
+      ],
+      m - month,
+    );
   }
 
   // ── 2. Explicitly-funded events, priced off their own resolved allocation ───────────────────
@@ -220,8 +233,10 @@ export function projectKnownTaxYear(
   const workingBasis = new Map(state.basisByAccount);
   // What an event's named sources could NOT deliver — the one case its funding is not actually
   // resolved. Only that residue falls through to the forecast; the part the allocation does
-  // cover is already counted here and must not be counted again.
-  let unresolvedEventCents = 0;
+  // cover is already counted here and must not be counted again. Booked in the event's OWN month:
+  // a home purchase short of its down payment is a March problem, not a twelfth of one every
+  // month, and the waterfall will meet it by selling in March against March's balances.
+  const unresolvedEventByMonth: Cents[] = Array.from({ length: MONTHS_IN_TAX_YEAR }, () => 0);
 
   const thisYearsDraws = state.fundingDraws
     .filter(
@@ -275,7 +290,8 @@ export function projectKnownTaxYear(
       ctx,
       new Map(),
     );
-    unresolvedEventCents += shortfallCents;
+    const eventIndex = obligation.month - month;
+    unresolvedEventByMonth[eventIndex] = (unresolvedEventByMonth[eventIndex] ?? 0) + shortfallCents;
 
     for (const s of perSource) {
       if (s.kind === "credit" || s.grossCents <= 0) continue;
@@ -300,21 +316,30 @@ export function projectKnownTaxYear(
   // list, not a parallel total. Explicitly-funded obligations are excluded by
   // `automaticFundingTotal` itself, which is what stops an event counted in (2) being counted
   // again here.
-  let expectedOutflowCents = 0;
+  // Month by month, so a lumpy year is forecast lumpy: the same series carry a one-time spend or
+  // an automatically-funded home purchase in the single month it falls, and reading them monthly
+  // is what lets the forecast sell against that month's balance and basis.
+  //
+  // SIGNED, deliberately: a month whose income exceeds its costs carries a negative need, and its
+  // tax is paid out of that surplus — clamping each month at zero first would make the tax itself
+  // look like an unfunded need and forecast a working household selling investments every year to
+  // pay withholding it actually pays from wages. `forecastFundingDraws` carries the surplus
+  // forward instead, so the clamp happens where money is actually drawn.
+  //
+  // Last year's balance joins the ONE month that actually charges it — April, wherever it falls
+  // in this window — asked of `isTaxSettlementMonth` rather than restated as a number here.
+  const baseNeedByMonth: Cents[] = [];
   for (let m = month; m < month + MONTHS_IN_TAX_YEAR; m++) {
-    expectedOutflowCents += automaticFundingTotal(
-      buildObligations(input.expenseSeries, m, state.liabilities, input.liabilityPaymentsCents),
+    const i = m - month;
+    baseNeedByMonth.push(
+      automaticFundingTotal(
+        buildObligations(input.expenseSeries, m, state.liabilities, input.liabilityPaymentsCents),
+      ) -
+        (inflowByMonth[i] ?? 0) +
+        (unresolvedEventByMonth[i] ?? 0) +
+        (isTaxSettlementMonth(m) ? input.priorYearSettlementCents : 0),
     );
   }
-
-  // SIGNED, deliberately: a household whose income comfortably exceeds its costs carries a
-  // negative need, and its tax is paid out of that surplus — clamping the shortfall at zero
-  // first would make the tax itself look like an unfunded need and forecast a working household
-  // selling investments every year to pay withholding it actually pays from wages. The clamp
-  // belongs at the point of drawing (`forecastFundingDraws` returns nothing for a need ≤ 0),
-  // not before the tax is added in.
-  const netFundingNeedCents =
-    expectedOutflowCents - expectedInflowCents + unresolvedEventCents + input.priorYearSettlementCents;
 
   // The waterfall's own account priority — liquid cash first, then the liquidation order — with
   // the year's explicit event draws already taken out of the balances above.
@@ -378,9 +403,12 @@ export function projectKnownTaxYear(
   for (let i = 0; i < MAX_FIXED_POINT_ITERATIONS; i++) {
     // Tₙ₊₁ = Tax(I_known + I_event + TaxableIncome(FundingForecast(D + Tₙ))). The tax is added to
     // the need because paying it IS a cash need — which is why one pass is not enough: the draws
-    // that fund the tax realize income that raises the tax.
+    // that fund the tax realize income that raises the tax. It joins the schedule in twelve EVEN
+    // instalments because that is exactly how the year charges it, whatever shape the rest of the
+    // need has.
+    const instalments = evenMonthlyShares(taxCents);
     const { draws } = forecastFundingDraws(
-      netFundingNeedCents + taxCents,
+      baseNeedByMonth.map((need, i) => need + (instalments[i] ?? 0)),
       forecastAccounts,
       jurisdiction,
       ctx,

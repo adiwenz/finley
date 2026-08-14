@@ -506,7 +506,11 @@ describe("OneTimeSpendEvent — gate == sim across a decumulation month", () => 
     // enforced one step earlier.
     const ASK = dollarsToCents(60_000);
     const CASH = dollarsToCents(45_000);
-    const jur = bracketedCapitalGains(dollarsToCents(15_000), 0.4);
+    // A threshold above the gain the month-23 decumulation realizes (~$17.7k), so the year owes
+    // nothing and `cash` reaches month 23 whole. With a lower one the household spends the year
+    // paying instalments of a correctly-estimated bill out of the very buffer this measures, and
+    // the assertion below would be reading the tax estimate rather than the gate.
+    const jur = bracketedCapitalGains(dollarsToCents(25_000), 0.4);
     const base: LedgerBaseConfig = {
       horizonMonths: 24,
       annualInflationRate: 0,

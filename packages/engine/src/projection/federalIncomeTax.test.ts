@@ -233,6 +233,27 @@ describe("Federal income tax — the year's balance settles the following April"
   /** The month a tax year starting at month 0 settles in: April of the next year. */
   const SETTLES_IN = 15;
 
+  /**
+   * A debt that ORIGINATES mid-year — the mirror of the maturing loan in the refund test below,
+   * and the same documented blind spot: the year-start forecast holds THIS month's scheduled debt
+   * payments flat for twelve months (see `TaxYearProjectionInput.liabilityPaymentsCents`), and in
+   * January this loan has no payment to hold. So the household's second half really does pay
+   * $45,000 the estimate never saw, funds it by selling, and owes tax on the sale that no
+   * instalment collected. That gap is the year's balance — the one thing an under-collecting year
+   * needs to exist for the tests below, now that a forecast which reads the need month by month
+   * prices an ordinary lumpy spend almost exactly.
+   */
+  const loanFromJuly = (): AmortizingLoan =>
+    new AmortizingLoan({
+      id: "loan",
+      ownerId: "p1",
+      kind: "studentLoan",
+      openingBalanceCents: dollarsToCents(45_000),
+      startMonth: 5,
+      apr: 0,
+      termMonths: 6, // $7,500 a month across months 6–11
+    });
+
   it("anticipates the decumulation an ordinary spend forces, rather than saving it all for the balance", () => {
     const rate = 0.25;
     const wages = series(2_000, 0, 15); // $24k/yr — nowhere near enough to fund the spend below
@@ -261,10 +282,13 @@ describe("Federal income tax — the year's balance settles the following April"
     // December is no longer a true-up. They differ only by the cumulative rounding that makes
     // twelve instalments sum exactly.
     expect(Math.max(...withDraw.slice(0, 12)) - Math.min(...withDraw.slice(0, 12))).toBeLessThanOrEqual(1);
-    // What the annual forecast could not know — that six months of surplus banked before the
-    // spend land too late to shrink the month-6 draw — is the year's remaining balance, and it
-    // lands in April of the NEXT year, on top of that year's own instalment.
-    expect(withDraw[SETTLES_IN]!).toBeGreaterThan(withDraw[14]! * 2);
+    // And the year leaves next to nothing behind. The forecast is built from the need MONTH BY
+    // MONTH, so it knows both things an annual total averages away: that six months of wages are
+    // banked before the spend lands, and that the spend still has to be met in month 6 out of
+    // only what has been banked by then. April's charge is therefore year 1's own instalment plus
+    // a residue of pennies — where a forecast that spread the year's need evenly left a balance
+    // several times an instalment.
+    expect(withDraw[SETTLES_IN]! - withDraw[14]!).toBeLessThan(dollarsToCents(1));
   });
 
   it("charges a positive balance exactly once, in April, and never again", () => {
@@ -327,11 +351,8 @@ describe("Federal income tax — the year's balance settles the following April"
 
   it("makes the year's instalments plus its balance equal the annual tax on its actual income", () => {
     const rate = 0.25;
-    // $24k of wages the estimate paces on, and a $50k spend in JANUARY — before a cent of those
-    // wages has been banked, so the real draw is far larger than an annual forecast (which nets
-    // the whole year's income against the whole year's costs) can predict. That gap is the year's
-    // balance. By year 1 the banked wages sit in `checking`, which the forecast draws first and
-    // untaxed, so year 1 estimates nothing at all and April's charge is the balance, alone.
+    // $24k of wages the estimate paces on and collects twelve instalments for, plus a loan the
+    // year's start cannot see, whose payments force a pre-tax draw nobody withheld against.
     const projection = simulateHousehold(
       baseInput(
         [
@@ -341,41 +362,45 @@ describe("Federal income tax — the year's balance settles the following April"
         {
           horizonMonths: 16,
           incomeSeries: [series(2_000, 0, 11)],
-          expenseSeries: [series(50_000, 0, 0)],
+          liabilities: [loanFromJuly()],
         },
       ),
       flatAnnual(rate),
     );
     const taxes = monthlyTax(projection);
-    // Year 1 owes nothing of its own, so January–March charge nothing and April's whole charge is
-    // year 0's balance.
-    expect(taxes.slice(12, 15)).toEqual([0, 0, 0]);
-    const balance = taxes[15]!;
-    expect(balance).toBeGreaterThan(0);
+    // Both halves are real: the year collected instalments AND left a balance behind.
+    expect(sum(taxes.slice(0, 12))).toBe(dollarsToCents(6_000)); // 25% of the wages it could see
+    // April carries tax from two years at once — year 0's balance on top of year 1's own
+    // instalment, which March charges alone and so measures.
+    const balance = taxes[15]! - taxes[14]!;
+    expect(balance).toBeGreaterThan(dollarsToCents(1_000));
 
     // Basis 0, so every cent that left the pre-tax account in year 0 IS year 0's taxable income,
     // on top of the year's wages.
     const drawn = dollarsToCents(500_000) - projection.months[11]!.accountBalancesCents.pretax!;
     const liability = Math.round((drawn + dollarsToCents(24_000)) * rate);
     // THE INVARIANT the model rests on: the year's twelve instalments plus the balance settled the
-    // following April come to the annual liability on the year's ACTUAL taxable income, to the
-    // cent — no rounding residue, and no dependence on which month each dollar landed in.
-    expect(sum(taxes.slice(0, 12)) + balance).toBe(liability);
+    // following April come to the annual liability on the year's ACTUAL taxable income — no
+    // modelling residue, and no dependence on which month each dollar landed in. The single cent
+    // of slack is not the model's: it is the amount by which April's own instalment of year 1 can
+    // differ from March's, which is the only thing standing between `taxes[15] - taxes[14]` and
+    // the balance itself.
+    expect(Math.abs(sum(taxes.slice(0, 12)) + balance - liability)).toBeLessThanOrEqual(1);
   });
 
   it("funds an April balance from the retirement account as income of the year of the DRAW", () => {
     const rate = 0.25;
-    // The same January spend as above, but with NO cash account — so the only thing April 2027
-    // can sell to pay 2026's balance is the traditional retirement account, and that sale is
-    // fully taxable. Year 1 has no income and no expenses whatsoever: everything it is charged
-    // traces back to funding the prior year's bill.
+    // The same unseen loan as above, but with NO cash account — so the only thing April 2027 can
+    // sell to pay 2026's balance is the traditional retirement account, and that sale is fully
+    // taxable. 2026's own spending stops at its December, so 2027 has no income and no expenses
+    // whatsoever: everything it is charged traces back to funding the prior year's bill.
     const run = (horizonMonths: number): Cents[] =>
       monthlyTax(
         simulateHousehold(
           baseInput([account("pretax", PRE_TAX_TAX_PROFILE, 500_000)], {
             horizonMonths,
-            incomeSeries: [series(2_000, 0, 11)],
-            expenseSeries: [series(50_000, 0, 0)],
+            expenseSeries: [series(1_000, 0, 11)],
+            liabilities: [loanFromJuly()],
           }),
           flatAnnual(rate),
         ),
@@ -388,8 +413,8 @@ describe("Federal income tax — the year's balance settles the following April"
     const projection = simulateHousehold(
       baseInput([account("pretax", PRE_TAX_TAX_PROFILE, 500_000)], {
         horizonMonths: 28,
-        incomeSeries: [series(2_000, 0, 11)],
-        expenseSeries: [series(50_000, 0, 0)],
+        expenseSeries: [series(1_000, 0, 11)],
+        liabilities: [loanFromJuly()],
       }),
       flatAnnual(rate),
     );
@@ -439,8 +464,8 @@ describe("Federal income tax — the year's balance settles the following April"
     const projection = simulateHousehold(
       baseInput([account("pretax", PRE_TAX_TAX_PROFILE, 500_000)], {
         horizonMonths: 16,
-        incomeSeries: [series(2_000, 0, 11)],
-        expenseSeries: [series(50_000, 0, 0)],
+        expenseSeries: [series(1_000, 0, 11)],
+        liabilities: [loanFromJuly()],
       }),
       flatAnnual(0.25),
     );

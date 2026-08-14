@@ -1,6 +1,6 @@
 /**
- * A LIGHTWEIGHT annual answer to "if the household is short by this much over the coming year,
- * which accounts pay for it, and what taxable income does that realize?"
+ * A LIGHTWEIGHT annual answer to "if the household is short by this much in each of the coming
+ * twelve months, which accounts pay for it, and what taxable income does that realize?"
  *
  * This exists for one reason: the year-start tax estimate ({@link
  * import("./taxYearProjection").projectKnownTaxYear}) can read scheduled income straight off
@@ -24,9 +24,18 @@
  * opening balance therefore understated the last year of every decumulating plan by exactly the
  * growth earned before depletion, and left that slice's tax — $549.67 on the default plan — for
  * the following April to charge as a lone spike after the household had stopped paying tax at all.
- * So each month applies the account's configured growth and then subtracts that month's share of
- * the need, in the same order the waterfall would. A depleted account compounds nothing, which is
- * what stops the walk from inventing a balance that was spent in March.
+ * So each month subtracts that month's need, in the same order the waterfall would, and then
+ * applies the account's configured growth to whatever survived. A depleted account compounds
+ * nothing, which is what stops the walk from inventing a balance that was spent in March.
+ *
+ * **The need arrives with its own shape**, one figure per month, not a year's total sliced twelve
+ * ways. WHEN money is spent decides how much of it an account has grown to meet and, through the
+ * jurisdiction's basis seam, how much gain a sale realizes: a household that buys a house in March
+ * sells a year's worth of brokerage out of a March balance, against a March basis, and realizing
+ * far more gain than the same dollars dribbled out monthly would. Averaging that away made the
+ * estimate confidently smooth and wrong — on the engine's own home-purchase fixture, a $150,000
+ * March obligation realizes $25,045 of gain, which an evenly-spread forecast priced at $19,416 and
+ * a January-balance cap at $13,636, below the jurisdiction's threshold and so at no tax at all.
  *
  * That is twelve multiplications per account, not a second projection: no state is threaded out,
  * nothing is snapshotted, and the tax/funding circularity is still solved OUTSIDE this function by
@@ -62,10 +71,12 @@ export interface ForecastAccount {
    * what {@link import("../plan/simAccount").SimAccount.getMonthlyRateAt} returns for each, so a
    * rate schedule that steps mid-year is honoured rather than flattened to January's.
    *
-   * Absent means a flat, non-growing account: every existing caller and fixture that omits it
-   * gets the old behaviour, and a zero-return account is unaffected either way.
+   * REQUIRED, and required for a reason: an omissible rate schedule defaults an account to not
+   * growing, which is the very blind spot this forecast exists to close, and it does so silently —
+   * a caller that forgets it gets a plausible answer that is short by exactly the growth earned
+   * before depletion. A genuinely flat account passes twelve zeroes and says so.
    */
-  readonly monthlyRates?: readonly number[];
+  readonly monthlyRates: readonly number[];
 }
 
 /** One account's forecast contribution to the year's funding need. */
@@ -87,29 +98,41 @@ export interface FundingForecast {
 const NOTHING_FORECAST: FundingForecast = { draws: [], unfundedCents: 0 };
 
 /** The forecast horizon: one tax year, walked a month at a time. */
-const FORECAST_MONTHS = 12;
+export const FORECAST_MONTHS = 12;
 
 /**
- * Month `m`'s share of an annual figure, integer cents, the twelve shares summing to exactly
- * `annualCents`. Even by design and not by accident: the tax half of the need really is paid in
- * twelve even instalments ({@link import("./federalIncomeTax").MONTHS_IN_TAX_YEAR}), and ordinary
- * living costs are close enough to even that shaping them would be false precision in a forecast
- * that already rounds the year's income to the nearest scheduled dollar.
+ * A year's figure spread evenly over the twelve forecast months, integer cents, the shares summing
+ * to exactly `annualCents`.
+ *
+ * For the parts of the need that really ARE even — chiefly the year's own estimated income tax,
+ * which is charged in twelve equal instalments ({@link
+ * import("./federalIncomeTax").MONTHS_IN_TAX_YEAR}) — and for callers with nothing better to say
+ * about timing. Everything the plan does know the timing of should arrive shaped instead; see
+ * {@link forecastFundingDraws}.
  */
-function monthShareCents(annualCents: Cents, month: number): Cents {
-  return (
-    Math.round((annualCents * (month + 1)) / FORECAST_MONTHS) -
-    Math.round((annualCents * month) / FORECAST_MONTHS)
+export function evenMonthlyShares(annualCents: Cents): Cents[] {
+  return Array.from(
+    { length: FORECAST_MONTHS },
+    (_, month) =>
+      Math.round((annualCents * (month + 1)) / FORECAST_MONTHS) -
+      Math.round((annualCents * month) / FORECAST_MONTHS),
   );
 }
 
 /**
  * Walk twelve months over `ordered` — already in {@link
- * import("./withdrawal").orderedLiquidationAccounts} order — growing each account by its own rate
- * and then taking what is left of that month's share of `needCents` from each in turn, until the
- * year's need is covered or the accounts are dry. The annual analogue of twelve months of {@link
- * import("./withdrawal").buildWithdrawalSources}: same order, same "sell exactly the need"
- * sizing, same jurisdiction-owned basis/gain seam.
+ * import("./withdrawal").orderedLiquidationAccounts} order — taking what is left of each month's
+ * need from each account in turn and then growing whatever survived by that account's own rate,
+ * until the year's need is covered or the accounts are dry. The annual analogue of twelve months
+ * of {@link import("./withdrawal").buildWithdrawalSources}: same order, same "sell exactly the
+ * need" sizing, same jurisdiction-owned basis/gain seam.
+ *
+ * `needByMonthCents` is the year's funding need MONTH BY MONTH, index 0 being the tax year's first
+ * processed month. Entries are SIGNED: a month whose income exceeds its costs carries a negative
+ * need, and that surplus carries forward against later months rather than being clamped away —
+ * which is how a household that banks a March bonus and lives off it until August forecasts no
+ * sale at all. (Clamping per month instead would forecast a household selling investments in
+ * every lean month while its own cash piled up beside them.)
  *
  * **Draw, then grow**, matching the simulator's own pipeline — the funding waterfall runs in steps
  * 3–7 and `compoundAssets` in step 9, so a month's spending never earns that month's return. Get
@@ -133,12 +156,12 @@ function monthShareCents(annualCents: Cents, month: number): Cents {
  * really happens, where the tax is paid from the following months' funding need.
  */
 export function forecastFundingDraws(
-  needCents: Cents,
+  needByMonthCents: readonly Cents[],
   ordered: readonly ForecastAccount[],
   jurisdiction: Jurisdiction,
   ctx: JurisdictionContext,
 ): FundingForecast {
-  if (needCents <= 0) return NOTHING_FORECAST;
+  if (ordered.length === 0) return NOTHING_FORECAST;
 
   // Working copies, one entry per account, parallel to `ordered`.
   const balances = ordered.map((a) => Math.max(0, a.balanceCents));
@@ -146,9 +169,10 @@ export function forecastFundingDraws(
   const grossByAccount = ordered.map(() => 0);
   const taxableByAccount = ordered.map(() => 0);
 
+  // SIGNED between months: a surplus month carries forward as a negative and pays for a lean one.
   let carriedNeed = 0;
   for (let month = 0; month < FORECAST_MONTHS; month++) {
-    let remaining = monthShareCents(needCents, month) + carriedNeed;
+    let remaining = (needByMonthCents[month] ?? 0) + carriedNeed;
 
     for (let i = 0; i < ordered.length; i++) {
       if (remaining <= 0) break;
@@ -177,14 +201,16 @@ export function forecastFundingDraws(
       taxableByAccount[i] += taxable;
       remaining -= gross;
     }
-    carriedNeed = Math.max(0, remaining);
+    carriedNeed = remaining;
 
     // Growth, on whatever survived this month's spending. A depleted account multiplies zero by
     // its rate and stays depleted, which is the "stop compounding once drained" rule stating
     // itself rather than needing a branch.
     for (let i = 0; i < ordered.length; i++) {
-      const rate = ordered[i]!.monthlyRates?.[month];
-      if (rate === undefined || rate === 0 || balances[i]! <= 0) continue;
+      // `?? 0` guards a short array, not an absent schedule: `monthlyRates` is required, and a
+      // caller with no growth to declare declares zeroes.
+      const rate = ordered[i]!.monthlyRates[month] ?? 0;
+      if (rate === 0 || balances[i]! <= 0) continue;
       balances[i] = Math.round(balances[i]! * (1 + rate));
     }
   }
@@ -201,5 +227,5 @@ export function forecastFundingDraws(
     });
   }
 
-  return { draws, unfundedCents: carriedNeed };
+  return { draws, unfundedCents: Math.max(0, carriedNeed) };
 }
