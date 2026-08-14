@@ -239,7 +239,8 @@ describe("Estate settlement — when it runs at all", () => {
     // stating. It is simply nowhere near enough.
     const insolvent = dies(12, [cash(0)], { expenseSeries: [series(9_000)] });
     expect(insolvent.months[11].isInsolvent).toBe(true);
-    expect(settlementOf(insolvent).isSolvent).toBe(false);
+    expect(settlementOf(insolvent).isEconomicallySolvent).toBe(false);
+    expect(settlementOf(insolvent).isProbateSolvent).toBe(false);
   });
 });
 
@@ -296,12 +297,15 @@ describe("Estate settlement — final federal income tax", () => {
     );
     expect(settlement.finalTaxDueCents).toBe(0);
     expect(settlement.finalTaxRefundCents).toBe(dollarsToCents(6_000));
-    // Assets are the accounts PLUS the refund, and the surplus carries it through.
-    expect(settlement.estateAssetsCents).toBe(
+    // Probate assets are the accounts PLUS the refund, and both verdicts carry it through.
+    expect(settlement.probateAssetsCents).toBe(
       settlement.estateAccountsCents + settlement.finalTaxRefundCents,
     );
-    expect(settlement.estateSurplusCents).toBe(
-      settlement.estateAssetsCents - settlement.outstandingDebtCents,
+    expect(settlement.probateSurplusCents).toBe(
+      settlement.probateAssetsCents - settlement.unsecuredDebtCents,
+    );
+    expect(settlement.terminalEconomicNetWorthCents).toBe(
+      settlement.totalAssetsCents + settlement.finalTaxRefundCents,
     );
   });
 
@@ -324,9 +328,10 @@ describe("Estate settlement — what the estate holds", () => {
   it("counts cash at its balance on the day", () => {
     const settlement = settlementOf(dies(12, [cash(50_000)]));
     expect(settlement.estateAccountsCents).toBe(dollarsToCents(50_000));
-    expect(settlement.estateAssetsCents).toBe(dollarsToCents(50_000));
-    expect(settlement.estateSurplusCents).toBe(dollarsToCents(50_000));
-    expect(settlement.isSolvent).toBe(true);
+    expect(settlement.probateAssetsCents).toBe(dollarsToCents(50_000));
+    expect(settlement.probateSurplusCents).toBe(dollarsToCents(50_000));
+    expect(settlement.terminalEconomicNetWorthCents).toBe(dollarsToCents(50_000));
+    expect(settlement.isEconomicallySolvent).toBe(true);
   });
 
   it("counts appreciated taxable investments at death-date value, realizing no terminal gain", () => {
@@ -342,8 +347,8 @@ describe("Estate settlement — what the estate holds", () => {
     // Same money, no unrealized gain in it: the estate is worth the same either way, which is
     // exactly what the basis reset means.
     const asCash = settlementOf(dies(12, [cash(10_000), brokerage(40_000)]));
-    expect(appreciated.estateAssetsCents - appreciated.estateAccountsCents).toBe(
-      asCash.estateAssetsCents - asCash.estateAccountsCents,
+    expect(appreciated.probateAssetsCents - appreciated.estateAccountsCents).toBe(
+      asCash.probateAssetsCents - asCash.estateAccountsCents,
     );
   });
 
@@ -374,13 +379,20 @@ describe("Estate settlement — what the estate holds", () => {
   it("counts property at its death-date value", () => {
     const withHouse = settlementOf(dies(12, [cash(10_000)], { properties: [house(300_000)] }));
     expect(withHouse.propertyValuesCents).toBe(dollarsToCents(300_000));
-    expect(withHouse.estateAssetsCents).toBe(dollarsToCents(310_000));
+    // Unmortgaged, so all of it is equity and all of it reaches probate.
+    expect(withHouse.probateAssetsCents).toBe(dollarsToCents(310_000));
+    expect(withHouse.totalAssetsCents).toBe(dollarsToCents(310_000));
   });
 
-  it("excludes pre-tax retirement from the estate and reports it as the beneficiaries'", () => {
+  it("excludes pre-tax retirement from PROBATE while still counting it as wealth", () => {
     const settlement = settlementOf(dies(12, [cash(10_000), preTax(500_000)]));
     expect(settlement.estateAccountsCents).toBe(dollarsToCents(10_000));
     expect(settlement.beneficiaryRetirementAssetsCents).toBe(dollarsToCents(500_000));
+    // Out of the creditors' reach, in the household's economic position: a designation routes
+    // wealth, it does not destroy it.
+    expect(settlement.probateAssetsCents).toBe(dollarsToCents(10_000));
+    expect(settlement.totalAssetsCents).toBe(dollarsToCents(510_000));
+    expect(settlement.terminalEconomicNetWorthCents).toBe(dollarsToCents(510_000));
     // Excluded from the funding pool, NOT deleted: the balance is intact in the final month and
     // reported in full beside the estate.
     expect(dies(12, [cash(10_000), preTax(500_000)]).months[11].accountBalancesCents.pretax).toBe(
@@ -418,13 +430,15 @@ describe("Estate settlement — obligations and the verdict", () => {
     const settlement = settlementOf(indebted);
     // Twelve payments in, so the balance is below the $60k it opened at — and it is that balance,
     // not the 588 remaining payments, that the estate has to clear.
-    expect(settlement.outstandingDebtCents).toBe(indebted.months[11].liabilityBalancesCents.loan);
-    expect(settlement.outstandingDebtCents).toBeLessThan(dollarsToCents(60_000));
-    expect(settlement.outstandingDebtCents).toBeGreaterThan(dollarsToCents(58_000));
-    expect(settlement.estateSurplusCents).toBeLessThan(debtFree.estateSurplusCents);
+    expect(settlement.totalDebtCents).toBe(indebted.months[11].liabilityBalancesCents.loan);
+    expect(settlement.totalDebtCents).toBeLessThan(dollarsToCents(60_000));
+    expect(settlement.totalDebtCents).toBeGreaterThan(dollarsToCents(58_000));
+    expect(settlement.terminalEconomicNetWorthCents).toBeLessThan(
+      debtFree.terminalEconomicNetWorthCents,
+    );
   });
 
-  it("passes when cash and taxable investments cover what is owed", () => {
+  it("passes when the assets cover what is owed", () => {
     const settlement = settlementOf(
       dies(12, [cash(120_000), brokerage(40_000)], {
         liabilities: [
@@ -432,50 +446,111 @@ describe("Estate settlement — obligations and the verdict", () => {
         ],
       }),
     );
-    expect(settlement.estateAssetsCents).toBeGreaterThan(settlement.estateObligationsCents);
-    expect(settlement.estateSurplusCents).toBeGreaterThan(0);
-    expect(settlement.isSolvent).toBe(true);
+    expect(settlement.terminalEconomicNetWorthCents).toBeGreaterThan(0);
+    expect(settlement.isEconomicallySolvent).toBe(true);
+    expect(settlement.isProbateSolvent).toBe(true);
   });
 
-  it("fails on estate assets alone, however large the beneficiaries' inheritance", () => {
-    // The specification's worked example: a household dying with half a million in a retirement
-    // account and not enough outside it to clear a mortgage. The inheritance is real and reported;
-    // it is simply not available to the creditors.
+  it("states the economic position as everything owned less everything owed", () => {
+    const settlement = settlementOf(dies(12, [cash(10_000), preTax(500_000)]));
+    expect(settlement.totalAssetsCents).toBe(
+      settlement.estateAccountsCents +
+        settlement.beneficiaryRetirementAssetsCents +
+        settlement.propertyValuesCents,
+    );
+    expect(settlement.terminalEconomicNetWorthCents).toBe(
+      settlement.totalAssetsCents +
+        settlement.finalTaxRefundCents -
+        settlement.totalDebtCents -
+        settlement.finalTaxDueCents,
+    );
+    expect(settlement.isEconomicallySolvent).toBe(
+      settlement.terminalEconomicNetWorthCents >= 0,
+    );
+  });
+
+  it("reconciles with the final month's net worth, up to the tax the run could not charge", () => {
+    // The settlement invents no asset and forgives no debt: it is the last month's balance sheet
+    // plus the one thing the projection had no April left to book.
+    const dying = retiredWithLoanAt(18);
+    const settlement = settlementOf(dying);
+    expect(settlement.terminalEconomicNetWorthCents).toBe(
+      dying.months[23].netWorthNominalCents! -
+        settlement.finalTaxDueCents +
+        settlement.finalTaxRefundCents,
+    );
+  });
+});
+
+describe("Estate settlement — probate distribution", () => {
+  /** A mortgaged home: the property names the loan securing it, as a real purchase would. */
+  function mortgagedHouse(valueDollars: number): Partial<HouseholdSimInput> {
+    return {
+      properties: [{ ...house(valueDollars), mortgageLiabilityId: "loan" }],
+      liabilities: [loan(200_000, -1, 0, 600)],
+    };
+  }
+
+  it("lets collateral answer for the debt it secures, and passes the equity to probate", () => {
+    const run = dies(12, [cash(10_000)], mortgagedHouse(300_000));
+    const settlement = settlementOf(run);
+    const balanceCents = run.months[11].liabilityBalancesCents.loan;
+    expect(settlement.securedDebtCents).toBe(balanceCents);
+    // The house is worth more than the mortgage, so the mortgage is covered in full and only the
+    // equity — value less the balance — reaches the creditors' pool alongside what cash is left.
+    expect(settlement.collateralAppliedCents).toBe(balanceCents);
+    expect(settlement.securedDeficiencyCents).toBe(0);
+    expect(settlement.unsecuredDebtCents).toBe(0);
+    expect(settlement.probateAssetsCents).toBe(
+      run.months[11].accountBalancesCents.cash + dollarsToCents(300_000) - balanceCents,
+    );
+  });
+
+  it("drops an underwater mortgage's deficiency into the unsecured queue", () => {
+    // A $120k house against a ~$196k mortgage: the collateral clears what it is worth and the
+    // rest becomes an ordinary claim on whatever cash is left.
+    const underwater = dies(12, [cash(10_000)], mortgagedHouse(120_000));
+    const settlement = settlementOf(underwater);
+    const balanceCents = underwater.months[11].liabilityBalancesCents.loan;
+    expect(settlement.collateralAppliedCents).toBe(dollarsToCents(120_000));
+    expect(settlement.securedDeficiencyCents).toBe(balanceCents - dollarsToCents(120_000));
+    expect(settlement.unsecuredDebtCents).toBe(settlement.securedDeficiencyCents);
+    // No equity: the house is entirely spoken for, so probate holds only the cash.
+    expect(settlement.probateAssetsCents).toBe(underwater.months[11].accountBalancesCents.cash);
+    expect(settlement.isProbateSolvent).toBe(false);
+  });
+
+  it("leaves unsecured debt unpaid rather than reaching into a beneficiary's account", () => {
+    // The old worked example, re-judged. Probate cannot clear the loan and does not pretend to;
+    // the shortfall is named, the inheritance passes intact, and no balance moved to close it.
     const indebted = dies(12, [cash(10_000), brokerage(40_000), preTax(500_000)], {
-      liabilities: [
-        loan(65_000, -1, 0, 600),
-      ],
+      liabilities: [loan(65_000, -1, 0, 600)],
     });
     const settlement = settlementOf(indebted);
-    expect(settlement.estateAccountsCents).toBeLessThan(dollarsToCents(50_000));
-    expect(settlement.beneficiaryRetirementAssetsCents).toBe(dollarsToCents(500_000));
-    expect(settlement.estateSurplusCents).toBeLessThan(0);
-    expect(settlement.isSolvent).toBe(false);
-    // The shortfall is stated, not absorbed: no negative cash balance was manufactured to close
-    // it, and the retirement account is untouched.
+    expect(settlement.probateAssetsCents).toBeLessThan(dollarsToCents(50_000));
+    expect(settlement.probateSurplusCents).toBeLessThan(0);
+    expect(settlement.isProbateSolvent).toBe(false);
+    expect(settlement.unpaidObligationsCents).toBe(-settlement.probateSurplusCents);
+    expect(settlement.heirDistributionCents).toBe(dollarsToCents(500_000));
     expect(indebted.months[11].accountBalancesCents.pretax).toBe(dollarsToCents(500_000));
     expect(indebted.months[11].accountBalancesCents.cash).toBeGreaterThanOrEqual(0);
   });
 
-  it("states the surplus as assets less obligations, both of them stated too", () => {
-    const settlement = settlementOf(dies(12, [cash(10_000), preTax(500_000)]));
-    expect(settlement.estateAssetsCents).toBe(
-      settlement.estateAccountsCents + settlement.propertyValuesCents + settlement.finalTaxRefundCents,
-    );
-    expect(settlement.estateObligationsCents).toBe(
-      settlement.finalTaxDueCents + settlement.outstandingDebtCents,
-    );
-    expect(settlement.estateSurplusCents).toBe(
-      settlement.estateAssetsCents - settlement.estateObligationsCents,
-    );
-    expect(settlement.isSolvent).toBe(settlement.estateSurplusCents >= 0);
+  it("hands the probate residue to the heirs alongside the designated accounts", () => {
+    const settlement = settlementOf(dies(12, [cash(50_000), preTax(500_000)]));
+    expect(settlement.unpaidObligationsCents).toBe(0);
+    expect(settlement.heirDistributionCents).toBe(dollarsToCents(550_000));
   });
 });
 
 describe("Estate settlement — the retirement solver's terminal criterion", () => {
-  /** Lifetime-solvent throughout: wages cover the spending, so no month is ever short. */
-  function livesComfortably(cashDollars: number): ProjectionSeries {
-    return dies(24, [cash(cashDollars), preTax(400_000)], {
+  /**
+   * Lifetime-solvent throughout — wages cover the spending, so no month is ever short — and
+   * carrying a long unsecured loan all the way to death. `retirementDollars` is the only lever:
+   * it moves wealth, never liquidity, which is precisely the distinction under test.
+   */
+  function livesComfortably(cashDollars: number, retirementDollars: number): ProjectionSeries {
+    return dies(24, [cash(cashDollars), preTax(retirementDollars)], {
       incomeSeries: [series(6_000)],
       expenseSeries: [series(3_000)],
       liabilities: [
@@ -484,18 +559,94 @@ describe("Estate settlement — the retirement solver's terminal criterion", () 
     });
   }
 
-  it("rejects a plan that is solvent every month but leaves an estate that cannot pay up", () => {
-    const thin = livesComfortably(1_000);
-    expect(thin.months.every((m) => !m.isInsolvent)).toBe(true);
-    expect(settlementOf(thin).isSolvent).toBe(false);
-    // Judged on months alone this plan retires comfortably on a mortgage nobody ever pays off.
-    expect(planOutcome(thin)).toBe("fails");
+  it("rejects a plan that is solvent every month but dies owing more than it owns", () => {
+    const short = livesComfortably(1_000, 0);
+    expect(short.months.every((m) => !m.isInsolvent)).toBe(true);
+    expect(settlementOf(short).terminalEconomicNetWorthCents).toBeLessThan(0);
+    // Judged on months alone this plan retires comfortably on a loan nobody ever pays off.
+    expect(planOutcome(short)).toBe("fails");
   });
 
-  it("accepts the same plan once the estate can cover the debt and the final tax", () => {
-    const funded = livesComfortably(200_000);
-    expect(settlementOf(funded).isSolvent).toBe(true);
+  it("accepts a plan whose wealth sits in a beneficiary-designated account, thin probate and all", () => {
+    // Same liquidity, same debt, same months — and now enough wealth to cover what is owed, held
+    // where probate cannot reach it. The estate still goes short and says so; the retirement is
+    // feasible anyway, because the household was never actually poor.
+    const funded = livesComfortably(1_000, 400_000);
+    const settlement = settlementOf(funded);
+    expect(settlement.probateAssetsCents).toBeLessThan(settlement.probateObligationsCents);
+    expect(settlement.isProbateSolvent).toBe(false);
+    expect(settlement.unpaidObligationsCents).toBeGreaterThan(0);
+    expect(settlement.terminalEconomicNetWorthCents).toBeGreaterThan(0);
     expect(planOutcome(funded)).toBe("survives");
+  });
+
+  it("does not fail a household whose probate estate is empty but whose IRA is not", () => {
+    // The regression this criterion exists for. Spending cash before selling investments leaves
+    // the probate estate at zero and the retirement account fuller — a strictly wealthier plan
+    // that the old probate test rejected over a few cents of unsettled final tax.
+    const emptyProbate = dies(24, [cash(0), preTax(500_000)], {
+      expenseSeries: [series(4_000)],
+      liabilities: [loan(50_000, 18, 0.05, 60)],
+    });
+    const settlement = settlementOf(emptyProbate);
+    expect(settlement.estateAccountsCents).toBe(0);
+    expect(settlement.finalTaxDueCents).toBeGreaterThan(0);
+    expect(settlement.isProbateSolvent).toBe(false);
+    expect(settlement.beneficiaryRetirementAssetsCents).toBeGreaterThan(dollarsToCents(300_000));
+    expect(settlement.terminalEconomicNetWorthCents).toBeGreaterThan(0);
+    expect(planOutcome(emptyProbate)).toBe("survives");
+  });
+
+  it("fails a household that dies holding nothing and still owing money", () => {
+    // No income, no assets, and a loan whose payments are met on the synthetic card — never
+    // insolvent, because the card is never exhausted, and terminally worth less than nothing.
+    const broke = dies(24, [cash(0)], { liabilities: [loan(150_000, -1, 0, 600)] });
+    const settlement = settlementOf(broke);
+    expect(broke.months.every((m) => !m.isInsolvent)).toBe(true);
+    expect(settlement.totalAssetsCents).toBe(0);
+    // The loan it has been paying down, PLUS the card it paid with — the borrowing that kept it
+    // out of insolvency is debt like any other, and the terminal test is where it lands.
+    expect(settlement.totalDebtCents).toBe(
+      broke.months[23].liabilityBalancesCents.loan +
+        broke.months[23].liabilityBalancesCents["synthetic-credit-card"],
+    );
+    expect(settlement.totalDebtCents).toBeGreaterThan(dollarsToCents(150_000));
+    expect(settlement.terminalEconomicNetWorthCents).toBe(-settlement.totalDebtCents);
+    expect(planOutcome(broke)).toBe("fails");
+  });
+
+  it("counts a house and its mortgage on BOTH sides, netting to the equity", () => {
+    const mortgaged = dies(12, [cash(200_000)], {
+      properties: [{ ...house(300_000), mortgageLiabilityId: "loan" }],
+      liabilities: [loan(200_000, -1, 0, 600)],
+    });
+    const neither = dies(12, [cash(200_000)]);
+    const settlement = settlementOf(mortgaged);
+    const balanceCents = mortgaged.months[11].liabilityBalancesCents.loan;
+    // Both sides present, neither one quietly dropped.
+    expect(settlement.propertyValuesCents).toBe(dollarsToCents(300_000));
+    expect(settlement.totalDebtCents).toBe(balanceCents);
+    // Every mortgage payment moved a dollar from cash to principal, so at 0% the two cancel and
+    // the whole difference is the equity the household bought with its down payment.
+    expect(settlement.terminalEconomicNetWorthCents).toBe(
+      settlementOf(neither).terminalEconomicNetWorthCents + dollarsToCents(100_000),
+    );
+    expect(planOutcome(mortgaged)).toBe("survives");
+  });
+
+  it("never improves the verdict by borrowing money and spending it", () => {
+    // A loan that originates with no paired asset IS borrow-and-spend: the debt arrives, the
+    // proceeds are gone, and the payments drain what was there. It can only ever cost.
+    const unborrowed = dies(24, [cash(1_000)], {
+      incomeSeries: [series(6_000)],
+      expenseSeries: [series(3_000)],
+    });
+    const borrowed = livesComfortably(1_000, 0);
+    expect(planOutcome(unborrowed)).toBe("survives");
+    expect(settlementOf(borrowed).terminalEconomicNetWorthCents).toBeLessThan(
+      settlementOf(unborrowed).terminalEconomicNetWorthCents,
+    );
+    expect(planOutcome(borrowed)).toBe("fails");
   });
 
   it("leaves the verdict on a run with no death exactly as it was", () => {

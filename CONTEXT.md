@@ -277,24 +277,30 @@ drawdown step. `checking`/`savings`/`brokerage` = liquid; retirement accounts
 
 **Estate settlement**:
 The one calculation that happens after the last household member dies, replacing the monthly
-cash-flow simulation rather than extending it. Weighs **estate assets** against the final
-federal income tax and the debt balances outstanding on the day, and states the surplus. No
-month, no waterfall, no sale — the run's balances and net worth are untouched by it.
-_Avoid_: probate (this is a deliberately simplified planning model, not a legal one), final
-year, wind-down.
+cash-flow simulation rather than extending it. Answers two separate questions off the terminal
+state: **was the household still ahead** (economic net worth) and **who actually gets paid**
+(the probate distribution). No month, no waterfall, no sale — the run's balances and net worth
+are untouched by it. _Avoid_: final year, wind-down; and do not use "estate" alone where the
+two questions differ — say economic or probate.
 
-**Estate assets** vs **beneficiary retirement assets**:
-The two pools a household dies holding, never conflated. **Estate assets** — cash, taxable
-investments at death-date value, property — are what the final tax and the debts are paid
-from. **Beneficiary retirement assets** pass directly to a named beneficiary, are reported
-separately, and are never spent to settle the estate or grossed up for tax. A household can
-die with a large retirement balance and still fail terminal solvency.
+**Terminal economic net worth**:
+All assets − all debt − final accrued taxes, at death. **All** means all: beneficiary-designated
+retirement accounts included on the asset side, mortgages and unsecured balances alike on the
+debt side. The second half of the retirement solver's feasibility test, beside lifetime
+solvency, and the whole of the terminal half. Stops a plan from qualifying on a tax bill or a
+mortgage that simply falls after the last modeled month, without letting the TITLE on an asset
+decide a retirement age. No tolerance: a shortfall is a shortfall.
 
-**Terminal estate solvency**:
-Estate assets ≥ final tax due + outstanding debt. The second half of the retirement solver's
-feasibility test, beside lifetime solvency: a candidate age is feasible only if the household
-funds every month AND leaves an estate that can settle what it still owes. Stops a plan from
-qualifying on a tax bill or a mortgage that simply falls after the last modeled month.
+**Probate distribution** (reported, never scored):
+What the estate rules do with that position once the solve is over. Collateral answers for the
+debt it secures (a property's `mortgageLiabilityId`), any balance beyond the collateral's value
+becomes an unsecured claim, **probate assets** — cash, taxable investments at death-date value,
+property equity — pay the final tax and the unsecured debt, and **beneficiary retirement assets**
+pass outside probate to their named beneficiary. An obligation the probate estate cannot cover is
+stated as **unpaid obligations** and left unpaid; it is never backfilled from a beneficiary
+account, and never grossed up for tax. A household can therefore be economically solvent — so
+feasible — while its probate estate goes short, which is a real planning finding rather than a
+verdict.
 
 **Basis reset at death** (simplified):
 Taxable investments enter the estate at their death-date value with no capital gain realized
