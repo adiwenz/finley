@@ -206,12 +206,6 @@ export function simulateHousehold(
       ...buildRmdSources(state, jurisdiction, month, startYear),
     ];
 
-    // The month's scheduled debt payments. Computed HERE, above the tax-year block, because the
-    // year-start estimate needs them for the outflow half of the year's funding need; nothing
-    // between here and its old position touches a liability balance, so the figures are the same
-    // ones the obligation list below is built from.
-    const payments = computeLiabilityPayments(state, month);
-
     // Price the tax year ONCE, at its first processed month, off the taxable income the
     // projection already knows this calendar year will bring — wages, pensions and benefits, this
     // year's RMD, the resolved funding of this year's events, and a lightweight forecast of the
@@ -228,7 +222,6 @@ export function simulateHousehold(
         startYear,
         incomeSeries: input.incomeSeries,
         expenseSeries: input.expenseSeries,
-        liabilityPaymentsCents: payments,
         // The balance last December parked, which THIS year's April must fund — known now,
         // because the year it belongs to is already closed. Signed: an expected refund lowers the
         // year's funding need rather than raising it.
@@ -264,6 +257,9 @@ export function simulateHousehold(
       estimatedTaxPayments.set(pid, payment);
       taxCashCents += payment.totalCents + (priorYearSettlements.get(pid)?.totalCents ?? 0);
     }
+
+    // Step 4: this month's scheduled debt payments, on beginning-of-month balances.
+    const payments = computeLiabilityPayments(state, month);
 
     // The month's obligation list, built BEFORE decumulation sizes its gap: every downstream
     // "what must this month fund?" total now derives from this one list rather than being

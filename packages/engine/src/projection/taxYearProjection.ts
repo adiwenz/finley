@@ -50,6 +50,7 @@ import { annualFederalTax, MONTHS_IN_TAX_YEAR, type EstimatedTaxYear } from "./f
 import { automaticFundingTotal, buildObligations } from "./financialObligation";
 import { resolveOrderedFundingDraw, type FundingSourceState } from "./fundingDrawStep";
 import { orderedLiquidationAccounts } from "./withdrawal";
+import { forecastLiabilityPayments } from "./liabilitySteps";
 import {
   evenMonthlyShares,
   forecastFundingDraws,
@@ -73,14 +74,6 @@ export interface TaxYearProjectionInput {
    * the need being forecast is the need the waterfall will actually be asked to cover.
    */
   readonly expenseSeries: readonly SimOwnedSeries[];
-  /**
-   * This month's scheduled liability payments, held flat across the year. An amortizing loan's
-   * payment IS flat, so the only imprecision is a debt that retires mid-year, which this keeps
-   * charging — an estimate that runs slightly high on a year a loan ends, and settles in December
-   * like any other estimate. Recomputing it per month would need the amortization walk, which is
-   * exactly the second simulation this must not be.
-   */
-  readonly liabilityPaymentsCents: ReadonlyMap<string, Cents>;
   /**
    * The balance left over from the tax year that just closed, which THIS year's April will settle
    * in cash — signed, positive due. A real outflow of the year being estimated, and so part of
@@ -115,6 +108,9 @@ const CONVERGENCE_TOLERANCE_CENTS = 100;
  * reconciles it either way.
  */
 const MAX_FIXED_POINT_ITERATIONS = 24;
+
+/** Defensive only — `forecastLiabilityPayments` returns exactly one entry per forecast month. */
+const EMPTY_PAYMENTS: ReadonlyMap<string, Cents> = new Map();
 
 /** A person's taxable base and the per-source weights each instalment is apportioned across. */
 interface PersonYearBase {
@@ -328,12 +324,20 @@ export function projectKnownTaxYear(
   //
   // Last year's balance joins the ONE month that actually charges it — April, wherever it falls
   // in this window — asked of `isTaxSettlementMonth` rather than restated as a number here.
+  //
+  // Debt service arrives on its own schedule too: a walk of the terms already on the balance
+  // sheet, so a loan maturing in June stops being charged in July and one originating in July
+  // starts being charged then. Holding January's payment flat did neither, and a mortgage held
+  // flat through a year it retires is a five-figure phantom expense the forecast would fund with
+  // phantom taxable withdrawals.
+  const paymentsByMonth = forecastLiabilityPayments(state, month, MONTHS_IN_TAX_YEAR);
+
   const baseNeedByMonth: Cents[] = [];
   for (let m = month; m < month + MONTHS_IN_TAX_YEAR; m++) {
     const i = m - month;
     baseNeedByMonth.push(
       automaticFundingTotal(
-        buildObligations(input.expenseSeries, m, state.liabilities, input.liabilityPaymentsCents),
+        buildObligations(input.expenseSeries, m, state.liabilities, paymentsByMonth[i] ?? EMPTY_PAYMENTS),
       ) -
         (inflowByMonth[i] ?? 0) +
         (unresolvedEventByMonth[i] ?? 0) +

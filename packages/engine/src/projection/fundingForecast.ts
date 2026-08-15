@@ -11,8 +11,10 @@
  *
  * It is a FORECAST, not a second simulation. It answers only "how much from each account, and
  * how much of that is taxable", and deliberately reproduces almost none of the monthly machinery:
- * no snapshots, no event replay, no liabilities, no properties, no retirement solving, and it
- * never re-enters `simulateHousehold`. The year's ACTUAL taxable income is still whatever the
+ * no snapshots, no event replay, no properties, no retirement solving, and it never re-enters
+ * `simulateHousehold`. It holds no liabilities either — a debt reaches it as need, in the months
+ * its own schedule says it is paid ({@link
+ * import("./liabilitySteps").forecastLiabilityPayments}), like every other cost. The year's ACTUAL taxable income is still whatever the
  * real waterfall does; the year's close ({@link
  * import("./taxYearSettlement").finalizeTaxYear}) remains authoritative and now simply has far
  * less left to carry into the next April.
