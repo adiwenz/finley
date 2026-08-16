@@ -123,3 +123,63 @@ describe("Required Minimum Distributions", () => {
     expect(series.months[11].accountBalancesCents["cash"]).toBe(0);
   });
 });
+
+describe("Required Minimum Distributions — nothing is required of the dead", () => {
+  /** A two-person household: Sam holds the pre-tax account and dies at `deathMonth`. */
+  function household(deathMonth: number | undefined): HouseholdSimInput {
+    return {
+      horizonMonths: 36,
+      annualInflationRate: 0,
+      startYear: 2026,
+      persons: [
+        { id: "p1", name: "Alex", birthYear: 1970 },
+        {
+          id: "p2",
+          name: "Sam",
+          birthYear: 1953,
+          ...(deathMonth !== undefined
+            ? { activeWindow: { startMonth: 0, endMonthExclusive: deathMonth } }
+            : {}),
+        },
+      ],
+      accounts: [
+        new SimAccount({
+          id: "sams-ira",
+          ownerId: "p2",
+          liquid: false,
+          taxProfile: PRE_TAX_TAX_PROFILE,
+          openingBalanceCents: dollarsToCents(100_000),
+          initialAnnualRate: 0,
+        }),
+        account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
+      ],
+      incomeSeries: [],
+      expenseSeries: [],
+    };
+  }
+
+  it("stops distributing a partner's account once they have died", () => {
+    // Sam takes 2026's distribution in January and dies that December. 2027 and 2028 require
+    // nothing of them: the balance sits where their death left it.
+    const series = simulateHousehold(household(12), rmdStub);
+    expect(series.months[11].accountBalancesCents["sams-ira"]).toBe(dollarsToCents(90_000));
+    expect(series.months[12].accountBalancesCents["sams-ira"]).toBe(dollarsToCents(90_000));
+    expect(series.months[35].accountBalancesCents["sams-ira"]).toBe(dollarsToCents(90_000));
+    // The account is not disinherited by the gate — it is still the household's, to the end.
+    expect(series.months[35].netWorthNominalCents).toBe(dollarsToCents(100_000));
+  });
+
+  it("keeps distributing while they are alive, so the gate is the death and not the account", () => {
+    // The same fixture with nobody dying: three years, three distributions.
+    const series = simulateHousehold(household(undefined), rmdStub);
+    expect(series.months[35].accountBalancesCents["sams-ira"]).toBe(dollarsToCents(72_900));
+  });
+
+  it("takes the year's distribution when the death falls LATER in the same year", () => {
+    // Sam dies in July 2027, after that January's trigger — the year's requirement was already
+    // theirs, and it stands. `isPersonActiveAt` is asked at the trigger month, not at the year.
+    const series = simulateHousehold(household(18), rmdStub);
+    expect(series.months[12].accountBalancesCents["sams-ira"]).toBe(dollarsToCents(81_000));
+    expect(series.months[35].accountBalancesCents["sams-ira"]).toBe(dollarsToCents(81_000));
+  });
+});

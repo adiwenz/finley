@@ -2,7 +2,7 @@ import type { Cents } from "../money/money";
 import type { SimAccount } from "../plan/simAccount";
 import type { Jurisdiction } from "../jurisdiction/jurisdiction";
 import type { IncomeSourceMonth } from "./waterfall";
-import type { SimPerson } from "./simulate.types";
+import { isPersonActiveAt, type SimPerson } from "./simulate.types";
 
 /**
  * A structural view rather than the mutable `SimState`, so that object stays private to the
@@ -37,6 +37,18 @@ function isRmdTriggerMonth(month: number): boolean {
  *
  * The withdrawal binds as `max(desired, required)`; the base sim has no desired draw. No seam →
  * no RMD. Mutates `assetBalances`, as `buildGovernmentBenefitSources` does.
+ *
+ * Clipped to the holder's {@link import("../job/personActiveWindow").personActiveWindow}, like
+ * every other person-scoped stream: a distribution is REQUIRED OF SOMEONE, and nothing is required
+ * of the dead. Without the gate a partner's account went on distributing for the whole of the
+ * survivor's life, and — because the requirement is priced off `year − birthYear` against a table
+ * whose divisor shrinks with age — it distributed a rising fraction each year, as though the
+ * holder were still aging. Every cent of it was booked as the household's ordinary income and
+ * taxed, so a survivor paid real tax on withdrawals nobody was required to make.
+ *
+ * The account itself is untouched by the gate and stays household wealth to the end: this stops a
+ * forced distribution, it does not disinherit anyone. What becomes of an inherited balance — a
+ * beneficiary's own distribution schedule, and the ten-year rule behind it — is unmodelled.
  */
 export function buildRmdSources(
   state: RmdState,
@@ -51,7 +63,7 @@ export function buildRmdSources(
   const sources: IncomeSourceMonth[] = [];
 
   for (const person of state.personsById.values()) {
-    if (person.birthYear === undefined) continue;
+    if (person.birthYear === undefined || !isPersonActiveAt(person, month)) continue;
 
     const preTaxAccounts = state.accounts.filter(
       (a) => a.ownerId === person.id && a.taxProfile.forcedDistributionEligible,
