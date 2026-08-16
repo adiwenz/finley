@@ -6,20 +6,26 @@ import {
   PRE_TAX_TAX_PROFILE,
   TAX_EXEMPT_TAX_PROFILE,
 } from "../plan/simAccount";
-import { dollarsToCents } from "../money/cashFlowSeries";
+import { SimCashFlowSeries, dollarsToCents } from "../money/cashFlowSeries";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction/jurisdiction";
-import { simulateHousehold, type HouseholdSimInput } from "./simulate";
+import { simulateHousehold, type HouseholdSimInput, type ProjectionSeries } from "./simulate";
 import type { SimPerson } from "./simulate.types";
 
-/** A non-compounding account so balances move only by RMD withdrawal/deposit. */
-function account(id: string, taxProfile: SimAccountTaxProfile, dollars: number, liquid = false): SimAccount {
+/** Non-compounding by default, so balances move only by RMD withdrawal/deposit. */
+function account(
+  id: string,
+  taxProfile: SimAccountTaxProfile,
+  dollars: number,
+  liquid = false,
+  annualRate = 0,
+): SimAccount {
   return new SimAccount({
     id,
     ownerId: "p1",
     liquid,
     taxProfile,
     openingBalanceCents: dollarsToCents(dollars),
-    initialAnnualRate: 0,
+    initialAnnualRate: annualRate,
   });
 }
 
@@ -51,6 +57,26 @@ const rmdStub: Jurisdiction = {
 };
 
 const born73In2026: SimPerson = { id: "p1", name: "You", birthYear: 1953 };
+
+/** Monthly spending, level, for the whole run. */
+function spending(monthlyDollars: number): HouseholdSimInput["expenseSeries"][number] {
+  return {
+    series: new SimCashFlowSeries(0, dollarsToCents(monthlyDollars), { type: "fixed" }, {
+      baselineUnit: "monthly",
+    }),
+    ownerId: "p1",
+  };
+}
+
+/** What the sim says it forced out of pre-tax this month — the reported gross, not a residual. */
+function rmdAt(series: ProjectionSeries, month: number): number {
+  return (series.months[month]!.flows?.incomeSources ?? [])
+    .filter((source) => source.sourceId === "rmd:p1")
+    .reduce((total, source) => total + source.cashInflowCents, 0);
+}
+
+const balanceAt = (series: ProjectionSeries, month: number, id: string): number =>
+  series.months[month]!.accountBalancesCents[id] ?? 0;
 
 describe("Required Minimum Distributions", () => {
   it("forces the required amount out of pre-tax and into the taxable surplus, conserving net worth", () => {
@@ -181,5 +207,170 @@ describe("Required Minimum Distributions — nothing is required of the dead", (
     const series = simulateHousehold(household(18), rmdStub);
     expect(series.months[12].accountBalancesCents["sams-ira"]).toBe(dollarsToCents(81_000));
     expect(series.months[35].accountBalancesCents["sams-ira"]).toBe(dollarsToCents(81_000));
+  });
+});
+
+/**
+ * **The balance the requirement is priced off.** The IRS mechanic divides the PRIOR year-end
+ * balance by the year's divisor, and the engine hands the seam the balance it holds at the trigger
+ * month. Those are the same number only because of where the trigger sits in the month pipeline —
+ * RMDs are built with the non-withdrawal sources, ahead of both decumulation and `compoundAssets`,
+ * so January's opening balance IS December's close. Pin it: move the RMD after either step and
+ * these divisions stop reconciling.
+ */
+describe("Required Minimum Distributions — priced off the prior year-end balance", () => {
+  const DIVISOR: Record<number, number> = { 73: 26.5, 74: 25.5, 75: 24.6 };
+
+  /** The real mechanic — balance ÷ Uniform Lifetime divisor — without importing the rules package. */
+  const divisorStub: Jurisdiction = {
+    id: "divisor-stub",
+    computeTaxCents: () => 0,
+    computeTaxByCategoryCents: () => ({}),
+    requiredMinimumDistributionCents: (balance, ctx) => {
+      const divisor = DIVISOR[ctx.age];
+      return divisor === undefined ? 0 : Math.round(balance / divisor);
+    },
+  };
+
+  /** Compounding, so a year-end balance is neither the opening balance nor a round number. */
+  const growingHousehold = (): ProjectionSeries =>
+    simulateHousehold(
+      baseInput(
+        born73In2026,
+        [
+          account("pretax", PRE_TAX_TAX_PROFILE, 100_000, false, 0.12),
+          account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
+        ],
+        { horizonMonths: 36 },
+      ),
+      divisorStub,
+    );
+
+  it("divides the prior year-end balance by the year's divisor, to the cent", () => {
+    const series = growingHousehold();
+    // The first year has no prior December, so it is priced off the opening balance.
+    expect(rmdAt(series, 0)).toBe(Math.round(dollarsToCents(100_000) / DIVISOR[73]!));
+    // Every year after divides the balance the previous month closed at.
+    for (const [month, age] of [[12, 74], [24, 75]] as const) {
+      expect(rmdAt(series, month)).toBe(
+        Math.round(balanceAt(series, month - 1, "pretax") / DIVISOR[age]!),
+      );
+    }
+  });
+
+  it("prices off the CLOSING balance, not the opening one — the year's growth is in the base", () => {
+    // The distinction only exists because the account compounds: had the requirement been priced
+    // off January's post-growth balance, or off the balance the year opened with a year ago, it
+    // would divide a different number. Assert the near misses are misses.
+    const series = growingHousehold();
+    const decemberClose = balanceAt(series, 11, "pretax");
+    const januaryClose = balanceAt(series, 12, "pretax");
+    expect(decemberClose).not.toBe(januaryClose);
+    expect(rmdAt(series, 12)).toBe(Math.round(decemberClose / DIVISOR[74]!));
+    expect(rmdAt(series, 12)).not.toBe(Math.round(januaryClose / DIVISOR[74]!));
+  });
+
+  /**
+   * **The round-number anchor.** A holder who turns 73 next year, holding $530,000 that does
+   * nothing at all in the meantime — no growth, no income, no spending, no tax. The prior year-end
+   * balance is $530,000 by construction, so the answer is $530,000 / 26.5 = $20,000 exactly, and
+   * any deviation is something the year did to the balance rather than a question of arithmetic.
+   *
+   * Deliberately the whole pipeline rather than the seam alone: the seam dividing correctly is
+   * already pinned in `@finley/rules`, and every way this has been suspected of going wrong —
+   * pricing off a later balance, a stray withdrawal landing before the trigger, the year's own
+   * growth reaching the base — lives between the two.
+   */
+  it("$530,000 at 73 with nothing happening in between is $20,000, to the cent", () => {
+    const series = simulateHousehold(
+      baseInput(
+        { id: "p1", name: "You", birthYear: 1954 }, // 72 in 2026, 73 in 2027
+        [
+          account("pretax", PRE_TAX_TAX_PROFILE, 530_000),
+          account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
+        ],
+        { horizonMonths: 13 },
+      ),
+      divisorStub,
+    );
+    // Age 72: nothing is required, and nothing else touches the account either.
+    for (let month = 0; month <= 11; month++) {
+      expect(rmdAt(series, month)).toBe(0);
+      expect(balanceAt(series, month, "pretax")).toBe(dollarsToCents(530_000));
+    }
+    // December 31st — the applicable balance — is the $530,000 it opened with.
+    expect(balanceAt(series, 11, "pretax")).toBe(dollarsToCents(530_000));
+    // And the year the holder turns 73 divides exactly that, by exactly 26.5.
+    expect(DIVISOR[73]).toBe(26.5);
+    expect(rmdAt(series, 12)).toBe(dollarsToCents(20_000));
+    expect(balanceAt(series, 12, "pretax")).toBe(dollarsToCents(510_000));
+  });
+
+  it("takes the distribution before the year's growth, so the withdrawn money never earns it", () => {
+    // The balance identity that makes the crossover arithmetic true: a year is
+    // `(balance − RMD) × (1 + rate)`, not `balance × (1 + rate) − RMD`. One month of 12%/yr.
+    const series = growingHousehold();
+    const opening = dollarsToCents(100_000);
+    const monthlyRate = Math.pow(1.12, 1 / 12) - 1;
+    expect(balanceAt(series, 0, "pretax")).toBe(
+      Math.round((opening - rmdAt(series, 0)) * (1 + monthlyRate)),
+    );
+  });
+});
+
+/**
+ * **A distribution is forced, not requested.** Once the year's requirement is out, its proceeds are
+ * ordinary household cash: spending has to consume them before anything else is sold. A household
+ * required to take more than it spends should therefore make NO discretionary retirement
+ * withdrawal at all, and bank the difference — the failure mode being a plan that dutifully
+ * distributes $10,000, spends its cash, and then sells another $2,400 of the same account to pay
+ * for groceries it had already been handed the money for.
+ */
+describe("Required Minimum Distributions — an excess the household did not ask for", () => {
+  const YEAR_ONE_RMD = dollarsToCents(10_000);
+  const SPEND = 200;
+
+  function household(monthlyDollars: number, horizonMonths = 13): ProjectionSeries {
+    return simulateHousehold(
+      baseInput(
+        born73In2026,
+        [
+          account("pretax", PRE_TAX_TAX_PROFILE, 100_000),
+          account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
+        ],
+        { horizonMonths, expenseSeries: [spending(monthlyDollars)] },
+      ),
+      rmdStub,
+    );
+  }
+
+  it("draws the requirement and nothing more when it covers the year's spending", () => {
+    // $10,000 required against $2,400 spent. The pre-tax account is touched exactly once.
+    const series = household(SPEND);
+    expect(rmdAt(series, 0)).toBe(YEAR_ONE_RMD);
+    expect(balanceAt(series, 11, "pretax")).toBe(dollarsToCents(90_000));
+    // …and the second year is priced off that untouched balance, so no drift compounds.
+    expect(rmdAt(series, 12)).toBe(dollarsToCents(9_000));
+  });
+
+  it("banks the excess as cash rather than leaving it to be re-earned", () => {
+    const series = household(SPEND);
+    expect(balanceAt(series, 11, "cash")).toBe(YEAR_ONE_RMD - dollarsToCents(SPEND * 12));
+    // Nothing was created or destroyed on the way: the year only moved money.
+    expect(series.months[11]!.netWorthNominalCents).toBe(
+      dollarsToCents(100_000) - dollarsToCents(SPEND * 12),
+    );
+  });
+
+  it("does draw again once spending outgrows the requirement, so the restraint is not inertia", () => {
+    // $24,000 spent against the same $10,000 required. The distributed cash is consumed first and
+    // the shortfall — and only the shortfall — comes out of pre-tax after it.
+    const series = household(2_000);
+    expect(rmdAt(series, 0)).toBe(YEAR_ONE_RMD);
+    expect(balanceAt(series, 11, "cash")).toBe(0);
+    expect(balanceAt(series, 11, "pretax")).toBe(
+      dollarsToCents(100_000) - dollarsToCents(24_000),
+    );
+    expect(series.months.every((m) => !m.isInsolvent)).toBe(true);
   });
 });

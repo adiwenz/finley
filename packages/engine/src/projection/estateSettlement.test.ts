@@ -661,6 +661,166 @@ describe("Estate settlement — the retirement solver's terminal criterion", () 
     expect(planOutcome(borrowed)).toBe("fails");
   });
 
+  /**
+   * **Where exactly the line falls.** `isEconomicallySolvent` is `terminalEconomicNetWorthCents >=
+   * 0`, and every test above lands comfortably on one side of it or the other — none of them can
+   * tell `>= 0` from `> 0`, or catch the boundary drifting by a rounding step. A household that
+   * dies having exactly broken even has met its obligations in full and owes nobody anything; one
+   * cent short has not.
+   *
+   * Built so the terminal figure is EXACTLY controllable: no income, no spending, no tax, and a 0%
+   * loan, so every payment moves a dollar of cash against a dollar of principal and the two cancel.
+   * Terminal net worth is then the opening cash less the opening debt, to the cent, whatever the
+   * horizon.
+   */
+  describe("the boundary itself", () => {
+    const DEBT_CENTS = dollarsToCents(150_000);
+
+    function diesWorthExactly(netCents: Cents): ProjectionSeries {
+      return dies(
+        12,
+        [
+          new SimAccount({
+            id: "cash",
+            ownerId: "p1",
+            liquid: true,
+            taxProfile: CASH_INTEREST_TAX_PROFILE,
+            openingBalanceCents: DEBT_CENTS + netCents,
+            initialAnnualRate: 0,
+          }),
+        ],
+        { liabilities: [loan(150_000, -1, 0, 600)] },
+      );
+    }
+
+    it("is where the fixture says it is — the lever moves the terminal figure cent for cent", () => {
+      // The premise every assertion below rests on: nothing else is moving.
+      expect(settlementOf(diesWorthExactly(0)).terminalEconomicNetWorthCents).toBe(0);
+      expect(settlementOf(diesWorthExactly(-1)).terminalEconomicNetWorthCents).toBe(-1);
+      expect(settlementOf(diesWorthExactly(1)).terminalEconomicNetWorthCents).toBe(1);
+    });
+
+    it("passes a household that dies having broken even to the cent", () => {
+      const evens = diesWorthExactly(0);
+      expect(settlementOf(evens).isEconomicallySolvent).toBe(true);
+      expect(planOutcome(evens)).toBe("survives");
+    });
+
+    it("fails the same household one cent short", () => {
+      const short = diesWorthExactly(-1);
+      // Not a liquidity failure — every month funded itself either way, so the verdict changed on
+      // the terminal test alone.
+      expect(short.months.every((m) => !m.isInsolvent)).toBe(true);
+      expect(settlementOf(short).isEconomicallySolvent).toBe(false);
+      expect(planOutcome(short)).toBe("fails");
+    });
+  });
+
+  /**
+   * **The same boundary, with the FINAL TAX as the lever.** Above, the terminal figure is moved by
+   * the opening cash and `finalTaxDueCents` is zero throughout — so the one term the projection
+   * never charged to a month is never the term deciding the verdict. It is also the term most
+   * worth pinning: a sign error or an off-by-one in `totalAssets − totalDebt − finalTaxDue` would
+   * leave every other test in this file green, because they all assert only that it is positive.
+   *
+   * A household near the end of life, dying in June of its last year: it takes a $240,000 lump
+   * distribution in January, spends $120,000 in February, and carries an unsecured $70,000 loan to
+   * the grave. That shape is what makes the tax controllable — the year's liability is paced as
+   * twelve instalments and death stops it after six, so exactly half the year's tax is left
+   * outstanding, and the schedule below sets what half that is.
+   */
+  describe("the boundary, with the final tax as the lever", () => {
+    /**
+     * A schedule pricing this household's year at exactly `annualLiabilityCents`. Flat rates and
+     * progressive brackets alike make the liability a function of the income, and the income is
+     * also on the balance sheet — so neither can move the tax by one cent without moving the
+     * assets too, and neither can put the terminal figure exactly on the line. Gated on there
+     * being income at all, so the estate is charged for a year the household actually earned in.
+     */
+    function owesExactly(annualLiabilityCents: Cents): Jurisdiction {
+      const scalar = (byCat: Partial<Record<string, number>>): Cents =>
+        CATEGORIES.reduce((s, c) => s + (byCat[c] ?? 0), 0) > 0 ? annualLiabilityCents : 0;
+      return {
+        id: "fixed-liability",
+        computeTaxCents: scalar,
+        computeTaxByCategoryCents: (byCat) => ({ ordinaryIncome: scalar(byCat) }),
+      };
+    }
+
+    /** Dies in June, six instalments into a year priced at `annualLiabilityCents`. */
+    function diesOwing(annualLiabilityCents: Cents): ProjectionSeries {
+      return dies(
+        6,
+        [cash(10_000)],
+        {
+          incomeSeries: [series(240_000, 0, 0)],
+          expenseSeries: [series(120_000, 1, 1)],
+          liabilities: [loan(70_000, -1, 0, 600)],
+        },
+        owesExactly(annualLiabilityCents),
+      );
+    }
+
+    const paidInLifeCents = (run: ProjectionSeries): Cents =>
+      sum(run.months.map((m) => m.flows!.taxCents));
+
+    it("halves a year's tax at a June death — six instalments paid, six left to the estate", () => {
+      // The premise. $60,000 for the year, $5,000 a month, dead after the sixth: the estate's
+      // charge is the six months the household did not live to pay, not a residue of anything.
+      const run = diesOwing(dollarsToCents(60_000));
+      expect(run.months.map((m) => m.flows!.taxCents)).toEqual(
+        Array(6).fill(dollarsToCents(5_000)),
+      );
+      expect(paidInLifeCents(run)).toBe(dollarsToCents(30_000));
+      expect(settlementOf(run).finalTaxDueCents).toBe(dollarsToCents(30_000));
+      expect(settlementOf(run).finalTaxRefundCents).toBe(0);
+      // And the position it is charged against: $100,000 of assets against $70,000 of debt, less
+      // the loan principal repaid on the way, which leaves cash and debt lower by the same amount.
+      const last = run.months[5]!;
+      expect(settlementOf(run).totalAssetsCents).toBe(last.accountBalancesCents.cash);
+      expect(settlementOf(run).totalAssetsCents - settlementOf(run).totalDebtCents).toBe(
+        dollarsToCents(30_000),
+      );
+    });
+
+    it("passes a household whose final tax bill takes it to exactly nothing", () => {
+      // $30,000 of assets over debt, $30,000 owed: it dies having met every obligation in full
+      // with not a cent to spare, which is solvent.
+      const evens = diesOwing(dollarsToCents(60_000));
+      expect(settlementOf(evens).terminalEconomicNetWorthCents).toBe(0);
+      expect(settlementOf(evens).isEconomicallySolvent).toBe(true);
+      expect(planOutcome(evens)).toBe("survives");
+    });
+
+    it("fails the same household for one cent more of tax", () => {
+      const short = diesOwing(dollarsToCents(60_000) + 1);
+      expect(short.months.every((m) => !m.isInsolvent)).toBe(true);
+      expect(settlementOf(short).terminalEconomicNetWorthCents).toBe(-1);
+      expect(settlementOf(short).isEconomicallySolvent).toBe(false);
+      expect(planOutcome(short)).toBe("fails");
+    });
+
+    it("charges the estate the cent, not just the year — the settlement's own term moves", () => {
+      // The cent above lands on the twelfth instalment, so it is the year that got dearer and the
+      // estate's charge that stayed put. Two cents splits one to each half, which is the assertion
+      // that actually pins `finalTaxDueCents`: nothing else in this file states it to the cent.
+      const dearer = diesOwing(dollarsToCents(60_000) + 2);
+      expect(paidInLifeCents(dearer)).toBe(dollarsToCents(30_000) + 1);
+      expect(settlementOf(dearer).finalTaxDueCents).toBe(dollarsToCents(30_000) + 1);
+      expect(settlementOf(dearer).terminalEconomicNetWorthCents).toBe(-2);
+      expect(planOutcome(dearer)).toBe("fails");
+    });
+
+    it("would have passed on its months alone — the tax is what fails it", () => {
+      // Every month funded itself in all three runs, and the balance sheet is the same in all
+      // three: nothing but the unpaid tax separates the survivor from the two failures.
+      const runs = [60_000_00, 60_000_01, 60_000_02].map((l) => diesOwing(l));
+      for (const run of runs) expect(run.months.every((m) => !m.isInsolvent)).toBe(true);
+      expect(new Set(runs.map((r) => settlementOf(r).totalDebtCents)).size).toBe(1);
+      expect(runs.map((r) => planOutcome(r))).toEqual(["survives", "fails", "fails"]);
+    });
+  });
+
   it("leaves the verdict on a run with no death exactly as it was", () => {
     // No estate settlement, no terminal test — a horizon nobody died at is judged on its months
     // alone, which is what every engine-level fixture relies on.

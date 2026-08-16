@@ -89,6 +89,43 @@ describe("retirementSolver — survival off the real projection", () => {
     expect(seenSurviving).toBe(true);
   });
 
+  /**
+   * **Monotonic in the money, as well as in the age.** The search's other direction: handing the
+   * household cash it already has free use of can only bring the answer forward or leave it where
+   * it was. A plan made *worse* by being richer is always a bug — a funding rule that spends a
+   * surplus into a worse position, an obligation sized off the balance that meets it, a terminal
+   * test scoring wealth as a liability.
+   *
+   * `null` — no age survives — ranks as `Infinity`, which is exactly what it means: the worst
+   * answer there is. So "$10,000 fixed an infeasible plan" is a legal step and "$10,000 broke a
+   * feasible one" is not, without either case needing to be special-cased.
+   */
+  it("adding available cash never pushes the solved retirement age later", () => {
+    const rank = (age: number | null): number => age ?? Infinity;
+    const withCash = (plan: Plan, extraDollars: number): Plan => ({
+      ...plan,
+      openingBalanceCents: plan.openingBalanceCents + dollarsToCents(extraDollars),
+    });
+    // `openingBalanceCents: 0` is the tight plan that only survives by working past its authored
+    // job end — the case with the most room to move, and the one where a regression would show.
+    const tight: Plan = { ...samplePlan, openingBalanceCents: 0 };
+    let everMoved = false;
+    for (const plan of [samplePlan, baristaPlan, tight]) {
+      let previous = Infinity;
+      for (const extra of [0, 10_000, 20_000, 30_000]) {
+        const age = rank(earliestFullRetirementAge(scenarioOf(withCash(plan, extra)), CTX));
+        expect(age).toBeLessThanOrEqual(previous);
+        if (previous < Infinity && age < previous) everMoved = true;
+        previous = age;
+      }
+      // Not vacuous: these plans do solve, so the chain above compared real ages.
+      expect(previous).toBeLessThan(Infinity);
+    }
+    // And the money is a live lever, not one the fixtures happen to be insensitive to — a suite
+    // where every step is a no-op would pass the `<=` above no matter what the solver did.
+    expect(everMoved).toBe(true);
+  });
+
   it("the binary search returns exactly the threshold age", () => {
     const age = earliestFullRetirementAge(scenarioOf(samplePlan), CTX);
     expect(age).not.toBeNull();
