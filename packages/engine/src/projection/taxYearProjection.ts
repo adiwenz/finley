@@ -50,6 +50,7 @@
  */
 
 import type { Cents } from "../money/money";
+import type { TaxCategory } from "../money/cashFlowSeries";
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
 import type { SimState } from "./runState";
 import type { SimOwnedSeries } from "./simulate.types";
@@ -193,18 +194,49 @@ export function projectKnownTaxYear(
   // Everything (1) and (2) contribute — fixed for the whole solve. Only the forecast layer (3)
   // is recomputed as the fixed point turns.
   const knownBases = new Map<string, PersonYearBase>();
-  // The INFLOW half of the year's funding need: gross cash reaching the waterfall, which is what
-  // `buildWithdrawalSources` sizes its monthly gap against (it nets the tax instalment off this
-  // same gross figure, which is precisely the circularity the fixed point below resolves).
-  // Kept MONTH BY MONTH, because a salary that stops in June and a benefit that starts in July
-  // are not the same year as their average — the forecast draws when the gap actually opens.
+  // The INFLOW half of the year's funding need: cash that will actually be free to fund the
+  // month's bills. Kept MONTH BY MONTH, because a salary that stops in June and a benefit that
+  // starts in July are not the same year as their average — the forecast draws when the gap
+  // actually opens.
+  //
+  // NET OF EVERY DEDUCTION THE WATERFALL TAKES BEFORE A BILL IS PAID — the pre-tax deferral here,
+  // payroll tax below, the year's income tax through the fixed point at the end. A seed reading
+  // the gross forecasts no decumulation at all for a household that is in fact selling every
+  // month: a 15% deferral and 7.65% of FICA is nearly a quarter of a paycheck, and the seed would
+  // hand the forecast pass a year with no withdrawals in it. Neither figure is modelled a second
+  // time here — the deferral is the one already computed for this source's taxable base directly
+  // below, and payroll comes from the jurisdiction's own seam.
   const inflowByMonth: Cents[] = Array.from({ length: MONTHS_IN_TAX_YEAR }, () => 0);
+  // Year-to-date earned gross per person, opening at what the year has already paid out before
+  // this month, so the payroll seam's cumulative contract — and the wage-base cap inside it —
+  // are honoured exactly as {@link import("./waterfall").runWaterfall} honours them.
+  const earnedToDate = new Map<string, TaxableByCategory>(
+    state.personIds.map((pid) => [pid, { ...(state.earnedByPersonYear.get(`${pid}|${ctx.year}`) ?? {}) }]),
+  );
+  const payrollSeam = jurisdiction.computePayrollTaxCents;
+  /** This month's payroll increment for one person: the seam AFTER this month's earnings, less before. */
+  const payrollIncrementCents = (personId: string, earnedCents: Cents, category: TaxCategory): Cents => {
+    if (payrollSeam === undefined || earnedCents <= 0) return 0;
+    const running = earnedToDate.get(personId) ?? {};
+    const before = payrollSeam(running, ctx);
+    addCategory(running, category, earnedCents);
+    earnedToDate.set(personId, running);
+    return payrollSeam(running, ctx) - before;
+  };
 
   const fold = (sources: readonly IncomeSourceMonth[], monthIndex: number): void => {
     for (const src of sources) {
-      inflowByMonth[monthIndex] = (inflowByMonth[monthIndex] ?? 0) + src.waterfallInflowCents;
       const room = roomRemaining.get(src.ownerId) ?? Infinity;
       const deferred = deferralForSourceCents(src, room);
+      // Payroll is levied on the whole gross, deferral and all — the same pre-deferral base the
+      // waterfall accumulates — so it is taken from the inflow beside the deferral, not after it.
+      const payroll = payrollIncrementCents(
+        src.ownerId,
+        src.taxableCents ?? src.waterfallInflowCents,
+        src.taxCategory,
+      );
+      inflowByMonth[monthIndex] =
+        (inflowByMonth[monthIndex] ?? 0) + src.waterfallInflowCents - deferred - payroll;
       if (deferred > 0) roomRemaining.set(src.ownerId, room - deferred);
       addTaxable(
         knownBases,

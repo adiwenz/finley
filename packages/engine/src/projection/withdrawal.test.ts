@@ -27,7 +27,6 @@ import {
   DEFAULT_LIQUIDATION_ORDER,
   type WithdrawalState,
 } from "./withdrawal";
-import type { IncomeSourceMonth } from "./waterfall";
 
 /** A non-compounding account so balances move only by withdrawal/deposit. */
 function account(id: string, taxProfile: SimAccountTaxProfile, dollars: number, liquid = false): SimAccount {
@@ -310,8 +309,8 @@ describe("Desired-withdrawal decumulation channel", () => {
     //
     // But the draw is not the bare $2,000 either. The year-start estimate now anticipates that
     // this household funds its living from a fully-taxable account, so it has an estimated
-    // annual liability and charges a twelfth of it every month — and decumulation sizes its gap
-    // net of that instalment (withdrawal.ts's `estimateNetIncome`), because otherwise the
+    // annual liability and charges a twelfth of it every month — and the waterfall that sizes
+    // decumulation's gap has already docked that instalment from take-home, because otherwise the
     // instalment is exactly what the month leaves uncovered. So the draw is `need + instalment`,
     // an ADDITION of a separately-computed figure, not a multiplication of the need.
     const flatTax: Jurisdiction = {
@@ -377,7 +376,7 @@ describe("Drawdown order — RMD-first, tax-efficient default, overridable", () 
       account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 0),
     ];
     const st = state(accounts, { pretax: 10_000, taxexempt: 10_000, brokerage: 10_000 });
-    const { sources } = buildWithdrawalSources(st, nullJurisdiction, [], dollarsToCents(5_000), ctx);
+    const { sources } = buildWithdrawalSources(st, nullJurisdiction, dollarsToCents(5_000), ctx);
     expect(st.assetBalances.get("brokerage")).toBe(dollarsToCents(5_000));
     expect(st.assetBalances.get("pretax")).toBe(dollarsToCents(10_000));
     expect(st.assetBalances.get("taxexempt")).toBe(dollarsToCents(10_000));
@@ -396,7 +395,6 @@ describe("Drawdown order — RMD-first, tax-efficient default, overridable", () 
     const { sources } = buildWithdrawalSources(
       st,
       nullJurisdiction,
-      [],
       dollarsToCents(5_000),
       ctx,
       ["taxExempt", "taxable", "taxDeferred"],
@@ -406,21 +404,14 @@ describe("Drawdown order — RMD-first, tax-efficient default, overridable", () 
     expect(sources[0].taxCategory).toBe("taxExempt");
   });
 
-  it("honors forced RMDs first: an RMD source shrinks the need before any elective draw", () => {
+  it("sells the shortfall it is handed and nothing more — income it does not model is already out", () => {
     const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 0)];
     const st = state(accounts, { brokerage: 10_000 });
-    // A $3k forced RMD is already booked as income, so the $5k obligation needs only a
-    // $2k elective top-up.
-    const rmd: IncomeSourceMonth[] = [
-      { ownerId: "p1", waterfallInflowCents: dollarsToCents(3_000), taxCategory: "ordinaryIncome" },
-    ];
-    const { sources } = buildWithdrawalSources(
-      st,
-      nullJurisdiction,
-      rmd,
-      dollarsToCents(5_000),
-      ctx,
-    );
+    // A $5k obligation with a $3k forced RMD already booked as income reaches this function as a
+    // $2k shortfall: the waterfall that measured it counted the RMD, as it counts wages, a
+    // benefit, a deferral and payroll tax. Nothing here re-derives any of that, which is why an
+    // elective draw can never double-withdraw against a forced one.
+    const { sources } = buildWithdrawalSources(st, nullJurisdiction, dollarsToCents(2_000), ctx);
     expect(st.assetBalances.get("brokerage")).toBe(dollarsToCents(8_000));
     const electiveTotal = sources.reduce((s, x) => s + x.waterfallInflowCents, 0);
     expect(electiveTotal).toBe(dollarsToCents(2_000));
@@ -436,7 +427,7 @@ describe("Drawdown order — RMD-first, tax-efficient default, overridable", () 
       account("roth", TAX_EXEMPT_TAX_PROFILE, 0),
     ];
     const st = state(accounts, { pretax: 10_000, cash: 10_000, roth: 10_000 });
-    const { sources } = buildWithdrawalSources(st, nullJurisdiction, [], dollarsToCents(5_000), ctx);
+    const { sources } = buildWithdrawalSources(st, nullJurisdiction, dollarsToCents(5_000), ctx);
     expect(st.assetBalances.get("cash")).toBe(dollarsToCents(5_000));
     expect(st.assetBalances.get("pretax")).toBe(dollarsToCents(10_000));
     expect(st.assetBalances.get("roth")).toBe(dollarsToCents(10_000));
@@ -452,7 +443,7 @@ describe("Drawdown order — RMD-first, tax-efficient default, overridable", () 
       account("pretax", PRE_TAX_TAX_PROFILE, 0),
     ];
     const st = state(accounts, { roth: 10_000, cash: 4_000, pretax: 4_000 });
-    buildWithdrawalSources(st, nullJurisdiction, [], dollarsToCents(9_000), ctx);
+    buildWithdrawalSources(st, nullJurisdiction, dollarsToCents(9_000), ctx);
     expect(st.assetBalances.get("cash")).toBe(0);
     expect(st.assetBalances.get("pretax")).toBe(0);
     expect(st.assetBalances.get("roth")).toBe(dollarsToCents(9_000));
@@ -478,7 +469,7 @@ describe("Drawdown order — RMD-first, tax-efficient default, overridable", () 
       account("annuity", alreadyTaxed, 0),
     ];
     const st = state(accounts, { pretax: 10_000, annuity: 10_000 });
-    const { sources } = buildWithdrawalSources(st, nullJurisdiction, [], dollarsToCents(4_000), ctx);
+    const { sources } = buildWithdrawalSources(st, nullJurisdiction, dollarsToCents(4_000), ctx);
     expect(st.assetBalances.get("annuity")).toBe(dollarsToCents(6_000));
     expect(st.assetBalances.get("pretax")).toBe(dollarsToCents(10_000));
     // The flow is still reported as what it IS — ordinary income, for the brackets to price.
@@ -530,7 +521,7 @@ describe("Decumulation draws carry the full withdrawal breakdown", () => {
     const brokerage = account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 10_000);
     const st = stateWithBasis(brokerage, 10_000, 4_000);
     const needCents = dollarsToCents(3_000);
-    const { decumulationDraws } = buildWithdrawalSources(st, capGainsTax, [], needCents, ctx);
+    const { decumulationDraws } = buildWithdrawalSources(st, capGainsTax, needCents, ctx);
 
     expect(decumulationDraws).toHaveLength(1);
     const draw = decumulationDraws[0];
@@ -558,7 +549,7 @@ describe("Decumulation draws carry the full withdrawal breakdown", () => {
     // basis == balance ⇒ no gain, so nothing is taxed — but the breakdown is still fully populated.
     const savings = account("savings", CAPITAL_GAINS_TAX_PROFILE, 10_000);
     const st = stateWithBasis(savings, 10_000, 10_000);
-    const { decumulationDraws } = buildWithdrawalSources(st, capGainsTax, [], dollarsToCents(3_000), ctx);
+    const { decumulationDraws } = buildWithdrawalSources(st, capGainsTax, dollarsToCents(3_000), ctx);
 
     expect(decumulationDraws[0]).toEqual({
       sourceId: "savings",
@@ -609,7 +600,7 @@ describe("No draw is ever grossed up — ordinary decumulation sells exactly the
     };
     const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 100_000)];
     const st = state(accounts, { brokerage: 100_000 });
-    const { sources } = buildWithdrawalSources(st, flatGains, [], dollarsToCents(2_000), ctx);
+    const { sources } = buildWithdrawalSources(st, flatGains, dollarsToCents(2_000), ctx);
     const drawn = sources.reduce((s, x) => s + x.waterfallInflowCents, 0);
     expect(drawn).toBe(dollarsToCents(2_000));
     expect(st.assetBalances.get("brokerage")).toBe(dollarsToCents(98_000));
@@ -618,7 +609,7 @@ describe("No draw is ever grossed up — ordinary decumulation sells exactly the
   it("sells exactly the need even against a jurisdiction with a punishing tax cliff", () => {
     const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 500_000)];
     const st = state(accounts, { brokerage: 500_000 });
-    const { sources } = buildWithdrawalSources(st, steepCliff, [], dollarsToCents(1_000), ctx);
+    const { sources } = buildWithdrawalSources(st, steepCliff, dollarsToCents(1_000), ctx);
     const drawn = sources.reduce((s, x) => s + x.waterfallInflowCents, 0);
     expect(drawn).toBe(dollarsToCents(1_000));
     expect(st.assetBalances.get("brokerage")).toBe(dollarsToCents(499_000));
@@ -630,7 +621,7 @@ describe("No draw is ever grossed up — ordinary decumulation sells exactly the
       account("pretax", PRE_TAX_TAX_PROFILE, 100_000),
     ];
     const st = state(accounts, { brokerage: 1_000, pretax: 100_000 });
-    const { sources } = buildWithdrawalSources(st, steepCliff, [], dollarsToCents(10_000), ctx);
+    const { sources } = buildWithdrawalSources(st, steepCliff, dollarsToCents(10_000), ctx);
 
     expect(st.assetBalances.get("brokerage")).toBe(0);
     // Exactly the $9,000 remainder comes from pre-tax — no gross-up inflates it.
@@ -687,7 +678,7 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable", () => {
     const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 0)];
     // Balance == basis: every dollar is returned principal, nothing is gain.
     const st = state(accounts, { brokerage: 100_000 }, { brokerage: 100_000 });
-    const { sources } = buildWithdrawalSources(st, flatGains20, [], dollarsToCents(2_000), ctx);
+    const { sources } = buildWithdrawalSources(st, flatGains20, dollarsToCents(2_000), ctx);
     // No gain → no tax → no gross-up.
     const drawn = sources.reduce((s, x) => s + x.waterfallInflowCents, 0);
     expect(drawn).toBe(dollarsToCents(2_000));
@@ -700,7 +691,7 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable", () => {
     const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 0)];
     // $100k balance on $60k basis → 40% of any draw is gain.
     const st = state(accounts, { brokerage: 100_000 }, { brokerage: 60_000 });
-    const { sources } = buildWithdrawalSources(st, flatGains20, [], dollarsToCents(6_000), ctx);
+    const { sources } = buildWithdrawalSources(st, flatGains20, dollarsToCents(6_000), ctx);
     const drawn = sources.reduce((s, x) => s + x.waterfallInflowCents, 0);
     expect(drawn).toBe(dollarsToCents(6_000));
     const gain = sources.reduce((s, x) => s + (x.taxableCents ?? x.waterfallInflowCents), 0);
@@ -719,7 +710,7 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable", () => {
     };
     // No basis entry → basis 0 → the whole draw is gain.
     const st = state(accounts, { pretax: 100_000 });
-    const { sources } = buildWithdrawalSources(st, flatOrdinary20, [], dollarsToCents(2_000), ctx);
+    const { sources } = buildWithdrawalSources(st, flatOrdinary20, dollarsToCents(2_000), ctx);
     const drawn = sources.reduce((s, x) => s + x.waterfallInflowCents, 0);
     expect(drawn).toBe(dollarsToCents(2_000));
     expect(sources[0].taxableCents).toBe(drawn);
@@ -729,13 +720,13 @@ describe("Cost basis — only the gain of a fund withdrawal is taxable", () => {
     const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 0)];
     // $100k balance / $50k basis → 50% gain fraction; no tax seam, to isolate arithmetic.
     const st = state(accounts, { brokerage: 100_000 }, { brokerage: 50_000 });
-    const { sources: first } = buildWithdrawalSources(st, proRataNoTax, [], dollarsToCents(20_000), ctx);
+    const { sources: first } = buildWithdrawalSources(st, proRataNoTax, dollarsToCents(20_000), ctx);
     // Drew $20k: $10k gain booked, $10k basis returned → $40k basis on $80k balance.
     expect(first[0].taxableCents).toBe(dollarsToCents(10_000));
     expect(st.assetBalances.get("brokerage")).toBe(dollarsToCents(80_000));
     expect(st.basisByAccount.get("brokerage")).toBe(dollarsToCents(40_000));
     // The gain fraction held at 50%.
-    const { sources: second } = buildWithdrawalSources(st, proRataNoTax, [], dollarsToCents(20_000), ctx);
+    const { sources: second } = buildWithdrawalSources(st, proRataNoTax, dollarsToCents(20_000), ctx);
     expect(second[0].taxableCents).toBe(dollarsToCents(10_000));
     expect(st.basisByAccount.get("brokerage")).toBe(dollarsToCents(30_000));
   });
@@ -764,7 +755,6 @@ describe("Liquid-buffer drawdown reporting", () => {
     const { sources, liquidDrawdownCents } = buildWithdrawalSources(
       st,
       nullJurisdiction,
-      [],
       dollarsToCents(3_000),
       ctx,
     );
@@ -779,7 +769,6 @@ describe("Liquid-buffer drawdown reporting", () => {
     const { sources, liquidDrawdownCents } = buildWithdrawalSources(
       st,
       nullJurisdiction,
-      [],
       dollarsToCents(5_000),
       ctx,
     );
@@ -790,13 +779,9 @@ describe("Liquid-buffer drawdown reporting", () => {
 
   it("reports no drawdown when income already covers the month", () => {
     const st = stateWithCash(10_000, 100_000);
-    const { sources, liquidDrawdownCents } = buildWithdrawalSources(
-      st,
-      nullJurisdiction,
-      [{ ownerId: "p1", waterfallInflowCents: dollarsToCents(4_000), taxCategory: "wages" }],
-      dollarsToCents(3_000), // obligations below the $4k income
-      ctx,
-    );
+    // A covered month is a shortfall of 0 — the buffer is not touched, so a household whose pay
+    // clears its bills does not show a savings drawdown band.
+    const { sources, liquidDrawdownCents } = buildWithdrawalSources(st, nullJurisdiction, 0, ctx);
     expect(sources).toEqual([]);
     expect(liquidDrawdownCents).toBe(0);
   });
@@ -817,7 +802,7 @@ describe("Liquid-buffer drawdown reporting", () => {
       basisByAccount: new Map(),
       liquidAccount: null,
     };
-    const { sources } = buildWithdrawalSources(st, nullJurisdiction, [], dollarsToCents(5_000), ctx);
+    const { sources } = buildWithdrawalSources(st, nullJurisdiction, dollarsToCents(5_000), ctx);
     expect(sources[0].sourceId).toBe("brokerage");
     expect(sources[0].label).toBe("Brokerage");
   });

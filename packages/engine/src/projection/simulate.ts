@@ -33,6 +33,7 @@ import {
   buildIncomeSources,
   buildInterestAccrualSources,
   allocateMonth,
+  projectObligationShortfallCents,
   remainingDeferralRoomCents,
   unwindUnfundedContributions,
 } from "./allocationStep";
@@ -342,19 +343,14 @@ function runMonth(
   // deduction in the allocation waterfall, so a steady household pays a smooth monthly tax
   // rather than one year-end drop.
   const estimatedTaxPayments = new Map<string, FederalTaxPayment>();
-  // What the month's tax actually costs in CASH: instalments plus any settled balance. This is
-  // the figure decumulation must size its gap against, which is exactly how a balance due comes
-  // to be funded by a taxable withdrawal — one that is income in THIS year, folded into this
-  // year's accumulator by the ordinary path and settled by this year's own close. The closed
-  // year is never reopened.
-  let taxCashCents = 0;
   for (const pid of state.personIds) {
-    const payment = estimatedPaymentForMonth(
-      state.estimatedFederalTaxByPersonYear.get(`${pid}|${year}`),
-      month % MONTHS_IN_TAX_YEAR,
+    estimatedTaxPayments.set(
+      pid,
+      estimatedPaymentForMonth(
+        state.estimatedFederalTaxByPersonYear.get(`${pid}|${year}`),
+        month % MONTHS_IN_TAX_YEAR,
+      ),
     );
-    estimatedTaxPayments.set(pid, payment);
-    taxCashCents += payment.totalCents + (priorYearSettlements.get(pid)?.totalCents ?? 0);
   }
 
   // Step 4: this month's scheduled debt payments, on beginning-of-month balances.
@@ -419,28 +415,44 @@ function runMonth(
     }
   }
 
-  // Decumulation then operates on the balances the explicit draws left behind: when
-  // non-withdrawal income can't cover the month's automatic obligations, liquidate investment
-  // accounts BEFORE the waterfall — same seam as RMD/benefit. Its gap is still sized on the
-  // automatic total (explicit obligations excluded), now net of the month's tax cash — this
-  // year's instalment plus, in April, last year's settled balance — which the waterfall is
-  // about to take out of the same income; only the assets left to close it have shrunk, and any
-  // shortfall spills to the credit cascade. No gross-up anywhere: each draw sells exactly the
-  // gap, and its realized gain rides `taxableCents` into THIS year's accumulator. RMD income is
-  // already counted, so the draw never double-withdraws.
+  // The explicit draws' realized gain is net-neutral cash-wise (no gross-up sold it) but
+  // still taxable — `gainSources` carries it in so it reaches the taxable pool and the year's
+  // accumulator, settled with the rest of the year's.
+  const preDecumulationSources = [...nonWithdrawalSources, ...fundingDraw.gainSources];
+  // How short the month REALLY is, from the waterfall itself: the same allocation the month is
+  // about to be charged by, run over the income the household has before anything is sold, and
+  // then thrown away. Nothing is deposited or accumulated by it — only the gap is kept.
+  //
+  // Decumulation used to size this itself, as `obligations − (income − income tax)`, and that
+  // second model of take-home is what silently omitted payroll tax: the waterfall docked FICA, the
+  // gap did not, and a household short by exactly its FICA borrowed on a card every month with
+  // investments untouched — for decades, since a working household's gap is small and a card
+  // compounds. There is now one subtraction, so a deduction added to the waterfall is netted here
+  // by construction.
+  const shortfallBeforeDecumulationCents = projectObligationShortfallCents(
+    state,
+    preDecumulationSources,
+    ctx,
+    jurisdiction,
+    automaticFundingCents,
+    month,
+    estimatedTaxPayments,
+    priorYearSettlements,
+  );
+  // Decumulation then operates on the balances the explicit draws left behind: liquidate
+  // investment accounts BEFORE the waterfall — same seam as RMD/benefit — to close that measured
+  // gap, spending the liquid buffer first and spilling whatever the accounts cannot cover to the
+  // credit cascade. No gross-up anywhere: each draw sells exactly the gap, and its realized gain
+  // rides `taxableCents` into THIS year's accumulator. RMD income is already inside the gap (it
+  // was income in the pass that measured it), so the draw never double-withdraws.
   const withdrawal = buildWithdrawalSources(
     state,
     jurisdiction,
-    nonWithdrawalSources,
-    automaticFundingCents,
+    shortfallBeforeDecumulationCents,
     ctx,
     DEFAULT_LIQUIDATION_ORDER,
-    taxCashCents,
   );
   const incomeSources = [...nonWithdrawalSources, ...withdrawal.sources];
-  // The explicit draws' realized gain is net-neutral cash-wise (no gross-up sold it) but
-  // still taxable — `gainSources` carries it in so it reaches `allocateMonth`'s taxable
-  // pool and the year's accumulator, settled with the rest of the year's.
   const allocationSources = [...incomeSources, ...fundingDraw.gainSources];
 
   const {
@@ -463,12 +475,12 @@ function runMonth(
     estimatedTaxPayments,
     priorYearSettlements,
   );
-  // Snapshot every cascade card's balance before the cascade runs, so the REAL amount it
-  // borrows onto credit (see below) is measured off actual liability movement rather than
-  // re-derived from the pre-allocation withdrawal sizing pass, which is estimated off
-  // `netIncomeCents` and can miss a shortfall only `allocateMonth`'s exact tax math finds —
-  // a residual the liquid buffer alone (with room to spare) absorbs without a card ever
-  // being touched. Reporting-only, hence taken only when there is a report to build.
+  // Snapshot every cascade card's balance before the cascade runs, so the REAL amount it borrows
+  // onto credit (see below) is measured off actual liability movement rather than inferred from
+  // the sizing pass. The two passes agree on the household's take-home now, but they run over
+  // different income — decumulation's own draws are in the second — so a rounding-sized residual
+  // the liquid buffer quietly absorbs must not be reported as a card that was never touched.
+  // Reporting-only, hence taken only when there is a report to build.
   const cascadeCardBalancesBeforeCents = reporting
     ? new Map(state.cascadeCards.map((card) => [card.id, state.liabilityBalances.get(card.id) ?? 0]))
     : null;

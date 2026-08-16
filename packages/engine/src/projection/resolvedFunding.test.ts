@@ -204,14 +204,13 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
     ]);
   });
 
-  it("attributes a payroll-tax-sized shortfall the pre-allocation estimate missed to savings, not credit", () => {
-    // The withdrawal-sizing pass's gap check (`estimateNetIncome` in withdrawal.ts) only calls
-    // `computeTaxCents` — never `computePayrollTaxCents` — so a jurisdiction charging payroll tax
-    // makes that estimate systematically overstate net income by the payroll-tax amount. Here
-    // wages of $1000 exactly cover the $1000 need BEFORE payroll tax, so the sizing pass sees no
-    // gap and never offers the ample cash buffer as a source; only the REAL allocation (which does
-    // charge the 10% payroll tax) finds the $100 shortfall. It must still land on the buffer that
-    // was sitting right there — never on a credit layer that was never actually touched.
+  it("attributes a payroll-tax-sized shortfall to savings, not credit", () => {
+    // $1000 of wages exactly covers the $1000 need BEFORE payroll tax and falls $100 short after
+    // it. The gap decumulation is sized on comes from the waterfall itself, so the payroll charge
+    // is inside it and the buffer sitting right there is spent — never a credit layer that was
+    // never actually touched. This used to be the shortfall NOBODY offered a source for: the
+    // sizing pass modelled take-home separately and netted only income tax, so it read the month
+    // as covered, and only the real allocation ever found the $100.
     // `monthlyIncome`/`incomeSeries` tags no explicit `taxCategory`, so `buildIncomeSources`
     // falls back to `ordinaryIncome` — key the payroll seam off that, not `wages`.
     const payrollOnlyTax: Jurisdiction = {

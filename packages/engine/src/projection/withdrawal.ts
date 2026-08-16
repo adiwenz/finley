@@ -93,31 +93,22 @@ export function orderedLiquidationAccounts<T extends LiquidationRankable>(
 }
 
 /**
- * Single-pass net of this month's non-withdrawal income (wages, benefit, RMD): the gross, less
- * the federal income-tax installment the allocation waterfall will charge on it. Sizing the
- * gap gross would leave exactly the installment uncovered every month, pushing a household
- * with a thin cash buffer onto credit rather than selling the investments it holds.
- */
-function estimateNetIncome(
-  sources: readonly IncomeSourceMonth[],
-  estimatedIncomeTaxCents: Cents,
-): Cents {
-  let grossTotal = 0;
-  for (const src of sources) grossTotal += src.waterfallInflowCents;
-  return grossTotal - estimatedIncomeTaxCents;
-}
-
-/**
  * Result of the decumulation channel, which runs BEFORE the waterfall alongside {@link
  * import("./rmd").buildRmdSources}: it pulls cash from investment accounts (mutating
  * `assetBalances`) and re-injects it as income.
  *
- * NEED-based, not a safe-withdrawal rate: `gap = obligations − non-withdrawal net income`,
- * less the liquid buffer spent first. Each draw sells EXACTLY `need` (capped at the account's
- * balance) — no gross-up: the tax this draw's own gain causes is not charged here, or in any
- * other month, but folded into the year's actual taxable income and settled with the year. The
- * realized gain still rides `taxableCents` on the returned source, so it reaches the caller's
- * annual accumulator; it is simply not netted out of the draw itself.
+ * NEED-based, not a safe-withdrawal rate — and the need is HANDED to it, measured by the very
+ * waterfall that will charge the month ({@link
+ * import("./allocationStep").projectObligationShortfallCents}) rather than re-derived here from a
+ * second model of take-home. This module therefore knows nothing about deferrals, payroll tax or
+ * tax instalments, which is the point: the one arithmetic that decides what a household has left
+ * lives in one place, so a deduction cannot be docked there and missed here.
+ *
+ * The liquid buffer is spent first, and only the remainder is sold. Each draw sells EXACTLY
+ * `need` (capped at the account's balance) — no gross-up: the tax this draw's own gain causes is
+ * not charged here, or in any other month, but folded into the year's actual taxable income and
+ * settled with the year. The realized gain still rides `taxableCents` on the returned source, so
+ * it reaches the caller's annual accumulator; it is simply not netted out of the draw itself.
  *
  * No double-withdraw against RMDs: their sources already sit in `nonWithdrawalSources` and
  * their forced draw already reduced these balances, so total pre-tax drawn settles at
@@ -156,15 +147,16 @@ export interface DecumulationDrawResult {
 export function buildWithdrawalSources(
   state: WithdrawalState,
   jurisdiction: Jurisdiction,
-  nonWithdrawalSources: readonly IncomeSourceMonth[],
-  obligationsCents: Cents,
+  /**
+   * The month's uncovered obligation cash — what the waterfall over non-decumulation income
+   * alone could not fund, deductions and all. Already net of income: a household whose pay
+   * covers the month is short 0 and sells nothing.
+   */
+  shortfallCents: Cents,
   ctx: JurisdictionContext,
   liquidationOrder: readonly AccountTaxTreatment[] = DEFAULT_LIQUIDATION_ORDER,
-  estimatedIncomeTaxCents: Cents = 0,
 ): WithdrawalPlan {
-  const netIncomeCents = estimateNetIncome(nonWithdrawalSources, estimatedIncomeTaxCents);
-
-  const gap = obligationsCents - netIncomeCents;
+  const gap = shortfallCents;
   if (gap <= 0) return { sources: [], liquidDrawdownCents: 0, decumulationDraws: [] };
 
   // Spend the liquid buffer first: the cascade charges whatever the withdrawal leaves
