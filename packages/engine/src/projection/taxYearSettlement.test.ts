@@ -15,7 +15,6 @@ import {
   finalizeTaxYear,
   isTaxSettlementMonth,
   isTaxYearCloseMonth,
-  pendingSettlementTotalCents,
 } from "./taxYearSettlement";
 
 const flat25: Jurisdiction = {
@@ -78,7 +77,9 @@ describe("finalizing a tax year", () => {
     // removed the December cliff and the recursive gross-up that a same-month settlement needed.
     expect([...state.assetBalances]).toEqual([...before]);
     // Nothing was withheld all year, so the whole 25% of $40k is left to settle.
-    expect(pendingSettlementTotalCents(state, { year: 2027 })).toBe(dollarsToCents(10_000));
+    expect(state.pendingTaxSettlementsByPersonYear.get("p1|2026")?.totalCents).toBe(
+      dollarsToCents(10_000),
+    );
   });
 
   it("does nothing in any month but the year's last", () => {
@@ -109,7 +110,9 @@ describe("finalizing a tax year", () => {
     });
     finalizeTaxYear(state, flat25, { year: 2026 }, 11);
     // A refund is the same object with the sign reversed — no separate path, and no clamp at zero.
-    expect(pendingSettlementTotalCents(state, { year: 2027 })).toBe(-dollarsToCents(2_000));
+    expect(state.pendingTaxSettlementsByPersonYear.get("p1|2026")?.totalCents).toBe(
+      -dollarsToCents(2_000),
+    );
   });
 });
 

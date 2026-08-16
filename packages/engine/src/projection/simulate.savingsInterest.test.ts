@@ -71,26 +71,25 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
     );
   }
 
-  it("paces the wage estimate monthly, then settles the year's credited interest the next April", () => {
+  it("paces the year's credited interest monthly alongside the wages, leaving April nothing", () => {
     const series = run(0.12); // ~1%/mo on a six-figure buffer → four-figure annual interest
-    // Interest is not scheduled income, so it never moves an instalment: EVERY month of the year
-    // charges exactly the wage estimate's twelfth, December included, however much has accrued.
-    for (const m of [0, 1, 2, 9, 10, 11]) {
-      expect(series.months[m].flows?.taxCents).toBe(WAGE_ONLY_MONTHLY_TAX);
-    }
-    // The year's balance — the tax on twelve months of credited interest the estimate never saw
-    // — lands in April of the FOLLOWING year, on top of that year's own instalment.
-    expect(series.months[SETTLEMENT_MONTH].flows?.taxCents).toBeGreaterThan(WAGE_ONLY_MONTHLY_TAX);
-    // And nowhere else: the months around it are ordinary instalments of the new year's estimate,
-    // equal to each other but for the cent of cumulative rounding that makes twelve sum exactly.
+    // Interest is not SCHEDULED income and never was — no series carries it. It is nonetheless
+    // paced, because the year's estimate comes from simulating the year, and a simulated month
+    // credits and books interest exactly as a real one does. Every month therefore charges more
+    // than the wage twelfth, and all twelve charge the same.
+    const yearOne = series.months.slice(0, 12).map((m) => m.flows!.taxCents);
+    for (const tax of yearOne) expect(tax).toBeGreaterThan(WAGE_ONLY_MONTHLY_TAX);
+    expect(Math.max(...yearOne) - Math.min(...yearOne)).toBeLessThanOrEqual(1);
+    // The year that used to leave its whole interest bill for the following April now leaves it
+    // small change: the balance is under a tenth of a single month's charge.
     const march = series.months[14].flows!.taxCents;
-    expect(Math.abs(march - series.months[13].flows!.taxCents)).toBeLessThanOrEqual(1);
-    expect(series.months[SETTLEMENT_MONTH].flows!.taxCents).toBeGreaterThan(march * 2);
-    // Never drawn, only growing, all year — yet still eventually taxed.
+    const balance = series.months[SETTLEMENT_MONTH].flows!.taxCents - march;
+    expect(Math.abs(balance)).toBeLessThan(march / 10);
+    // Never drawn, only growing, all year — and taxed as it grows.
     const b1 = series.months[0].accountBalancesCents["savings"];
     const b10 = series.months[10].accountBalancesCents["savings"];
     expect(b10).toBeGreaterThan(b1);
-    expect(b1).toBeGreaterThan(dollarsToCents(120_000));
+    expect(b1).toBeGreaterThan(dollarsToCents(119_000));
   });
 
   it("charges an even wage-only twelfth all year when the buffer earns no interest", () => {
@@ -127,12 +126,14 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
         flatOrdinary10,
       );
     }
-    // April settles the whole preceding year. Equal figures would mean the non-liquid buffer's
-    // interest was dropped from the annual accumulator.
-    const brokerageTax = runWith(brokerage).months[SETTLEMENT_MONTH].flows?.taxCents ?? 0;
-    const reserveTax = runWith(reserve).months[SETTLEMENT_MONTH].flows?.taxCents ?? 0;
+    // The year's own twelve instalments, which is where a cash buffer's interest is now collected.
+    // Equal figures would mean the non-liquid buffer's interest was dropped from the annual base.
+    const yearOne = (accounts: SimAccount): number =>
+      runWith(accounts).months.slice(0, 12).reduce((t, m) => t + m.flows!.taxCents, 0);
+    const brokerageTax = yearOne(brokerage);
+    const reserveTax = yearOne(reserve);
     expect(reserveTax).toBeGreaterThan(brokerageTax);
-    // The gap is ~10% of the reserve's ~$12.8k full year of interest on $120k at ~1%/mo.
+    // The gap is ~10% of the reserve's ~$13k full year of interest on $120k at ~1%/mo.
     expect(reserveTax - brokerageTax).toBeGreaterThan(dollarsToCents(1_000));
   });
 
@@ -162,10 +163,10 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
     for (const s of interest) expect(s.cashInflowCents).toBeGreaterThan(0);
   });
 
-  it("reports credited interest as a cash inflow bearing no same-month tax (net cash flow = cash inflow)", () => {
-    // Only SCHEDULED income paces an instalment, so the wage line bears the whole monthly
-    // charge and interest — unknowable when the year was estimated — bears none. Its net cash
-    // flow is therefore its full cash inflow; the tax it causes arrives in December.
+  it("reports credited interest as a cash inflow bearing its own share of the month's tax", () => {
+    // The instalment is apportioned across the sources the year's estimate was priced on, and the
+    // interest is now one of them — so it carries a same-month haircut of its own instead of
+    // riding free on the wage line until December.
     const series = run(0.12, 4);
     // Identified by explicit `savingsInterest` provenance, never by parsing the id.
     const interest = series.months[2].flows?.incomeSources.find((s) => s.category === "savingsInterest");
@@ -173,8 +174,13 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
     expect(interest!.label).toBe("Cash savings");
     expect(interest!.sourceId).toBe("interest:savings");
     expect(interest!.cashInflowCents).toBeGreaterThan(0);
-    expect(series.months[2].flows?.taxBySourceCents).toEqual({ "income:p1": WAGE_ONLY_MONTHLY_TAX });
-    expect(interest!.netCashFlowCents).toBe(interest!.cashInflowCents);
+    const bySource = series.months[2].flows!.taxBySourceCents;
+    expect(Object.keys(bySource).sort()).toEqual(["income:p1", "interest:savings"]);
+    expect(bySource["income:p1"]).toBe(WAGE_ONLY_MONTHLY_TAX);
+    expect(bySource["interest:savings"]).toBeGreaterThan(0);
+    expect(interest!.netCashFlowCents).toBe(
+      interest!.cashInflowCents - bySource["interest:savings"]!,
+    );
     expect(series.months[2].flows?.totalIncomeCents).toBe(
       dollarsToCents(3_000) + interest!.cashInflowCents,
     );
@@ -199,12 +205,14 @@ describe("Savings interest is taxed as ordinary income at accrual", () => {
     const r = preciseMonthlyRate(0.12);
     const b1 = series.months[0].accountBalancesCents["savings"];
     const b2 = series.months[1].accountBalancesCents["savings"];
-    // Month 0 (first processed): nothing accrued yet → pure compounding.
-    expect(b1).toBe(Math.round(opening * (1 + r)));
-    // No income at all in this run, so nothing is estimated and nothing is charged: month 1 is
-    // exactly month 0 compounded once more, not a second credit.
-    expect(series.months[1].flows?.taxCents).toBe(0);
-    expect(b2).toBe(Math.round(b1 * (1 + r)));
+    // The buffer's own interest is the household's whole income, so it is also the whole of the
+    // year's estimate — every month charges an instalment out of the buffer BEFORE that month's
+    // compounding, which is the only thing standing between these balances and pure growth.
+    const charged = (m: number): number => series.months[m].flows!.taxCents;
+    expect(charged(0)).toBeGreaterThan(0);
+    expect(b1).toBe(Math.round((opening - charged(0)) * (1 + r)));
+    // Month 1 is month 0 charged and compounded once more, not a second credit.
+    expect(b2).toBe(Math.round((b1 - charged(1)) * (1 + r)));
     // No double-count: `b2 === round(b1 * (1 + r))` above already pins this exactly — a
     // re-deposit of month 0's reported interest would instead compound `b1 + interest`, a
     // strictly larger (and different) figure. Confirm that reported figure is real and
@@ -313,35 +321,38 @@ describe("Already-credited savings interest funds spending without double-counti
     );
   }
 
-  it("reports the $500 interest as cash in, with no per-source tax haircut, and funds the $400 spend", () => {
+  it("reports the interest as cash in, bearing the whole month's tax, and funds the $400 spend", () => {
     const series = runReconciliation();
-    // Month 0 credits exactly $500 (5% on $10,000) — one credit, no spending yet.
-    expect(series.months[0].accountBalancesCents["savings"]).toBe(dollarsToCents(10_500));
+    // Month 0 credits 5% of what is left after its own instalment — one credit, no spending yet.
+    const tax0 = series.months[0].flows!.taxCents;
+    const credited = Math.round((dollarsToCents(10_000) - tax0) * 0.05);
+    expect(series.months[0].accountBalancesCents["savings"]).toBe(
+      dollarsToCents(10_000) - tax0 + credited,
+    );
 
     const recon = series.months[1]; // the reconciliation month
     const interest = recon.flows!.incomeSources.find((s) => s.category === "savingsInterest")!;
-    expect(interest.cashInflowCents).toBe(dollarsToCents(500));
-    // No December in this 3-month horizon → no tax settled yet, and no per-source income-tax
-    // attribution exists even where tax IS charged — so net cash flow equals cash inflow.
-    expect(recon.flows!.taxCents).toBe(0);
-    expect(recon.flows!.taxBySourceCents).toEqual({});
-    expect(interest.netCashFlowCents).toBe(dollarsToCents(500));
+    expect(interest.cashInflowCents).toBe(credited);
+    // The interest is the household's only taxable income, so the whole instalment is attributed
+    // to it and its net cash flow is the credit less that haircut.
+    expect(recon.flows!.taxBySourceCents).toEqual({ "interest:savings": recon.flows!.taxCents });
+    expect(interest.netCashFlowCents).toBe(credited - recon.flows!.taxCents);
     // No FALSE insolvency — the gap is genuinely met by the savings the interest is part of.
     expect(recon.flows!.totalObligationsCents).toBe(dollarsToCents(400));
     expect(recon.isInsolvent).toBe(false);
   });
 
-  it("credits the interest exactly once and reconciles fully: beginning + interest − spend (no tax yet)", () => {
+  it("credits the interest exactly once and reconciles fully: beginning − tax + interest − spend", () => {
     const series = runReconciliation();
     const begin = dollarsToCents(10_000);
+    const tax = (m: number): number => series.months[m].flows!.taxCents;
     const b1 = series.months[0].accountBalancesCents["savings"];
     const b2 = series.months[1].accountBalancesCents["savings"];
-    // The interest hits the balance exactly ONCE: month 0 is beginning + $500, not
-    // beginning + $500 + a re-deposited $500.
-    expect(b1).toBe(begin + dollarsToCents(500));
-    // Month 1 draws only the $400 spend from that balance — no tax, since this 3-month
-    // horizon never reaches December. Ending reconciles: $10,000 + $500 − $400 = $10,100.
-    expect(b2).toBe(begin + dollarsToCents(500) - dollarsToCents(400));
-    expect(b2).toBe(dollarsToCents(10_100));
+    // The interest hits the balance exactly ONCE: month 0 is what survived its own instalment,
+    // grown by 5%, not that plus a re-deposited credit.
+    const credited = Math.round((begin - tax(0)) * 0.05);
+    expect(b1).toBe(begin - tax(0) + credited);
+    // Month 1 earns nothing (the rate drops to 0) and draws the $400 spend and its own instalment.
+    expect(b2).toBe(b1 - dollarsToCents(400) - tax(1));
   });
 });

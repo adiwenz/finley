@@ -103,9 +103,9 @@ export function finalizeTaxYear(
     const actualBase = state.taxableIncomeByPersonYear.get(key) ?? {};
     const paid = state.federalTaxPaidByPersonYear.get(key) ?? NO_FEDERAL_TAX_PAID;
 
-    // The SAME annual pricing the year's estimate came from ({@link
-    // import("./taxYearProjection").projectKnownTaxYear}), so `actual − paid` is a difference of
-    // two comparable figures rather than a comparison of two unrelated tax computations.
+    // The SAME annual pricing the year's estimate came from — that estimate is this very
+    // function applied to a simulated year — so `actual − paid` is a difference of two comparable
+    // figures rather than a comparison of two unrelated tax computations.
     const { totalCents, byCategoryCents } = annualFederalTax(jurisdiction, ctx, pid, actualBase);
     const trueUpCents = totalCents - paid.totalCents;
     if (trueUpCents === 0) continue;
@@ -209,18 +209,3 @@ export function unsettledBalancesFromEarlierYearsCents(
   return total;
 }
 
-/**
- * What the year-start estimate must add to the year's expected OUTFLOW: the household's whole
- * pending balance from the year just closed, which this year's April will have to fund. Read in
- * January, when December has already parked it and April has not yet consumed it.
- *
- * Signed — a refund is a negative outflow, and a household expecting one needs to decumulate that
- * much less. Read-only: consuming is {@link dueTaxYearSettlements}'s job alone.
- */
-export function pendingSettlementTotalCents(state: SimState, ctx: JurisdictionContext): Cents {
-  let total = 0;
-  for (const pid of state.personIds) {
-    total += state.pendingTaxSettlementsByPersonYear.get(settlementKey(pid, ctx.year - 1))?.totalCents ?? 0;
-  }
-  return total;
-}

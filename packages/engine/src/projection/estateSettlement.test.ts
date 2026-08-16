@@ -252,11 +252,13 @@ describe("Estate settlement — final federal income tax", () => {
     const actualTaxableCents = sum(
       months.map((m) => m.flows!.cashFlowIncomeByCategoryCents.ordinaryIncome ?? 0),
     );
-    const instalmentsCents = sum(months.map((m) => m.flows!.taxCents));
-    // Twelve instalments paced off January's estimate, plus the balance the estate is left with,
-    // equal the flat rate on what the year actually earned. The estimate missed; the estate pays.
-    // Within a dollar rather than to the cent, because April of this year charged year 1's own
-    // rounding residue through the same line and no flow field separates the two.
+    // The final year's OWN charges: April is the one month carrying tax from two years at once, so
+    // the balance it settles for the year before — which the estimate's circular residue makes a
+    // real figure, not a rounding one — comes back out. March measures the twelfth alone.
+    const instalmentsCents =
+      sum(months.map((m) => m.flows!.taxCents)) - (months[3]!.flows!.taxCents - months[2]!.flows!.taxCents);
+    // Instalments paced off January's estimate, plus the balance the estate is left with, equal
+    // the flat rate on what the year actually earned. The estimate missed; the estate pays.
     expect(
       Math.abs(instalmentsCents + settlement.finalTaxDueCents - Math.round(actualTaxableCents * RATE)),
     ).toBeLessThanOrEqual(dollarsToCents(1));

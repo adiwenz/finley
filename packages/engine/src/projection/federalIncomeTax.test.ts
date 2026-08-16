@@ -235,16 +235,20 @@ describe("Federal income tax — the year's balance settles the following April"
   const SETTLES_IN = 15;
 
   /**
-   * Money the year-start estimate CANNOT see: a one-time transfer into or out of an account. The
-   * forecast models transfers not at all — it walks balances forward through draws and growth
-   * alone — so a mid-year influx leaves it having collected for sales the household never makes,
-   * and a mid-year outflow leaves it having missed sales it must.
+   * THE ONE THING A SETTLEMENT IS STILL FOR: the circular slice.
    *
-   * That is now the only lever these tests have, and deliberately so. Everything else they used to
-   * pull is anticipated: an ordinary lumpy spend is read from the compiled series month by month,
-   * and a debt's payments are read off its own schedule, origination and maturity included (see
-   * the debt-schedule tests below). A settlement exists for what the plan genuinely does not
-   * describe, and this is what that looks like.
+   * The year's estimate comes from simulating the year on a discarded clone, so nothing about the
+   * household's economics is guessed at — a lumpy spend, an emptied account, a loan's maturity and
+   * a one-time transfer are all simply performed. What the clone cannot perform is its own
+   * conclusion: it has to charge SOME tax while it runs, and it charges the provisional schedule
+   * (scheduled income alone), so the extra selling that the finished estimate's own instalments
+   * force is selling the clone never did.
+   *
+   * Under a flat rate `r` on a household funding everything from a fully taxable account that
+   * makes the residue exact rather than approximate: the year collects `r × D` on its non-tax
+   * need `D`, and April settles `r × (r × D)` — the tax on the draws that funded the tax. Several
+   * tests below pin exactly that, which is only possible because it is a closed-form consequence
+   * of the design rather than an unexplained gap.
    */
   const withTransfer = (account: SimAccount, transfer: SimOneTimeTransfer): SimAccount => {
     account.addTransfer(transfer);
@@ -282,13 +286,14 @@ describe("Federal income tax — the year's balance settles the following April"
     // December is no longer a true-up. They differ only by the cumulative rounding that makes
     // twelve instalments sum exactly.
     expect(Math.max(...withDraw.slice(0, 12)) - Math.min(...withDraw.slice(0, 12))).toBeLessThanOrEqual(1);
-    // And the year leaves next to nothing behind. The forecast is built from the need MONTH BY
-    // MONTH, so it knows both things an annual total averages away: that six months of wages are
-    // banked before the spend lands, and that the spend still has to be met in month 6 out of
-    // only what has been banked by then. April's charge is therefore year 1's own instalment plus
-    // a residue of pennies — where a forecast that spread the year's need evenly left a balance
-    // several times an instalment.
-    expect(withDraw[SETTLES_IN]! - withDraw[14]!).toBeLessThan(dollarsToCents(1));
+    // And the year carries its own liability. The forecast pass met the $50k in month 6 out of
+    // what was actually banked by then, and out of the account the waterfall actually reaches for
+    // — so what April is left holding is only the circular slice, not the spend. Over nine tenths
+    // of the year's tax is collected in the year that owes it.
+    const balance = withDraw[SETTLES_IN]! - withDraw[14]!;
+    const collected = sum(withDraw.slice(0, 12));
+    expect(balance).toBeGreaterThan(0);
+    expect(collected / (collected + balance)).toBeGreaterThan(0.9);
   });
 
   it("charges a positive balance exactly once, in April, and never again", () => {
@@ -312,10 +317,11 @@ describe("Federal income tax — the year's balance settles the following April"
     expect(anomalies).toEqual([15, 27]);
   });
 
-  it("refunds a negative balance exactly once, in April, as cash the household keeps", () => {
-    // An over-collecting year: January forecasts a full twelve months of pre-tax selling to cover
-    // $36k of spending, and collects for it — then $50,000 of cash the plan never described lands
-    // in July and pays for the second half, so half the year's forecast sales never happen.
+  it("stops collecting for sales a mid-year influx means the household never makes", () => {
+    // $50,000 of cash the plan's series never describe, landing in July against $36k of spending.
+    // The old forecast walked balances forward through draws and growth alone, so it never saw
+    // the influx: it collected for a full twelve months of pre-tax selling, half of which never
+    // happened, and gave the over-collection back as a refund a year later.
     const projection = simulateHousehold(
       baseInput(
         [
@@ -330,26 +336,25 @@ describe("Federal income tax — the year's balance settles the following April"
       flatAnnual(0.25),
     );
     const taxes = monthlyTax(projection);
-    const refundMonth = SETTLES_IN; // April of year 1, settling year 0
-    // A refund, not a smaller charge: the month's tax is NEGATIVE, which is what makes it cash
-    // coming back rather than a discount on a bill.
-    expect(taxes[refundMonth]!).toBeLessThan(0);
-    // Once. Year 1 spends nothing and sells nothing, so its own months charge nothing at all —
-    // every cent of movement in the year is the one settlement.
+    // The forecast pass applies the transfer exactly as the month does, so the year is paced on
+    // the six months of selling it actually does: 25% of $21,000, and no more.
+    expect(taxes.slice(0, 12)).toEqual(Array(12).fill(dollarsToCents(437.5)));
+    // Year 1 spends nothing and sells nothing, so its own months charge nothing at all — every
+    // cent of movement in the year is the one settlement.
     for (const m of [12, 13, 14]) expect(taxes[m]!).toBe(0);
-    // And it lands as MONEY: net worth rises in the refund month, in a household that has spent
-    // every other month of the run drawing its accounts down.
+    // And April CHARGES the circular slice rather than refunding an over-collection. It is money
+    // either way — net worth moves by exactly the settlement, in the direction of its sign.
+    expect(taxes[SETTLES_IN]!).toBeGreaterThan(0);
     const netWorth = projection.months.map((m) => m.netWorthNominalCents!);
-    expect(netWorth[refundMonth]!).toBeGreaterThan(netWorth[refundMonth - 1]!);
-    expect(netWorth[refundMonth]! - netWorth[refundMonth - 1]!).toBe(-taxes[refundMonth]!);
+    expect(netWorth[SETTLES_IN]! - netWorth[SETTLES_IN - 1]!).toBe(-taxes[SETTLES_IN]!);
   });
 
   it("makes the year's instalments plus its balance equal the annual tax on its actual income", () => {
     const rate = 0.25;
-    // $24k of wages the estimate paces on and collects twelve instalments for, against $72k of
-    // spending it expects the $60k in checking to cover — so it forecasts no pre-tax sale at all.
-    // Then checking is emptied in July by a transfer the plan never described, and the year's
-    // second half is funded by selling pre-tax, taxable, with nothing withheld against it.
+    // $24k of wages against $72k of spending, with $60k in checking that a transfer empties in
+    // July — so the year's second half is funded by selling pre-tax, and the amount sold depends
+    // on a transfer, a running balance and a month-by-month gap all at once. Whatever the estimate
+    // makes of that, the invariant below must hold.
     const projection = simulateHousehold(
       baseInput(
         [
@@ -365,12 +370,14 @@ describe("Federal income tax — the year's balance settles the following April"
       flatAnnual(rate),
     );
     const taxes = monthlyTax(projection);
-    // Both halves are real: the year collected instalments AND left a balance behind.
-    expect(sum(taxes.slice(0, 12))).toBe(dollarsToCents(6_000)); // 25% of the wages it could see
+    // Both halves are real: the year collected instalments AND left a balance behind. The
+    // instalments are far more than the $6,000 the wages alone would explain, because the
+    // forecast pass emptied checking in July and did the pre-tax selling that forced.
+    expect(sum(taxes.slice(0, 12))).toBeGreaterThan(dollarsToCents(11_000));
     // April carries tax from two years at once — year 0's balance on top of year 1's own
     // instalment, which March charges alone and so measures.
     const balance = taxes[15]! - taxes[14]!;
-    expect(balance).toBeGreaterThan(dollarsToCents(1_000));
+    expect(balance).toBeGreaterThan(dollarsToCents(500));
 
     // Basis 0, so every cent that left the pre-tax account in year 0 IS year 0's taxable income,
     // on top of the year's wages.
@@ -425,8 +432,10 @@ describe("Federal income tax — the year's balance settles the following April"
     const balanceOf = (april: number): Cents => taxes[april]! - taxes[april - 1]!;
     const year1Charged = sum(taxes.slice(12, 24)) - balanceOf(15) + balanceOf(27);
     expect(Math.abs(year1Charged - Math.round(year1Drawn * rate))).toBeLessThanOrEqual(5);
-    // Not a rounding artefact of an empty year: the draw really did create a bill in 2027.
-    expect(year1Charged).toBeGreaterThan(dollarsToCents(500));
+    // Not a rounding artefact of an empty year: the draw really did create a bill in 2027. Small,
+    // because 2026 collected all but the circular slice of its own liability — what April sells
+    // for, and so what 2027 is taxed on, is that slice rather than the whole year's tax.
+    expect(year1Charged).toBeGreaterThan(dollarsToCents(100));
   });
 
   it("puts the April balance through the ordinary funding waterfall", () => {
@@ -594,27 +603,41 @@ describe("Federal income tax — debt service is estimated on the schedule the d
       termMonths,
     });
 
+  /**
+   * A year's own instalments, with the April that settles the PRIOR year netted back out — the
+   * one month carrying tax from two years at once, and the only thing standing between a slice sum
+   * and the year's own estimate.
+   */
+  const instalmentsOfYear1 = (taxes: readonly Cents[]): Cents =>
+    sum(taxes.slice(12, 24)) - (taxes[15]! - taxes[14]!);
+
   it("stops estimating for a loan the year it matures, rather than collecting all year and refunding", () => {
     // Fifteen payments: twelve in year 0, then January, February and March of year 1 — $12,000 of
     // debt service in a year whose January payment, held flat, would have read as $36,000.
     const matures = runWithLoan(loanOf(15), 28);
-    // Funding $12,000 from a fully taxable account costs $12,000 + the tax on the sale itself:
-    // T = 0.25 × ($12,000 + T) → $4,000, and the year collects exactly that.
-    expect(Math.abs(sum(matures.slice(12, 24)) - dollarsToCents(4_000))).toBeLessThan(
-      dollarsToCents(1),
+    // Year 1 funds $12,000 of debt service plus the $2,062.50 balance year 0 leaves it, all from a
+    // fully taxable account, and collects 25% of exactly that.
+    const year0Balance = matures[15]! - matures[14]!;
+    expect(year0Balance).toBe(dollarsToCents(2_062.5));
+    expect(instalmentsOfYear1(matures)).toBe(
+      Math.round((dollarsToCents(12_000) + year0Balance) * rate),
     );
     // A household whose loan really does run all twelve months of year 1 — same $3,000 payment,
-    // longer term — is the estimate the maturing loan used to be given: three times as much.
+    // longer term — is charged on $36,000 of debt service instead: the estimate the maturing loan
+    // used to be given, and now nearly three times as much.
     const stillPaying = runWithLoan(loanOf(27), 28);
-    expect(Math.abs(sum(stillPaying.slice(12, 24)) - dollarsToCents(12_000))).toBeLessThan(
-      dollarsToCents(1),
+    expect(instalmentsOfYear1(stillPaying)).toBe(
+      Math.round((dollarsToCents(36_000) + year0Balance) * rate),
     );
-    // THE REGRESSION: the over-collection, and the refund a year later that gave it back, are both
-    // simply gone. April 2028 settles year 1 at a rounding residue, not at $8,000 returned.
-    expect(Math.abs(matures[27]!)).toBeLessThan(dollarsToCents(1));
-    // And the months after maturity are not carrying a phantom payment: year 2 pays no debt, has
-    // no spending, and is charged nothing at all.
-    for (const m of [24, 25, 26]) expect(Math.abs(matures[m]!)).toBeLessThan(dollarsToCents(1));
+    // THE REGRESSION: the over-collection, and the refund a year later that gave it back, are
+    // gone. April 2028 settles year 1 at the circular slice — 25% of what year 1 collected — not
+    // at $8,000 returned.
+    expect(
+      Math.abs(matures[27]! - matures[26]! - Math.round(instalmentsOfYear1(matures) * rate)),
+    ).toBeLessThanOrEqual(1);
+    // And the months after maturity are not carrying a phantom payment: year 2 pays no debt and
+    // has no spending, so all it is charged for is funding year 1's balance.
+    for (const m of [24, 25, 26]) expect(matures[m]!).toBeLessThan(dollarsToCents(20));
   });
 
   it("estimates a loan that originates mid-year from the month it starts paying", () => {
@@ -628,17 +651,22 @@ describe("Federal income tax — debt service is estimated on the schedule the d
       termMonths: 6, // $7,500 a month across months 6–11 — the second half of the year only
     });
     const taxes = runWithLoan(originates, 16);
-    // T = 0.25 × ($45,000 + T) → $15,000, collected across the year the payments fall in.
-    expect(Math.abs(sum(taxes.slice(0, 12)) - dollarsToCents(15_000))).toBeLessThan(
-      dollarsToCents(1),
-    );
+    // 25% of the $45,000 the loan actually costs, collected across the year the payments fall in
+    // — where a year that saw none of this left every cent of it for the following April.
+    expect(sum(taxes.slice(0, 12))).toBe(dollarsToCents(11_250));
     // Anticipated from January, not discovered in July: the six months BEFORE the loan exists
     // already pay their share, and every month of the year pays the same share.
-    for (let m = 0; m < 6; m++) expect(taxes[m]!).toBeGreaterThan(dollarsToCents(1_000));
+    for (let m = 0; m < 6; m++) expect(taxes[m]!).toBeGreaterThan(dollarsToCents(900));
     expect(Math.max(...taxes.slice(0, 12)) - Math.min(...taxes.slice(0, 12))).toBeLessThanOrEqual(1);
-    // THE REGRESSION: a year that saw none of this left the whole $15,000 for the following April.
-    // Nothing is left now — year 1 spends nothing, so its months are empty and so is its April.
-    expect(Math.abs(taxes[15]!)).toBeLessThan(dollarsToCents(1));
+    // What April carries is the circular slice alone: 25% of the $11,250 of extra selling the
+    // year's own instalments forced. Year 0's twelve charges plus it come to the year's whole
+    // liability, 25% of the $56,250 that really left the account.
+    // April's own charge carries year 1's instalment on top, which March charges alone and so
+    // measures — to within the cent by which the two can differ under cumulative rounding.
+    expect(Math.abs(taxes[15]! - taxes[14]! - dollarsToCents(2_812.5))).toBeLessThanOrEqual(1);
+    expect(sum(taxes.slice(0, 12)) + dollarsToCents(2_812.5)).toBe(
+      Math.round(dollarsToCents(56_250) * rate),
+    );
   });
 });
 
@@ -944,17 +972,26 @@ describe("Federal income tax — the year a retirement account is exhausted", ()
     expect(drawnCents - openingCents).toBeGreaterThan(dollarsToCents(1_000));
   });
 
-  it("leaves the following April with nothing to settle", () => {
+  it("leaves the following April a refund of pennies rather than a bill", () => {
     const projection = exhausting();
-    // Year three is solvent, so an unpaid balance WOULD be charged here — the assertion below is
+    // Year three is solvent, so an unpaid balance WOULD be charged here — the assertions below are
     // about the estimate having been right, not about there being no money to charge.
     expect(projection.months.slice(24, 36).every((m) => !m.isInsolvent)).toBe(true);
 
-    // April of year three: $138.29 under the old opening-balance cap, nothing now. The exhaustion
+    // April of year three: $138.29 under the old opening-balance cap, $10.06 now — and NEGATIVE,
+    // which is what makes it cash coming back rather than a discount on a bill. The exhaustion
     // year's own twelve instalments carried its liability, which is the whole point of pacing.
-    expect(projection.months[27]!.flows!.taxCents).toBe(0);
-    // And no other month of year three picked it up instead.
-    expect(sum(projection.months.slice(24, 36).map((m) => m.flows!.taxCents))).toBe(0);
+    //
+    // A refund at all is rare under this model and worth naming: the forecast pass differs from
+    // the authoritative one only in charging a smaller tax, which normally means drawing LESS and
+    // so estimating low. Here it is drawing less that leaves the account alive a little longer to
+    // compound, and the extra growth the authoritative pass never earns is income the estimate
+    // collected against.
+    const april = projection.months[27]!.flows!.taxCents;
+    expect(april).toBeLessThan(0);
+    expect(Math.abs(april)).toBeLessThan(dollarsToCents(25));
+    // And no other month of year three picked the balance up instead.
+    expect(sum(projection.months.slice(24, 36).map((m) => m.flows!.taxCents))).toBe(april);
     // Not vacuous: the exhaustion year really did pay tax, month by month.
     expect(sum(projection.months.slice(12, 24).map((m) => m.flows!.taxCents))).toBeGreaterThan(
       dollarsToCents(4_000),

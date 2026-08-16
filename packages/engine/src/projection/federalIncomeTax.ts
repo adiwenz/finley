@@ -4,11 +4,12 @@
  * estimate each month, with whatever the estimate missed carried to the FOLLOWING April as a
  * balance — the way a real filing settles.
  *
- * Both payers price tax through {@link annualFederalTax}: the monthly estimate ({@link
- * import("./taxYearProjection").projectKnownTaxYear}) and the year-end close ({@link
- * import("./taxYearSettlement").finalizeTaxYear}). Routing both through one function is what
- * makes `actualAnnualTax − taxPaidYTD` a meaningful difference rather than a comparison of two
- * unrelated tax computations.
+ * Every payer prices tax through {@link annualFederalTax}: the provisional schedule ({@link
+ * import("./taxYearProjection").projectKnownTaxYear}), the year's estimate — which is that same
+ * pricing applied to a simulated year — and the year-end close ({@link
+ * import("./taxYearSettlement").finalizeTaxYear}). Routing all of them through one function is
+ * what makes `actualAnnualTax − taxPaidYTD` a meaningful difference rather than a comparison of
+ * two unrelated tax computations.
  */
 
 import type { Cents } from "../money/money";
@@ -35,14 +36,14 @@ export interface AnnualFederalTax {
 
 /**
  * The year's estimated liability for one person, priced once at the tax year's first processed
- * month off the taxable income the projection already knows is scheduled. Held for the rest of
- * the year so every month's installment comes from the SAME estimate — a later month never
- * re-prices from year-to-date income, which is what produced large early charges and negative
- * monthly refunds for lumpy earners.
+ * month off a simulated run of that year. Held for the rest of the year so every month's
+ * installment comes from the SAME estimate — a later month never re-prices from year-to-date
+ * income, which is what produced large early charges and negative monthly refunds for lumpy
+ * earners.
  */
 export interface EstimatedTaxYear extends AnnualFederalTax {
   /**
-   * The projected known taxable income per source, the weights each installment is apportioned
+   * The forecast year's taxable income per source, the weights each installment is apportioned
    * back across for the tax chart's bands.
    */
   readonly sourceWeights: readonly SourceTaxable[];

@@ -124,10 +124,10 @@ describe("federal income tax — instalments and the following April's balance, 
     // rounding) — no drift as income accrues, which is what YTD annualization did, and no December
     // true-up either. April carries the previous year's balance, and 2026 has no previous year.
     for (const tax of taxes.slice(0, 12)) expect(Math.abs(tax - taxes[0]!)).toBeLessThanOrEqual(1);
-    // The interest was unknowable, so 2026 leaves a balance — settled in April 2027, on top of
-    // that year's own instalment. Larger than an ordinary month, but by the tax on a year of
-    // interest, not by a year's tax.
-    expect(taxes[15]!).toBeGreaterThan(taxes[14]!);
-    expect(taxes[15]!).toBeLessThan(2 * taxes[14]!);
+    // The interest is no longer unknowable: the year's estimate comes from simulating the year,
+    // and a simulated month credits and books it exactly as a real one does. So April 2027 is an
+    // ordinary month too — 2026's balance is a rounding-scale residue either way it falls, not the
+    // tax on a year of interest.
+    expect(Math.abs(taxes[15]! - taxes[14]!)).toBeLessThan(taxes[14]! / 20);
   });
 });
