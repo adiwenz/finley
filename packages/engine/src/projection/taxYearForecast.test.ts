@@ -5,8 +5,9 @@
  * because the simulator has one and the forecast pass IS the simulator.
  *
  * Each test below is a thing the old lightweight forecast either modelled separately or missed
- * entirely, now anticipated with no code of its own — and the last is the residue that remains,
- * which December and April reconcile.
+ * entirely, now anticipated with no code of its own. The one thing the forecast pass cannot
+ * bootstrap is the tax it charges while it runs — a cheap decumulation-aware estimate seeds that,
+ * and the last test pins what the two leave behind.
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -214,26 +215,33 @@ describe("The year's estimate is the year, simulated", () => {
     expect(yearZeroInstalments(taxes)).toBeGreaterThan(Math.round(dollarsToCents(39_000) * RATE));
   });
 
-  it("leaves December and April to reconcile the circular residue, and nothing else", () => {
-    // The one thing the forecast pass cannot perform is its own conclusion: it draws under the
-    // PROVISIONAL schedule, so the extra selling that the finished estimate's instalments force is
-    // selling it never did. Under a flat rate, funding everything from a fully taxable account,
-    // that residue is exactly `RATE` × what the year collected — a closed-form consequence of one
-    // Newton step, not an unexplained gap.
+  it("collects the gross-up too, leaving April a residue of cents", () => {
+    // The one thing the forecast pass cannot perform is its own conclusion: it has to charge
+    // SOMETHING while it runs, and the extra selling its own instalments force is selling it only
+    // does if those instalments were about the right size. That is exactly what the cheap seed is
+    // for. Funding $48,000 from a fully taxable account costs $48,000 plus the tax on the sales
+    // that pay the tax — T = 0.25 × ($48,000 + T) → $16,000 — and the year collects it.
+    //
+    // Seeded with scheduled income alone the pass would draw only $48,000, estimate $12,000, and
+    // leave $4,000 for April: a five-figure Aprils sawtooth in exactly the households this model
+    // exists for.
     const taxes = taxesOf(
       input([account("pretax", PRE_TAX_TAX_PROFILE, 1_000_000)], {
         expenseSeries: [series(4_000, 0, 11)],
       }),
     );
     const collected = yearZeroInstalments(taxes);
-    expect(collected).toBe(Math.round(dollarsToCents(48_000) * RATE));
-    // April 2027 carries year 0's balance on top of its own instalment, which March measures.
+    expect(Math.abs(collected - dollarsToCents(16_000))).toBeLessThan(dollarsToCents(1));
+    // April 2027 carries year 0's balance on top of its own instalment, which March measures —
+    // cents of it, where the seed's own approximation is all that is left to settle.
     const balance = taxes[15]! - taxes[14]!;
-    expect(Math.abs(balance - Math.round(collected * RATE))).toBeLessThanOrEqual(1);
-    // And the two together are the annual tax on what the year ACTUALLY drew: $48,000 of spending
-    // plus the instalments that funded themselves out of the same account.
-    expect(collected + balance).toBe(
-      Math.round((dollarsToCents(48_000) + collected) * RATE),
-    );
+    expect(Math.abs(balance)).toBeLessThan(dollarsToCents(1));
+    // And the two together are the annual tax on what the year ACTUALLY drew: the spending plus
+    // the instalments that funded themselves out of the same account. To the cent by which April's
+    // charge can differ from March's under cumulative instalment rounding, which `balance` reads
+    // off a neighbouring month rather than the same one.
+    expect(
+      Math.abs(collected + balance - Math.round((dollarsToCents(48_000) + collected) * RATE)),
+    ).toBeLessThanOrEqual(1);
   });
 });

@@ -36,7 +36,11 @@ import {
   remainingDeferralRoomCents,
   unwindUnfundedContributions,
 } from "./allocationStep";
-import { dueTaxYearSettlements, finalizeTaxYear } from "./taxYearSettlement";
+import {
+  dueTaxYearSettlements,
+  finalizeTaxYear,
+  pendingSettlementTotalCents,
+} from "./taxYearSettlement";
 import { projectKnownTaxYear } from "./taxYearProjection";
 import { settleEstate, type EstateSettlement } from "./estateSettlement";
 import type { IncomeSourceMonth } from "./waterfall";
@@ -155,25 +159,27 @@ interface MonthOutcome {
  *
  * Two passes, in order:
  *
- *  1. A provisional schedule from scheduled income alone ({@link projectKnownTaxYear}) — wages,
- *     pensions, the taxable slice of a benefit, this year's RMD. Cheap, and only ever a starting
- *     point: the forecast pass has to charge SOMETHING each month, and charging nothing would make
- *     it under-draw by the whole year's tax and so under-report the income those draws realize.
- *  2. Twelve months run on `opening` — a clone taken before this month touched anything, so the
- *     forecast pass starts from the same line the authoritative pass does rather than re-folding
- *     covered earnings this month has already accumulated. Its December total IS the estimate.
+ *  1. T₀, the cheap estimate ({@link projectKnownTaxYear}): scheduled income, this year's event
+ *     draws, and a lightweight forecast of the year's decumulation, with the tax/funding
+ *     circularity solved over it as a small fixed point. Never used as the year's schedule.
+ *  2. T₁ — twelve months run on `opening`, a clone taken before this month touched anything, under
+ *     T₀'s instalments. Its December total IS the estimate.
  *
- * That is why nothing here models decumulation, debt schedules, event draws, contributions, basis
- * or account exhaustion: the forecast pass performs them. A mid-year loan payoff stops being
- * charged because the loan is genuinely retired on the clone; an account runs dry because it
- * genuinely ran dry.
+ * The DIVISION OF LABOUR is the point. T₀ answers one question well: roughly how much taxable
+ * withdrawal will this year take, once the tax on those withdrawals is itself funded by more of
+ * them? That is the only part the forecast pass cannot bootstrap — it has to charge something each
+ * month, and its answer is only as good as what it charged. Everything else T₀ is rough about
+ * — an event in March, an account depleting in August, a loan maturing in June, contributions,
+ * basis, a one-time transfer — the forecast pass gets exactly right by simply performing it.
  *
- * ONE Newton step, not a fixed point, and deliberately so. The forecast pass draws under the
- * PROVISIONAL tax, so the draws the authoritative pass makes under the estimate this returns are
- * not quite the ones priced here, and the residue is real. It is also bounded and already handled:
- * December closes on ACTUAL income ({@link finalizeTaxYear}) and the following April charges the
- * difference through the ordinary waterfall. Iterating here would double the run's cost per turn
- * to chase a balance the settlement already collects.
+ * So T₀ seeds and the simulation corrects, which is why a decumulation-aware seed matters so much:
+ * seeded with scheduled income alone, a retired household's forecast pass draws nothing for tax and
+ * the year under-collects by the whole circular slice — five-figure Aprils, the sawtooth the annual
+ * cycle exists to remove. Seeded with T₀ it lands within a rounding residue.
+ *
+ * ONE Newton step, not a fixed point over the simulation. What is left is second-order: T₀ is
+ * approximate, so T₁'s draws differ slightly from the ones it priced. December closes on ACTUAL
+ * income ({@link finalizeTaxYear}) and the following April charges the difference.
  */
 function priceTaxYear(
   state: SimState,
@@ -192,6 +198,11 @@ function priceTaxYear(
     month,
     startYear: run.startYear,
     incomeSeries: run.input.incomeSeries,
+    expenseSeries: run.input.expenseSeries,
+    // The balance last December parked, which THIS year's April must fund — known now, because the
+    // year it belongs to is already closed. Signed: an expected refund lowers the year's funding
+    // need rather than raising it.
+    priorYearSettlementCents: pendingSettlementTotalCents(state, ctx),
     benefitColaRate: run.input.benefitColaRate ?? run.input.annualInflationRate,
     openingMonthSources,
     remainingDeferralRoomCents: (pid) =>
