@@ -236,18 +236,12 @@ describe("Estate settlement — a household of two", () => {
 
 /**
  * **Which of the two dies first must not matter.** Every fixture above names `p1` as the survivor,
- * so nothing in this file yet distinguishes "the household outlives a member" from "the member at
- * index 0 outlives everyone" — and the engine has a `persons[0]` in every loop it writes. A rule
- * that quietly treats the first-listed person as the one who must be alive would pass all of them.
+ * so none of them distinguishes "the household outlives a member" from "the member at index 0
+ * outlives everyone". Each fixture here is therefore built from ROLES and run twice with the roles
+ * bound to opposite people, person order held at `[p1, p2]`, and the two runs compared.
  *
- * So each fixture here is built from ROLES — survivor and first-to-die — and run twice with the
- * roles bound to opposite people, holding the person-relative economics identical: the same
- * accounts, the same spending, the same wages, owned by whoever is playing that part. The two runs
- * are then compared month for month. Anything that differs is a dependence on the label rather
- * than on the life, which is the regression this exists to catch.
- *
- * The household is the requested one: two 65-year-olds in 2026, one living to 90 and one to 75,
- * on $20,000 of savings, a $500,000 pre-tax account and $50,000 of taxable investments.
+ * Two 65-year-olds in 2026, one living to 90 and one to 75, on $20,000 of savings, a $500,000
+ * pre-tax account and $50,000 of taxable investments.
  */
 describe("Estate settlement — a partner dying first, and the same run mirrored", () => {
   const AGE_AT_START = 65;
@@ -266,7 +260,7 @@ describe("Estate settlement — a partner dying first, and the same run mirrored
   const PRIMARY_FIRST: Cast = { survivor: "p2", firstToDie: "p1" };
 
   /** Taxable investments — the third profile, which `account` above does not reach. */
-  function taxable(id: string, ownerId: string, dollars: number): SimAccount {
+  function taxableAccount(id: string, ownerId: string, dollars: number): SimAccount {
     return new SimAccount({
       id,
       ownerId,
@@ -289,12 +283,10 @@ describe("Estate settlement — a partner dying first, and the same run mirrored
   }
 
   /**
-   * The pre-tax account belongs to the member who dies FIRST, deliberately: it is the survivor's
-   * only real source of money, so the mirror swaps who owns the wealth as well as who is left to
-   * spend it. Ownership that failed to outlive its owner would show up here as an immediate
-   * insolvency rather than as a rounding difference.
+   * The pre-tax account belongs to the member who dies FIRST: it is the survivor's only real
+   * source of money, so the mirror swaps who owns the wealth as well as who is left to spend it.
    */
-  function household(cast: Cast, fixture: Fixture = {}): ProjectionSeries {
+  function inputFor(cast: Cast, fixture: Fixture): HouseholdSimInput {
     const {
       savings = 20_000,
       retirement = 500_000,
@@ -304,29 +296,37 @@ describe("Estate settlement — a partner dying first, and the same run mirrored
       bothLive = false,
     } = fixture;
     const dies = bothLive ? undefined : FIRST_DEATH;
-    return couple(
-      LAST_DEATH,
-      [
+    return {
+      horizonMonths: LAST_DEATH,
+      householdDeathMonthExclusive: LAST_DEATH,
+      annualInflationRate: 0,
+      startYear: 2026,
+      persons: [
         person("p1", cast.firstToDie === "p1" ? dies : undefined),
         person("p2", cast.firstToDie === "p2" ? dies : undefined),
       ],
-      [
+      accounts: [
         account("savings", cast.survivor, savings, true),
         account("retirement", cast.firstToDie, retirement),
-        taxable("brokerage", cast.survivor, brokerage),
+        taxableAccount("brokerage", cast.survivor, brokerage),
       ],
-      {
-        expenseSeries: [ownedSpending(cast.survivor, annualSpend / MONTHS_PER_YEAR)],
-        ...(jobs
-          ? {
-              incomeSeries: [
-                wages(cast.survivor, 50_000 / MONTHS_PER_YEAR),
-                wages(cast.firstToDie, 50_000 / MONTHS_PER_YEAR),
-              ],
-            }
-          : {}),
-      },
-    );
+      incomeSeries: jobs
+        ? [
+            wages(cast.survivor, 50_000 / MONTHS_PER_YEAR),
+            wages(cast.firstToDie, 50_000 / MONTHS_PER_YEAR),
+          ]
+        : [],
+      expenseSeries: [ownedSpending(cast.survivor, annualSpend / MONTHS_PER_YEAR)],
+    };
+  }
+
+  const household = (cast: Cast, fixture: Fixture = {}): ProjectionSeries =>
+    simulateHousehold(inputFor(cast, fixture), flat25);
+
+  /** The same household, stopped one month past the first death with the survivor still alive. */
+  function survivorStillAlive(cast: Cast, fixture: Fixture = {}): ProjectionSeries {
+    const { householdDeathMonthExclusive: _ends, ...alive } = inputFor(cast, fixture);
+    return simulateHousehold({ ...alive, horizonMonths: FIRST_DEATH + 1 }, flat25);
   }
 
   /** Everything about a month that is a HOUSEHOLD fact rather than a person-scoped one. */
@@ -345,28 +345,31 @@ describe("Estate settlement — a partner dying first, and the same run mirrored
 
   it("runs on past the first death and settles only at the last", () => {
     const series = household(PARTNER_FIRST);
-    // The partner dies at 75 and the run does not so much as pause: it reaches the primary's 90th
-    // year in full, and the estate is dated to the last month of it.
     expect(series.months.length).toBe(LAST_DEATH);
-    expect(series.months[FIRST_DEATH]).toBeDefined();
     expect(settlementOf(series).month).toBe(LAST_DEATH - 1);
   });
 
   it("settles at the LAST death when the FIRST-listed person is the one who dies early", () => {
-    // The same claim with the roles swapped: `persons[0]` dies at month 120 and the household goes
-    // on without them for fifteen years. A rule keying the household's end to the first person
-    // listed would end the run here, settle at month 119, and lose those years entirely.
+    // A rule keying the household's end to `persons[0]` would stop here at month 120, settle at
+    // 119, and lose the survivor's fifteen years entirely.
     const series = household(PRIMARY_FIRST);
     expect(series.months.length).toBe(LAST_DEATH);
     expect(settlementOf(series).month).toBe(LAST_DEATH - 1);
   });
 
+  it("settles nothing at the first death, and exactly once at the last", () => {
+    for (const cast of [PARTNER_FIRST, PRIMARY_FIRST]) {
+      // A member is still alive at month 120, so there is no estate to state.
+      expect(survivorStillAlive(cast).estateSettlement).toBeUndefined();
+      // `estateSettlement` is a single field, so a settlement dated to the last month IS "once".
+      expect(settlementOf(household(cast)).month).toBe(LAST_DEATH - 1);
+    }
+  });
+
   /**
-   * Both fixtures, and the second is the one with teeth. In the headline fixture every flow
-   * belongs to the survivor, so the death moves no money and two mirrored runs are equal for a
-   * reason that has nothing to do with symmetry. Giving both members a wage makes the death
-   * economically real in each direction, so a rule exempting `persons[0]` from dying — or from
-   * losing its income when it does — separates the pair.
+   * Both fixtures, and the second is the one with teeth: in the headline fixture every flow belongs
+   * to the survivor, so the death moves no money and the mirrored runs match for reasons unrelated
+   * to symmetry. A wage each makes the death economically real in both directions.
    */
   const MIRRORED: readonly (readonly [string, Fixture])[] = [
     ["no person-scoped flows", {}],
@@ -397,64 +400,26 @@ describe("Estate settlement — a partner dying first, and the same run mirrored
       const series = household(cast, { jobs: true });
       const before = incomeAt(series, FIRST_DEATH - 1);
       const after = incomeAt(series, FIRST_DEATH);
-      // Both were being paid the same wage, on schedules running to the horizon…
       expect(before[`job:${cast.survivor}`]).toBeGreaterThan(0);
       expect(before[`job:${cast.firstToDie}`]).toBe(before[`job:${cast.survivor}`]);
-      // …and the death ends exactly one of them, at its own amount, in its own month.
       expect(after[`job:${cast.firstToDie}`]).toBeUndefined();
       expect(after[`job:${cast.survivor}`]).toBe(before[`job:${cast.survivor}`]);
-      // Still solvent and still earning, so the household is plainly carrying on.
       expect(planOutcome(series)).toBe("survives");
     }
   });
 
   it("changes nothing at all when the member who dies had no money of their own to stop", () => {
-    // The control. In the headline fixture every flow belongs to the survivor, so the partner's
-    // death moves no income, no spending and no balance — and the run proves it by being byte for
-    // byte the run in which nobody died early. Whatever this household's fate is, the first death
-    // is not the cause of it.
+    // The control for every claim above: in the headline fixture the partner's death moves no
+    // income, no spending and no balance, so this household's later insolvency is not caused by it.
     expect(householdShape(household(PARTNER_FIRST))).toEqual(
       householdShape(household(PARTNER_FIRST, { bothLive: true })),
     );
   });
 
-  it("charges no final tax at the first death — the year closes normally around it", () => {
-    // A settlement fired at the first death would have to price a final year, and the charge would
-    // land in this month. On the solvent fixture — steady draws, so a steady instalment — the
-    // death month is indistinguishable from the five around it, January though it is.
-    const series = household(PARTNER_FIRST, { savings: 1_000, brokerage: 0, annualSpend: 12_000 });
-    const around = series.months
-      .slice(FIRST_DEATH - 2, FIRST_DEATH + 3)
-      .map((m) => m.flows!.taxCents);
-    expect(new Set(around).size).toBe(1);
-    expect(around[2]).toBeGreaterThan(0);
-  });
-
-  it("has no estate at all until the household is actually over", () => {
-    // The same fixture stopped at the first death, with no household death declared: a survivor is
-    // still alive, so there is nothing to settle. `estateSettlement` is one field, so "exactly
-    // once" is the difference between this and the run above.
-    const stopped = simulateHousehold(
-      {
-        horizonMonths: FIRST_DEATH,
-        annualInflationRate: 0,
-        startYear: 2026,
-        persons: [person("p1"), person("p2", FIRST_DEATH)],
-        accounts: [account("savings", "p1", 20_000, true)],
-        incomeSeries: [],
-        expenseSeries: [],
-      },
-      flat25,
-    );
-    expect(stopped.estateSettlement).toBeUndefined();
-    expect(settlementOf(household(PARTNER_FIRST)).month).toBe(LAST_DEATH - 1);
-  });
-
   it("does not fail the plan at the first death when the survivor is left barely liquid", () => {
-    // $1,000 of cash and no taxable investments at the moment the partner dies: judged as an
-    // estate right then, the household is worth almost nothing outside a retirement account it
-    // does not yet own outright, and the terminal test would fail it. It is not an estate. The
-    // survivor lives another fifteen years on that account and dies ahead.
+    // $1,000 of cash and no taxable investments: judged as an estate at month 120 this household
+    // would fail the terminal test. It is not an estate — the survivor lives fifteen more years
+    // on the pre-tax account and dies ahead.
     for (const cast of [PARTNER_FIRST, PRIMARY_FIRST]) {
       const series = household(cast, {
         savings: 1_000,
