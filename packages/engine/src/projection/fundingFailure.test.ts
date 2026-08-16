@@ -4,9 +4,11 @@
  * classifier reports; it never reassigns, reorders, or substitutes the selected sources — the
  * actual draw already ran in its named order and fell short. Alternatives are advice only.
  *
- * Tax is priced through the same {@link resolveOrderedFundingDraw} the simulator uses, so an
- * appreciated source delivers less than its balance. A gain-taxing stub jurisdiction stands in
- * for a real rules package (the engine cannot import one), taxing capital gains at a flat 20%.
+ * Availability is priced through the same {@link resolveOrderedFundingDraw} the simulator uses:
+ * no gross-up and no tax charged at the draw, so an appreciated source's available capacity is
+ * its full balance (or headroom, for a card) — never netted down for the gain it would realize. A
+ * gain-taxing stub jurisdiction stands in for a real rules package (the engine cannot import one),
+ * taxing capital gains at a flat 20%, to prove that tax genuinely goes unused here.
  */
 
 import { describe, it, expect } from "vitest";
@@ -18,7 +20,7 @@ const OWNER = "p1";
 const CTX = { year: 2026 };
 const NO_BASE: TaxableByOwner = new Map();
 
-/** Flat 20% on realized capital gains — enough to make an appreciated source deliver < balance. */
+/** Flat 20% on realized capital gains — proves it goes unused since draws are never taxed here. */
 const gainTaxing: Jurisdiction = {
   id: "test-cg",
   computeTaxCents: (t) => Math.round(0.2 * (t.capitalGains ?? 0)),
@@ -92,7 +94,7 @@ describe("classifyFundingFailure — funding-configuration", () => {
     expect(failure.alternativeSources).toEqual([{ accountId: "visa", availableCents: 9_000_00 }]);
   });
 
-  it("reports an appreciated alternative's available net of tax — below its balance", () => {
+  it("reports an appreciated alternative's available at its full balance — gain untaxed here", () => {
     const failure = classifyFundingFailure({
       treatment: "asset-acquisition",
       requiredCents: 8_000_000,
@@ -108,8 +110,9 @@ describe("classifyFundingFailure — funding-configuration", () => {
 
     expect(failure.kind).toBe("funding-configuration");
     if (failure.kind !== "funding-configuration") return;
-    // $100k brokerage, all gain: $20k tax ⇒ $80k net delivered, strictly below the balance.
-    expect(failure.alternativeSources).toEqual([{ accountId: "brokerage", availableCents: 8_000_000 }]);
+    // $100k brokerage, all gain — even under a jurisdiction taxing gains at 20%, nothing is
+    // withheld at the draw, so the full balance is reported available.
+    expect(failure.alternativeSources).toEqual([{ accountId: "brokerage", availableCents: 10_000_000 }]);
   });
 });
 
@@ -159,14 +162,14 @@ describe("classifyFundingFailure — no-eligible-source-suffices", () => {
     expect(failure.shortfallCents).toBe(5_000_00);
   });
 
-  it("prices the eligible pool net of tax — an appreciated source reports its gain's tax", () => {
+  it("prices the eligible pool at full balance — an appreciated source's gain goes untaxed here", () => {
     const failure = classifyFundingFailure({
       treatment: "asset-acquisition",
       requiredCents: 8_000_000,
       selectedSourceIds: ["brokerage"],
-      selectedSourcesAvailableCents: 4_000_000,
-      selectedSourcesTaxCents: 1_000_000,
-      selectedSources: [{ accountId: "brokerage", label: "brokerage", kind: "account", availableCents: 4_000_000 }],
+      selectedSourcesAvailableCents: 5_000_000,
+      selectedSourcesTaxCents: 0,
+      selectedSources: [{ accountId: "brokerage", label: "brokerage", kind: "account", availableCents: 5_000_000 }],
       accounts: [appreciated("brokerage", 5_000_000)],
       jurisdiction: gainTaxing,
       ctx: CTX,
@@ -175,10 +178,10 @@ describe("classifyFundingFailure — no-eligible-source-suffices", () => {
 
     expect(failure.kind).toBe("no-eligible-source-suffices");
     if (failure.kind !== "no-eligible-source-suffices") return;
-    // $50k all-gain brokerage: $10k tax ⇒ $40k net, $40k short of $80k.
-    expect(failure.eligibleAvailableCents).toBe(4_000_000);
-    expect(failure.eligibleTaxCents).toBe(1_000_000);
-    expect(failure.shortfallCents).toBe(4_000_000);
+    // $50k all-gain brokerage, fully liquidated: no tax withheld ⇒ $50k available, $30k short of $80k.
+    expect(failure.eligibleAvailableCents).toBe(5_000_000);
+    expect(failure.eligibleTaxCents).toBe(0);
+    expect(failure.shortfallCents).toBe(3_000_000);
   });
 });
 

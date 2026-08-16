@@ -5,8 +5,6 @@ import {
   taxableSocialSecurityCents,
   federalAnnualTaxCents,
   federalAnnualTaxByCategoryCents,
-  computeFederalTaxCents,
-  computeFederalTaxByCategoryCents,
 } from "./federalTax";
 
 /** Σ of a per-category tax map — the invariant the attribution must preserve. */
@@ -109,6 +107,52 @@ describe("federalAnnualTaxCents — government benefit inclusion end to end", ()
     ).toBe(3_082_00);
   });
 
+  it("keeps a drawn-down cash balance OUT of provisional income", () => {
+    // `taxedAtAccrual` is not income at all — it is principal the household finished paying tax on
+    // the month the interest was credited. Spending savings must not drag Social Security into
+    // tax, which is exactly what `taxExempt` (real, merely-untaxed income) does below.
+    const spendingSavings = federalAnnualTaxCents(
+      { taxedAtAccrual: 200_000_00, governmentRetirementBenefit: 30_000_00 },
+      2026,
+    );
+    expect(spendingSavings).toBe(federalAnnualTaxCents({ governmentRetirementBenefit: 30_000_00 }, 2026));
+    expect(spendingSavings).toBe(0);
+    // Not vacuous: the same figure under the exempt-INTEREST category does reach the test.
+    expect(taxableSocialSecurityCents(30_000_00, 200_000_00)).toBeGreaterThan(0);
+  });
+
+  it("counts cash interest toward provisional income ONCE, at accrual", () => {
+    // The other half of the test above, and the reason it is not a loophole: interest on a cash
+    // balance is ordinary income in the year it is credited, and reaches the benefit test there
+    // like any other ordinary dollar. Only the later drawdown of the balance it grew is excluded.
+    const interestAccrued = federalAnnualTaxCents(
+      { ordinaryIncome: 20_000_00, governmentRetirementBenefit: 30_000_00 },
+      2026,
+    );
+    expect(interestAccrued).toBeGreaterThan(
+      federalAnnualTaxCents({ governmentRetirementBenefit: 30_000_00 }, 2026),
+    );
+    // Spending the balance that interest accumulated into adds nothing on top: one dollar of
+    // interest, one appearance in the test.
+    expect(
+      federalAnnualTaxCents(
+        { ordinaryIncome: 20_000_00, taxedAtAccrual: 200_000_00, governmentRetirementBenefit: 30_000_00 },
+        2026,
+      ),
+    ).toBe(interestAccrued);
+  });
+
+  it("keeps borrowed principal out of both the brackets and the benefit test", () => {
+    // Loan proceeds are not income under any regime. Asserted against a benefit big enough that
+    // any leak into provisional income would show as tax.
+    const borrowed = federalAnnualTaxCents(
+      { borrow: 500_000_00, governmentRetirementBenefit: 30_000_00 },
+      2026,
+    );
+    expect(borrowed).toBe(federalAnnualTaxCents({ governmentRetirementBenefit: 30_000_00 }, 2026));
+    expect(borrowed).toBe(0);
+  });
+
   it("counts tax-exempt income toward provisional income for the SS test", () => {
     const withTaxExempt = federalAnnualTaxCents(
       { taxExempt: 30_000_00, governmentRetirementBenefit: 30_000_00 },
@@ -118,18 +162,6 @@ describe("federalAnnualTaxCents — government benefit inclusion end to end", ()
     // inclusion still happened (asserted via the SS helper).
     expect(withTaxExempt).toBe(0);
     expect(taxableSocialSecurityCents(30_000_00, 30_000_00)).toBe(13_850_00);
-  });
-});
-
-describe("computeFederalTaxCents — the monthly seam", () => {
-  it("annualizes the monthly slice, taxes it, and returns the monthly portion", () => {
-    // $100k/yr of wages = 100_000_00/12 per month. Annual tax 13,170 → /12 monthly.
-    const monthly = computeFederalTaxCents({ wages: Math.round(100_000_00 / 12) }, 2026);
-    expect(monthly).toBe(Math.round(13_170_00 / 12));
-  });
-
-  it("returns 0 for a monthly slice that annualizes below the standard deduction", () => {
-    expect(computeFederalTaxCents({ wages: 100_00 }, 2026)).toBe(0);
   });
 });
 
@@ -182,23 +214,5 @@ describe("federalAnnualTaxByCategoryCents — per-category attribution", () => {
   it("returns an empty map when no tax is owed", () => {
     expect(federalAnnualTaxByCategoryCents({ wages: 12_000_00 }, 2026)).toEqual({});
     expect(federalAnnualTaxByCategoryCents({}, 2026)).toEqual({});
-  });
-});
-
-describe("computeFederalTaxByCategoryCents — the monthly per-category seam", () => {
-  it("sums to the scalar monthly seam exactly", () => {
-    const monthly = {
-      wages: Math.round(60_000_00 / 12),
-      capitalGains: Math.round(20_000_00 / 12),
-    };
-    const total = computeFederalTaxCents(monthly, 2026);
-    const byCategory = computeFederalTaxByCategoryCents(monthly, 2026);
-    expect(sumCents(byCategory)).toBe(total);
-    expect(byCategory.wages).toBeGreaterThan(0);
-    expect(byCategory.capitalGains).toBeGreaterThan(0);
-  });
-
-  it("returns an empty map for a slice that annualizes below the standard deduction", () => {
-    expect(computeFederalTaxByCategoryCents({ wages: 100_00 }, 2026)).toEqual({});
   });
 });

@@ -395,6 +395,57 @@ function liquidAcct(id: string, openingCents: number, rate = 0): PlanAccount {
   });
 }
 
+describe("OneTimeSpendEvent — investment-funded spend is NOT grossed up for federal income tax", () => {
+  it("draws exactly the spend amount from an appreciated source, no gross-up, and taxes the gain the following April", () => {
+    const jur = bracketedCapitalGains(0, 0.3); // taxes every dollar of gain at 30%, no threshold
+    const base: LedgerBaseConfig = {
+      horizonMonths: 16,
+      annualInflationRate: 0,
+      initialPersons: [personLit("p1", "Alice")],
+      initialAccounts: [liquidAcct("brokerage", dollarsToCents(100_000), 0.12)],
+    };
+    const SPEND = dollarsToCents(20_000);
+    // Six months of growth first, so the account holds embedded gain (basis < balance) by
+    // the time the spend draws from it.
+    const ledger = addWithBase(emptyLedger, base, spend({ month: 6, amountCents: SPEND, fundingSourceIds: ["brokerage"] }));
+    const series = buildProjection(interpretLedger(ledger, base), base, jur);
+
+    // Exactly $20k was sold — no gross-up, even though the sale realizes a taxable gain. The
+    // account's END-of-month balance also reflects this month's growth, so read the actual
+    // draw off the gain + returned-principal bands rather than the raw balance delta.
+    const at = series.months[6];
+
+    // The gain is recorded as capital-gains income immediately...
+    const gainBand = at.flows!.incomeSources.find((s) => s.sourceId === `onetimespend:brokerage`);
+    expect(gainBand?.category).toBe("capitalGains");
+    expect(gainBand!.cashInflowCents).toBeGreaterThan(0);
+    const drawdownBand = at.flows!.incomeSources.find((s) => s.category === "savingsDrawdown");
+    // Gain + returned principal conserves to exactly the amount spent — no gross-up inflated it.
+    // The month's own tax instalment is drawn from the same liquid brokerage and bands as savings
+    // drawdown alongside the spend's principal, so it is the one other term in the identity.
+    expect((gainBand?.cashInflowCents ?? 0) + (drawdownBand?.cashInflowCents ?? 0)).toBe(
+      SPEND + at.flows!.taxCents,
+    );
+
+    // ...and paced across the whole year rather than landing in the month it was realized. The
+    // year's estimate comes from simulating the year, and a simulated June performs this very
+    // draw, so January already knows what it will cost. The spend month is no heavier than any
+    // other, which is what stops a funding draw from spiking the tax chart.
+    const instalments = series.months.slice(0, 12).map((m) => m.flows!.taxCents);
+    for (const tax of instalments) expect(Math.abs(tax - instalments[0]!)).toBeLessThanOrEqual(1);
+    expect(instalments[6]).toBe(at.flows!.taxCents);
+
+    const april = series.months[15].flows!;
+    const naive = Math.round(gainBand!.cashInflowCents * 0.3);
+    // Exactly the naive 30% of the gain — NO gross-up. The year slightly over-collects, because
+    // the brokerage the instalments themselves are drawn from realizes gain of its own as they are
+    // paid; April 2027 gives that back. Settling in the same December used to mean selling more of
+    // the appreciated brokerage to pay the bill, whose own gain enlarged the bill, recursively.
+    expect(instalments.reduce((s, t) => s + t, 0) + april.taxCents).toBe(naive);
+    expect(april.taxCents).toBeLessThan(0);
+  });
+});
+
 // gate == sim, the load-bearing invariant Home Purchase's §4.5 gate already pins: the funding
 // gate prices a candidate over the SAME base the simulator resolves it against — "after this
 // month's explicit draws, before decumulation" — so its predicted shortfall equals the
@@ -409,8 +460,15 @@ describe("OneTimeSpendEvent — gate == sim across a decumulation month", () => 
       horizonMonths: 24,
       annualInflationRate: 0,
       initialPersons: [personLit("p1", "Alice")],
-      // `cash` covers the spend exactly, no gain; `nest` funds decumulation alone.
-      initialAccounts: [liquidAcct("cash", DOWN, 0), liquidAcct("nest", 20_000_000, 0.1)],
+      // `cash` covers the spend with a little room, no gain; `nest` funds decumulation alone.
+      // The room is for the year's estimated tax instalments, which `cash` pays as the liquid
+      // buffer: the $150k decumulation really does realize ~$25k of gain on `nest`, over this
+      // jurisdiction's $15k threshold, so the year owes tax and paces it monthly. Sizing `cash`
+      // at exactly the spend made the fixture depend on those instalments being missed.
+      initialAccounts: [
+        liquidAcct("cash", DOWN + dollarsToCents(5_000), 0),
+        liquidAcct("nest", 20_000_000, 0.1),
+      ],
       initialExpenseSeries: [
         {
           series: new SimCashFlowSeries(
@@ -441,7 +499,10 @@ describe("OneTimeSpendEvent — gate == sim across a decumulation month", () => 
     expect(series.status).toBe("ran-to-horizon");
     expect(at.accountBalancesCents.cash).toBe(0);
     expect(at.flows!.expensesCents).toBe(dollarsToCents(150_000) + DOWN);
-    expect(at.flows!.taxCents).toBeGreaterThan(0);
+    // And the month really did decumulate on top of the candidate — the drain the gate had to
+    // keep off it. The tax that draw's gain causes belongs to this year and settles next April,
+    // so it is not this month's charge to read.
+    expect(at.accountBalancesCents.nest).toBeLessThan(series.months[22].accountBalancesCents.nest);
   });
 
   it("predicts a NONZERO shortfall that matches exactly what authoring refuses it for", () => {
@@ -452,7 +513,11 @@ describe("OneTimeSpendEvent — gate == sim across a decumulation month", () => 
     // enforced one step earlier.
     const ASK = dollarsToCents(60_000);
     const CASH = dollarsToCents(45_000);
-    const jur = bracketedCapitalGains(dollarsToCents(15_000), 0.4);
+    // A threshold above the gain the month-23 decumulation realizes (~$17.7k), so the year owes
+    // nothing and `cash` reaches month 23 whole. With a lower one the household spends the year
+    // paying instalments of a correctly-estimated bill out of the very buffer this measures, and
+    // the assertion below would be reading the tax estimate rather than the gate.
+    const jur = bracketedCapitalGains(dollarsToCents(25_000), 0.4);
     const base: LedgerBaseConfig = {
       horizonMonths: 24,
       annualInflationRate: 0,

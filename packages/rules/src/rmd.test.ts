@@ -16,6 +16,13 @@ describe("requiredMinimumDistributionCents — US RMD schedule", () => {
     expect(requiredMinimumDistributionCents(ONE_MILLION, ctx(1960, 75))).toBe(40_650_41);
   });
 
+  it("cent-pinned anchor: $530,000 at age 73 uses the 26.5 divisor, landing on a round $20,000", () => {
+    // The first year anyone in the 1951–1959 cohort owes anything, and the one balance that makes
+    // the divisor legible in the answer: $530,000 / 26.5 = $20,000.00 with nothing left over. A
+    // divisor off by a tenth (26.4 → $20,075.76, 26.6 → $19,924.81) misses by tens of dollars.
+    expect(requiredMinimumDistributionCents(530_000_00, ctx(1954, 73))).toBe(20_000_00);
+  });
+
   it("start age is 73 for birth years 1951–1959", () => {
     // Nothing required the year before the start age…
     expect(requiredMinimumDistributionCents(ONE_MILLION, ctx(1955, 72))).toBe(0);

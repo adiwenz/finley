@@ -85,12 +85,25 @@ export function goalFundAccountId(goal: GoalPlan): string {
  * accrual instead.
  */
 export const GOAL_ACCOUNT_SHAPES: Readonly<
-  Record<GoalAccountType, { readonly taxProfile: SimAccountTaxProfile; readonly liquid: boolean }>
+  Record<
+    GoalAccountType,
+    {
+      readonly taxProfile: SimAccountTaxProfile;
+      readonly liquid: boolean;
+      readonly beneficiaryDesignated: boolean;
+    }
+  >
 > = {
-  cash: { taxProfile: CASH_INTEREST_TAX_PROFILE, liquid: true },
-  brokerage: { taxProfile: CAPITAL_GAINS_TAX_PROFILE, liquid: true },
-  taxExempt: { taxProfile: TAX_EXEMPT_TAX_PROFILE, liquid: false },
-  preTax: { taxProfile: PRE_TAX_TAX_PROFILE, liquid: false },
+  cash: { taxProfile: CASH_INTEREST_TAX_PROFILE, liquid: true, beneficiaryDesignated: false },
+  brokerage: {
+    taxProfile: CAPITAL_GAINS_TAX_PROFILE,
+    liquid: true,
+    beneficiaryDesignated: false,
+  },
+  // The same two vehicles that are locked up in life pass outside the estate in death, and for
+  // the same reason: they are retirement accounts, held under a beneficiary designation.
+  taxExempt: { taxProfile: TAX_EXEMPT_TAX_PROFILE, liquid: false, beneficiaryDesignated: true },
+  preTax: { taxProfile: PRE_TAX_TAX_PROFILE, liquid: false, beneficiaryDesignated: true },
 };
 
 const DEFAULT_GOAL_ACCOUNT_TYPE: GoalAccountType = "brokerage";
@@ -98,6 +111,7 @@ const DEFAULT_GOAL_ACCOUNT_TYPE: GoalAccountType = "brokerage";
 export function goalAccountShape(goal: GoalPlan): {
   readonly taxProfile: SimAccountTaxProfile;
   readonly liquid: boolean;
+  readonly beneficiaryDesignated: boolean;
 } {
   return GOAL_ACCOUNT_SHAPES[goal.accountType ?? DEFAULT_GOAL_ACCOUNT_TYPE];
 }
@@ -117,9 +131,10 @@ export function buildPlanAccounts(budget: Plan): PlanAccount[] {
       owners,
       label: SAVINGS_LABEL,
       liquid: true,
-      // Not capital-gains: such a draw counts toward provisional income and pulls the
-      // government benefit into tax. Not tax-exempt either: withdrawal is free only
-      // BECAUSE the interest is taxed as ordinary income at accrual.
+      // Neither capital-gains nor tax-exempt: both count toward provisional income and would
+      // pull the government benefit into tax, and tax-exempt would also send this to the BACK of
+      // the drawdown order. `taxedAtAccrual` says the true thing — withdrawal is free because the
+      // interest was already taxed as ordinary income when it was credited.
       taxProfile: CASH_INTEREST_TAX_PROFILE,
       balanceCents: budget.openingBalanceCents,
       initialAnnualRate: budget.savingsReturnPct / 100,
@@ -129,6 +144,9 @@ export function buildPlanAccounts(budget: Plan): PlanAccount[] {
       owners,
       label: RETIREMENT_LABEL,
       liquid: false,
+      // The one standing account that passes outside the estate: a named beneficiary collects it
+      // whatever the final tax bill and the debts left behind come to.
+      beneficiaryDesignated: true,
       taxProfile: PRE_TAX_TAX_PROFILE,
       balanceCents: budget.retirementOpeningBalanceCents ?? 0,
       initialAnnualRate: budget.retirementReturnPct / 100,
@@ -144,7 +162,7 @@ export function buildPlanAccounts(budget: Plan): PlanAccount[] {
     }),
   ];
   for (const goal of budget.goals) {
-    const { taxProfile, liquid } = goalAccountShape(goal);
+    const { taxProfile, liquid, beneficiaryDesignated } = goalAccountShape(goal);
     accounts.push(
       planAccount({
         id: goalFundAccountId(goal),
@@ -152,6 +170,7 @@ export function buildPlanAccounts(budget: Plan): PlanAccount[] {
         // Named for its goal, so a drawdown reads as that goal, not a tax bucket.
         label: goal.name,
         liquid,
+        beneficiaryDesignated,
         taxProfile,
         balanceCents: 0,
         initialAnnualRate: goal.annualReturnPct / 100,

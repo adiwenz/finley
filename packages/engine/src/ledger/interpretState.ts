@@ -139,14 +139,16 @@ export interface FundingSourceBalance {
  * and One-Time Spend read the same shape.
  */
 export interface FundingAvailability {
-  /** Uncovered remainder after draining the sources NET of capital-gains tax; >0 blocks. */
+  /** Uncovered remainder after draining the sources; >0 blocks. */
   readonly shortfallCents: Cents;
   readonly availableCents: Cents;
   /**
-   * The wedge between what the sources hold and what they deliver. Zero for cash sources (no
-   * gain over basis) and under a no-tax jurisdiction.
+   * Always 0 — a funding draw is never grossed up or charged federal income tax at
+   * authoring time; the gain it realizes joins the year's taxable income and is settled once,
+   * annually, with that year — long after any affordability check here.
    */
   readonly taxCents: Cents;
+  /** Always `false` — see {@link taxCents}. */
   readonly taxed: boolean;
   /** The selected sources in drain order, for the conflict message. */
   readonly sources: readonly FundingSourceBalance[];
@@ -160,7 +162,7 @@ export interface InterpretContext {
   readonly annualInflationRate: number;
   /**
    * The shared funding-availability calculation, resolved against a projection of the ledger *so
-   * far* by the SAME ordered gross-up the simulator runs ({@link
+   * far* by the SAME ordered draw resolution the simulator runs ({@link
    * import("../projection/fundingDrawStep").resolveOrderedFundingDraw}). Gates the home-purchase
    * down payment (`homePurchase.check`) and is exposed to a preview/advisory unchanged — the gate
    * and the UI can never disagree about what a selection delivers.

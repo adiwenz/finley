@@ -102,7 +102,7 @@ function preTaxAccount(id: string, openingCents: number): SimAccount {
   });
 }
 
-/** 25% flat on ordinary income — a pre-tax liquidation is grossed up against it. */
+/** 25% flat on ordinary income — never withheld from a mid-year pre-tax liquidation here. */
 const flatOrdinaryTax: Jurisdiction = {
   id: "flat-25",
   computeTaxCents: (byCat) => Math.round((byCat.ordinaryIncome ?? 0) * 0.25),
@@ -204,14 +204,13 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
     ]);
   });
 
-  it("attributes a payroll-tax-sized shortfall the pre-allocation estimate missed to savings, not credit", () => {
-    // The withdrawal-sizing pass's gap check (`estimateNetIncome` in withdrawal.ts) only calls
-    // `computeTaxCents` — never `computePayrollTaxCents` — so a jurisdiction charging payroll tax
-    // makes that estimate systematically overstate net income by the payroll-tax amount. Here
-    // wages of $1000 exactly cover the $1000 need BEFORE payroll tax, so the sizing pass sees no
-    // gap and never offers the ample cash buffer as a source; only the REAL allocation (which does
-    // charge the 10% payroll tax) finds the $100 shortfall. It must still land on the buffer that
-    // was sitting right there — never on a credit layer that was never actually touched.
+  it("attributes a payroll-tax-sized shortfall to savings, not credit", () => {
+    // $1000 of wages exactly covers the $1000 need BEFORE payroll tax and falls $100 short after
+    // it. The gap decumulation is sized on comes from the waterfall itself, so the payroll charge
+    // is inside it and the buffer sitting right there is spent — never a credit layer that was
+    // never actually touched. This used to be the shortfall NOBODY offered a source for: the
+    // sizing pass modelled take-home separately and netted only income tax, so it read the month
+    // as covered, and only the real allocation ever found the $100.
     // `monthlyIncome`/`incomeSeries` tags no explicit `taxCategory`, so `buildIncomeSources`
     // falls back to `ordinaryIncome` — key the payroll seam off that, not `wages`.
     const payrollOnlyTax: Jurisdiction = {
@@ -507,8 +506,10 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
     );
   });
 
-  it("an appreciated pre-tax withdrawal reports gross withdrawn greater than net delivered", () => {
-    // $1000 income, no buffer, $2000 need → a pre-tax liquidation grossed up over 25% tax.
+  it("an appreciated pre-tax withdrawal books gross equal to net — no tax withheld from the sale", () => {
+    // $1000 income, no buffer, $2000 need → a pre-tax liquidation sells exactly the $1000 gap.
+    // flatOrdinaryTax taxes ordinary income at 25%, yet nothing is withheld here: federal income
+    // tax settles once, annually, in December — never against an ordinary mid-year draw.
     const month = run(
       {
         accounts: [cashAccount(0), preTaxAccount("pretax", dollarsToCents(100000))],
@@ -526,8 +527,8 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
     if (source?.withdrawal === undefined) throw new Error("expected a withdrawal breakdown on the account source");
 
     expect(source.amountCents).toBe(source.withdrawal.netDeliveredCents);
-    // Tax is withheld from the sale, so gross sold exceeds the net delivered toward the line.
-    expect(source.withdrawal.grossWithdrawnCents).toBeGreaterThan(source.withdrawal.netDeliveredCents);
+    // No tax withheld from the sale, so gross sold equals the net delivered toward the line.
+    expect(source.withdrawal.grossWithdrawnCents).toBe(source.withdrawal.netDeliveredCents);
     // Gross matches the balance reduction; realized gain is the whole draw (pre-tax basis 0).
     expect(source.withdrawal.grossWithdrawnCents).toBe(
       dollarsToCents(100000) - month.accountBalancesCents["pretax"],
@@ -536,17 +537,20 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
     // Returned principal matches the (zero) basis reduction of a pre-tax account.
     expect(source.withdrawal.principalCents).toBe(dollarsToCents(0) - month.accountBasisCents["pretax"]);
     expect(source.withdrawal.principalCents).toBe(0);
-    expect(source.withdrawal.taxCents).toBeGreaterThan(0);
+    // Untaxed here despite the jurisdiction taxing ordinary income — the gain still realized above
+    // is what will reach the annual settlement, out of scope for this pipeline stage.
+    expect(source.withdrawal.taxCents).toBe(0);
   });
 
-  it("liquidates an appreciated capital-gains account, booking partial principal, gain and tax", () => {
+  it("liquidates an appreciated capital-gains account, booking partial principal and gain, untaxed here", () => {
     // The brokerage opens at basis == balance and grows 12%/yr. After a year of deferred
     // appreciation its basis sits below its balance, so an explicit $40k purchase in month 12
-    // realizes a PROPORTIONAL gain — grossed up over the 25% capital-gains tax so the net still
-    // lands the $40k. Income covers the recurring rent every month, so nothing forces an automatic
-    // draw: the appreciated account is touched only by the explicit purchase. A year is the
-    // shortest honest way to embed the gain — the sim never opens a post-tax account already
-    // appreciated, so the basis gap can only come from compounding across months.
+    // realizes a PROPORTIONAL gain — sold at exactly $40k, no gross-up, so the net still lands
+    // the $40k with nothing withheld for the 25% capital-gains tax the jurisdiction would charge.
+    // Income covers the recurring rent every month, so nothing forces an automatic draw: the
+    // appreciated account is touched only by the explicit purchase. A year is the shortest honest
+    // way to embed the gain — the sim never opens a post-tax account already appreciated, so the
+    // basis gap can only come from compounding across months.
     const result = simulateHousehold(
       {
         horizonMonths: 13,
@@ -587,21 +591,21 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
     }
     const w = source.withdrawal;
 
-    // Genuine partial appreciation: a returned-principal slice AND a taxed-gain slice both present,
-    // unlike a pre-tax draw (all gain, principal 0) or a cash draw (all principal, gain 0).
+    // Genuine partial appreciation: a returned-principal slice AND a realized-gain slice both
+    // present, unlike a pre-tax draw (all gain, principal 0) or a cash draw (all principal, gain 0).
     expect(w.principalCents).toBeGreaterThan(0);
     expect(w.realizedGainCents).toBeGreaterThan(0);
-    expect(w.taxCents).toBeGreaterThan(0);
+    // Untaxed at the draw despite flatCapitalGainsTax charging 25% on realized gains — that tax
+    // settles once, annually, in December, out of scope for this pipeline stage.
+    expect(w.taxCents).toBe(0);
 
     // The surfaced breakdown obeys its identities, and the amount applied to the line is the net.
     expect(w.principalCents + w.realizedGainCents).toBe(w.grossWithdrawnCents);
     expect(w.grossWithdrawnCents - w.taxCents).toBe(w.netDeliveredCents);
     expect(source.amountCents).toBe(w.netDeliveredCents);
     expect(w.netDeliveredCents).toBe(dollarsToCents(40000));
-    // Gross sold exceeds the cash delivered by exactly the capital-gains tax the sale induced.
-    expect(w.grossWithdrawnCents).toBeGreaterThan(w.netDeliveredCents);
-    // Tax reconciles with the jurisdiction's own 25% on the realized gain.
-    expect(w.taxCents).toBe(Math.round(w.realizedGainCents * 0.25));
+    // No gross-up: gross sold equals the cash delivered, since nothing is withheld at the draw.
+    expect(w.grossWithdrawnCents).toBe(w.netDeliveredCents);
   });
 
   it("reports a OneTimeSpend funded from an appreciated investment through the SAME pipeline a down payment uses", () => {
@@ -657,11 +661,13 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
     // same withdrawal-breakdown channel a down payment's investment draw uses.
     expect(w.principalCents).toBeGreaterThan(0);
     expect(w.realizedGainCents).toBeGreaterThan(0);
-    expect(w.taxCents).toBeGreaterThan(0);
+    // Untaxed at the draw despite flatCapitalGainsTax charging 25% on realized gains — deferred
+    // to the annual settlement, out of scope for this pipeline stage.
+    expect(w.taxCents).toBe(0);
 
     // Conservation: gross sold is exactly principal plus gain, and net delivered — the cash that
-    // actually reached the purchase — is gross minus tax and lands on the nominal amount owed.
-    // (The account's balance also grows this month, so its raw before/after drop is not the
+    // actually reached the purchase — equals gross (no gross-up) and lands on the nominal amount
+    // owed. (The account's balance also grows this month, so its raw before/after drop is not the
     // draw's gross alone; `before` is read only to confirm growth genuinely occurred.)
     expect(before.accountBalancesCents["brokerage"]).toBeGreaterThan(dollarsToCents(100000));
     expect(w.principalCents + w.realizedGainCents).toBe(w.grossWithdrawnCents);
@@ -692,11 +698,17 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
     // Every slice's applied amount is its own net; no slice flattens gross into the amount.
     for (const s of slices) expect(s.amountCents).toBe(s.withdrawal!.netDeliveredCents);
 
-    const grossReduction = dollarsToCents(100000) - month.accountBalancesCents["pretax"];
+    // The month's liquidation funds TWO things: the obligations, and the estimated tax
+    // instalment on the decumulation itself, which the year-start estimate now anticipates. Only
+    // the first is partitioned across obligations — the tax funds none of them — so the slices
+    // sum to the balance drop NET of the tax charged. The difference is the tax, not a lost cent.
+    const grossReduction =
+      dollarsToCents(100000) - month.accountBalancesCents["pretax"] - month.flows!.taxCents;
+    expect(month.flows!.taxCents).toBeGreaterThan(0);
     const sum = (pick: (w: NonNullable<(typeof slices)[number]["withdrawal"]>) => number) =>
       slices.reduce((t, s) => t + pick(s.withdrawal!), 0);
-    // The slices partition the one liquidation exactly: gross sums to the balance reduction, and
-    // tax sums to gross minus the total net delivered — no cent gained or lost in the split.
+    // The slices partition that liquidation exactly: gross sums to it, and tax sums to gross
+    // minus the total net delivered — no cent gained or lost in the split.
     expect(sum((w) => w.grossWithdrawnCents)).toBe(grossReduction);
     expect(sum((w) => w.taxCents)).toBe(grossReduction - sum((w) => w.netDeliveredCents));
     expect(sum((w) => w.principalCents) + sum((w) => w.realizedGainCents)).toBe(grossReduction);
@@ -744,7 +756,10 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
       );
     }
 
-    const grossReduction = dollarsToCents(50_000_000) - month.accountBalancesCents["pretax"];
+    // Net of the month's tax instalment, which the same liquidation also raised and which funds
+    // no obligation — see the sibling test above.
+    const grossReduction =
+      dollarsToCents(50_000_000) - month.accountBalancesCents["pretax"] - month.flows!.taxCents;
     // whole * after (e.g. grossCents * consumedNetCents) here comfortably exceeds
     // Number.MAX_SAFE_INTEGER — the exact case a naive `Math.round((whole * after) / net)` breaks.
     expect(grossReduction * dollarsToCents(2_000_000)).toBeGreaterThan(Number.MAX_SAFE_INTEGER);

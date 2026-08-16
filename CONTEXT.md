@@ -273,6 +273,40 @@ Marks an `Account` as eligible to fund an obligation and usable by the shortfall
 drawdown step. `checking`/`savings`/`brokerage` = liquid; retirement accounts
 (`401k`/`Roth`/`HSA`) = not liquid.
 
+### The end of the plan
+
+**Estate settlement**:
+The one calculation that happens after the last household member dies, replacing the monthly
+cash-flow simulation rather than extending it. Answers two separate questions off the terminal
+state: **was the household still ahead** (economic net worth) and **who actually gets paid**
+(the probate distribution). No month, no waterfall, no sale — the run's balances and net worth
+are untouched by it. _Avoid_: final year, wind-down; and do not use "estate" alone where the
+two questions differ — say economic or probate.
+
+**Terminal economic net worth**:
+All assets − all debt − final accrued taxes, at death. **All** means all: beneficiary-designated
+retirement accounts included on the asset side, mortgages and unsecured balances alike on the
+debt side. The second half of the retirement solver's feasibility test, beside lifetime
+solvency, and the whole of the terminal half. Stops a plan from qualifying on a tax bill or a
+mortgage that simply falls after the last modeled month, without letting the TITLE on an asset
+decide a retirement age. No tolerance: a shortfall is a shortfall.
+
+**Probate distribution** (reported, never scored):
+What the estate rules do with that position once the solve is over. Collateral answers for the
+debt it secures (a property's `mortgageLiabilityId`), any balance beyond the collateral's value
+becomes an unsecured claim, **probate assets** — cash, taxable investments at death-date value,
+property equity — pay the final tax and the unsecured debt, and **beneficiary retirement assets**
+pass outside probate to their named beneficiary. An obligation the probate estate cannot cover is
+stated as **unpaid obligations** and left unpaid; it is never backfilled from a beneficiary
+account, and never grossed up for tax. A household can therefore be economically solvent — so
+feasible — while its probate estate goes short, which is a real planning finding rather than a
+verdict.
+
+**Basis reset at death** (simplified):
+Taxable investments enter the estate at their death-date value with no capital gain realized
+on liquidation. A terminal valuation rule only — every sale made while the household was
+alive prices its gain against the ordinary basis model.
+
 ### Engine purity and the jurisdiction seam
 
 **Engine purity**:
@@ -300,12 +334,35 @@ financial-input exception). Pure engine bookkeeping with no jurisdiction knowled
 _Avoid_: earnings history, wage record (this is the specific accumulator type).
 
 **taxTreatment** vs. **taxCategory**:
-Two distinct tax seams, not synonyms. **`taxTreatment`** is on `Account`
-(`preTax`/`roth`/`taxable`/`hsa`) — how a balance/its withdrawals are taxed.
-**`taxCategory`** is on an income `CashFlowSeries`
-(`wages`/`socialSecurity`/`ordinaryIncome`/`capitalGains`/`taxExempt`) — how an income
-stream is taxed. Both are present but ignored in v1.
-_Avoid_: using "tax treatment" loosely to mean either — name the specific field.
+Two distinct tax seams, not synonyms, and the distinction is load-bearing.
+**`taxTreatment`** is a property of the STOCK — an account — and names what HOLDING it still
+defers: `taxedAtAccrual` (a cash balance, already taxed as its interest was credited),
+`taxable` (gain deferred to sale), `taxDeferred` (pre-tax), `taxExempt` (never taxed). It is
+the only thing the drawdown order ranks on.
+**`taxCategory`** is a property of the FLOW — an income `CashFlowSeries`, or a withdrawal —
+and names what the money IS when it arrives, for the jurisdiction to price:
+`wages`/`socialSecurity`/`ordinaryIncome`/`capitalGains`/`taxedAtAccrual`/`taxExempt`/`borrow`.
+One account carries both, and they answer different questions: a pre-tax retirement account is
+`taxDeferred` (so it is drawn third) and pays `ordinaryIncome` (so the brackets tax it).
+_Avoid_: using "tax treatment" loosely to mean either — name the specific field; and never rank
+a drawdown on a tax category, which collapses accounts that merely share a label.
+
+**`taxedAtAccrual`** vs **`taxExempt`**:
+The two tax categories that bear no tax on withdrawal, and never interchangeable.
+**`taxedAtAccrual`** is a cash balance whose interest was taxed as ordinary income the month it
+was credited: drawing it down returns already-taxed principal, so it is not income, stays out of
+a benefit's provisional-income test, and is drawn FIRST — holding it defers nothing.
+**`taxExempt`** is a genuinely untaxed vehicle (Roth-like, or exempt interest) whose growth is
+never taxed: holding it is worth something, so it is drawn LAST, and where a jurisdiction counts
+exempt interest toward a benefit test it is real income for that purpose.
+**`borrow`** is the third: loan proceeds, which are not income under any regime and belong to no
+rate regime at all. Distinct from both, because those describe money the household OWNS that some
+rule declines to tax, and this is money it owes back.
+The category-to-base sort in `federalTaxParts` is an exhaustive switch over `TaxCategory`, so a
+new category cannot be added and silently priced at zero: it fails to compile until someone
+states which base it enters, or that it enters none.
+_Avoid_: "tax-free" for any of them — it is true of all three withdrawals and hides the
+distinction that decides the drawdown order and the benefit test.
 
 **GovernmentProgram**:
 A modeled income or cost change whose amount/availability is *derived* from the

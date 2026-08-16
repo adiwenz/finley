@@ -1,9 +1,5 @@
 import type { Cents, TaxCategory } from "@finley/engine";
-import { federalTaxParts, annualizeByCategory, type FederalTaxParts } from "./federalTaxCore";
-
-// annualizeByCategory lives in ./federalTaxCore (a neutral ×12 helper, not attribution
-// logic); re-exported here to preserve its former import path.
-export { annualizeByCategory } from "./federalTaxCore";
+import { federalTaxParts, type FederalTaxParts } from "./federalTaxCore";
 
 /**
  * Distribute integer-cents `totalCents` across `entries` (`[category, weight]` pairs) in
@@ -42,7 +38,10 @@ function apportionByWeight(
  *   • Gains tax rides `capitalGains` alone, keeping its own 0/15/20% rates.
  *   • Ordinary tax splits among `wages`, `ordinaryIncome` and `governmentRetirementBenefit`
  *     by ordinary-taxable weight (the benefit by its INCLUDED portion only).
- *   • `taxExempt` never bears tax; it counts only for the benefit test.
+ *   • `taxExempt` never bears tax; it counts only for the benefit test. `taxedAtAccrual` — a
+ *     drawn-down cash balance — bears none and counts for nothing, its interest having been
+ *     taxed as `ordinaryIncome` at accrual. `borrow` is loan proceeds and bears none either.
+ *     None of the three can appear below, so Σ is unaffected.
  *
  * ⚠ LIMITATION: average-rate within the ordinary regime, not marginal incidence — it misses
  * notch/inclusion effects (an ordinary dollar can raise the taxable benefit or push gains out
@@ -76,22 +75,4 @@ export function federalAnnualTaxByCategoryCents(
 ): Partial<Record<TaxCategory, Cents>> {
   const parts = federalTaxParts(annualByCategory, year);
   return attributeFederalTax(parts.totalCents, parts);
-}
-
-/**
- * The engine's per-category tax seam for the US single filer, taking MONTHLY amounts. Σ
- * equals {@link computeFederalTaxCents} for the same slice EXACTLY. Method and limitation:
- * {@link attributeFederalTax}. The only per-category entry point `index.ts` wires into
- * {@link usJurisdiction}.
- */
-export function computeFederalTaxByCategoryCents(
-  monthlyByCategory: Partial<Record<TaxCategory, Cents>>,
-  year: number,
-): Partial<Record<TaxCategory, Cents>> {
-  const parts = federalTaxParts(annualizeByCategory(monthlyByCategory), year);
-  // Apportion the MONTHLY total (== computeFederalTaxCents) by the annual weights — identical
-  // ratios monthly vs. annual — so Σ(breakdown) === the scalar the waterfall charged, not a
-  // separately-rounded figure.
-  const monthlyTotal = Math.round(parts.totalCents / 12);
-  return attributeFederalTax(monthlyTotal, parts);
 }

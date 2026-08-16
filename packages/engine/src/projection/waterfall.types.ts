@@ -1,6 +1,6 @@
 import type { Cents } from "../money/money";
 import type { TaxCategory } from "../money/cashFlowSeries";
-import type { TaxableByCategory } from "./taxAttribution";
+import type { SourceTaxable, TaxableByCategory } from "./taxAttribution";
 import type { IncomeSourceCategory } from "./simulate.types";
 import type { SimGoal } from "../goal/goal";
 
@@ -53,7 +53,7 @@ export interface IncomeSourceMonth {
   readonly cashInflowCents?: Cents;
   /**
    * OVERRIDES the tax-category axis for display/grouping
-   * ({@link import("./simulate.types").ProjectionIncomeSource.category}). Savings interest
+   * ({@link import("./simulate.types").ProjectionCashFlowIncomeSource.category}). Savings interest
    * sets `"savingsInterest"` so the UI groups it without parsing source ids, even though it
    * is taxed as `ordinaryIncome` (where it still buckets in the taxable rollup). Absent →
    * reports under its {@link taxCategory}.
@@ -99,21 +99,6 @@ export interface WaterfallInput {
   /** The default liquid account — the `idle` surplus destination. Null if none. */
   readonly liquidAccountId: string | null;
   /**
-   * Per-{@link TaxCategory} taxable amounts in → tax owed out. Called once per person with
-   * their full map, so the jurisdiction — not the waterfall — decides how each is taxed.
-   */
-  readonly computeTaxCents: (taxableByCategory: Partial<Record<TaxCategory, Cents>>) => Cents;
-  /**
-   * The per-{@link TaxCategory} breakdown of the SAME tax `computeTaxCents` returns.
-   * REQUIRED — every jurisdiction owns its attribution; a zero-tax one returns `{}`,
-   * otherwise Σ per person MUST equal that person's `computeTaxCents` (runtime-enforced —
-   * see {@link assertTaxAttributionReconciles}). Additive only: take-home still uses the
-   * scalar total.
-   */
-  readonly computeTaxByCategoryCents: (
-    taxableByCategory: Partial<Record<TaxCategory, Cents>>,
-  ) => Partial<Record<TaxCategory, Cents>>;
-  /**
    * A person's REMAINING annual deferral room this month (limit minus what they have
    * already deferred this year). `Infinity` = uncapped.
    */
@@ -142,6 +127,16 @@ export interface WaterfallInput {
     annualEarnedByCategory: Partial<Record<TaxCategory, Cents>>,
   ) => Partial<Record<TaxCategory, Cents>>;
   /**
+   * This person's ESTIMATED federal income-tax payment for this month — an even twelfth of the
+   * year's estimated liability, already priced by the caller ({@link
+   * import("./federalIncomeTax").estimatedPaymentForMonth}). Deducted from take-home like any
+   * other withholding.
+   *
+   * A FIXED figure, deliberately not a function of this month's income: income tax is annual,
+   * and the waterfall sees one month. Absent → no income tax charged.
+   */
+  readonly estimatedIncomeTaxCents?: (personId: string) => Cents;
+  /**
    * A person's year-to-date earned gross by category BEFORE this month — the base the
    * cumulative payroll figure builds on. Absent → nothing earned yet this year. Only
    * consulted when {@link computePayrollTaxCents} is present.
@@ -165,6 +160,12 @@ export interface WaterfallInput {
 }
 
 export interface WaterfallResult {
+  /**
+   * The federal income tax charged this month, summed across persons: Σ of the ESTIMATED
+   * installments {@link WaterfallInput.estimatedIncomeTaxCents} supplied, never a figure this
+   * waterfall priced. The liability itself is annual — {@link taxableByPersonCents} is what a
+   * caller folds into the year's running accumulator, and December reconciles the two.
+   */
   readonly taxCents: Cents;
   /**
    * Employee payroll tax (FICA) charged this month, summed across persons — the reconciled
@@ -190,20 +191,29 @@ export interface WaterfallResult {
    * WaterfallInput.priorEarnedByPersonCents} is current. A person with no income is absent.
    */
   readonly earnedThisMonthByPersonCents: ReadonlyMap<string, TaxableByCategory>;
-  /**
-   * Household tax per {@link TaxCategory}, summed across persons. `{}` in a zero-tax month,
-   * otherwise Σ === `taxCents`.
-   */
+  /** Always `{}`: the caller priced the installment, so it owns the split — see {@link taxCents}. */
   readonly taxByCategoryCents: Partial<Record<TaxCategory, Cents>>;
-  /**
-   * Tax per income SOURCE, keyed by `sourceId` (falling back to its tax category). Each
-   * category's tax is apportioned by taxable weight PER PERSON, so two earners in different
-   * brackets never cross-subsidise, then summed to the household. `{}` in a zero-tax month,
-   * else Σ === `taxCents` (see {@link assertTaxAttributionReconciles}) and Σ within a category
-   * === its `taxByCategoryCents`. Proportional (average-rate), not marginal — disclosed as
-   * `taxAttributionProportional`.
-   */
+  /** Always `{}` — see {@link taxByCategoryCents}. */
   readonly taxBySourceCents: Readonly<Record<string, Cents>>;
+  /**
+   * This month's taxable income by {@link TaxCategory}, per person — POST-deferral. NOT the
+   * base of {@link taxCents}, which is an installment on the whole year's estimate: the caller
+   * folds this into its year-to-date accumulator (mirroring {@link
+   * earnedThisMonthByPersonCents}), so the December reconciliation reads the complete year's
+   * ACTUAL total regardless of which month each dollar landed in.
+   */
+  readonly taxableByPersonCents: ReadonlyMap<string, TaxableByCategory>;
+  /**
+   * The per-SOURCE breakdown behind {@link taxableByPersonCents} — the same POST-deferral
+   * taxable amount, but kept per source (job, draw, benefit) instead of collapsed into a
+   * category total. The caller folds this into its OWN year-to-date per-source accumulator
+   * (mirroring how {@link taxableByPersonCents} folds into the category one), so the December
+   * settlement can apportion its per-category bill back to the real sources that produced the
+   * year's taxable income — the same average-rate {@link
+   * import("./taxAttribution").attributeTaxToSources} apportionment payroll tax already uses
+   * monthly, just applied once, annually. A source contributing nothing this month is absent.
+   */
+  readonly taxableBySourcePersonCents: ReadonlyMap<string, readonly SourceTaxable[]>;
   /**
    * Pre-tax deferral per income SOURCE (keyed like {@link taxBySourceCents}), summed across
    * the household, so a consumer can compute a source's take-home (gross − deferral − tax).

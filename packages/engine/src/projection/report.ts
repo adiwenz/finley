@@ -64,7 +64,7 @@ export interface ReportProperty {
 
 /**
  * Series are sampled, not serialized: the authoritative month-by-month figures live in each
- * {@link ReportMonth}'s `incomeByCategoryCents`; `monthlyCentsAtStart` samples month 0.
+ * {@link ReportMonth}'s `cashFlowIncomeByCategoryCents`; `monthlyCentsAtStart` samples month 0.
  */
 export interface ReportIncomeSource {
   readonly ownerId: string;
@@ -133,8 +133,11 @@ export interface ReportMonth {
   readonly accountBalancesCents: Readonly<Record<string, Cents>>;
   readonly liabilityBalancesCents: Readonly<Record<string, Cents>>;
   readonly propertyValuesCents: Readonly<Record<string, Cents>>;
-  /** Gross income this month by tax category (`wages`, `governmentRetirementBenefit`, …). Empty at month 0. */
-  readonly incomeByCategoryCents: Readonly<Record<string, Cents>>;
+  /**
+   * This month's CASH FLOW by tax category (`wages`, `governmentRetirementBenefit`, …) — money
+   * that reached the household, not the month's taxable income. Empty at month 0.
+   */
+  readonly cashFlowIncomeByCategoryCents: Readonly<Record<string, Cents>>;
   readonly totalIncomeCents: Cents;
   readonly governmentRetirementBenefitCents: Cents;
   /** Tax charged through the jurisdiction seam, summed over persons. */
@@ -332,7 +335,7 @@ export function summarizeSimulation(
       accountBalancesCents: m.accountBalancesCents,
       liabilityBalancesCents: m.liabilityBalancesCents,
       propertyValuesCents: m.propertyValuesCents,
-      incomeByCategoryCents: flows?.incomeByCategoryCents ?? {},
+      cashFlowIncomeByCategoryCents: flows?.cashFlowIncomeByCategoryCents ?? {},
       totalIncomeCents: flows?.totalIncomeCents ?? 0,
       governmentRetirementBenefitCents: flows?.governmentRetirementBenefitCents ?? 0,
       taxCents: flows?.taxCents ?? 0,
@@ -355,7 +358,7 @@ export function summarizeSimulation(
     accountIds: unionKeys(months, (m) => m.accountBalancesCents),
     liabilityIds: unionKeys(months, (m) => m.liabilityBalancesCents),
     propertyIds: unionKeys(months, (m) => m.propertyValuesCents),
-    incomeCategories: unionKeys(months, (m) => m.incomeByCategoryCents),
+    incomeCategories: unionKeys(months, (m) => m.cashFlowIncomeByCategoryCents),
     taxCategories: unionKeys(months, (m) => m.taxByCategoryCents ?? {}),
     taxSources: unionKeys(months, (m) => m.taxBySourceCents ?? {}),
   };

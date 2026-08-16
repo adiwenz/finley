@@ -342,11 +342,12 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
       return fail(event, `down payment must be between 0 and the purchase price`);
     }
     // HARD BLOCK: the down payment must be coverable from the SELECTED liquid sources at the
-    // purchase month, NET of the capital-gains tax liquidating them owes. `fundingAvailabilityAt`
-    // runs the SAME ordered gross-up the simulator does against a projection of the ledger so far
-    // — draining the selected sources in the user's order, taxing each sale marginally over the
-    // owner's other income that month — so the gate blocks exactly when the sim would fall short.
-    // A selected source that is not a liquid account (illiquid, or empty) contributes 0. It exists
+    // purchase month. `fundingAvailabilityAt` runs the SAME ordered draw resolution the
+    // simulator does against a projection of the ledger so far — draining the selected sources
+    // in the user's order for exactly the down payment, no gross-up, no tax priced against it
+    // (the gain those sales realize is settled once, annually, in December, long after this
+    // gate) — so the gate blocks exactly when the sim would fall short of the down payment
+    // itself. A selected source that is not a liquid account (illiquid, or empty) contributes 0. It exists
     // only on the authoring path; absent it (ordinary replay/undo) this check is skipped — replay
     // never re-litigates an accepted purchase.
     //
@@ -517,12 +518,13 @@ function oneTimeSpendFundingFailureMessage(
  * A dated, source-directed spend: names the accounts (and, eligibly, credit cards) to drain and
  * in what order. `check` validates that each named source exists, as either a liquid account or
  * a credit-card liability, then — mirroring Home Purchase's own §4.5 down-payment gate — HARD
- * BLOCKS when the selected sources cannot fully cover the spend at its month, net of any
- * capital-gains tax liquidating them owes. `fundingAvailabilityAt` runs the SAME ordered
- * gross-up the simulator does ({@link import("../projection/fundingDrawStep").resolveFundingDraws}),
- * so the gate refuses exactly when the sim would otherwise fall short — an insolvent spend can no
- * longer be authored, savable and replayable, the way it once was. Present only on the authoring
- * path; absent during ordinary replay/undo, when this check is skipped (matching Home Purchase).
+ * BLOCKS when the selected sources cannot fully cover the spend at its month. `fundingAvailabilityAt`
+ * runs the SAME ordered draw resolution the simulator does ({@link
+ * import("../projection/fundingDrawStep").resolveFundingDraws}) — no gross-up, no tax priced
+ * against the draw — so the gate refuses exactly when the sim would otherwise fall short of the
+ * spend itself; an insolvent spend can no longer be authored, savable and replayable, the way it
+ * once was. Present only on the authoring path; absent during ordinary replay/undo, when this
+ * check is skipped (matching Home Purchase).
  */
 const oneTimeSpend: EventHandler<OneTimeSpendEvent> = {
   check(event, state, context) {

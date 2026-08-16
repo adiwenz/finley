@@ -19,7 +19,7 @@ import type {
  * Return of capital (US): only the GAIN in a draw is taxable. Average-cost / pro-rata — basis
  * returns in proportion to its share of the balance. A basis-0 account (pre-tax, or any balance
  * with no recorded basis) returns the whole draw as gain. Monotone non-decreasing in
- * `grossCents`, as the engine's withdrawal gross-up loop requires.
+ * `grossCents`, as the engine's tax-year estimate fixed point requires.
  */
 export function taxableWithdrawalCents(basis: WithdrawalTaxBasis): Cents {
   const { grossCents, basisCents, balanceCents } = basis;

@@ -44,7 +44,30 @@ export type TaxCategory =
   | "governmentRetirementBenefit"
   | "ordinaryIncome"
   | "capitalGains"
-  | "taxExempt";
+  // Two different reasons a flow bears no tax, and they are NOT interchangeable — the engine's
+  // drawdown order and the jurisdiction's benefit test both turn on which one it is.
+  //
+  // `taxedAtAccrual`: a bank/cash balance, whose return was already taxed as ordinary income the
+  // month it was credited. Drawing it down returns principal the household has finished paying
+  // for — no tax, and no income either, so nothing about it can raise a benefit's taxability.
+  // There is nothing left to preserve by holding it, which is why it is drawn FIRST.
+  //
+  // `taxExempt`: a genuinely untaxed vehicle (Roth-like, or muni interest), whose GROWTH is never
+  // taxed. Holding it is worth something, so it is drawn LAST; and where a jurisdiction counts
+  // exempt interest toward a benefit test, it is real income for that purpose.
+  | "taxedAtAccrual"
+  | "taxExempt"
+  // Borrowed principal — a liability's proceeds, not income of any kind. Distinct from both
+  // untaxed categories above: those are money the household OWNS that some rule declines to tax,
+  // whereas this is money it owes back. It bears no tax, reaches no benefit test, and belongs to
+  // no rate regime, so a jurisdiction has nothing to decide about it.
+  //
+  // Stated rather than borrowed from a neighbouring label, because "bears no tax" is where the
+  // similarity ends: a flow labelled `taxExempt` counts toward the US benefit test and one
+  // labelled `taxedAtAccrual` asserts the tax was already paid at accrual. Neither is true of a
+  // loan, and a future source that DOES realize something on borrowing (a margin call's forced
+  // sale, a policy loan's taxable slice) must be forced to say so rather than inherit silence.
+  | "borrow";
 
 export interface SimCashFlowSeriesOptions {
   /**

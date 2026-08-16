@@ -80,6 +80,15 @@ export interface Jurisdiction {
   /**
    * The single tax chokepoint. Categories arrive whole, never collapsed into one lump: the
    * jurisdiction owns what share of each is taxed, and at what rate.
+   *
+   * ANNUAL in, ANNUAL out: `taxableByCategory` is a FULL CALENDAR YEAR of taxable income by
+   * category — never a monthly slice. The engine calls it twice a year: once on the income the
+   * year is SCHEDULED to bring, to pace twelve even estimated payments, and once at year-end
+   * on the year's ACTUAL accumulated total, to reconcile against them (see {@link
+   * import("../projection/runState").SimState}'s two accumulators). The engine owns collecting
+   * both totals and all payment timing; this seam only prices a year. Calling it on anything
+   * less than a full year (a monthly slice, an annualized ×12 estimate) misprices lumpy income
+   * — the engine never does this.
    */
   computeTaxCents(
     taxableByCategory: Partial<Record<TaxCategory, Cents>>,
@@ -89,13 +98,13 @@ export interface Jurisdiction {
   /**
    * {@link computeTaxCents} broken out per {@link TaxCategory} — the jurisdiction's call,
    * since US tax is not linearly separable by category (progressive brackets, the deduction
-   * stacking onto gains).
+   * stacking onto gains). Same ANNUAL-in contract as {@link computeTaxCents}.
    *
    * CONTRACT: Σ of the returned map MUST equal {@link computeTaxCents} for the same input,
-   * enforced at runtime to the exact cent (`assertTaxAttributionReconciles`).
+   * enforced at runtime to the exact cent (`assertPersonTaxBreakdownReconciles`).
    *
-   * Required; no tax → `{}`. Reporting only — the scalar {@link computeTaxCents} stays the
-   * gross-up loop's marginal-tax probe.
+   * Required; no tax → `{}`. Reporting only: the scalar {@link computeTaxCents} is what every
+   * pricing decision reads.
    */
   computeTaxByCategoryCents(
     taxableByCategory: Partial<Record<TaxCategory, Cents>>,
@@ -115,9 +124,10 @@ export interface Jurisdiction {
    * average-cost); the engine reduces basis by `grossCents − taxable`, so the state update
    * stays method-agnostic.
    *
-   * The gross-up loop probes it repeatedly, so it MUST be pure and monotone non-decreasing
-   * in `grossCents` — that is what lets the loop climb to its least fixed point. Absent →
-   * the whole `grossCents` is taxable.
+   * The year-start estimate's decumulation fixed point ({@link
+   * import("../projection/taxYearProjection").projectKnownTaxYear}) probes it repeatedly, so it
+   * MUST be pure and monotone non-decreasing in `grossCents` — that is what lets the estimate
+   * climb to its least fixed point. Absent → the whole `grossCents` is taxable.
    */
   taxableWithdrawalCents?(basis: WithdrawalTaxBasis, ctx: JurisdictionContext): Cents;
 

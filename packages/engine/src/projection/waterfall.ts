@@ -24,7 +24,7 @@ import {
 } from "./taxAttribution";
 import type { SimGoal } from "../goal/goal";
 import { requiredContributionCents } from "../goal/requiredContribution";
-import type { WaterfallInput, WaterfallResult } from "./waterfall.types";
+import type { IncomeSourceMonth, WaterfallInput, WaterfallResult } from "./waterfall.types";
 import {
   assertPersonTaxBreakdownReconciles,
   assertTaxAttributionReconciles,
@@ -56,6 +56,33 @@ function addDeposit(map: Map<string, Cents>, accountId: string, amount: Cents): 
 }
 
 /**
+ * Pre-tax deferral this source takes: its plan's fraction of gross, clamped to the person's
+ * remaining annual room. Overflow past the cap is not deferred and stays taxable.
+ *
+ * Exported because the tax-year projection ({@link
+ * import("./taxYearProjection").projectKnownTaxYear}) has to derive the same taxable base from
+ * the same compiled series MONTHS before this waterfall runs on them; sharing the rule is what
+ * keeps a monthly estimate from being computed off a base the actual month will never book.
+ */
+export function deferralForSourceCents(
+  src: IncomeSourceMonth,
+  remainingRoomCents: number,
+): Cents {
+  if (!src.planDescriptor || src.waterfallInflowCents <= 0) return 0;
+  const desired = Math.round(src.waterfallInflowCents * src.planDescriptor.deferralFraction);
+  return Math.max(0, Math.min(desired, remainingRoomCents));
+}
+
+/**
+ * A source's taxable base once its deferral is out. `taxableCents` overrides the gross when
+ * taxable differs from cash (a returned-basis draw books only its gain, an accrued-interest
+ * booking its interest). Shared with the projection — see {@link deferralForSourceCents}.
+ */
+export function taxableAfterDeferralCents(src: IncomeSourceMonth, deferredCents: Cents): Cents {
+  return Math.max(0, (src.taxableCents ?? src.waterfallInflowCents) - deferredCents);
+}
+
+/**
  * Step 1 — per-source pre-tax deferrals, capped per person against the annual limit.
  * Overflow past the cap is not deferred: it stays in the gross and re-enters as taxable.
  */
@@ -66,8 +93,8 @@ function applyDeferrals(
   grossByPerson: Map<string, Cents>;
   taxableByPerson: Map<string, TaxableByCategory>;
   earnedGrossByPerson: Map<string, TaxableByCategory>;
-  sourceTaxableByPerson: Map<string, SourceTaxable[]>;
   sourceEarnedByPerson: Map<string, SourceTaxable[]>;
+  sourceTaxableByPerson: Map<string, SourceTaxable[]>;
   deferralBySource: Map<string, Cents>;
   deferredByPerson: Map<string, Cents>;
   combinedDepositsByPlan: Map<string, Cents>;
@@ -83,11 +110,14 @@ function applyDeferrals(
   // Pre-deferral gross by category, the payroll-tax base: FICA ignores 401(k) deferrals, so
   // this is accumulated BEFORE the deferral is subtracted (unlike `taxableByPerson`).
   const earnedGrossByPerson = new Map<string, TaxableByCategory>();
-  // Keyed by `sourceId` ?? tax category — the key the income side bands on.
-  const sourceTaxableByPerson = new Map<string, SourceTaxable[]>();
-  // This month's PRE-deferral earned amount per source, mirroring `sourceTaxableByPerson`
-  // but unhaircut by any deferral — the weight the payroll-tax breakdown apportions by.
+  // This month's PRE-deferral earned amount per source, unhaircut by any deferral — the
+  // weight the payroll-tax breakdown apportions by.
   const sourceEarnedByPerson = new Map<string, SourceTaxable[]>();
+  // POST-deferral per-source taxable weight — mirrors `sourceEarnedByPerson` (payroll's
+  // pre-deferral weight) but for income tax's base, so the year's close can later
+  // apportion its per-category bill back to the sources that actually produced the year's
+  // taxable income (the same {@link attributeTaxToSources} apportionment payroll uses monthly).
+  const sourceTaxableByPerson = new Map<string, SourceTaxable[]>();
   const deferralBySource = new Map<string, Cents>();
   const deferredByPerson = new Map<string, Cents>();
   const combinedDepositsByPlan = new Map<string, Cents>();
@@ -126,11 +156,9 @@ function applyDeferrals(
       earnedList.push({ key: sourceKey, category: src.taxCategory, taxableCents: sourceEarned });
     }
 
-    let deferred = 0;
-    if (src.planDescriptor && src.waterfallInflowCents > 0) {
-      const desired = Math.round(src.waterfallInflowCents * src.planDescriptor.deferralFraction);
-      const room = roomRemaining.get(src.ownerId) ?? Infinity;
-      deferred = Math.max(0, Math.min(desired, room));
+    const room = roomRemaining.get(src.ownerId) ?? Infinity;
+    const deferred = deferralForSourceCents(src, room);
+    if (src.planDescriptor) {
       if (deferred > 0) {
         roomRemaining.set(src.ownerId, room - deferred);
         deferredByPerson.set(src.ownerId, (deferredByPerson.get(src.ownerId) ?? 0) + deferred);
@@ -171,27 +199,25 @@ function applyDeferrals(
       }
     }
 
-    // `taxableCents` overrides the gross when taxable differs from cash (returned-basis
-    // draw, accrued interest). The whole gross is still paid out as take-home below.
-    const sourceTaxable = Math.max(0, (src.taxableCents ?? src.waterfallInflowCents) - deferred);
+    // Folded into the caller's year-to-date accumulator; the tax it eventually bears is
+    // settled annually, never charged against this source here (see {@link computeTakeHome}).
+    const sourceTaxable = taxableAfterDeferralCents(src, deferred);
     addCategory(taxableFor(src.ownerId), src.taxCategory, sourceTaxable);
-    // The weight equals what was added to the category total, so the per-source split
-    // reconciles to the category tax.
     if (sourceTaxable > 0) {
-      let list = sourceTaxableByPerson.get(src.ownerId);
-      if (list === undefined) {
-        list = [];
-        sourceTaxableByPerson.set(src.ownerId, list);
+      let taxableList = sourceTaxableByPerson.get(src.ownerId);
+      if (taxableList === undefined) {
+        taxableList = [];
+        sourceTaxableByPerson.set(src.ownerId, taxableList);
       }
-      list.push({ key: sourceKey, category: src.taxCategory, taxableCents: sourceTaxable });
+      taxableList.push({ key: sourceKey, category: src.taxCategory, taxableCents: sourceTaxable });
     }
   }
   return {
     grossByPerson,
     taxableByPerson,
     earnedGrossByPerson,
-    sourceTaxableByPerson,
     sourceEarnedByPerson,
+    sourceTaxableByPerson,
     deferralBySource,
     deferredByPerson,
     combinedDepositsByPlan,
@@ -199,17 +225,20 @@ function applyDeferrals(
 }
 
 /**
- * Step 2 — tax each person's taxable-by-category map through the single seam.
- * `computeTaxCents` is called ONCE per person and nowhere else, so no tax logic lives in
- * allocation code. Take-home is charged against the FULL gross, so a partially-taxed
- * benefit still pays its whole check.
+ * Step 2 — payroll tax, plus the month's ESTIMATED federal income-tax installment. The
+ * installment is a fixed figure the caller supplies ({@link
+ * WaterfallInput.estimatedIncomeTaxCents}); this function never prices tax itself, because the
+ * liability is annual and only the caller knows the year (see {@link
+ * import("../jurisdiction/jurisdiction").Jurisdiction.computeTaxCents}'s ANNUAL contract). So
+ * take-home is gross minus deferral minus payroll tax minus that installment, while
+ * `taxableByPerson` rides back to the caller UNCHARGED — the year's actual liability is
+ * reconciled against the installments once the year closes, not derived from this month's income.
  */
 function computeTakeHome(
   input: WaterfallInput,
   grossByPerson: Map<string, Cents>,
   taxableByPerson: Map<string, TaxableByCategory>,
   earnedGrossByPerson: Map<string, TaxableByCategory>,
-  sourceTaxableByPerson: Map<string, SourceTaxable[]>,
   sourceEarnedByPerson: Map<string, SourceTaxable[]>,
   deferredByPerson: Map<string, Cents>,
 ): {
@@ -217,35 +246,16 @@ function computeTakeHome(
   payrollTaxCents: Cents;
   payrollTaxBySourceCents: Record<string, Cents>;
   takeHomeByPerson: Map<string, Cents>;
-  taxByCategoryCents: TaxableByCategory;
-  taxBySourceCents: Record<string, Cents>;
 } {
-  const breakdownSeam = input.computeTaxByCategoryCents;
   const payrollSeam = input.computePayrollTaxCents;
   const payrollBreakdownSeam = input.computePayrollTaxByCategoryCents;
   let taxCents: Cents = 0;
   let payrollTaxCents: Cents = 0;
-  // The breakdown seam is required; a zero-tax jurisdiction returns `{}`.
-  const taxByCategoryCents: TaxableByCategory = {};
-  const taxBySourceCents: Record<string, Cents> = {};
   const payrollTaxBySourceCents: Record<string, Cents> = {};
   const takeHomeByPerson = new Map<string, Cents>();
   for (const pid of input.personIds) {
     const gross = grossByPerson.get(pid) ?? 0;
     const deferral = deferredByPerson.get(pid) ?? 0;
-    const taxable = taxableByPerson.get(pid) ?? {};
-    // Charged against the scalar total; the breakdown is a reporting re-description whose
-    // Σ equals this same figure.
-    const tax = input.computeTaxCents(taxable);
-    taxCents += tax;
-    const perCategory = breakdownSeam(taxable);
-    // Per person BEFORE aggregating, so offsetting errors can't cancel in the household
-    // total and slip past the household check.
-    assertPersonTaxBreakdownReconciles(pid, tax, perCategory);
-    for (const [category, cents] of Object.entries(perCategory)) {
-      if (cents) addCategory(taxByCategoryCents, category as TaxCategory, cents);
-    }
-    attributeTaxToSources(perCategory, sourceTaxableByPerson.get(pid) ?? [], taxBySourceCents);
     // Payroll tax is the cumulative-after minus cumulative-before difference, so a capped
     // component (OASDI's wage base) stops once year-to-date earnings clear the ceiling.
     // Monotone non-decreasing in earnings, so the difference is never a credit.
@@ -258,7 +268,6 @@ function computeTakeHome(
     );
     payrollTaxCents += payrollTax;
     if (payrollBreakdownSeam !== undefined) {
-      // Per person BEFORE aggregating — same reasoning as the income-tax check above.
       assertPersonPayrollTaxBreakdownReconciles(pid, payrollTax, perCategoryIncrement);
       // Distributes this person's incremental payroll charge back to the sources that
       // generated it, weighted within each EARNED category by earned amount — the cumulative
@@ -270,16 +279,16 @@ function computeTakeHome(
         payrollTaxBySourceCents,
       );
     }
-    takeHomeByPerson.set(pid, gross - deferral - tax - payrollTax);
+    const estimatedIncomeTax = input.estimatedIncomeTaxCents?.(pid) ?? 0;
+    taxCents += estimatedIncomeTax;
+    takeHomeByPerson.set(pid, gross - deferral - payrollTax - estimatedIncomeTax);
   }
-  return {
-    taxCents,
-    payrollTaxCents,
-    payrollTaxBySourceCents,
-    takeHomeByPerson,
-    taxByCategoryCents,
-    taxBySourceCents,
-  };
+  // Every person's taxable base is present, even an all-zero one, so the caller's fold into
+  // the annual accumulator never has to special-case a person with no income this month.
+  for (const pid of input.personIds) {
+    if (!taxableByPerson.has(pid)) taxableByPerson.set(pid, {});
+  }
+  return { taxCents, payrollTaxCents, payrollTaxBySourceCents, takeHomeByPerson };
 }
 
 /** Merge two per-category maps into a new one; used to add this month's earnings onto the year-to-date base. */
@@ -509,25 +518,17 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     grossByPerson,
     taxableByPerson,
     earnedGrossByPerson,
-    sourceTaxableByPerson,
     sourceEarnedByPerson,
+    sourceTaxableByPerson,
     deferralBySource,
     deferredByPerson,
     combinedDepositsByPlan,
   } = applyDeferrals(input, deposits);
-  const {
-    taxCents,
-    payrollTaxCents,
-    payrollTaxBySourceCents,
-    takeHomeByPerson,
-    taxByCategoryCents,
-    taxBySourceCents,
-  } = computeTakeHome(
+  const { taxCents, payrollTaxCents, payrollTaxBySourceCents, takeHomeByPerson } = computeTakeHome(
     input,
     grossByPerson,
     taxableByPerson,
     earnedGrossByPerson,
-    sourceTaxableByPerson,
     sourceEarnedByPerson,
     deferredByPerson,
   );
@@ -542,9 +543,10 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     deposits,
   );
 
-  // Tax charged must be fully attributed, or the cash-flow chart overstates take-home.
-  // Fail loudly on an incomplete jurisdiction rather than falling back.
-  assertTaxAttributionReconciles(taxCents, taxBySourceCents);
+  // Payroll tax charged must be fully attributed, or the cash-flow chart overstates
+  // take-home. Fail loudly on an incomplete jurisdiction rather than falling back. Income
+  // tax has no such check here — this function is handed a scalar installment, and the caller
+  // that priced it owns its category/source splits (see {@link computeTakeHome}).
   assertPayrollTaxAttributionReconciles(payrollTaxCents, payrollTaxBySourceCents);
 
   return {
@@ -552,8 +554,10 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     payrollTaxCents,
     payrollTaxBySourceCents,
     earnedThisMonthByPersonCents: earnedGrossByPerson,
-    taxByCategoryCents,
-    taxBySourceCents,
+    taxByCategoryCents: {},
+    taxBySourceCents: {},
+    taxableByPersonCents: taxableByPerson,
+    taxableBySourcePersonCents: sourceTaxableByPerson,
     deferralBySourceCents: Object.fromEntries(deferralBySource),
     deferredByPersonCents: deferredByPerson,
     combinedDepositsByPlanCents: combinedDepositsByPlan,

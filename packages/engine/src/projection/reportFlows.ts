@@ -11,9 +11,9 @@
  * recomputed, only re-shaped.
  */
 
-import type { Cents } from "../money/money";
+import { apportionByWeight, type Cents } from "../money/money";
 import type { IncomeSourceMonth } from "./waterfall";
-import type { MonthlyWages, ProjectionIncomeSource, ProjectionMonthFlows } from "./simulate.types";
+import type { MonthlyWages, ProjectionCashFlowIncomeSource, ProjectionMonthFlows } from "./simulate.types";
 import {
   automaticFundingTotal,
   expenseReportingTotal,
@@ -25,8 +25,70 @@ export const SAVINGS_DRAWDOWN_SOURCE_ID = "savings-drawdown";
 const SAVINGS_DRAWDOWN_LABEL = "Savings drawdown";
 
 /**
- * Two income views from one pass: the `incomeByCategoryCents` tax-category rollup (kept for
- * compatibility) and the finer per-source `incomeSources`. `sourceId`/`label` ride through;
+ * Charge the month's STRANDED haircut — tax or deferral attributed to a source that banded no
+ * cash this month — against the sources that did deliver cash, pro rata.
+ *
+ * Federal income tax is an ANNUAL liability paid in twelfths, so the month a dollar of tax is
+ * charged is routinely not the month the income arrived. A retiree's whole RMD lands in January
+ * and its tax is spread over all twelve months; from February on, the RMD band carries a share of
+ * the instalment and no cash at all. The per-source haircut has nothing to subtract from, so
+ * without this the tax simply disappears from the accounting and Σ `netCashFlowCents` — the
+ * cash-flow chart's whole stack — claims more spendable cash than the household has. That was
+ * eleven months a year for the rest of a retired plan.
+ *
+ * Spreading it is not a fudge. The cash to pay April's instalment genuinely came out of April's
+ * benefit and April's account draws; that IS where the money was found.
+ *
+ * Weighted by each source's REMAINING NET, not by its gross cash. A paycheck deferred 90% into a
+ * 401(k) has plenty of gross and almost nothing left to pay anything with — the money is in the
+ * retirement account — so charging it a gross-proportional share would take more than it had and
+ * report the band as negative. Net is the honest measure of what a source can contribute, and it
+ * also makes the overdraw impossible rather than merely unlikely: every share is
+ * `stranded × netᵢ / Σnet ≤ netᵢ` whenever the stranded total fits inside `Σnet`, so no band this
+ * touches can cross zero. {@link apportionByWeight}'s largest-remainder split keeps Σ shares equal
+ * to the stranded total exactly, so Σ net still lands on the cent.
+ *
+ * Two cases leave a residue rather than inventing one. No source delivered net cash → nothing to
+ * charge against. The stranded total exceeds Σ net → the month's tax outran every source that
+ * paid, which means it was funded from balances or credit; the bands go to zero and the rest stays
+ * stranded, because the alternative is a negative band that says a source took money back.
+ */
+function applyStrandedHaircut(
+  sources: ProjectionCashFlowIncomeSource[],
+  haircutMaps: readonly Readonly<Record<string, Cents>>[],
+): void {
+  const banded = new Set(sources.map((s) => s.sourceId));
+  let strandedCents = 0;
+  for (const map of haircutMaps) {
+    for (const [sourceId, cents] of Object.entries(map)) {
+      if (!banded.has(sourceId)) strandedCents += cents;
+    }
+  }
+  if (strandedCents <= 0) return;
+
+  const weights = sources
+    .filter((s) => s.netCashFlowCents > 0)
+    .map((s) => [s.sourceId, s.netCashFlowCents] as const);
+  const availableCents = weights.reduce((total, [, net]) => total + net, 0);
+  if (availableCents <= 0) return;
+
+  // Nothing survives the charge: zero every contributing band rather than pushing any below it.
+  const shares =
+    strandedCents >= availableCents
+      ? new Map(weights)
+      : new Map(apportionByWeight(strandedCents, weights));
+  for (const [i, source] of sources.entries()) {
+    const share = shares.get(source.sourceId);
+    if (share === undefined || share === 0) continue;
+    sources[i] = { ...source, netCashFlowCents: source.netCashFlowCents - share };
+  }
+}
+
+/**
+ * Two views of the month's CASH FLOW from one pass: the `cashFlowIncomeByCategoryCents`
+ * tax-category rollup (kept for compatibility) and the finer per-source `incomeSources`. Both are
+ * views of money reaching the household — neither is the taxable base, and a draw whose cash went
+ * somewhere else is absent from both while still being taxed. `sourceId`/`label` ride through;
  * a source lacking them falls back to its tax category.
  *
  * `liquidDrawdownCents` (the gap cash savings covered) is appended as its own
@@ -36,6 +98,14 @@ const SAVINGS_DRAWDOWN_LABEL = "Savings drawdown";
  * `taxByCategoryCents`, `taxBySourceCents`, `payrollTaxBySourceCents` and
  * `deferralBySourceCents` ride through pre-computed — attribution is the jurisdiction's call.
  * The per-source maps are keyed by the SAME `sourceId ?? taxCategory` the income side bands on.
+ *
+ * `taxBySourceCents` also haircuts each source's `netCashFlowCents`, so it must stay
+ * same-month-true — every cent in it really came out of this month's take-home. That now holds
+ * for the whole income-tax charge, April's settled prior-year balance included: it is docked from
+ * the month like an instalment rather than raised by selling assets outside the waterfall.
+ * `reportedTaxBySourceCents` is the DISPLAY figure `flows.taxBySourceCents` returns instead
+ * (defaulting to `taxBySourceCents` when absent). The two coincide today and are kept apart
+ * because only one of them may ever hold tax the month did not actually withhold.
  */
 export function buildFlows(
   incomeSources: readonly IncomeSourceMonth[],
@@ -47,6 +117,7 @@ export function buildFlows(
   deferralBySourceCents?: Readonly<Record<string, Cents>>,
   payrollTaxCents: Cents = 0,
   payrollTaxBySourceCents: Readonly<Record<string, Cents>> = {},
+  reportedTaxBySourceCents: Readonly<Record<string, Cents>> = taxBySourceCents,
   /**
    * Explicitly-funded `expense` obligations resolved this month (a One-Time Spend) — never part
    * of `obligations` above, whose {@link automaticFundingTotal}/`liabilityPaymentsCents`
@@ -60,7 +131,7 @@ export function buildFlows(
   // settles which obligations came up short — later than this reporting pass — so the simulator
   // attaches it to the returned bands rather than this pure re-description computing it.
 ): Omit<ProjectionMonthFlows, "resolvedFunding"> {
-  const incomeByCategoryCents: Record<string, Cents> = {};
+  const cashFlowIncomeByCategoryCents: Record<string, Cents> = {};
   let totalIncomeCents = 0;
   // Bands on `cashInflowCents`, the realized cash paid: for accrued interest that is the
   // interest itself (`waterfallInflowCents` 0, but real household cash), else the gross —
@@ -72,8 +143,8 @@ export function buildFlows(
   const order: string[] = [];
   for (const src of incomeSources) {
     const cashInflow = src.cashInflowCents ?? src.waterfallInflowCents;
-    incomeByCategoryCents[src.taxCategory] =
-      (incomeByCategoryCents[src.taxCategory] ?? 0) + cashInflow;
+    cashFlowIncomeByCategoryCents[src.taxCategory] =
+      (cashFlowIncomeByCategoryCents[src.taxCategory] ?? 0) + cashInflow;
     totalIncomeCents += cashInflow;
     // No realized cash → nothing to band (a placeholder booking, or unrealized growth).
     if (cashInflow === 0) continue;
@@ -108,19 +179,21 @@ export function buildFlows(
       (payrollTaxBySourceCents[sourceId] ?? 0);
     return cashInflowCents - haircut;
   };
-  const sources: ProjectionIncomeSource[] = order.map((id) => {
+  const sources: ProjectionCashFlowIncomeSource[] = order.map((id) => {
     const s = bySource.get(id)!;
     return {
       sourceId: id,
       label: s.label,
-      category: s.category as ProjectionIncomeSource["category"],
+      category: s.category as ProjectionCashFlowIncomeSource["category"],
       ...(s.ownerId !== undefined ? { ownerId: s.ownerId } : {}),
       cashInflowCents: s.cashInflowCents,
       netCashFlowCents: netCashFlow(id, s.cashInflowCents),
     };
   });
-  // Reporting-only, never a tax bucket: spending an asset bears no tax or deferral, so its
-  // net equals its cash.
+  // Spending an asset bears no tax or deferral of its OWN, so its net opens at its cash — but
+  // it is still cash the household has in hand, so the stranded-haircut pass below may charge
+  // part of another source's tax against it. That is not a reclassification: if the month's
+  // instalment was funded out of the liquid buffer, the buffer is where the money came from.
   if (liquidDrawdownCents > 0) {
     sources.push({
       sourceId: SAVINGS_DRAWDOWN_SOURCE_ID,
@@ -130,6 +203,11 @@ export function buildFlows(
       netCashFlowCents: liquidDrawdownCents,
     });
   }
+  applyStrandedHaircut(sources, [
+    deferralBySourceCents ?? {},
+    taxBySourceCents,
+    payrollTaxBySourceCents,
+  ]);
   // Pay for work, per earner — a regrouping of the bands above, so it cannot disagree with what
   // the sim paid. Reading the banded `sources` is the whole point: a job outside its span banded
   // nothing, which is why `jobCount` is how many jobs PAID this month rather than how many were
@@ -180,16 +258,16 @@ export function buildFlows(
   }
 
   return {
-    incomeByCategoryCents,
+    cashFlowIncomeByCategoryCents,
     incomeSources: sources,
     wagesByOwner,
     totalIncomeCents,
-    governmentRetirementBenefitCents: incomeByCategoryCents["governmentRetirementBenefit"] ?? 0,
+    governmentRetirementBenefitCents: cashFlowIncomeByCategoryCents["governmentRetirementBenefit"] ?? 0,
     taxCents,
     payrollTaxCents,
     // Always present: `{}` in a zero-tax month, otherwise Σ === `taxCents`.
     taxByCategoryCents,
-    taxBySourceCents,
+    taxBySourceCents: reportedTaxBySourceCents,
     payrollTaxBySourceCents,
     deferralBySourceCents,
     expensesCents,

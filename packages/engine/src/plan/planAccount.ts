@@ -2,7 +2,8 @@
  * The single construction site for an account: one spec yields both the authoring
  * {@link Account} the household rosters and the compiled {@link SimAccount} the simulator
  * runs. Neither type is derivable from the other — `Account` carries ownership and the
- * retirement flag, `SimAccount` carries tax profile, liquidity and rate segments — so
+ * retirement flag, `SimAccount` carries tax profile, liquidity, estate treatment and rate
+ * segments — so
  * pairing them here is what keeps `household.accounts` and the simulation's accounts the
  * same canonical collection rather than two lists that can drift.
  *
@@ -32,6 +33,8 @@ export function planAccount(spec: {
   readonly balanceCents: Cents;
   readonly label?: string;
   readonly liquid: boolean;
+  /** Absent → in the estate; see {@link SimAccount.beneficiaryDesignated}. */
+  readonly beneficiaryDesignated?: boolean;
   readonly taxProfile: SimAccountTaxProfile;
   readonly initialAnnualRate: number;
 }): PlanAccount {
@@ -53,6 +56,7 @@ export function planAccount(spec: {
       ownerId: account.owners[0],
       label: spec.label,
       liquid: spec.liquid,
+      beneficiaryDesignated: spec.beneficiaryDesignated,
       taxProfile: spec.taxProfile,
       openingBalanceCents: spec.balanceCents,
       initialAnnualRate: spec.initialAnnualRate,

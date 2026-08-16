@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { dollarsToCents, type ProjectionIncomeSource, type ProjectionSeries } from "@finley/engine";
+import { dollarsToCents, type ProjectionCashFlowIncomeSource, type ProjectionSeries } from "@finley/engine";
 import { buildIncomeChartData } from "./incomeChartData";
 import { buildIncomeChartModel, SPENDING_NEED_KEY } from "./incomeChartModel";
 
 /** Minimal series: month 0 is flow-free; later months carry income sources. */
-function seriesOf(...perMonth: ProjectionIncomeSource[][]): ProjectionSeries {
+function seriesOf(...perMonth: ProjectionCashFlowIncomeSource[][]): ProjectionSeries {
   const months = [
     { month: 0 },
     ...perMonth.map((incomeSources, i) => ({ month: i + 1, flows: { incomeSources } })),
@@ -15,9 +15,9 @@ function seriesOf(...perMonth: ProjectionIncomeSource[][]): ProjectionSeries {
 function source(
   sourceId: string,
   cashInflowCents: number,
-  category: ProjectionIncomeSource["category"],
-  extra: Partial<ProjectionIncomeSource> = {},
-): ProjectionIncomeSource {
+  category: ProjectionCashFlowIncomeSource["category"],
+  extra: Partial<ProjectionCashFlowIncomeSource> = {},
+): ProjectionCashFlowIncomeSource {
   return {
     sourceId,
     label: sourceId,
@@ -25,7 +25,7 @@ function source(
     cashInflowCents,
     netCashFlowCents: cashInflowCents,
     ...extra,
-  } as ProjectionIncomeSource;
+  } as ProjectionCashFlowIncomeSource;
 }
 
 const wages = source("job:a", dollarsToCents(5_000), "wages");
@@ -47,6 +47,25 @@ describe("buildIncomeChartModel", () => {
     const firstRow = model.rows[0]!;
     expect(firstRow[SPENDING_NEED_KEY]).toBe(0);
     expect(firstRow["job:a"]).toBe(dollarsToCents(5_000));
+  });
+
+  it("carries every band in every row, so a once-a-year band still draws a spike", () => {
+    // An RMD pays in one month and nothing in the eleven around it. Left absent from those
+    // rows, its stacked area has no neighbouring points and Recharts draws it zero-width —
+    // invisible, while the y-axis still stretches to it. Simple never showed the bug: it folds
+    // the same money into a drawdown band that pays continuously.
+    const data = buildIncomeChartData(
+      seriesOf(
+        [wages],
+        [wages, source("rmd:p1", dollarsToCents(80_000), "ordinaryIncome")],
+        [wages],
+      ),
+    );
+    const model = buildIncomeChartModel(data, { mode: "advanced" });
+    for (const row of model.rows) {
+      for (const band of model.bands) expect(row[band.id]).toBeTypeOf("number");
+    }
+    expect(model.rows.map((r) => r["rmd:p1"])).toEqual([0, dollarsToCents(80_000), 0]);
   });
 
   it("collapses drawdowns onto one 'Living off savings' band in Simple mode", () => {
@@ -309,5 +328,68 @@ describe("buildIncomeChartModel", () => {
       expect(insolvency?.reason).toMatch(/plan becomes insolvent/i);
       expect(insolvency?.label).toMatch(/age 40/);
     });
+  });
+});
+
+/**
+ * A source's net cash flow can be genuinely negative: payroll tax rides the GROSS wage while a
+ * 401(k) deferral removes the cash, so a paycheck deferred to the hilt costs the household more
+ * than it hands over. The chart cannot draw that — a negative segment renders below the axis —
+ * but zeroing it and leaving the neighbours alone would claim cash the month never had.
+ */
+describe("buildIncomeChartModel — a source that delivered less than nothing", () => {
+  const deferredPaycheck = (netCashFlowCents: number) =>
+    source("job:a", dollarsToCents(1_000), "wages", { netCashFlowCents });
+  const benefit = source("benefit:p1", dollarsToCents(9_000), "governmentRetirementBenefit", {
+    netCashFlowCents: dollarsToCents(9_000),
+  });
+
+  it("draws it at zero and charges its shortfall to the bands that did hold cash", () => {
+    // $1,000 paycheck, all of it deferred, $76.50 of payroll tax on the gross → −$76.50. The
+    // household really did find that $76.50, and the benefit is the only place it could come
+    // from — so that is where the chart shows it going.
+    const data = buildIncomeChartData(seriesOf([deferredPaycheck(-76_50), benefit]));
+    const row = buildIncomeChartModel(data, { mode: "advanced" }).rows[0]!;
+    expect(row["job:a"]).toBe(0);
+    expect(row["benefit:p1"]).toBe(dollarsToCents(9_000) - 76_50);
+  });
+
+  it("keeps the drawn stack equal to the month's spendable cash", () => {
+    const data = buildIncomeChartData(seriesOf([deferredPaycheck(-76_50), benefit]));
+    const model = buildIncomeChartModel(data, { mode: "advanced" });
+    const drawn = model.bands.reduce((sum, b) => sum + ((model.rows[0]! as Record<string, number>)[b.id] ?? 0), 0);
+    expect(drawn).toBe(data.rows[0]!.takeHomeCents);
+  });
+
+  it("spreads the shortfall across several holders, to the exact cent", () => {
+    const data = buildIncomeChartData(
+      seriesOf([
+        deferredPaycheck(-100_01),
+        source("benefit:p1", 333_33, "governmentRetirementBenefit", { netCashFlowCents: 333_33 }),
+        source("brokerage", 666_67, "capitalGains", { netCashFlowCents: 666_67 }),
+      ]),
+    );
+    const model = buildIncomeChartModel(data, { mode: "advanced" });
+    const row = model.rows[0]! as Record<string, number>;
+    expect(row["job:a"]).toBe(0);
+    expect(row["benefit:p1"]! + row["brokerage"]!).toBe(333_33 + 666_67 - 100_01);
+  });
+
+  it("bottoms every band out at zero when the shortfall swallows the whole month", () => {
+    // Charging one band's shortfall must never open another: weighting by the values themselves
+    // caps each share at the band it comes from, so the floor is zero and never below.
+    const data = buildIncomeChartData(
+      seriesOf([deferredPaycheck(-dollarsToCents(9_000)), benefit]),
+    );
+    const row = buildIncomeChartModel(data, { mode: "advanced" }).rows[0]! as Record<string, number>;
+    expect(row["job:a"]).toBe(0);
+    expect(row["benefit:p1"]).toBe(0);
+  });
+
+  it("leaves the gross basis alone, which has nothing negative in it", () => {
+    const data = buildIncomeChartData(seriesOf([deferredPaycheck(-76_50), benefit]));
+    const row = buildIncomeChartModel(data, { mode: "advanced", basis: "gross" }).rows[0]! as Record<string, number>;
+    expect(row["job:a"]).toBe(dollarsToCents(1_000));
+    expect(row["benefit:p1"]).toBe(dollarsToCents(9_000));
   });
 });

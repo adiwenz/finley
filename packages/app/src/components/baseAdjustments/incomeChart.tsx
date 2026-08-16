@@ -3,6 +3,7 @@ import {
   Area,
   CartesianGrid,
   ComposedChart,
+  DefaultTooltipContent,
   Legend,
   Line,
   ReferenceLine,
@@ -10,11 +11,13 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  type TooltipContentProps,
 } from "recharts";
+import type { NameType, ValueType } from "recharts/types/component/DefaultTooltipContent";
 import { formatDollars, monthLabel, yearOf } from "../../format";
 import { TODAY_X, axisPointLabel, axisYearTickLabel, fromAxisX, toAxisX, yearTickXs } from "../monthAxis";
 import type { IncomeBasis, IncomeChartData, IncomeMode } from "./incomeChartData";
-import { buildIncomeChartModel } from "./incomeChartModel";
+import { buildIncomeChartModel, SPENDING_NEED_KEY } from "./incomeChartModel";
 
 /**
  * Monthly cash-flows-vs.-spending chart above the budget chart, sharing its x-axis,
@@ -65,6 +68,27 @@ const VISUALLY_HIDDEN: CSSProperties = {
   whiteSpace: "nowrap",
   border: 0,
 };
+
+/**
+ * The stock rows, minus the bands paying nothing this month. Every band is present in every row
+ * — zero-filled so a once-a-year band still draws — which would otherwise make Advanced hover as
+ * nine lines of which one carries money. The spending need always stays: hidden at $0 it would
+ * read as "not shown" rather than "nothing to cover".
+ */
+export function IncomeTooltipContent(props: TooltipContentProps<ValueType, NameType>) {
+  const { active, payload } = props;
+  if (!active || !payload || payload.length === 0) return null;
+  const paying = payload.filter((e) => e.dataKey === SPENDING_NEED_KEY || Number(e.value) !== 0);
+  return (
+    <DefaultTooltipContent
+      {...props}
+      payload={paying}
+      contentStyle={{ fontSize: 12 }}
+      formatter={(value, name) => [formatDollars(Number(value)), name]}
+      labelFormatter={(label) => axisPointLabel(Number(label), monthLabel)}
+    />
+  );
+}
 
 export interface IncomeChartProps {
   readonly data: IncomeChartData;
@@ -226,9 +250,11 @@ export function IncomeChart({
             stroke={GRID}
           />
           <Tooltip
-            formatter={(value, name) => [formatDollars(Number(value)), name]}
-            labelFormatter={(label) => axisPointLabel(Number(label), monthLabel)}
-            contentStyle={{ fontSize: 12 }}
+            content={IncomeTooltipContent}
+            // Recharts positions the tooltip and legend as sibling absolutely-positioned
+            // wrappers in DOM (not paint) order, so the legend — added after in this markup —
+            // otherwise paints OVER a tooltip hovering above it.
+            wrapperStyle={{ zIndex: 10 }}
           />
           <Legend wrapperStyle={{ fontSize: 12 }} />
           <ReferenceLine x={toAxisX(selectedMonth)} stroke={MARKER} strokeWidth={2} />

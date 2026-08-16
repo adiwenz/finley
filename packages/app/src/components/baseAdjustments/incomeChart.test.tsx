@@ -7,11 +7,12 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { dollarsToCents, type ProjectionIncomeSource, type ProjectionSeries } from "@finley/engine";
+import { dollarsToCents, type ProjectionCashFlowIncomeSource, type ProjectionSeries } from "@finley/engine";
 import { buildIncomeChartData } from "./incomeChartData";
-import { IncomeChart } from "./incomeChart";
+import { IncomeChart, IncomeTooltipContent } from "./incomeChart";
+import { SPENDING_NEED_KEY } from "./incomeChartModel";
 
-function seriesOf(...perMonth: ProjectionIncomeSource[][]): ProjectionSeries {
+function seriesOf(...perMonth: ProjectionCashFlowIncomeSource[][]): ProjectionSeries {
   const months = [
     { month: 0 },
     ...perMonth.map((incomeSources, i) => ({ month: i + 1, flows: { incomeSources } })),
@@ -22,15 +23,15 @@ function seriesOf(...perMonth: ProjectionIncomeSource[][]): ProjectionSeries {
 function source(
   sourceId: string,
   cashInflowCents: number,
-  category: ProjectionIncomeSource["category"],
-): ProjectionIncomeSource {
+  category: ProjectionCashFlowIncomeSource["category"],
+): ProjectionCashFlowIncomeSource {
   return {
     sourceId,
     label: sourceId,
     category,
     cashInflowCents,
     netCashFlowCents: cashInflowCents,
-  } as ProjectionIncomeSource;
+  } as ProjectionCashFlowIncomeSource;
 }
 
 const wages = source("Software Engineer", dollarsToCents(5_000), "wages");
@@ -132,5 +133,51 @@ describe("IncomeChart — mode and basis controls", () => {
     renderChart();
     // The basis toggle stays a checkbox — it is not part of the Simple/Advanced mode.
     expect(screen.getByRole("checkbox", { name: /Show gross cash flows/i })).toBeDefined();
+  });
+});
+
+describe("IncomeTooltipContent — the hover readout", () => {
+  // Recharts owns the hover and needs a layout jsdom lacks, so the readout is driven directly
+  // with the payload Recharts would hand it.
+  // Only the fields the readout reads; Recharts' own payload type carries plumbing a test has
+  // no way to construct meaningfully.
+  const entry = (dataKey: string, value: number) =>
+    ({ dataKey, name: dataKey, value, color: "#000" }) as never;
+  const props = (payload: unknown[]) =>
+    ({ active: true, label: 12, payload }) as unknown as Parameters<typeof IncomeTooltipContent>[0];
+
+  it("leaves out the bands paying nothing this month", () => {
+    // Every band sits in every row — zero-filled so a once-a-year band still draws — so without
+    // this an Advanced plan hovers as nine lines of which one carries money.
+    render(
+      <IncomeTooltipContent
+        {...props([
+          entry("rmd:p1", dollarsToCents(80_000)),
+          entry("brokerage", 0),
+          entry("savings-drawdown", 0),
+          entry(SPENDING_NEED_KEY, dollarsToCents(4_000)),
+        ])}
+      />,
+    );
+    // Recharts splits each row into name/value spans, so read the rows whole.
+    const rows = screen.getAllByRole("listitem").map((el) => el.textContent);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatch(/rmd:p1.*\$80,000/);
+    expect(rows.join(" ")).not.toMatch(/brokerage|savings-drawdown/);
+  });
+
+  it("keeps the spending need even at zero — absent, it would read as 'not shown'", () => {
+    render(
+      <IncomeTooltipContent {...props([entry("brokerage", 0), entry(SPENDING_NEED_KEY, 0)])} />,
+    );
+    const rows = screen.getAllByRole("listitem").map((el) => el.textContent);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatch(/\$0/);
+    expect(rows[0]).not.toMatch(/brokerage/);
+  });
+
+  it("draws nothing when nothing is hovered", () => {
+    const { container } = render(<IncomeTooltipContent {...props([])} active={false} />);
+    expect(container.firstChild).toBeNull();
   });
 });

@@ -32,8 +32,10 @@ const DEFAULT_START_YEAR = 2026;
 /**
  * Two funding questions about the ledger *so far*, answered from ONE projection: `sourcesAt`
  * gives the POOL, `availabilityAt` the VERDICT for a selection. Both read the same projected
- * `balanceCents`, so a picker and a gate can never tell the user different stories; the only
- * gap is tax, which the verdict reports separately (`taxed`).
+ * `balanceCents`, so a picker and a gate can never tell the user different stories. A draw
+ * never grosses up or charges federal income tax at authoring time (see {@link
+ * FundingAvailability.taxCents}), so the verdict's `availableCents` is exactly what the
+ * selected sources hold, capped at the amount asked.
  *
  * The pool is every liquid account that could fund a draw (cash goal fund included,
  * retirement excluded, credit never — a liability, not an asset), largest first. Membership
@@ -153,11 +155,9 @@ export function fundingLookupExcludingEvent(
 
 /**
  * The funding-availability check for the ledger *so far*, from one projection. Each source is
- * grossed up over the capital-gains tax its sale induces by the SAME ordered resolution the
- * simulator uses ({@link resolveOrderedFundingDraw}), differenced marginally over the owner's
- * projected other income that month PLUS any draw already authored there
- * (`flows.taxableByOwnerAfterFundingCents`) — so the gate blocks exactly when the sim would
- * fall short.
+ * sold for exactly what the draw needs, capped at its balance, by the SAME ordered resolution
+ * the simulator uses ({@link resolveOrderedFundingDraw}) — no gross-up, no tax priced against
+ * it — so the gate blocks exactly when the sim would fall short of the draw itself.
  *
  * Event-neutral, a question about an ordered cross-account draw: the Home Purchase §4.5
  * down-payment gate and One-Time Spend get the identical answer. The month is

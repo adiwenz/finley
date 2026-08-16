@@ -133,8 +133,8 @@ describe("buildSimulationReport", () => {
     // The null jurisdiction taxes nothing — the row still exists, reading 0.
     expect(buildSimulationReport(baseInput(), nullJurisdiction).months[0].taxCents).toBe(0);
 
-    // Flat 10%: $3,000 of wages → $300 of tax on the row, and the household is $300 poorer
-    // (income 3000 − expenses 2000 − tax 300).
+    // Flat 10% on the FULL year's taxable income, paid as twelve even instalments.
+    // $3,000/mo × 12 = $36,000 wages → $3,600 for the year, $300 a month.
     const flatTax = {
       ...nullJurisdiction,
       computeTaxCents: (byCategory: Record<string, number>) =>
@@ -150,9 +150,12 @@ describe("buildSimulationReport", () => {
       },
     };
     const report = buildSimulationReport(baseInput(), flatTax as typeof nullJurisdiction);
-    // Month 0 is now a processed, taxed month: $300 tax, and savings up $700 after its flows.
-    expect(report.months[0].taxCents).toBe(dollarsToCents(300));
-    expect(report.months[0].accountBalancesCents.savings).toBe(dollarsToCents(10000 + 700));
+    // Every month charges the same twelfth — December included, so the chart has no sawtooth.
+    for (const month of report.months) expect(month.taxCents).toBe(dollarsToCents(300));
+    // The year still costs exactly $3,600, deducted from savings alongside the year's $12,000
+    // of banked surplus ($1,000/mo × 12): 10000 + 12000 − 3600 = 18400.
+    expect(report.months.reduce((s, m) => s + m.taxCents, 0)).toBe(dollarsToCents(3600));
+    expect(report.months[11].accountBalancesCents.savings).toBe(dollarsToCents(10000 + 12000 - 3600));
   });
 
   it("lists column keys for accounts and income categories", () => {
@@ -165,7 +168,7 @@ describe("buildSimulationReport", () => {
   it("carries the jurisdiction's per-category tax breakdown, summing to taxCents", () => {
     // A jurisdiction that taxes AND splits: flat 10%, half to wages, half to ordinaryIncome.
     // The report carries the split, and its Σ must equal the scalar `taxCents` take-home
-    // already used — the invariant.
+    // already used — the invariant, on every month's instalment.
     const splittingTax = {
       ...nullJurisdiction,
       computeTaxCents: (byCategory: Record<string, number>) =>
@@ -177,19 +180,22 @@ describe("buildSimulationReport", () => {
       },
     };
     const report = buildSimulationReport(baseInput(), splittingTax as typeof nullJurisdiction);
-    const m1 = report.months[1];
-    expect(m1.taxCents).toBe(dollarsToCents(300));
-    expect(m1.taxByCategoryCents).toBeDefined();
-    const split = m1.taxByCategoryCents!;
-    const sum = Object.values(split).reduce((s: number, c) => s + (c ?? 0), 0);
-    expect(sum).toBe(m1.taxCents);
+    for (const month of report.months) {
+      const split = month.taxByCategoryCents;
+      expect(split).toBeDefined();
+      expect(Object.values(split!).reduce((s: number, c) => s + (c ?? 0), 0)).toBe(month.taxCents);
+    }
+    // 10% of the full year's $36,000 wages, split across the twelve months.
+    expect(report.months.reduce((s, m) => s + m.taxCents, 0)).toBe(dollarsToCents(3600));
     // The union of categories is exposed for the stacked-chart column layout.
     expect(report.columns.taxCategories).toEqual(expect.arrayContaining(["wages", "ordinaryIncome"]));
   });
 
-  it("splits the tax by income SOURCE, naming each job and summing to taxCents", () => {
-    // Two jobs for one person, a wages-taxing jurisdiction reporting the per-category
-    // breakdown. The engine attributes the wages tax to each job by taxable weight.
+  it("attributes income tax back to the SOURCES that produced it, by annual taxable weight", () => {
+    // Two jobs for one person, a wages-taxing jurisdiction. The liability is annual, but each
+    // month's instalment is split back to the individual income sources behind it —
+    // average-rate, by each job's share of the year's taxable wages (the same proportional
+    // policy `attributeTaxToSources` already uses for payroll tax).
     const mkJob = (cents: number) =>
       new SimCashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly", taxCategory: "wages" });
     const wagesTax = {
@@ -209,12 +215,16 @@ describe("buildSimulationReport", () => {
       }),
       wagesTax as typeof nullJurisdiction,
     );
-    const m1 = report.months[1];
-    // $6000 taxable wages → $600 tax, split 4000:2000 → $400 / $200.
-    expect(m1.taxBySourceCents).toEqual({ "job-a": dollarsToCents(400), "job-b": dollarsToCents(200) });
-    const sum = Object.values(m1.taxBySourceCents!).reduce((s: number, c) => s + (c ?? 0), 0);
-    expect(sum).toBe(m1.taxCents);
-    // The union of tax-bearing sources is exposed for the per-job chart's columns.
+    // $72,000 annual wages (2 jobs × $6,000/mo × 12) → $7,200 for the year, $600 a month, split
+    // 2:1 by each job's annual wage share ($48,000 vs. $24,000) — every month, December
+    // included, since nothing unscheduled ever arrives to reconcile.
+    for (const month of report.months) {
+      expect(month.taxCents).toBe(dollarsToCents(600));
+      expect(month.taxBySourceCents).toEqual({
+        "job-a": dollarsToCents(400),
+        "job-b": dollarsToCents(200),
+      });
+    }
     expect(report.columns.taxSources).toEqual(expect.arrayContaining(["job-a", "job-b"]));
   });
 

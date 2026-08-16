@@ -89,6 +89,43 @@ describe("retirementSolver — survival off the real projection", () => {
     expect(seenSurviving).toBe(true);
   });
 
+  /**
+   * **Monotonic in the money, as well as in the age.** The search's other direction: handing the
+   * household cash it already has free use of can only bring the answer forward or leave it where
+   * it was. A plan made *worse* by being richer is always a bug — a funding rule that spends a
+   * surplus into a worse position, an obligation sized off the balance that meets it, a terminal
+   * test scoring wealth as a liability.
+   *
+   * `null` — no age survives — ranks as `Infinity`, which is exactly what it means: the worst
+   * answer there is. So "$10,000 fixed an infeasible plan" is a legal step and "$10,000 broke a
+   * feasible one" is not, without either case needing to be special-cased.
+   */
+  it("adding available cash never pushes the solved retirement age later", () => {
+    const rank = (age: number | null): number => age ?? Infinity;
+    const withCash = (plan: Plan, extraDollars: number): Plan => ({
+      ...plan,
+      openingBalanceCents: plan.openingBalanceCents + dollarsToCents(extraDollars),
+    });
+    // `openingBalanceCents: 0` is the tight plan that only survives by working past its authored
+    // job end — the case with the most room to move, and the one where a regression would show.
+    const tight: Plan = { ...samplePlan, openingBalanceCents: 0 };
+    let everMoved = false;
+    for (const plan of [samplePlan, baristaPlan, tight]) {
+      let previous = Infinity;
+      for (const extra of [0, 10_000, 20_000, 30_000]) {
+        const age = rank(earliestFullRetirementAge(scenarioOf(withCash(plan, extra)), CTX));
+        expect(age).toBeLessThanOrEqual(previous);
+        if (previous < Infinity && age < previous) everMoved = true;
+        previous = age;
+      }
+      // Not vacuous: these plans do solve, so the chain above compared real ages.
+      expect(previous).toBeLessThan(Infinity);
+    }
+    // And the money is a live lever, not one the fixtures happen to be insensitive to — a suite
+    // where every step is a no-op would pass the `<=` above no matter what the solver did.
+    expect(everMoved).toBe(true);
+  });
+
   it("the binary search returns exactly the threshold age", () => {
     const age = earliestFullRetirementAge(scenarioOf(samplePlan), CTX);
     expect(age).not.toBeNull();
@@ -983,15 +1020,21 @@ describe("retirementSolver — which job a later candidate age continues", () =>
 
     // Was [71, 71, 71].
     const ages = [400_000, 450_000, 600_000].map(solveAt);
-    expect(ages).toEqual([70, 69, 67]);
+    // $450k stops at 70 rather than 69 because stopping at 69 dies owing about $9k on the
+    // shortfall card with nothing left to answer for it — lifetime-solvent every month, and still
+    // not a plan that pays for itself. That is the terminal ECONOMIC test (all assets less all
+    // debt, and here there are no assets), not the continuity this asserts.
+    expect(ages).toEqual([70, 70, 67]);
     // Each lands strictly inside the dead band — past the career's own end, at or before the
     // token job's — which is what makes them answers the old rule could not produce at all.
     for (const age of ages) {
       expect(age).toBeGreaterThan(65);
       expect(age).toBeLessThanOrEqual(70);
     }
-    // And the response is monotone: more savings never costs a household a later stop age.
-    for (let i = 1; i < ages.length; i++) expect(ages[i]!).toBeLessThan(ages[i - 1]!);
+    // And the response is monotone: more savings never costs a household a later stop age, and
+    // enough of it buys real years.
+    for (let i = 1; i < ages.length; i++) expect(ages[i]!).toBeLessThanOrEqual(ages[i - 1]!);
+    expect(ages[2]!).toBeLessThan(ages[0]!);
   });
 
   it("never starts a job the candidate boundary falls before", () => {
@@ -1988,5 +2031,58 @@ describe("solveRetirement — horizonAnchor names the longest-lived member", () 
       expect(anchorOf(withPartner(younger(), 600))).toEqual({ age: 85, memberName: "Sam" });
       expect(anchorOf(withPartner(younger(), 700))).toEqual({ age: 85, memberName: "Sam" });
     });
+  });
+});
+
+/**
+ * The solver is the engine's most expensive caller: it runs a FULL projection per candidate
+ * retirement age while it searches. Anything the projection does per month is therefore paid for
+ * once per candidate, which is why the year-start tax estimate forecasts the year's funding
+ * analytically instead of simulating it — a forecast that re-entered `simulateHousehold` would
+ * multiply the solver's cost by the horizon rather than adding to it.
+ */
+describe("retirementSolver — the search's projection count", () => {
+  /**
+   * Counts calls to the one seam every projection is guaranteed to hit, then reads the number of
+   * PASSES off the ratio to a single projection of the same scenario. Deliberately measured as a
+   * ratio: a change to how much tax work one projection does moves numerator and denominator
+   * together and leaves the pass count alone, which is exactly the quantity being pinned.
+   *
+   * `mockJurisdiction` taxes nothing, so every pass costs the same and the ratio is exact.
+   */
+  function projectionPasses(scenario: Scenario, run: (ctx: ProjectionContext) => void): number {
+    const base = mockJurisdiction();
+    let calls = 0;
+    const ctx: ProjectionContext = {
+      jurisdiction: {
+        ...base,
+        computeTaxCents: (byCategory, jctx) => {
+          calls += 1;
+          return base.computeTaxCents(byCategory, jctx);
+        },
+      },
+      startYear: START_YEAR,
+    };
+    projectScenario(scenario, ctx);
+    const perProjection = calls;
+    expect(perProjection).toBeGreaterThan(0);
+    calls = 0;
+    run(ctx);
+    expect(calls % perProjection).toBe(0);
+    return calls / perProjection;
+  }
+
+  it("solves the sample plan in exactly seven full projections", () => {
+    const scenario = scenarioOf(samplePlan);
+    expect(projectionPasses(scenario, (ctx) => solveRetirement(scenario, ctx))).toBe(7);
+  });
+
+  it("costs one projection per candidate age, whatever the estimate does inside a month", () => {
+    // A household that decumulates hard, so the year-start estimate has a real funding forecast
+    // to solve every January and the terminal estate has a real bill to price. Both run INSIDE
+    // one projection — which is what the exact ratio above pins: neither adds a pass. Eight, not
+    // the sample plan's seven, because this plan's threshold age sits one bisection deeper.
+    const scenario = scenarioOf(baristaPlan);
+    expect(projectionPasses(scenario, (ctx) => solveRetirement(scenario, ctx))).toBe(8);
   });
 });

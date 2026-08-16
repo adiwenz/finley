@@ -120,18 +120,40 @@ function monthSurvives(m: ProjectionSeries["months"][number]): boolean {
 export type SurvivalOutcome = "survives" | "fails" | "blocked";
 
 /**
- * Survival read off the projection, block-aware. A blocked series is `"blocked"` BEFORE the
- * per-month test, because `Array.every` over a truncated series is vacuously `true` — a blocked
- * plan would otherwise report as surviving, promising a retirement age beside a graph that stops.
+ * Survival read off the projection, block-aware. Two conditions, both necessary:
+ *
+ *  - **lifetime solvency** — every month funded its obligations from savings or credit;
+ *  - **terminal economic solvency** — everything the household owned at death covered everything
+ *    it owed, including the final tax bill
+ *    ({@link import("../projection/estateSettlement").EstateSettlement.terminalEconomicNetWorthCents}).
+ *
+ * The second exists because the first can be satisfied by a bill that simply falls after the last
+ * modelled month. A household dying in October never reaches the April that would have settled its
+ * final tax year, and one dying with a mortgage outstanding never amortizes it away; judged on
+ * months alone, both retire early and comfortably on obligations nobody ever pays. Absent — an
+ * arbitrary horizon, a debug span — the lifetime test stands alone, unchanged.
+ *
+ * The terminal test is ECONOMIC, not probate. It counts beneficiary-designated retirement balances
+ * as the assets they are and every debt as the debt it is, so where wealth is titled cannot move a
+ * retirement age: a household is not made infeasible by holding its money in an IRA, and is not
+ * made feasible by dying with a debt no one will collect. Who actually gets paid out of what — the
+ * collateral, the probate estate, the beneficiaries, the creditors who go short — is settled
+ * separately and reported, never scored.
+ *
+ * A blocked series is `"blocked"` BEFORE either test, because `Array.every` over a truncated
+ * series is vacuously `true` — a blocked plan would otherwise report as surviving, promising a
+ * retirement age beside a graph that stops.
  */
 export function planOutcome(series: ProjectionSeries): SurvivalOutcome {
   if (series.status === "blocked") return "blocked";
-  return series.months.every(monthSurvives) ? "survives" : "fails";
+  if (!series.months.every(monthSurvives)) return "fails";
+  return series.estateSettlement?.isEconomicallySolvent === false ? "fails" : "survives";
 }
 
 /**
- * Does the plan fund itself through life expectancy? The signal every mode reads. A truncated
- * (blocked) projection is never a success — {@link planOutcome} guards the vacuous `every`.
+ * Does the plan fund itself through life expectancy, and end still ahead of what it owes? The
+ * signal every mode reads. A truncated (blocked) projection is never a success —
+ * {@link planOutcome} guards the vacuous `every`.
  */
 export function planSurvives(series: ProjectionSeries): boolean {
   return planOutcome(series) === "survives";

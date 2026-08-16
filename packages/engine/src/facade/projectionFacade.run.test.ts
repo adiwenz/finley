@@ -665,11 +665,7 @@ describe("Projection root — a marriage or separation needs both partners alive
 
 
 describe("Projection root — authoring validates against the construction-time jurisdiction", () => {
-  /**
-   * Taxes `capitalGains` at `rate`, returning basis pro-rata — the same monotone shape the
-   * `addEvent` gross-up requires. A brokerage down-payment source therefore nets less than its
-   * face balance under this jurisdiction, and exactly its balance under {@link nullJurisdiction}.
-   */
+  /** Taxes `capitalGains` at `rate`, returning basis pro-rata. */
   function flatCapitalGains(rate: number): Jurisdiction {
     return {
       id: "test-capital-gains",
@@ -705,8 +701,10 @@ describe("Projection root — authoring validates against the construction-time 
     return Projection.fromState(stateOf({ ...samplePlan, goals: [NEST_GOAL] }), jurisdiction);
   }
 
-  // A $90k down payment against a ~$96.8k balance: the face balance covers it, the capital-gains
-  // tax on liquidating the embedded gain does not.
+  // A $90k down payment against a ~$96.8k balance: the face balance covers it. Affordability
+  // at authoring time is based ONLY on whether the purchase itself can be funded — never on
+  // whether enough also exists to prepay its future federal tax — so a capital-gains
+  // jurisdiction taxing the embedded gain at 50% no longer changes the verdict.
   const buyFromNest = {
     month: 24,
     ownerId: P1,
@@ -717,17 +715,16 @@ describe("Projection root — authoring validates against the construction-time 
     mortgageTermMonths: 360,
   };
 
-  it("refuses a buyHome whose tax makes it unaffordable at authoring time", () => {
-    // Under a capital-gains jurisdiction the funded gain grosses the draw up past the balance —
-    // the down-payment gate prices the SAME gross-up the simulator would, so it refuses before
-    // the event ever lands rather than authoring a purchase the sim would later have to block.
+  it("clears a buyHome even under a jurisdiction that would tax its embedded gain heavily", () => {
+    // The down-payment gate no longer grosses up or prices tax at all: the face balance covers
+    // the $90k requested, so this authors cleanly regardless of jurisdiction. The gain is still
+    // realized and recorded (it reaches the December settlement later), just never priced here.
     const p = nestProjection(flatCapitalGains(0.5));
-    expect(() => p.buyHome(buyFromNest)).toThrow(/down payment/);
-    expect(p.ledger.events).toHaveLength(0);
+    expect(() => p.buyHome(buyFromNest)).not.toThrow();
+    expect(p.ledger.events).toHaveLength(1);
   });
 
-  it("runs the same buyHome to the horizon under nullJurisdiction — no tax, so it clears", () => {
-    // No tax, so the balance nets in full and the down payment clears rather than blocking.
+  it("runs the same buyHome to the horizon under nullJurisdiction — identical either way", () => {
     const p = nestProjection(nullJurisdiction);
     expect(() => p.buyHome(buyFromNest)).not.toThrow();
     // One event: the mortgage rides inside the purchase, minted as a dependent artifact.
@@ -856,7 +853,7 @@ describe("Projection.retirement — the whole question, one search", () => {
 describe("Projection root — previewing a stop-working age", () => {
   /** Wages the household draws in `month`, the signal the income chart bands. */
   const wagesAt = (result: ReturnType<Projection["run"]>, month: number): number =>
-    result.series.months[month]?.flows?.incomeByCategoryCents.wages ?? 0;
+    result.series.months[month]?.flows?.cashFlowIncomeByCategoryCents.wages ?? 0;
 
   const CURRENT_AGE = SAMPLE_START_YEAR - samplePlan.primary.birthYear;
 

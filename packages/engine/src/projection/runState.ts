@@ -9,7 +9,8 @@ import {
   type SimLiability,
 } from "../liability/liability";
 import type { TaxCategory } from "../money/cashFlowSeries";
-import type { TaxableByCategory } from "./taxAttribution";
+import type { SourceTaxable, TaxableByCategory } from "./taxAttribution";
+import type { EstimatedTaxYear, FederalTaxPayment } from "./federalIncomeTax";
 import type { BudgetLine } from "../budget/budgetLine";
 import type { SimGoal } from "../goal/goal";
 import type { SharedContributionScheme, SurplusDestination } from "./waterfall";
@@ -92,6 +93,57 @@ export interface SimState {
    * per plan, unlike {@link deferredByPersonYear}, since each plan carries its own room.
    */
   readonly combinedDepositsByPlanYear: Map<string, Cents>;
+  /**
+   * ACTUAL cumulative taxable income by category, per person per calendar year, keyed
+   * `${personId}|${year}` — every dollar of wages, RMD, benefit, interest accrual, or
+   * realized investment gain that becomes taxable THIS person's income, folded in the month
+   * it occurs. The AUTHORITATIVE base of the year's liability, and the only one: the year's
+   * close prices it off this complete total (see {@link Jurisdiction.computeTaxCents}'s ANNUAL
+   * contract), so the month a dollar landed in never moves the final tax. Contrast {@link
+   * estimatedFederalTaxByPersonYear}, which is this same total on a SIMULATED copy of the year,
+   * priced before the year runs and used only to pace payments. Resets naturally each January as the key's year rolls over,
+   * mirroring {@link earnedByPersonYear}.
+   */
+  readonly taxableIncomeByPersonYear: Map<string, TaxableByCategory>;
+  /**
+   * The per-SOURCE breakdown behind {@link taxableIncomeByPersonYear}, keyed the same way
+   * (`${personId}|${year}`) — a sourceKey → running `{category, taxableCents}` map, summed
+   * across every month the source contributed. The year's close reads this alongside the
+   * category total to apportion its per-category bill back to the sources that produced it
+   * (job, draw, benefit), the same average-rate weighting {@link
+   * import("./taxAttribution").attributeTaxToSources} already uses for payroll tax monthly.
+   */
+  readonly taxableBySourceByPersonYear: Map<string, Map<string, SourceTaxable>>;
+  /**
+   * The tax year's ESTIMATED federal income-tax liability per person, keyed
+   * `${personId}|${year}` and priced ONCE at the year's first processed month, by SIMULATING the
+   * year on a clone of this state and pricing what it actually produced (`priceTaxYear` in {@link
+   * import("./simulate").simulateHousehold}). Held for the whole year so every month's installment
+   * comes from the same estimate — re-pricing mid-year from what has happened so far is the
+   * year-to-date annualization this model exists to avoid. Absent for a person the forecast year
+   * leaves owing nothing.
+   */
+  readonly estimatedFederalTaxByPersonYear: Map<string, EstimatedTaxYear>;
+  /**
+   * Federal income tax already PAID this calendar year, per person, keyed
+   * `${personId}|${year}` — the running sum of the monthly estimated installments, with the
+   * category and source splits the tax chart bands on. The year's close parks
+   * `actual annual tax − this` as a balance for the next April to charge (or refund), so the
+   * year's total charge always lands on the actual liability however far the estimate missed. A
+   * prior year's balance settled in April is NOT folded in here: it pays a different year.
+   */
+  readonly federalTaxPaidByPersonYear: Map<string, FederalTaxPayment>;
+  /**
+   * A CLOSED tax year's remaining balance, per person, keyed `${personId}|${taxYear}` — the
+   * year's actual liability less the instalments it collected, SIGNED (positive due, negative
+   * refund). Written once when the year closes ({@link
+   * import("./taxYearSettlement").finalizeTaxYear}) and consumed once in April of the following
+   * year ({@link import("./taxYearSettlement").dueTaxYearSettlements}, which deletes what it
+   * returns). This map is what carries a liability across a tax-year boundary, and is why
+   * December is no longer a cash event: the year's arithmetic finishes there, its money moves
+   * four months later.
+   */
+  readonly pendingTaxSettlementsByPersonYear: Map<string, FederalTaxPayment>;
   /** Benefit accumulation/claiming reads birthYear + benefitClaimingAge. */
   readonly personsById: ReadonlyMap<string, SimPerson>;
   /**
@@ -113,6 +165,78 @@ export interface SimState {
    * claim-and-keep-working bump. Absent until the first base is computed.
    */
   readonly lastComputedThroughYear: Map<string, number>;
+}
+
+/**
+ * One level of copy for a Map value: a nested Map, an array, or a plain accumulator object.
+ * Values the run replaces wholesale (`set` with a fresh object) would survive a bare reference
+ * copy, but the accumulators it edits IN PLACE — {@link SimState.taxableIncomeByPersonYear} and
+ * {@link SimState.earnedByPersonYear} fold each month's categories into the stored object, {@link
+ * SimState.earningsByPerson} into the stored Map — would not, and a forecast pass writing through
+ * to them would silently corrupt the run that spawned it. Copying uniformly costs a few hundred
+ * small objects a year and removes the need to know which is which.
+ */
+function copyValue<V>(value: V): V {
+  if (value instanceof Map) return copyMap(value) as V;
+  if (Array.isArray(value)) return [...value] as V;
+  if (typeof value === "object" && value !== null) return { ...value } as V;
+  return value;
+}
+
+function copyMap<K, V>(source: ReadonlyMap<K, V>): Map<K, V> {
+  const copy = new Map<K, V>();
+  for (const [key, value] of source) copy.set(key, copyValue(value));
+  return copy;
+}
+
+/**
+ * An INDEPENDENT {@link SimState} that months can be run against without touching the state it
+ * was taken from — what the year-start tax estimate simulates its throwaway twelve months on
+ * ({@link import("./simulate").simulateHousehold}). The alternative, mutating the authoritative
+ * state and rolling it back, has to enumerate every write a month makes and is wrong the moment a
+ * new one is added; a clone is wrong only if a new FIELD is added, which the compiler catches.
+ *
+ * Every Map is copied, one level into its values. Everything else is shared BY CONSTRUCTION,
+ * because it is compiled plan data fixed for the whole run — accounts and their rate segments and
+ * transfers, liabilities and their amortization schedules, properties, goals, contribution lines,
+ * the person roster. A month reads those and writes only the Maps.
+ *
+ * Adding a field to {@link SimState} fails to compile here until it is classified. Adding a
+ * MUTABLE one and classifying it as shared is what {@link cloneSimState}'s own test catches: it
+ * asserts every Map on a state populated by a real run, and every object those Maps hold, comes
+ * back as a distinct reference.
+ */
+export function cloneSimState(state: SimState): SimState {
+  return {
+    accounts: state.accounts,
+    liquidAccount: state.liquidAccount,
+    liabilities: state.liabilities,
+    cascadeCards: state.cascadeCards,
+    assetBalances: copyMap(state.assetBalances),
+    basisByAccount: copyMap(state.basisByAccount),
+    accruedReturnByAccount: copyMap(state.accruedReturnByAccount),
+    liabilityBalances: copyMap(state.liabilityBalances),
+    properties: state.properties,
+    fundingDraws: state.fundingDraws,
+    propertyValues: copyMap(state.propertyValues),
+    personIds: state.personIds,
+    goals: state.goals,
+    contributionLines: state.contributionLines,
+    sharedScheme: state.sharedScheme,
+    surplusDestination: state.surplusDestination,
+    deferredByPersonYear: copyMap(state.deferredByPersonYear),
+    earnedByPersonYear: copyMap(state.earnedByPersonYear),
+    combinedDepositsByPlanYear: copyMap(state.combinedDepositsByPlanYear),
+    taxableIncomeByPersonYear: copyMap(state.taxableIncomeByPersonYear),
+    taxableBySourceByPersonYear: copyMap(state.taxableBySourceByPersonYear),
+    estimatedFederalTaxByPersonYear: copyMap(state.estimatedFederalTaxByPersonYear),
+    federalTaxPaidByPersonYear: copyMap(state.federalTaxPaidByPersonYear),
+    pendingTaxSettlementsByPersonYear: copyMap(state.pendingTaxSettlementsByPersonYear),
+    personsById: copyMap(state.personsById),
+    earningsByPerson: copyMap(state.earningsByPerson),
+    governmentBenefitBaseByPerson: copyMap(state.governmentBenefitBaseByPerson),
+    lastComputedThroughYear: copyMap(state.lastComputedThroughYear),
+  };
 }
 
 export function initSimState(input: HouseholdSimInput): SimState {
@@ -210,6 +334,11 @@ export function initSimState(input: HouseholdSimInput): SimState {
     deferredByPersonYear: new Map<string, Cents>(),
     earnedByPersonYear: new Map<string, TaxableByCategory>(),
     combinedDepositsByPlanYear: new Map<string, Cents>(),
+    taxableIncomeByPersonYear: new Map<string, TaxableByCategory>(),
+    taxableBySourceByPersonYear: new Map<string, Map<string, SourceTaxable>>(),
+    estimatedFederalTaxByPersonYear: new Map<string, EstimatedTaxYear>(),
+    federalTaxPaidByPersonYear: new Map<string, FederalTaxPayment>(),
+    pendingTaxSettlementsByPersonYear: new Map<string, FederalTaxPayment>(),
     personsById,
     earningsByPerson,
     governmentBenefitBaseByPerson: new Map<string, Cents>(),

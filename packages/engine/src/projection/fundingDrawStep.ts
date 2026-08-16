@@ -5,12 +5,15 @@
  * ordered source list — because the split is balance-dependent. Here it is taken, with the
  * pro-rata basis accounting of {@link import("./withdrawal").buildWithdrawalSources}.
  *
- * An account draw is grossed up so what remains after capital-gains tax still covers the payment,
- * and the gain routes through the tax chokepoint (`allocateMonth`) as a net-neutral source.
- * A purchase funded from an appreciated source therefore lowers net worth by the tax paid;
- * a cash source (basis == balance) conserves it. A credit source instead borrows against the
- * card's headroom with no sale and no tax — the discriminated {@link FundingSourceState} lets both
- * walk the one ordered list, so the user's authored order is honoured and never reshuffled.
+ * An account draw sells EXACTLY the amount the obligation needs, capped at the account's
+ * balance — NO gross-up: a home purchase or one-time spend is an ordinary mid-year event, and
+ * federal income tax is never charged against it here (see {@link
+ * import("../jurisdiction/jurisdiction").Jurisdiction.computeTaxCents}'s ANNUAL contract). The
+ * realized gain still stacks onto the running per-owner taxable base — it reaches the year's
+ * accumulator and the year's closing balance, it is just not netted out of the draw itself. A
+ * credit source instead borrows against the card's headroom with no sale and no gain at all —
+ * the discriminated {@link FundingSourceState} lets both walk the one ordered list, so the
+ * user's authored order is honoured and never reshuffled.
  */
 
 import type { Cents } from "../money/money";
@@ -30,16 +33,13 @@ import type { FundingTreatment } from "./fundingEligibility";
 import { RevolvingCard, SYNTHETIC_CARD_ID } from "../liability/liability";
 
 export type TaxableByCategory = Partial<Record<TaxCategory, Cents>>;
-/** The month's taxable base, per owner — the context a gross-up differences tax over. */
+/** The month's taxable base, per owner — stacks each draw's realized gain as it is taken. */
 export type TaxableByOwner = Map<string, TaxableByCategory>;
 
-/** Backstop on the gross-up climb; a realistic draw converges in about a dozen steps. */
-const GROSS_UP_ITERATIONS = 1_000;
-
 /**
- * An account source: liquidated and grossed up over the capital-gains tax the sale induces, with a
- * pro-rata basis split. `kind` is optional so the many asset-only source literals across the engine
- * need no `"account"` tag; absent → an account.
+ * An account source: liquidated for exactly what it is asked to deliver, with a pro-rata basis
+ * split — no gross-up. `kind` is optional so the many asset-only source literals across the
+ * engine need no `"account"` tag; absent → an account.
  */
 export interface AccountFundingSource {
   readonly kind?: "account";
@@ -78,18 +78,19 @@ export interface ResolvedFundingSource {
   readonly kind: "account" | "credit";
   readonly id: string;
   readonly ownerId: string;
-  /** The account's withdrawal tax category; `"taxExempt"` for a credit borrow, which realizes none. */
+  /** The account's withdrawal tax category; `"borrow"` for a credit borrow, which realizes none. */
   readonly category: TaxCategory;
   readonly label?: string;
-  /** Sold from the account and grossed up over its own tax; for credit, the amount borrowed. */
+  /** Sold from the account, exactly the amount asked; for credit, the amount borrowed. */
   readonly grossCents: Cents;
   /** Realized taxable gain within `grossCents` — always 0 for a credit borrow. */
   readonly gainCents: Cents;
-  /** Marginal tax the gain induced over the running owner base — always 0 for a credit borrow. */
+  /** Always 0 — no federal income tax is charged against a funding draw, and no draw anywhere
+   * is grossed up for it. The gain joins the year's taxable income and is priced with it. */
   readonly taxCents: Cents;
   /** `grossCents − gainCents`; the whole borrow for credit, which realizes no gain. */
   readonly principalCents: Cents;
-  /** What reached the purchase — `grossCents − taxCents`; equal to `grossCents` for credit. */
+  /** Always equals `grossCents` — no gross-up, nothing is netted out of the draw. */
   readonly netDeliveredCents: Cents;
 }
 
@@ -151,14 +152,15 @@ export function toTaxableRecord(taxableByOwner: TaxableByOwner): Record<string, 
 
 /**
  * Resolve an ordered draw of `amountCents` across `sources` without mutating account state. Each
- * source is taken in turn until the remainder is covered: an account source sells enough that the
- * net (after the tax the sale induces) covers the remainder, floored at what it holds; a credit
- * source borrows the remainder against its headroom (`limit − balance`, clamped at zero; a `null`
- * limit is zero headroom, not unbounded), tax-free. Both walk the ONE ordered list — a
- * `[brokerage, visa]` list sells then borrows, never reordered.
+ * source is taken in turn until the remainder is covered: an account source sells EXACTLY the
+ * remainder, floored at what it holds — no gross-up, this is an ordinary mid-year draw and
+ * federal income tax is never charged against it here; a credit source borrows the remainder
+ * against its headroom (`limit − balance`, clamped at zero; a `null` limit is zero headroom, not
+ * unbounded), tax-free. Both walk the ONE ordered list — a `[brokerage, visa]` list sells then
+ * borrows, never reordered.
  *
- * Account tax is differenced over `taxableByOwner` and each gain stacked onto it, so a second
- * taxable source from the same owner is taxed on top of the first — hence this MUTATES
+ * An account sale's realized gain still stacks onto `taxableByOwner`, so a second taxable
+ * source from the same owner reports its gain on top of the first — hence this MUTATES
  * `taxableByOwner` (pass a copy to probe). A credit borrow realizes nothing and stacks nothing.
  *
  * Shared with the affordability reporter (`fundingLookup.availabilityAt`), so the reported
@@ -171,9 +173,6 @@ export function resolveOrderedFundingDraw(
   ctx: JurisdictionContext,
   taxableByOwner: TaxableByOwner,
 ): OrderedFundingDrawResult {
-  const computeTaxCents = (taxable: TaxableByCategory): Cents =>
-    jurisdiction.computeTaxCents(taxable, ctx);
-
   const perSource: ResolvedFundingSource[] = [];
   let remaining = amountCents;
 
@@ -198,7 +197,13 @@ export function resolveOrderedFundingDraw(
         kind: "credit",
         id: source.id,
         ownerId: source.ownerId,
-        category: "taxExempt",
+        // Borrowed principal is not income, and `borrow` is the category that says only that.
+        // Nothing prices it today — the tax fields below are pinned to 0 and every downstream
+        // reader is gated on `gainCents > 0` — so the label is doing documentation, not
+        // arithmetic. It is stated anyway because the next credit-like source may not be inert
+        // (a margin loan realizing gain on a forced sale), and inheriting a category chosen on
+        // the assumption that nothing is ever booked under it is how income goes missing.
+        category: "borrow",
         label: source.label,
         grossCents: borrowed,
         gainCents: 0,
@@ -215,40 +220,19 @@ export function resolveOrderedFundingDraw(
     const basis = Math.max(0, source.basisCents);
     const basisFraction = balance > 0 ? Math.min(1, basis / balance) : 0;
     // The jurisdiction owns return-of-capital policy; absent the seam, fall back to the
-    // pro-rata basis split. Must stay monotone non-decreasing — the climb below relies on it.
+    // pro-rata basis split.
     const gainOf = (gross: Cents): Cents =>
       jurisdiction.taxableWithdrawalCents?.(
         { grossCents: gross, basisCents: basis, balanceCents: balance, category },
         ctx,
       ) ?? gross - Math.round(gross * basisFraction);
 
-    const base = taxableByOwner.get(ownerId) ?? {};
-    const withGain = (gross: Cents): TaxableByCategory => ({
-      ...base,
-      [category]: (base[category] ?? 0) + gainOf(gross),
-    });
-    const baseTax = computeTaxCents(base);
-    const inducedTax = (gross: Cents): Cents => computeTaxCents(withGain(gross)) - baseTax;
-
-    // Least fixed point of `gross = remaining + inducedTax(gross)`, climbed from `remaining`
-    // and capped at the balance — the same solve as the decumulation withdrawal.
-    let gross = Math.min(balance, remaining);
-    for (let i = 0; i < GROSS_UP_ITERATIONS; i++) {
-      const wanted = remaining + inducedTax(gross);
-      // Cannot cover its own gross-up: take what is there, the rest falls to the next source.
-      if (wanted >= balance) {
-        gross = balance;
-        break;
-      }
-      if (wanted === gross) break;
-      gross = wanted;
-    }
-
+    // Sell exactly the remainder, capped at the balance — no gross-up.
+    const gross = Math.min(balance, remaining);
     const gain = gainOf(gross);
-    const tax = computeTaxCents(withGain(gross)) - baseTax;
-    taxableByOwner.set(ownerId, withGain(gross));
-    const netDelivered = gross - tax;
-    remaining -= netDelivered;
+    const base = taxableByOwner.get(ownerId) ?? {};
+    taxableByOwner.set(ownerId, { ...base, [category]: (base[category] ?? 0) + gain });
+    remaining -= gross;
     perSource.push({
       kind: "account",
       id,
@@ -257,9 +241,9 @@ export function resolveOrderedFundingDraw(
       label,
       grossCents: gross,
       gainCents: gain,
-      taxCents: tax,
+      taxCents: 0,
       principalCents: gross - gain,
-      netDeliveredCents: netDelivered,
+      netDeliveredCents: gross,
     });
   }
 
@@ -271,26 +255,48 @@ export function resolveOrderedFundingDraw(
 }
 
 /**
- * The bands and tax routing one month's funding draws produce:
- * - `gainSources` — one band per source that realized a gain, reporting-only
- *   (`waterfallInflowCents` 0), for {@link import("./reportFlows").buildFlows};
- * - `principalDrawdownCents` — returned principal across all sources (a cash source
- *   contributes its whole draw), folded into the `savingsDrawdown` band;
- * - `taxSources` — net-neutral sources routing each gain through the tax chokepoint, folded
- *   into `incomeSources` BEFORE `allocateMonth`;
+ * The bands and tax routing one month's funding draws produce.
+ *
+ * TAX AND REPORTING PART WAYS HERE, on one distinction: does the cash this draw raises reach the
+ * HOUSEHOLD, or does it pass straight through into an asset?
+ *
+ * An `expense` draw (a one-time spend) buys something that reduces net worth, and the spend
+ * itself lands in the expense graph via `explicitExpenseObligations` — so banding its funding as
+ * cash in is matched, one for one, by the spending it covers.
+ *
+ * An `asset-acquisition` draw (a home down payment) converts cash into an asset. It is
+ * deliberately NOT an expense and never enters the spending line, so banding its funding would
+ * put cash in with nothing out: an $80k down payment showed up as an $80k one-month spike on a
+ * chart asking "can I cover my spending?", when the household's spendable cash had not moved. It
+ * is excluded from reporting entirely — the realized-gain band AND the returned principal, which
+ * would otherwise land in `savingsDrawdown` and read as a month of living off savings.
+ *
+ * Excluded from REPORTING only. The gain is taxable exactly as before: it rides `gainSources`
+ * into the month's taxable pool and the year's accumulator, and the tax it causes is charged. That
+ * tax then has no band of its own to come out of, which is precisely the case {@link
+ * import("./reportFlows").buildFlows}'s stranded-haircut pass exists for — it lands on the sources
+ * that did deliver cash, which is where the household really paid it from.
+ *
+ * - `gainSources` — every gain realized this month, for the TAXABLE pool;
+ * - `reportedGainSources` — the subset the cash-flow chart may band: expense-funding draws only;
+ * - `principalDrawdownCents` — returned principal that reached the household (a cash source
+ *   contributes its whole draw), folded into the `savingsDrawdown` band. Expense-funding draws
+ *   only, for the same reason;
  * - `taxableByOwnerAfter` — the taxable base with this month's draws stacked in, read by the
  *   authoring gate (via `flows`) so a second money-out event in the same month is priced
  *   over its sibling's realized gain;
  * - `resolvedFunding` — one per-line attribution record per explicit draw, every source an
- *   account, so the flow view carries explicit and automatic obligations through one shape;
+ *   account, so the flow view carries explicit and automatic obligations through one shape.
+ *   UNFILTERED: this is the attribution record of what the draw actually did, and a down payment
+ *   still drew its accounts whether or not the cash-flow chart bands it;
  * - `omittedSourceEventIds` — the complete set of source event IDs whose draws were not
  *   executed, including the blocking event and any later events skipped. Used to suppress all
  *   artifacts (properties, liabilities) originating from these events.
  */
 export interface FundingDrawReport {
   readonly gainSources: readonly IncomeSourceMonth[];
+  readonly reportedGainSources: readonly IncomeSourceMonth[];
   readonly principalDrawdownCents: Cents;
-  readonly taxSources: readonly IncomeSourceMonth[];
   readonly taxableByOwnerAfter: TaxableByOwner;
   readonly resolvedFunding: readonly ResolvedFunding[];
   /**
@@ -311,13 +317,13 @@ export interface FundingDrawReport {
 export interface FundingBlock {
   readonly obligation: FinancialObligation;
   readonly requiredCents: Cents;
-  /** What the named sources delivered net of tax — `required − shortfall`. */
+  /** What the named sources delivered — `required − shortfall`. */
   readonly availableCents: Cents;
   readonly shortfallCents: Cents;
   /**
    * Why the draw fell short: eligible money sits elsewhere (a funding-configuration mistake) or
    * nothing eligible suffices. Classified against the household's whole account pool at this
-   * month, priced through the same gross-up as the draw itself — advisory, never a reassignment.
+   * month, priced the same way the draw itself was — advisory, never a reassignment.
    */
   readonly fundingFailure: FundingFailure;
 }
@@ -338,9 +344,9 @@ export interface FundingBlock {
  * on this complete set; only the FIRST shortfall is reported as the {@link FundingBlock}, since a
  * later draw was never priced and so has no shortfall to state.
  *
- * The gross-up is {@link resolveOrderedFundingDraw}, the one definition the affordability reporter
- * (`fundingLookup.availabilityAt`) shares — so the shortfall a preview reports is exactly the one a
- * stranded purchase blocks on here.
+ * The draw resolution is {@link resolveOrderedFundingDraw}, the one definition the affordability
+ * reporter (`fundingLookup.availabilityAt`) shares — so the shortfall a preview reports is exactly
+ * the one a stranded purchase blocks on here.
  *
  * `taxableByOwner` is NOT mutated: a working copy is threaded across draws, stacking each applied
  * draw's gain onto the next, and comes back as `taxableByOwnerAfter`. A blocked draw's gain is
@@ -354,7 +360,7 @@ export function resolveFundingDraws(
   taxableByOwner: TaxableByOwner,
 ): FundingDrawReport {
   const gainSources: IncomeSourceMonth[] = [];
-  const taxSources: IncomeSourceMonth[] = [];
+  const reportedGainSources: IncomeSourceMonth[] = [];
   const resolvedFunding: ResolvedFunding[] = [];
   let principalDrawdownCents = 0;
   let block: FundingBlock | undefined;
@@ -511,6 +517,10 @@ export function resolveFundingDraws(
       ),
     );
     const prefix = obligation.sourceId;
+    // Does this draw's cash reach the household, or pass through into an asset? An acquisition's
+    // does not, and it has no matching entry on the spending side either, so none of it may be
+    // banded as cash in. See {@link FundingDrawReport}.
+    const fundsAnAsset = obligation.treatment === "asset-acquisition";
 
     for (const s of perSource) {
       if (s.grossCents <= 0) continue;
@@ -529,43 +539,37 @@ export function resolveFundingDraws(
         s.id,
         Math.max(0, (state.basisByAccount.get(s.id) ?? 0) - s.principalCents),
       );
-      principalDrawdownCents += s.principalCents;
+      // Returned principal surfaces through the savings drawdown — for an expense draw, which
+      // the expense graph shows the other half of. An acquisition's principal became a house;
+      // banding it would report a month of living off savings that never happened.
+      if (!fundsAnAsset) principalDrawdownCents += s.principalCents;
 
       // A zero-gain (cash) source books no band: pure returned principal, surfacing only
-      // through the savings drawdown.
+      // through the savings drawdown. A positive gain is net-neutral cash-wise
+      // (`waterfallInflowCents` 0 — no gross-up, nothing was withheld from the sale) but
+      // still taxABLE: `taxableCents` carries it into `allocateMonth`'s taxable pool so it
+      // reaches the caller's annual accumulator, settled with the rest of the year's.
       if (s.gainCents > 0) {
-        gainSources.push({
+        const gainSource: IncomeSourceMonth = {
           ownerId: s.ownerId,
-          // Reporting-only: buildFlows reads this band, the waterfall never does.
           waterfallInflowCents: 0,
           cashInflowCents: s.gainCents,
           taxCategory: s.category,
-          taxableCents: 0,
+          taxableCents: s.gainCents,
           sourceId: `${prefix}:${s.id}`,
           label: s.label ?? s.id,
-        });
-      }
-      // Net-neutral: carries the tax slice as cash and books the gain as taxable, so
-      // `allocateMonth` charges exactly `tax` and nets zero. `cashInflowCents` 0 keeps it
-      // out of the income view.
-      if (s.taxCents > 0) {
-        taxSources.push({
-          ownerId: s.ownerId,
-          waterfallInflowCents: s.taxCents,
-          cashInflowCents: 0,
-          taxCategory: s.category,
-          taxableCents: s.gainCents,
-          sourceId: `${prefix}-tax:${s.id}`,
-          label: s.label ?? s.id,
-        });
+        };
+        // Always taxed; banded only when the cash reached the household.
+        gainSources.push(gainSource);
+        if (!fundsAnAsset) reportedGainSources.push(gainSource);
       }
     }
   }
 
   return {
     gainSources,
+    reportedGainSources,
     principalDrawdownCents,
-    taxSources,
     taxableByOwnerAfter: working,
     resolvedFunding,
     ...(block !== undefined ? { block } : {}),

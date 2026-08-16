@@ -2,7 +2,14 @@ import type { Cents } from "../money/money";
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
 import type { TaxCategory } from "../money/cashFlowSeries";
 import { orderBudgetLines, resolveBudgetLineMonthlyCents } from "../budget/budgetLine";
-import { runWaterfall, type IncomeSourceMonth } from "./waterfall";
+import { runWaterfall, type IncomeSourceMonth, type WaterfallInput } from "./waterfall";
+import { addCategory, type TaxableByCategory } from "./taxAttribution";
+import { assertTaxAttributionReconciles } from "./waterfallInvariants";
+import {
+  addFederalTaxPayment,
+  NO_FEDERAL_TAX_PAID,
+  type FederalTaxPayment,
+} from "./federalIncomeTax";
 import type { SimState } from "./runState";
 import type { SimOwnedSeries } from "./simulate.types";
 
@@ -29,38 +36,64 @@ export function buildIncomeSources(
 }
 
 /**
- * Step 3/6: route this month's income through the allocation waterfall, apply the
- * per-account deposits, then charge any uncovered obligation as a deficit on the first
- * liquid account so the cascade (next) drains liquid assets before reaching for credit.
- * Updates the per-person annual deferral accumulator so caps hold across the year.
- *
- * The waterfall's pre-cascade shortfall is not surfaced: it is a cash-flow gap posted
- * against the liquid account, not a funding failure. Only the shortfall surviving
- * {@link applyShortfallCascade} means anything to a caller.
+ * A person's remaining pre-tax deferral room for `ctx.year` — the jurisdiction's (possibly
+ * age-banded) limit less what they have already deferred. `Infinity` when the jurisdiction caps
+ * nothing. Shared with the tax-year projection, which has to take the same deferrals out of
+ * scheduled wages to estimate the year's taxable income.
  */
-export function allocateMonth(
+export function remainingDeferralRoomCents(
+  state: SimState,
+  jurisdiction: Jurisdiction,
+  ctx: JurisdictionContext,
+  personId: string,
+): number {
+  const limit = jurisdiction.retirementDeferralLimitCents;
+  if (limit === undefined) return Infinity;
+  const birthYear = state.personsById.get(personId)?.birthYear;
+  const capCents = limit({
+    year: ctx.year,
+    age: birthYear === undefined ? undefined : ctx.year - birthYear,
+  });
+  return Math.max(0, capCents - (state.deferredByPersonYear.get(`${personId}|${ctx.year}`) ?? 0));
+}
+
+/**
+ * The PRIOR tax year's balance, per person, in the April it settles — signed, positive due.
+ * Charged as cash alongside this month's instalment (so it is docked from take-home and, if
+ * income cannot cover it, funded by the same decumulation any other need is), but deliberately
+ * kept OUT of `federalTaxPaidByPersonYear`: that accumulator records what has been paid toward
+ * the CURRENT year, and crediting a prior year's balance to it would make this December
+ * undercharge by exactly this amount. Empty in every month but April.
+ */
+type PriorYearSettlements = ReadonlyMap<string, FederalTaxPayment>;
+
+/** A standing contribution line's monthly deposit, resolved for this month. */
+interface MonthContribution {
+  readonly accountId: string;
+  readonly monthlyCents: Cents;
+}
+
+/**
+ * Everything the month's waterfall runs on, assembled from `state` but writing NOTHING to it —
+ * every closure here reads. Split out from {@link allocateMonth} so the month's cash shortfall can
+ * be MEASURED before decumulation ({@link projectObligationShortfallCents}) with the identical
+ * arithmetic that will later charge it, rather than estimated a second way beside it. A second
+ * estimate is exactly what let payroll tax fall out of the funding gap: the waterfall docked it
+ * from take-home, decumulation's own take-home model did not, and the difference reached the
+ * borrowing cascade with investments still on the balance sheet.
+ */
+function planMonthAllocation(
   state: SimState,
   incomeSources: readonly IncomeSourceMonth[],
   ctx: JurisdictionContext,
   jurisdiction: Jurisdiction,
   sharedObligationCents: Cents,
   month: number,
-): {
-  taxCents: Cents;
-  payrollTaxCents: Cents;
-  payrollTaxBySourceCents: Readonly<Record<string, Cents>>;
-  taxByCategoryCents: Partial<Record<TaxCategory, Cents>> | undefined;
-  taxBySourceCents: Readonly<Record<string, Cents>> | undefined;
-  deferralBySourceCents: Readonly<Record<string, Cents>>;
-  contributions: readonly { accountId: string; monthlyCents: Cents }[];
-  /** The pre-cascade shortfall this month posted to the liquid account (obligations + contributions). */
-  shortfallCents: Cents;
-  /** The obligation-only slice of `shortfallCents` — see {@link WaterfallResult.obligationShortfallCents}. */
-  obligationShortfallCents: Cents;
-} {
-  // Per person, not per household: the jurisdiction may band the limit on the individual's
-  // age. No birth year → the un-banded limit.
-  const deferralLimit = jurisdiction.retirementDeferralLimitCents;
+  estimatedTaxPayments: ReadonlyMap<string, FederalTaxPayment>,
+  priorYearSettlements: PriorYearSettlements,
+): { input: WaterfallInput; contributions: readonly MonthContribution[] } {
+  // Per plan, but banded on the individual's age — the jurisdiction may raise the limit with
+  // it. No birth year → the un-banded limit.
   const combinedLimit = jurisdiction.combinedPlanDepositLimitCents;
   /** Age in `ctx.year`; `undefined` when the person has no birth year to band on. */
   const ageOf = (pid: string): number | undefined => {
@@ -83,7 +116,7 @@ export function allocateMonth(
     return monthlyCents > 0 ? [{ accountId, monthlyCents }] : [];
   });
 
-  const result = runWaterfall({
+  const input: WaterfallInput = {
     personIds: state.personIds,
     incomeSources,
     sharedObligationCents,
@@ -95,11 +128,13 @@ export function allocateMonth(
     goalFundMonthlyRate: (id) => accountsById.get(id)?.getMonthlyRateAt(month) ?? 0,
     accountBalanceCents: (id) => state.assetBalances.get(id) ?? 0,
     liquidAccountId: state.liquidAccount?.id ?? null,
-    computeTaxCents: (taxableByCategory) => jurisdiction.computeTaxCents(taxableByCategory, ctx),
-    // Required of every jurisdiction (a zero-tax one returns `{}`); `runWaterfall` enforces
-    // that a tax-charging month reconciles per source.
-    computeTaxByCategoryCents: (taxableByCategory) =>
-      jurisdiction.computeTaxByCategoryCents(taxableByCategory, ctx),
+    // The month's federal income-tax CASH: an even twelfth of this year's estimated liability,
+    // plus (in April only) the balance left over from the year just closed. Fixed for the month:
+    // the waterfall must never re-derive income tax from the income in front of it. Signed, so an
+    // April refund raises take-home rather than lowering it.
+    estimatedIncomeTaxCents: (pid) =>
+      (estimatedTaxPayments.get(pid)?.totalCents ?? 0) +
+      (priorYearSettlements.get(pid)?.totalCents ?? 0),
     // Absent seam → no payroll tax; the waterfall then leaves take-home untouched.
     computePayrollTaxCents: jurisdiction.computePayrollTaxCents
       ? (earnedByCategory) => jurisdiction.computePayrollTaxCents!(earnedByCategory, ctx)
@@ -112,12 +147,7 @@ export function allocateMonth(
     // Year-to-date earned gross BEFORE this month, so the seam's cumulative figure — and its
     // wage-base cap — build on the running total, not a single month.
     priorEarnedByPersonCents: (pid) => state.earnedByPersonYear.get(`${pid}|${ctx.year}`) ?? {},
-    remainingDeferralRoomCents: (pid) => {
-      if (deferralLimit === undefined) return Infinity;
-      const limit = deferralLimit({ year: ctx.year, age: ageOf(pid) });
-      const used = state.deferredByPersonYear.get(`${pid}|${ctx.year}`) ?? 0;
-      return Math.max(0, limit - used);
-    },
+    remainingDeferralRoomCents: (pid) => remainingDeferralRoomCents(state, jurisdiction, ctx, pid),
     // Age comes from the person; the accumulator is keyed by the plan.
     remainingCombinedDepositRoomCents: (pid, planKey) => {
       if (combinedLimit === undefined) return Infinity;
@@ -125,7 +155,107 @@ export function allocateMonth(
       const used = state.combinedDepositsByPlanYear.get(`${planKey}|${ctx.year}`) ?? 0;
       return Math.max(0, limit - used);
     },
-  });
+  };
+  return { input, contributions };
+}
+
+/**
+ * What this month is SHORT on its automatic obligations, before decumulation sells anything — the
+ * figure {@link import("./withdrawal").buildWithdrawalSources} liquidates against.
+ *
+ * The same waterfall the month is really allocated by ({@link runWaterfall}), run on the same
+ * inputs, over the income the household has WITHOUT decumulation. So the gap it reports is net of
+ * every deduction that will actually be taken — pre-tax deferrals, payroll tax, this year's
+ * income-tax instalment and April's settled balance alike — because it is the same subtraction,
+ * not a second model of it. Anything the waterfall later learns to dock is netted here the day it
+ * is added, with nothing to keep in step.
+ *
+ * PURE: `runWaterfall` computes deposits and returns them, and this discards them without applying
+ * any. Only {@link allocateMonth} writes, and it runs the waterfall again over the income
+ * decumulation has by then added — so no deposit, deferral or accumulator is touched twice.
+ *
+ * The OBLIGATION shortfall alone, excluding the contribution slice: an unaffordable standing
+ * contribution is deliberately not asset-funded (see `contributionsNotAssetFunded` in
+ * {@link import("./assumptions")}), so counting it here would start selling investments to keep
+ * saving into other investments.
+ */
+export function projectObligationShortfallCents(
+  state: SimState,
+  incomeSources: readonly IncomeSourceMonth[],
+  ctx: JurisdictionContext,
+  jurisdiction: Jurisdiction,
+  sharedObligationCents: Cents,
+  month: number,
+  estimatedTaxPayments: ReadonlyMap<string, FederalTaxPayment>,
+  priorYearSettlements: PriorYearSettlements,
+): Cents {
+  const { input } = planMonthAllocation(
+    state,
+    incomeSources,
+    ctx,
+    jurisdiction,
+    sharedObligationCents,
+    month,
+    estimatedTaxPayments,
+    priorYearSettlements,
+  );
+  return runWaterfall(input).obligationShortfallCents;
+}
+
+/**
+ * Step 3/6: route this month's income through the allocation waterfall, apply the
+ * per-account deposits, then charge any uncovered obligation as a deficit on the first
+ * liquid account so the cascade (next) drains liquid assets before reaching for credit.
+ * Updates the per-person annual deferral accumulator so caps hold across the year.
+ *
+ * The waterfall's pre-cascade shortfall is not surfaced: it is a cash-flow gap posted
+ * against the liquid account, not a funding failure. Only the shortfall surviving
+ * {@link applyShortfallCascade} means anything to a caller.
+ *
+ * This is the month's ONLY economic write. The identical waterfall has already run once, over the
+ * pre-decumulation income, purely to size the gap ({@link projectObligationShortfallCents}); by
+ * here the sources it was short against are in `incomeSources` and the run is authoritative.
+ */
+export function allocateMonth(
+  state: SimState,
+  incomeSources: readonly IncomeSourceMonth[],
+  ctx: JurisdictionContext,
+  jurisdiction: Jurisdiction,
+  sharedObligationCents: Cents,
+  month: number,
+  estimatedTaxPayments: ReadonlyMap<string, FederalTaxPayment>,
+  priorYearSettlements: PriorYearSettlements,
+): {
+  taxCents: Cents;
+  payrollTaxCents: Cents;
+  payrollTaxBySourceCents: Readonly<Record<string, Cents>>;
+  taxByCategoryCents: Partial<Record<TaxCategory, Cents>> | undefined;
+  /**
+   * The month's income-tax CASH apportioned back to the sources whose income it was sized from —
+   * a genuine same-month haircut, since every cent of it really was deducted from this month's
+   * take-home. In April that includes the prior year's settled balance, apportioned across the
+   * sources of the year it taxes.
+   */
+  taxBySourceCents: Readonly<Record<string, Cents>>;
+  deferralBySourceCents: Readonly<Record<string, Cents>>;
+  contributions: readonly MonthContribution[];
+  /** The pre-cascade shortfall this month posted to the liquid account (obligations + contributions). */
+  shortfallCents: Cents;
+  /** The obligation-only slice of `shortfallCents` — see {@link WaterfallResult.obligationShortfallCents}. */
+  obligationShortfallCents: Cents;
+} {
+  const { input, contributions } = planMonthAllocation(
+    state,
+    incomeSources,
+    ctx,
+    jurisdiction,
+    sharedObligationCents,
+    month,
+    estimatedTaxPayments,
+    priorYearSettlements,
+  );
+  const accountsById = new Map(state.accounts.map((a) => [a.id, a]));
+  const result = runWaterfall(input);
 
   for (const [id, amount] of result.accountDepositsCents) {
     state.assetBalances.set(id, (state.assetBalances.get(id) ?? 0) + amount);
@@ -169,13 +299,77 @@ export function allocateMonth(
     );
   }
 
+  // Fold this month's taxable income into the year-to-date accumulator. What the month CHARGED
+  // is an installment on the year's estimate, unrelated to this figure; December reads the
+  // complete total once, so the month a dollar landed in never changes the annual liability.
+  for (const [pid, taxable] of result.taxableByPersonCents) {
+    const key = `${pid}|${ctx.year}`;
+    let running = state.taxableIncomeByPersonYear.get(key);
+    if (running === undefined) {
+      running = {};
+      state.taxableIncomeByPersonYear.set(key, running);
+    }
+    for (const [category, cents] of Object.entries(taxable)) {
+      if (cents) addCategory(running, category as TaxCategory, cents);
+    }
+  }
+
+  // The per-SOURCE mirror of the fold above — same running total, kept by source instead of
+  // category, so December can apportion its per-category bill back to the sources that
+  // actually produced it.
+  for (const [pid, sources] of result.taxableBySourcePersonCents) {
+    const key = `${pid}|${ctx.year}`;
+    let running = state.taxableBySourceByPersonYear.get(key);
+    if (running === undefined) {
+      running = new Map();
+      state.taxableBySourceByPersonYear.set(key, running);
+    }
+    for (const s of sources) {
+      const existing = running.get(s.key);
+      if (existing === undefined) running.set(s.key, { ...s });
+      else running.set(s.key, { ...existing, taxableCents: existing.taxableCents + s.taxableCents });
+    }
+  }
+
+  // Record what was paid TOWARD THIS YEAR, so the year's close reconciles against the real
+  // running total rather than re-deriving "twelve installments" and missing a year that started
+  // mid-estimate. Only the instalment counts: a prior year's balance settled this month pays a
+  // liability this year's close knows nothing about.
+  const taxByCategoryCents: TaxableByCategory = {};
+  const taxBySourceCents: Record<string, Cents> = {};
+  for (const [pid, payment] of estimatedTaxPayments) {
+    if (payment.totalCents === 0) continue;
+    const key = `${pid}|${ctx.year}`;
+    state.federalTaxPaidByPersonYear.set(
+      key,
+      addFederalTaxPayment(state.federalTaxPaidByPersonYear.get(key) ?? NO_FEDERAL_TAX_PAID, payment),
+    );
+  }
+  // The breakdowns, in contrast, describe the CASH this month charged — instalment and prior-year
+  // balance alike — because that is what `taxCents` is and what the per-source haircut has to
+  // reconcile against. A settled balance bands under the sources that produced the income it
+  // taxes, which are last year's; a source no longer paying this month is stranded and spread
+  // across the month's real ones downstream ({@link import("./reportFlows").buildFlows}).
+  for (const payments of [estimatedTaxPayments, priorYearSettlements]) {
+    for (const [, payment] of payments) {
+      if (payment.totalCents === 0) continue;
+      for (const [category, cents] of Object.entries(payment.byCategoryCents)) {
+        if (cents) addCategory(taxByCategoryCents, category as TaxCategory, cents);
+      }
+      for (const [source, cents] of Object.entries(payment.bySourceCents)) {
+        if (cents) taxBySourceCents[source] = (taxBySourceCents[source] ?? 0) + cents;
+      }
+    }
+  }
+  assertTaxAttributionReconciles(result.taxCents, taxBySourceCents);
+
   // Contributions go back so the caller can unwind any unfundable slice after the cascade.
   return {
     taxCents: result.taxCents,
     payrollTaxCents: result.payrollTaxCents,
     payrollTaxBySourceCents: result.payrollTaxBySourceCents,
-    taxByCategoryCents: result.taxByCategoryCents,
-    taxBySourceCents: result.taxBySourceCents,
+    taxByCategoryCents,
+    taxBySourceCents,
     deferralBySourceCents: result.deferralBySourceCents,
     contributions,
     shortfallCents: result.shortfallCents,

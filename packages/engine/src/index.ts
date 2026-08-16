@@ -145,6 +145,7 @@ export type {
   InsolvencyReport,
   IncomeSourceCategory,
 } from "./projection/simulate.types";
+export type { EstateSettlement } from "./projection/estateSettlement";
 export type { SharedContributionScheme } from "./projection/waterfall.types";
 // Why a blocked projection fell short, and the engine-owned rule for which accounts may fund a
 // draw — the UI classifies and picks sources through these, never re-implementing eligibility.
@@ -190,7 +191,9 @@ export type { TaxCategory } from "./money/cashFlowSeries";
 export type { ModelAssumption } from "./projection/assumptions";
 export type { AccountReturnKind } from "./plan/simAccount";
 export type { EarningsRecord } from "./job/earningsRecord";
-export type { ProjectionIncomeSource } from "./projection/simulate.types";
+// One band of a month's cash flow. Named for cash flow, not income: a taxable draw whose money
+// went somewhere other than the household (a home down payment) is absent from it.
+export type { ProjectionCashFlowIncomeSource } from "./projection/simulate.types";
 // One earner's pay for work this month, stated by the sim. Exported as a VALUE too: a consumer
 // reading an owner with no wages needs the zero record, and re-declaring it app-side would be
 // the same re-derivation this field exists to end.
@@ -206,6 +209,12 @@ export { nullJurisdiction } from "./jurisdiction/jurisdiction";
 // the facade before there is any state for the facade to hold, so a `Projection` method
 // would be an instance in search of a use.
 export { dollarsToCents, centsToDollars } from "./money/cashFlowSeries";
+
+// Splitting an already-decided total across weighted shares in whole cents, exactly. Published
+// because a chart that drops or regroups a band has to redistribute what that band bore, and the
+// alternative is the app growing its own rounding rule — a second answer to a question this
+// engine already answers everywhere it apportions tax.
+export { apportionByWeight } from "./money/money";
 
 // A total function of one enum value, with no projection to ask.
 export { liabilityKindLabel } from "./liability/liability";
