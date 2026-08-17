@@ -606,6 +606,30 @@ describe("Decumulation reporting splits realized gain from returned principal (#
     ).toBe(dollarsToCents(4_000));
   });
 
+  it("splits a tax-exempt (Roth-style) withdrawal the same way — genuinely untaxed growth is still reported income, per the account's own category", () => {
+    // Mirrors the brokerage case above with a Roth-style account instead: `buildWithdrawalSources`
+    // reads `principalCents`/`realizedGainCents` off basis alone, with no category check, so a
+    // tax-exempt account past its basis splits identically — the growth bands under its own
+    // `taxExempt` category rather than `capitalGains`, and the basis returns as savings drawdown.
+    const series = simulateHousehold(
+      baseInput(
+        [
+          account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
+          account("roth", TAX_EXEMPT_TAX_PROFILE, 10_000, false, 4095),
+        ],
+        { expenseSeries: [expense(4_000, 1)] },
+      ),
+      proRataGains,
+    );
+    expect(series.months[0].accountBalancesCents["roth"]).toBe(dollarsToCents(20_000));
+    expect(series.months[0].accountBasisCents["roth"]).toBe(dollarsToCents(10_000));
+
+    const flows = series.months[1].flows!;
+    expect(flows.cashFlowIncomeByCategoryCents["taxExempt"]).toBe(dollarsToCents(2_000));
+    const savingsDrawdown = flows.incomeSources.find((s) => s.sourceId === "savings-drawdown");
+    expect(savingsDrawdown?.cashInflowCents).toBe(dollarsToCents(2_000));
+  });
+
   it("reports no capital-gains income for a basis-only (no-gain) brokerage withdrawal", () => {
     const series = simulateHousehold(
       baseInput(
