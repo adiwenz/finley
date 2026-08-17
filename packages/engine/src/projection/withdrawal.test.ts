@@ -28,21 +28,27 @@ import {
   type WithdrawalState,
 } from "./withdrawal";
 
-/** A non-compounding account so balances move only by withdrawal/deposit. */
-function account(id: string, taxProfile: SimAccountTaxProfile, dollars: number, liquid = false): SimAccount {
+/** Non-compounding by default (rate 0) so balances move only by withdrawal/deposit. */
+function account(
+  id: string,
+  taxProfile: SimAccountTaxProfile,
+  dollars: number,
+  liquid = false,
+  annualRate = 0,
+): SimAccount {
   return new SimAccount({
     id,
     ownerId: "p1",
     liquid,
     taxProfile,
     openingBalanceCents: dollarsToCents(dollars),
-    initialAnnualRate: 0,
+    initialAnnualRate: annualRate,
   });
 }
 
-function expense(monthlyDollars: number): SimOwnedSeries {
+function expense(monthlyDollars: number, startMonth = 0): SimOwnedSeries {
   return {
-    series: new SimCashFlowSeries(0, dollarsToCents(monthlyDollars), { type: "fixed" }, {
+    series: new SimCashFlowSeries(startMonth, dollarsToCents(monthlyDollars), { type: "fixed" }, {
       baselineUnit: "monthly",
     }),
     ownerId: "p1",
@@ -559,6 +565,71 @@ describe("Decumulation draws carry the full withdrawal breakdown", () => {
       taxCents: 0,
       netDeliveredCents: dollarsToCents(3_000),
     });
+  });
+});
+
+describe("Decumulation reporting splits realized gain from returned principal (#122)", () => {
+  /** Pro-rata capital gains, no tax — isolates the income/drawdown split from tax cash flow. */
+  const proRataGains: Jurisdiction = {
+    id: "prorata-gains",
+    computeTaxCents: () => 0,
+    computeTaxByCategoryCents: () => ({}),
+    taxableWithdrawalCents: ({ grossCents, basisCents, balanceCents }: WithdrawalTaxBasis) =>
+      balanceCents <= 0 ? grossCents : Math.round((grossCents * (balanceCents - basisCents)) / balanceCents),
+  };
+
+  it("reports only the realized gain as capital-gains income and the returned principal as savings drawdown", () => {
+    // Brokerage opens at $10k (basis == balance). One month of 100% growth before the expense
+    // hits leaves it at $20k balance / $10k basis — a clean 50% gain fraction — so the $4,000
+    // withdrawal in month 1 splits evenly: $2,000 gain, $2,000 returned principal.
+    const series = simulateHousehold(
+      baseInput(
+        [
+          account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
+          account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 10_000, false, 4095),
+        ],
+        { expenseSeries: [expense(4_000, 1)] },
+      ),
+      proRataGains,
+    );
+    // Confirms the setup reaches the intended 50% gain fraction before asserting the split.
+    expect(series.months[0].accountBalancesCents["brokerage"]).toBe(dollarsToCents(20_000));
+    expect(series.months[0].accountBasisCents["brokerage"]).toBe(dollarsToCents(10_000));
+
+    const flows = series.months[1].flows!;
+    expect(flows.cashFlowIncomeByCategoryCents["capitalGains"]).toBe(dollarsToCents(2_000));
+    const savingsDrawdown = flows.incomeSources.find((s) => s.sourceId === "savings-drawdown");
+    expect(savingsDrawdown?.cashInflowCents).toBe(dollarsToCents(2_000));
+    // The full $4,000 need still reached the household — the waterfall lost nothing.
+    expect(
+      flows.cashFlowIncomeByCategoryCents["capitalGains"]! + (savingsDrawdown?.cashInflowCents ?? 0),
+    ).toBe(dollarsToCents(4_000));
+  });
+
+  it("reports no capital-gains income for a basis-only (no-gain) brokerage withdrawal", () => {
+    const series = simulateHousehold(
+      baseInput(
+        [account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true), account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 10_000)],
+        { expenseSeries: [expense(3_000)] },
+      ),
+      proRataGains,
+    );
+    const flows = series.months[0].flows!;
+    expect(flows.cashFlowIncomeByCategoryCents["capitalGains"]).toBe(0);
+    const savingsDrawdown = flows.incomeSources.find((s) => s.sourceId === "savings-drawdown");
+    expect(savingsDrawdown?.cashInflowCents).toBe(dollarsToCents(3_000));
+  });
+
+  it("still reports a retirement-account withdrawal as full retirement income (unaffected)", () => {
+    const series = simulateHousehold(
+      baseInput([account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true), account("pretax", PRE_TAX_TAX_PROFILE, 100_000)], {
+        expenseSeries: [expense(2_000)],
+      }),
+      proRataGains,
+    );
+    const flows = series.months[0].flows!;
+    expect(flows.cashFlowIncomeByCategoryCents["ordinaryIncome"]).toBe(dollarsToCents(2_000));
+    expect(flows.incomeSources.find((s) => s.sourceId === "savings-drawdown")).toBeUndefined();
   });
 });
 

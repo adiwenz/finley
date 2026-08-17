@@ -363,24 +363,23 @@ describe("Estate settlement — what the estate holds", () => {
     });
     const last = spent.months[11];
     const settlement = settlementOf(spent);
-    // Read off the run, not assumed: the brokerage funds the $48k of expenses AND the year's
-    // estimated tax instalments, which the forecast now sizes off a compounding balance rather
-    // than January's. Hardcoding the expenses here asserted a year in which no tax was paced.
-    const grossDrawnCents = sum(
-      spent.months.map((m) =>
-        m.flows!.incomeSources
-          .filter((s) => s.sourceId === "brokerage")
-          .reduce((t, s) => t + s.cashInflowCents, 0),
-      ),
-    );
-    expect(grossDrawnCents).toBeGreaterThan(dollarsToCents(48_000));
+    // Ground truth for the returned principal is the basis reduction itself; ground truth for the
+    // realized gain is the `capitalGains` band, which reports the gain ALONE rather than the
+    // draw's full gross. Together they are what the brokerage actually paid out this year — funding
+    // the $48k of expenses AND the year's estimated tax instalments, which the forecast now sizes
+    // off a compounding balance rather than January's.
     const basisConsumedCents = dollarsToCents(100_000) - last.accountBasisCents.brokerage;
+    const gainRealizedCents = sum(
+      spent.months.map((m) => m.flows!.cashFlowIncomeByCategoryCents["capitalGains"] ?? 0),
+    );
+    const grossDrawnCents = basisConsumedCents + gainRealizedCents;
+    expect(grossDrawnCents).toBeGreaterThan(dollarsToCents(48_000));
     expect(basisConsumedCents).toBeGreaterThan(0);
-    expect(basisConsumedCents).toBeLessThan(grossDrawnCents);
+    expect(gainRealizedCents).toBeGreaterThan(0);
     // Everything the year owed, wherever it was charged: the ordinary rate on realized GAIN, not
     // on the gross the household actually spent.
     expect(sum(spent.months.map((m) => m.flows!.taxCents)) + settlement.finalTaxDueCents).toBe(
-      Math.round((grossDrawnCents - basisConsumedCents) * RATE),
+      Math.round(gainRealizedCents * RATE),
     );
     // What was never sold carries an unrealized gain of the same size again, and the estate takes
     // it at value with nothing owed on it.

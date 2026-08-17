@@ -561,6 +561,14 @@ function runMonth(
     (total, d) => total + d.netDeliveredCents,
     0,
   );
+  // Returned basis within this month's decumulation draws — not income, so it joins the
+  // savings-drawdown band below rather than `incomeSources`' capital-gains/ordinary-income
+  // bands, mirroring how an explicit funding draw's own principal is folded in via
+  // `fundingDraw.principalDrawdownCents`.
+  const decumulationPrincipalCents = withdrawal.decumulationDraws.reduce(
+    (total, d) => total + d.principalCents,
+    0,
+  );
   // Obligations' own slice of what the cascade's shared liquid+credit capacity covered this
   // month (see the `unfundedObligationCents` comment above for the priority-over-contributions
   // reasoning) — the total this layer split has to divide between liquid and credit.
@@ -625,11 +633,12 @@ function runMonth(
     // The very list the waterfall funded above — expenses, debt and per-line rollups all
     // derive from it, so none can drift from the funded amount.
     obligations,
-    // The withdrawal channel's liquid-buffer drawdown PLUS a down payment's returned principal
-    // (and any cash source's whole draw) — one `savingsDrawdown` source, so a month spent from
-    // savings isn't a zero band. An April balance funded from savings needs no term of its own:
-    // it enlarged the month's cash need, so the withdrawal channel already drew for it.
-    withdrawal.liquidDrawdownCents + fundingDraw.principalDrawdownCents,
+    // The withdrawal channel's liquid-buffer drawdown, PLUS a down payment's returned principal,
+    // PLUS decumulation's own returned principal (and any cash source's whole draw) — one
+    // `savingsDrawdown` source, so a month spent from savings isn't a zero band. An April balance
+    // funded from savings needs no term of its own: it enlarged the month's cash need, so the
+    // withdrawal channel already drew for it.
+    withdrawal.liquidDrawdownCents + fundingDraw.principalDrawdownCents + decumulationPrincipalCents,
     // Undefined when the jurisdiction declines a breakdown; the app then draws one band.
     taxByCategoryCents,
     // SAME-MONTH per-source haircut on `netCashFlowCents`: every cent of tax this month
