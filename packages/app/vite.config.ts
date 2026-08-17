@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -7,7 +8,7 @@ import { fileURLToPath } from "node:url";
  * are visible in the UI immediately, with no build step.
  */
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
       "@finley/engine": fileURLToPath(

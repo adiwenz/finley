@@ -11,7 +11,7 @@
 }
 
 .row {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   padding: 10px 12px;
   display: flex;
@@ -30,13 +30,13 @@
 }
 
 .salary {
-  color: var(--color-accent);
+  color: var(--leaf-700);
   font-variant-numeric: tabular-nums;
 }
 
 .meta {
   font-size: 12px;
-  color: var(--color-text-muted);
+  color: var(--ink-600);
 }
 
 /* ── A job's pay across its whole span ──
@@ -60,7 +60,7 @@
   gap: 6px;
   margin: 0 0 6px;
   font-size: 12px;
-  color: var(--color-muted, #6b6552);
+  color: var(--ink-600);
 }
 
 /* Governs every chart and timeline below it, so it sits above the list rather than in a row. */
@@ -69,7 +69,7 @@
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: var(--color-text-muted);
+  color: var(--ink-600);
   margin-top: var(--space-2);
 }
 
@@ -89,17 +89,17 @@
   gap: var(--space-2);
   padding: 4px 0 4px 8px;
   font-size: 12px;
-  border-left: 2px solid var(--color-border);
+  border-left: 2px solid var(--border-subtle);
 }
 
 .entryAge {
-  color: var(--color-text-muted);
+  color: var(--ink-600);
   font-variant-numeric: tabular-nums;
 }
 
 .entryPay {
   font-variant-numeric: tabular-nums;
-  color: var(--color-accent);
+  color: var(--leaf-700);
 }
 
 .entryHistory {
@@ -108,7 +108,7 @@
 
 /* "Now": the one row that cannot be removed, and the anchor everything forward runs off. */
 .entryNow {
-  border-left-color: var(--color-accent);
+  border-left-color: var(--leaf-700);
   font-weight: 600;
   background: rgba(0, 0, 0, 0.03);
   border-radius: 0 5px 5px 0;
@@ -120,7 +120,7 @@
 .seamNote {
   grid-column: 1 / -1;
   font-size: 12px;
-  color: var(--color-text-muted);
+  color: var(--ink-600);
   padding-left: 58px;
 }
 
@@ -128,8 +128,8 @@
   font: inherit;
   padding: 1px 7px;
   border-radius: 5px;
-  border: 1px solid var(--color-border-input);
-  background: var(--color-white);
+  border: 1px solid var(--border-default);
+  background: var(--white);
   cursor: pointer;
 }
 
@@ -142,8 +142,8 @@
   font: inherit;
   padding: 2px 8px;
   border-radius: 5px;
-  border: 1px solid var(--color-border-input);
-  background: var(--color-white);
+  border: 1px solid var(--border-default);
+  background: var(--white);
   cursor: pointer;
 }
 
@@ -153,7 +153,7 @@
   gap: var(--space-2);
   margin-top: var(--space-2);
   padding-top: var(--space-2);
-  border-top: 1px dashed var(--color-border);
+  border-top: 1px dashed var(--border-subtle);
 }
 
 .formActions {
@@ -165,5 +165,5 @@
    change carries, so the two read as different KINDS down the left edge of the list. */
 .entryOneOff {
   border-left-style: dotted;
-  border-left-color: var(--color-text);
+  border-left-color: var(--ink-900);
 }

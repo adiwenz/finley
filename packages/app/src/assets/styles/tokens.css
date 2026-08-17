@@ -1,47 +1,144 @@
 /**
- * Design tokens — the shared palette, radii, and spacing scale.
- * Values were lifted verbatim from the old STYLES string so the UI is
- * pixel-identical; only the indirection is new.
+ * Design tokens — the Project Money Tree design system, translated in.
+ *
+ * This file is the single source of truth for the token values. `tailwind.css` re-exports it
+ * through `@theme inline`, so a Tailwind utility (`bg-surface-card`, `rounded-card`) and a raw
+ * `var(--surface-card)` always resolve to the same value; edit here, never in the theme block.
+ *
+ * The base palette is sampled from the brand illustration and is NOT referenced directly by
+ * components — they name a semantic alias, so a re-sample changes one line here. Two exceptions
+ * the design uses as literal accents: chart series colours and life-event icon tints.
  */
 
 :root {
-  /* Typeface */
-  --font-serif: ui-serif, Georgia, "Times New Roman", serif;
+  /* Base palette, sampled from the money-tree illustration. */
+  --leaf-900: #0f3d28;
+  --leaf-800: #14663f;
+  --leaf-700: #1b7f52;
+  --leaf-600: #21935c;
+  --leaf-500: #3aaf6f;
+  --leaf-300: #8fd7ae;
+  --leaf-100: #dcf2e5;
 
-  /* Surfaces & backgrounds */
-  --color-background: #f4efe1;
-  --color-surface: #fbf8ef;
-  --color-surface-sunken: #efe8d3;
-  --color-surface-tint: #fffdf6;
-  --color-white: #fff;
+  --sprout-600: #5ea82f;
+  --sprout-500: #6fbe3f;
+  --sprout-400: #9ed04f;
+  --sprout-200: #d9edb4;
 
-  /* Text */
-  --color-text: #1f3a2e;
-  --color-text-muted: #6b6552;
-  --color-text-faint: #8a8368;
+  --bark-800: #7c4315;
+  --bark-700: #8a4a18;
+  --bark-600: #a85e22;
+  --bark-500: #c0692a;
+  --bark-200: #f0d9c0;
 
-  /* Accent & borders */
-  --color-accent: #b5761f;
-  --color-border: #e3dcc6;
-  --color-border-input: #d4cbb0;
+  --soil-900: #3e2410;
 
-  /* Danger / alerts */
-  --color-danger: #7a1a1a;
-  --color-alert-bg: #fde8e8;
-  --color-alert-border: #e8a0a0;
+  --cream-50: #fffcf4;
+  --cream-100: #fdf3de;
+  --cream-200: #f8e7c4;
+  --cream-300: #efd9ae;
 
-  /* Advisory / soft-warning (amber, distinct from the red hard block) */
-  --color-warn: #7a4a12;
-  --color-warn-bg: #fbefd7;
-  --color-warn-border: #e3c081;
+  /* Greys are green-tinted — never pure black or a cool grey. */
+  --ink-900: #1e2a22;
+  --ink-700: #33443a;
+  --ink-600: #4c5a50;
+  --ink-400: #7c8b80;
+  --ink-200: #c6d0c9;
+  --ink-100: #e4eae5;
 
-  /* Border radii */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-pill: 11px;
+  --white: #ffffff;
 
-  /* Spacing scale */
+  --sky-600: #1f6e9e;
+  --sky-500: #2c7fb8;
+  --sky-100: #ddeef8;
+  --sun-500: #e8a33d;
+  --sun-100: #fbebd1;
+  --berry-600: #ae3a32;
+  --berry-500: #c2453c;
+  --berry-100: #f8dedc;
+
+  /* Semantic aliases — what components name. */
+  --brand-primary: var(--leaf-700);
+  --brand-primary-hover: var(--leaf-800);
+  --brand-primary-active: var(--leaf-900);
+  --brand-secondary: var(--sprout-500);
+  --brand-accent: var(--bark-500);
+
+  --text-heading: var(--leaf-900);
+  --text-body: var(--ink-700);
+  --text-muted: var(--ink-400);
+  --text-inverse: var(--cream-50);
+  --text-link: var(--leaf-700);
+  --text-link-hover: var(--leaf-900);
+  --text-on-brand: var(--cream-50);
+
+  --surface-page: var(--cream-50);
+  --surface-card: var(--white);
+  --surface-sunken: var(--cream-100);
+  --surface-warm: var(--cream-200);
+  --surface-brand: var(--leaf-800);
+  --surface-brand-soft: var(--leaf-100);
+  --surface-accent-soft: var(--sprout-200);
+
+  --border-subtle: var(--ink-100);
+  --border-default: var(--ink-200);
+  --border-strong: var(--leaf-800);
+  --border-focus: var(--leaf-600);
+
+  --state-info: var(--sky-500);
+  --state-info-soft: var(--sky-100);
+  --state-success: var(--leaf-600);
+  --state-success-soft: var(--leaf-100);
+  --state-warning: var(--sun-500);
+  --state-warning-soft: var(--sun-100);
+  --state-danger: var(--berry-500);
+  --state-danger-soft: var(--berry-100);
+
+  --focus-ring: 0 0 0 3px rgba(33, 147, 92, 0.32);
+
+  /* Typeface. Display carries headings and the wordmark; mono is reserved for figures. */
+  --font-display: "Bricolage Grotesque", "Trebuchet MS", system-ui, sans-serif;
+  --font-sans: "Figtree", "Helvetica Neue", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --text-display-1: clamp(44px, 6vw, 72px);
+  --text-display-2: clamp(34px, 4.4vw, 52px);
+  --text-h1: 40px;
+  --text-h2: 30px;
+  --text-h3: 23px;
+  --text-h4: 19px;
+  --text-lead: 20px;
+  --text-body-lg: 18px;
+  --text-body-md: 16px;
+  --text-body-sm: 14px;
+  --text-caption: 13px;
+  --text-micro: 11px;
+
+  --leading-tight: 1.06;
+  --leading-snug: 1.2;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+  --tracking-tight: -0.02em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.02em;
+  --tracking-caps: 0.09em;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --weight-black: 800;
+
+  /* Semantic type roles — `font:` shorthands, so one declaration sets family/size/weight/leading. */
+  --type-hero: var(--weight-bold) var(--text-display-1) / var(--leading-tight) var(--font-display);
+  --type-h2: var(--weight-bold) var(--text-h2) / var(--leading-snug) var(--font-display);
+  --type-h3: var(--weight-semibold) var(--text-h3) / var(--leading-snug) var(--font-display);
+  --type-body: var(--weight-regular) var(--text-body-md) / var(--leading-relaxed) var(--font-sans);
+  --type-lead: var(--weight-regular) var(--text-lead) / var(--leading-normal) var(--font-sans);
+  --type-label: var(--weight-semibold) var(--text-body-sm) / 1.3 var(--font-sans);
+  --type-eyebrow: var(--weight-semibold) var(--text-caption) / 1.2 var(--font-sans);
+
+  /* Spacing — 4px base scale. */
+  --space-0: 0;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -49,4 +146,66 @@
   --space-5: 20px;
   --space-6: 24px;
   --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+  --space-32: 128px;
+
+  --gutter-card: 24px;
+  --gutter-card-lg: 32px;
+  --section-y: 96px;
+  --section-y-compact: 64px;
+  --container-max: 1200px;
+  --container-narrow: 720px;
+  --stack-tight: 8px;
+  --stack-default: 16px;
+  --stack-loose: 32px;
+
+  /* Radii — corners are generous; buttons and chips are fully pill. */
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --radius-2xl: 36px;
+  --radius-pill: 999px;
+  --radius-control: var(--radius-pill);
+  --radius-input: var(--radius-md);
+  --radius-card: var(--radius-lg);
+  --radius-panel: var(--radius-xl);
+  --border-width: 1px;
+  --border-width-strong: 2px;
+
+  /* Shadows are warm brown-tinted and low-contrast — never neutral black, never a glow. */
+  --shadow-xs: 0 1px 2px rgba(62, 36, 16, 0.06);
+  --shadow-sm: 0 2px 6px rgba(62, 36, 16, 0.07);
+  --shadow-md: 0 6px 18px rgba(62, 36, 16, 0.09);
+  --shadow-lg: 0 16px 40px rgba(62, 36, 16, 0.12);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --shadow-card: var(--shadow-sm);
+  --shadow-card-hover: var(--shadow-md);
+  --shadow-overlay: var(--shadow-lg);
+  /* The dialog scrim is green-tinted, not black. */
+  --scrim-overlay: rgba(15, 61, 40, 0.34);
+  --blur-overlay: blur(3px);
+
+  /* Motion — soft and unhurried; only the switch knob overshoots. */
+  --duration-instant: 90ms;
+  --duration-fast: 150ms;
+  --duration-base: 220ms;
+  --duration-slow: 380ms;
+  --duration-grow: 700ms;
+  --ease-standard: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-out-soft: cubic-bezier(0.16, 0.84, 0.44, 1);
+  --ease-in-out: cubic-bezier(0.45, 0.05, 0.55, 0.95);
+  --ease-grow: cubic-bezier(0.34, 1.32, 0.5, 1);
+  --transition-control:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+  --press-scale: 0.97;
+  --lift-y: -2px;
 }

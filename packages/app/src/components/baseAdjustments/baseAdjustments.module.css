@@ -4,7 +4,7 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.25rem 0;
-  border-bottom: 1px solid var(--rule, #e3dcc6);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .lineLabel {
@@ -15,14 +15,14 @@
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #8a8570;
+  color: var(--text-muted);
 }
 
 .groupHeading {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #8a8570;
+  color: var(--text-muted);
   margin: 0.75rem 0 0.25rem;
 }
 
@@ -31,7 +31,7 @@
   font-size: 0.65rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #b5761f;
+  color: var(--leaf-700);
 }
 
 /* The one question an edit asks — pinned under the row the user just changed. */
@@ -42,9 +42,9 @@
   gap: 0.5rem;
   margin-top: 0.75rem;
   padding: 0.75rem;
-  border: 1px solid #b5761f;
+  border: 1px solid var(--leaf-700);
   border-radius: 6px;
-  background: #fdf6e8;
+  background: var(--surface-sunken);
 }
 
 .scopeQuestion {
@@ -57,7 +57,7 @@
    opens with an arrow, and the two markers together read as clutter. */
 .routeEcho {
   font-size: 0.8rem;
-  color: #3f7d5f;
+  color: var(--leaf-700);
   margin-top: 0.5rem;
   list-style: none;
   padding-left: 0;
@@ -83,7 +83,7 @@
   gap: 0.5rem;
   margin-top: 0.5rem;
   padding: 0.75rem;
-  border: 1px solid var(--rule, #e3dcc6);
+  border: 1px solid var(--border-subtle);
   border-radius: 6px;
 }
 
@@ -99,7 +99,7 @@
   gap: 0.5rem;
   margin: 0.5rem 0;
   padding: 0.75rem;
-  border: 1px dashed var(--rule, #e3dcc6);
+  border: 1px dashed var(--border-subtle);
   border-radius: 6px;
 }
 
@@ -119,13 +119,13 @@
   font-size: 0.75rem;
   padding: 2px 8px;
   border-radius: 5px;
-  border: 1px solid var(--color-border-input, #cfc8b0);
-  background: var(--color-white, #fff);
+  border: 1px solid var(--border-default);
+  background: var(--white);
   cursor: pointer;
 }
 
 /* A contribution line's destination tag ("→ Brokerage"). */
 .target {
   font-size: 0.75rem;
-  color: #3f7d5f;
+  color: var(--leaf-700);
 }

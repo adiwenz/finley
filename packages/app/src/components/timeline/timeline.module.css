@@ -11,7 +11,7 @@
 .track {
   position: relative;
   height: 22px;
-  background: var(--color-surface-sunken);
+  background: var(--surface-sunken);
   border-radius: var(--radius-pill);
 }
 
@@ -20,7 +20,7 @@
   top: 0;
   left: 0;
   height: 100%;
-  background: #e7dcbe;
+  background: var(--surface-warm);
   border-radius: var(--radius-pill);
 }
 
@@ -39,23 +39,23 @@
   width: 11px;
   height: 11px;
   border-radius: 50%;
-  background: var(--color-accent);
-  border: 2px solid var(--color-surface);
+  background: var(--leaf-700);
+  border: 2px solid var(--surface-card);
 }
 
 .marker.future .markerDot {
-  background: #c9bfa5;
+  background: var(--border-default);
 }
 
 /* The blocking event: the same red the plan's blocking alerts use. */
 .blockedDot {
-  background: var(--color-danger, #c0392b);
+  background: var(--state-danger);
 }
 
 /* Events the stopped projection never reached — hollow, so they read as untested, not failed. */
 .notReachedDot {
-  background: var(--color-surface);
-  border-color: #c9bfa5;
+  background: var(--surface-card);
+  border-color: var(--border-default);
 }
 
 .handle {
@@ -63,7 +63,7 @@
   top: -3px;
   width: 3px;
   height: 28px;
-  background: var(--color-text);
+  background: var(--ink-900);
   border-radius: 2px;
   transform: translateX(-50%);
 }
@@ -100,11 +100,11 @@
   gap: var(--space-2);
   font-size: 12px;
   padding: var(--space-1) 0;
-  border-bottom: 1px solid var(--color-surface-sunken);
+  border-bottom: 1px solid var(--surface-sunken);
 }
 
 .mlWhen {
-  color: var(--color-text-faint);
+  color: var(--text-muted);
 }
 
 .mlLabel {
@@ -112,7 +112,7 @@
 }
 
 .mlDetail {
-  color: var(--color-text-muted);
+  color: var(--ink-600);
 }
 
 /* Status badge on a row whose event the projection blocked or never reached. */
@@ -126,11 +126,11 @@
 }
 
 .mlBlocked {
-  color: var(--color-danger, #c0392b);
-  background: color-mix(in srgb, var(--color-danger, #c0392b) 12%, transparent);
+  color: var(--state-danger);
+  background: color-mix(in srgb, var(--state-danger) 12%, transparent);
 }
 
 .mlNotReached {
-  color: var(--color-text-faint);
-  background: var(--color-surface-sunken);
+  color: var(--text-muted);
+  background: var(--surface-sunken);
 }

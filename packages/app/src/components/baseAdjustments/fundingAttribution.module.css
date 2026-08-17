@@ -1,7 +1,7 @@
 /* One obligation's coverage block — the obligation line, then its sources indented beneath. */
 .entry {
   padding: 0.35rem 0;
-  border-bottom: 1px solid var(--rule, #e3dcc6);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .obligation {
@@ -19,7 +19,7 @@
 
 /* A partly-covered line: the money it could not raise, called out rather than left implied. */
 .shortfall {
-  color: #b23b3b;
+  color: var(--state-danger);
   font-size: 0.75rem;
 }
 
@@ -35,7 +35,7 @@
   align-items: baseline;
   gap: 0.5rem;
   font-size: 0.8rem;
-  color: #5a5645;
+  color: var(--ink-600);
 }
 
 .sourceAmount {
@@ -47,6 +47,6 @@
 .withdrawal {
   grid-column: 1 / -1;
   font-size: 0.72rem;
-  color: #8a8570;
+  color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }

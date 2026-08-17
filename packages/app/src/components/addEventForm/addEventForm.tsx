@@ -21,7 +21,7 @@ import styles from "./addEventForm.module.css";
  * elsewhere). Derived from `LifeEvent` so renaming or removing a type is a compile error
  * here rather than silent drift. Labels stay decoupled from these ids.
  */
-type EventKind = Extract<
+export type EventKind = Extract<
   LifeEvent["type"],
   | "LoanEvent"
   | "HomePurchaseEvent"
@@ -31,7 +31,7 @@ type EventKind = Extract<
   | "OneTimeSpendEvent"
 >;
 
-const EVENT_KINDS: readonly { value: EventKind; label: string }[] = [
+export const EVENT_KINDS: readonly { value: EventKind; label: string }[] = [
   { value: "LoanEvent", label: "Took out a loan" },
   { value: "HomePurchaseEvent", label: "Bought a home" },
   { value: "OneTimeSpendEvent", label: "Made a one-time spend" },
@@ -54,6 +54,7 @@ export function AddEventForm({
   horizonMonths,
   onAdd,
   editing,
+  kind: presetKind,
 }: {
   /**
    * The live run. The home-purchase form asks it for the DTI advisory, and the separation
@@ -75,8 +76,15 @@ export function AddEventForm({
    * pre-filled. Cleared by the parent once the edit commits or is cancelled.
    */
   editing?: EditingEvent;
+  /**
+   * The event type to author, chosen OUTSIDE this form — the life-change chooser picks it, so
+   * the reader has already answered "what happened?" before the form opens. Supplying it hides
+   * the internal picker; leaving it undefined keeps this form self-contained with its own.
+   */
+  kind?: EventKind;
 }) {
-  const [kind, setKind] = useState<EventKind>("LoanEvent");
+  const [ownKind, setOwnKind] = useState<EventKind>("LoanEvent");
+  const kind = presetKind ?? ownKind;
 
   const formProps = { defaultMonth, horizonMonths, onAdd };
 
@@ -109,16 +117,18 @@ export function AddEventForm({
         Each choice records one clear life event. Ongoing numbers (your income,
         expenses) are edited directly under Budget — no event needed.
       </p>
-      <label className="field">
-        <span className="field-label">What happened?</span>
-        <select value={kind} onChange={(e) => setKind(e.target.value as EventKind)}>
-          {EVENT_KINDS.map(({ value, label }) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </label>
+      {presetKind === undefined && (
+        <label className="field">
+          <span className="field-label">What happened?</span>
+          <select value={kind} onChange={(e) => setOwnKind(e.target.value as EventKind)}>
+            {EVENT_KINDS.map(({ value, label }) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
       {kind === "LoanEvent" && <LoanForm {...formProps} />}
       {kind === "HomePurchaseEvent" && (

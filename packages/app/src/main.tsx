@@ -1,133 +1,115 @@
 import { StrictMode, useCallback, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Projection, liabilityKindLabel, planHorizonMonths, SYNTHETIC_CARD_ID } from "@finley/engine";
+import { Projection, planHorizonMonths } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
-import { NetWorthChart } from "./components/netWorthChart/netWorthChart";
+import { AppShell } from "./components/appShell/appShell";
+import { Home } from "./components/home/home";
+import { WorkspacePage } from "./components/workspace/workspacePage";
+import { Drawer, Button, Section, Select, Tabs } from "./components/ds";
+import { SummaryBody } from "./components/drawers/summaryBody";
+import { ChangeChooser } from "./components/drawers/changeChooser";
+import { ImpactPanel } from "./components/drawers/impactPanel";
+import { impactView } from "./impactView";
+import { homeView, abbreviateDollars, currentFlows } from "./homeView";
+import { incomeSummary, spendingSummary, netWorthSummary } from "./summaryView";
+import { accountsView } from "./accountsView";
+import { jobsGanttView } from "./jobsGanttView";
+import { onboardingState, type OnboardingAnswers } from "./onboardingInput";
+import { spendingView } from "./spendingView";
+import { SpendingPhases } from "./components/spendingPhases/spendingPhases";
+import { SnapshotPanel } from "./components/snapshotPanel/snapshotPanel";
+import { Timeline } from "./components/timeline/timeline";
+import { timelineMarkers } from "./ledgerView";
+import { DEFAULT_SCRUB_MONTH } from "./planDefaults";
+import { Onboarding } from "./components/onboarding/onboarding";
+import { JobsGantt } from "./components/jobsGantt/jobsGantt";
+import { AccountsList } from "./components/accountsList/accountsList";
+import { retirementView } from "./retirementView";
+import { useProjection, type Transact } from "./hooks/useProjection";
+import { useNarrow } from "./useNarrow";
+import { START_YEAR } from "./config";
+import { PRESETS, presetById, presetState, type Preset } from "./presets";
+import { AddEventForm, type EventKind } from "./components/addEventForm/addEventForm";
+import { EDITABLE_EVENT_TYPES } from "./components/addEventForm/editEventForm";
+import { JobsPanel } from "./components/jobsPanel/jobsPanel";
+import { BudgetEditor } from "./components/budgetEditor/budgetEditor";
+import { BaseAdjustmentsPanel } from "./components/baseAdjustments/baseAdjustmentsPanel";
+import { StartingPositionPanel } from "./components/startingPositionPanel/startingPositionPanel";
+import { GoalsPanel } from "./components/goalsPanel/goalsPanel";
+import { BlockedWarning } from "./components/blockedWarning/blockedWarning";
+import { blockedWarning } from "./ledgerView";
 import { NetWorthBreakdownChart } from "./components/netWorthChart/netWorthBreakdownChart";
 import { buildNetWorthBreakdown } from "./components/netWorthChart/netWorthBreakdown";
-import { timelineMarkers, blockedWarning } from "./ledgerView";
-import { BlockedWarning } from "./components/blockedWarning/blockedWarning";
-import { monthLabel } from "./format";
-import { AddEventForm } from "./components/addEventForm/addEventForm";
-import { EDITABLE_EVENT_TYPES } from "./components/addEventForm/editEventForm";
-import { Timeline } from "./components/timeline/timeline";
-import { SnapshotPanel } from "./components/snapshotPanel/snapshotPanel";
-import { BudgetEditor } from "./components/budgetEditor/budgetEditor";
-import { GoalsPanel } from "./components/goalsPanel/goalsPanel";
-import { CollapsibleCard } from "./components/collapsibleCard/collapsibleCard";
-import { RetirementPanel } from "./components/retirementPanel/retirementPanel";
 import { DebugPanel } from "./components/debugPanel/debugPanel";
-import { BaseAdjustmentsPanel } from "./components/baseAdjustments/baseAdjustmentsPanel";
-import { JobsPanel } from "./components/jobsPanel/jobsPanel";
-import { retirementView } from "./retirementView";
-import { OBLIGATION_SURFACE_ANCHORS } from "./components/baseAdjustments/obligationLink";
-import { useProjection } from "./hooks/useProjection";
-import { DEFAULT_SCRUB_MONTH } from "./planDefaults";
-import { PRESETS, presetById, presetState, type Preset } from "./presets";
-import { StartingPositionPanel } from "./components/startingPositionPanel/startingPositionPanel";
-import { START_YEAR } from "./config";
-import "./assets/styles/tokens.css";
-import "./assets/styles/globals.css";
+import { liabilityKindLabel, SYNTHETIC_CARD_ID } from "@finley/engine";
+import { RetirementPanel } from "./components/retirementPanel/retirementPanel";
+import "./assets/styles/tailwind.css";
 
 /**
- * The state a fresh session opens on — the first preset's plan with no timeline. Built once
- * at module load, so every render starts from the same immutable {@link ProjectionState}.
+ * The state a fresh session opens on — the first preset's plan with no timeline. Built once at
+ * module load, so every render starts from the same immutable `ProjectionState`.
  */
 const INITIAL_STATE = presetState(PRESETS[0]);
 
+/**
+ * Which screen is showing. The app is a home screen plus four workspaces, and every editor opens
+ * in a drawer OVER whichever of them is current — so this is a single flat value, not a stack.
+ */
+type View = "home" | "jobs" | "spending" | "accounts" | "settings";
+
+/**
+ * What the drawer is showing.
+ *
+ * The three summary drawers are read-only reads off the rail cards. `add` carries the chosen
+ * event kind — `null` while the chooser is still asking — so picking a kind replaces the grid
+ * with that kind's form inside the same drawer, without a second surface opening.
+ */
+type DrawerState =
+  | { readonly kind: "summary"; readonly of: "income" | "spending" | "networth" }
+  | { readonly kind: "add"; readonly chosen: EventKind | null }
+  | { readonly kind: "event"; readonly eventId: string }
+  | null;
+
 export function App() {
+  const narrow = useNarrow();
+  const [view, setView] = useState<View>("home");
+  const [drawer, setDrawer] = useState<DrawerState>(null);
+  const [saved, setSaved] = useState(true);
   const [presetId, setPresetId] = useState(PRESETS[0].id);
-  const [scrubMonth, setScrubMonth] = useState(DEFAULT_SCRUB_MONTH);
-  // Whether the charts show the "if everyone stopped working at the solved age" preview rather
+  // Whether the chart shows the "if everyone stopped working at the solved age" hypothesis rather
   // than the authored plan. A pure view flag — it never touches the state the app authors.
   const [previewRetirement, setPreviewRetirement] = useState(false);
-  // Which timeline event is open for editing, by id — the add-event card reopens pre-filled on
-  // it. Held by id, not by value, so it always resolves against the live ledger and a revision
-  // that moved the event is reflected without re-seeding.
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const { state, conflict, transact, removeEvent, loadState } = useProjection(INITIAL_STATE);
-  const budget = state.scenario.plan;
+  // Whether the jobs gantt labels its axis with calendar years or the owner's ages. A reader
+  // planning a career thinks in ages; one reconciling against a payslip thinks in years.
+  const [ganttLabels, setGanttLabels] = useState<"dates" | "ages">("dates");
+  // Onboarding sits OVER the app rather than replacing it: the reader can cancel back to the
+  // plan they already had. `null` when closed; a string is the last refusal to show on the page.
+  const [onboarding, setOnboarding] = useState<{ readonly error?: string } | null>(null);
+  // Which tab the Spending workspace is on: the budget as it stands, or how it moves over time.
+  const [spendTab, setSpendTab] = useState<"budget" | "time">("budget");
+  // The month the point-in-time section is showing. A pure view cursor — it touches no state, so
+  // scrubbing re-renders without re-projecting.
+  const [scrubMonth, setScrubMonth] = useState(DEFAULT_SCRUB_MONTH);
+  const { state, conflict, transact, loadState } = useProjection(INITIAL_STATE);
+
+  const plan = state.scenario.plan;
   const ledger = state.scenario.ledger;
 
-  // Load a starter simulation wholesale: plan AND seed timeline together, floored on the way
-  // in by the facade. The scrub cursor snaps back to "now", the preview drops back to the
-  // authored view — a fresh scenario is shown as authored, not through the last one's hypothesis
-  // — and any open edit is abandoned, since its event belongs to the timeline being replaced.
-  function loadPreset(preset: Preset) {
-    setPresetId(preset.id);
-    loadState(presetState(preset));
-    setScrubMonth(DEFAULT_SCRUB_MONTH);
-    setPreviewRetirement(false);
-    setEditingId(null);
-  }
-
-  // Commit an event revision, then close the edit surface. Only on success — a refused revision
-  // (returns `undefined`) leaves the surface open with the conflict shown, so the user's in-flight
-  // edits survive. The sentinel disambiguates success from a write that returns nothing of its own.
-  const reviseEvent = useCallback(
-    (write: (p: Projection) => void): void => {
-      const ok =
-        transact((p) => {
-          write(p);
-          return true as const;
-        }) === true;
-      if (ok) setEditingId(null);
-    },
-    [transact],
-  );
-
-  // One handle over the current state answers every read: the graph, snapshot roster, and debug
-  // report come off a single `run`, and the funding picker off the same handle's `funding` — so
-  // the picker shows the numbers the §4.5 gate will decide on. Keyed on `state`, so scrubbing
-  // (which touches no state) recomputes nothing.
+  // One handle over the current state answers every read, so no two surfaces can disagree about
+  // the same number. Keyed on `state`: navigating between views recomputes nothing.
   const projection = useMemo(() => Projection.fromState(state, usJurisdiction), [state]);
   const result = useMemo(() => projection.run(usJurisdiction), [projection]);
-  const funding = useMemo(() => projection.funding(), [projection]);
-  // The add/edit form's own picker: while an event is open for editing, exclude ITS OWN draw
-  // from the pool — otherwise a One-Time Spend (or a down payment) being edited would see its
-  // own prior amount as already spent, understating what's available to fund the very edit in
-  // progress. Kept separate from `funding` above (which the blocked-projection warning reads)
-  // so an in-progress edit never changes what that unrelated banner reports.
-  const formFunding = useMemo(
-    () => projection.funding(editingId ?? undefined),
-    [projection, editingId],
-  );
-  const { series, household, report } = result;
-
-  // Who's in the household, by id — so a chart can name whose income a band is when the
-  // label alone can't (two members' government benefits).
-  const personNames = useMemo(
-    () => new Map(household.memberships.map((m) => [m.person.id, m.person.name])),
-    [household],
-  );
-  // Markers carry per-event outcomes off the AUTHORED run, not the retirement preview: the timeline
-  // is an authoring surface, so a blocked/not-reached indicator must reflect the plan as written.
-  const markers = useMemo(() => timelineMarkers(ledger, series), [ledger, series]);
-  // The blocked-projection soft warning, off the AUTHORED run for the same reason the markers are:
-  // it names the plan as written, never the retirement preview. `null` until something stops, so
-  // its mere presence IS the condition holding — persistence and clearing fall out of the render.
-  const blocked = useMemo(() => blockedWarning(ledger, series, funding), [ledger, series, funding]);
-  // The event the edit surface is bound to, resolved live. Null when nothing is being edited or
-  // when the target was removed out from under an open edit — either way the add form is shown.
-  const editingEvent = useMemo(
-    () => (editingId === null ? null : ledger.events.find((e) => e.id === editingId) ?? null),
-    [ledger, editingId],
-  );
-  const insolventMonth = result.firstInsolventMonth;
-  // The retirement panel reasons about the SAME scenario the graph draws — plan plus the
-  // live ledger — so "when can we retire?" reflects every event the user added (a child, a
-  // new expense, a separation), not the bare plan.
-  const retirement = useMemo(
-    () => retirementView(projection, usJurisdiction),
-    [projection],
+  const retirement = useMemo(() => retirementView(projection, usJurisdiction), [projection]);
+  const home = useMemo(
+    () => homeView(plan, ledger, result, retirement),
+    [plan, ledger, result, retirement],
   );
 
-  // The "what if everyone stopped working at the solved age" run — the same non-mutating
-  // stop-working boundary the solver searched with, surfaced instead of discarded. Computed
-  // only when the toggle is actually on AND a feasible headline age exists — an ordinary plan
-  // edit re-renders this memo on every keystroke, and the preview toggle is off far more often
-  // than it's on, so gating on `previewRetirement` keeps an unused extra projection from
-  // running on every edit. Turning the toggle ON is what should pay for the simulation.
+  // The "what if everyone stopped working at the solved age" run — the same non-mutating boundary
+  // the solver searched with, surfaced instead of discarded. Computed only when the toggle is
+  // actually on AND a feasible age exists: an ordinary plan edit re-runs this memo on every
+  // committed keystroke, and the toggle is off far more often than on, so gating keeps an unused
+  // extra projection off the edit path. Turning it ON is what should pay for the simulation.
   const previewResult = useMemo(
     () =>
       previewRetirement && retirement.headlineAge !== null
@@ -135,203 +117,475 @@ export function App() {
         : null,
     [projection, previewRetirement, retirement.headlineAge],
   );
-  // `previewResult` is already gated on `previewRetirement` above, so this collapses to a
-  // simple null check — a stale toggle with no feasible age still reports itself off.
-  const previewing = previewResult !== null;
-  // The series the charts draw — the preview when previewing, the authored run otherwise. The
-  // guard narrows `previewResult` here; only the CHARTS swap, every authoring/editing surface
-  // below stays on the authored `result`.
-  const chartSeries = previewResult ? previewResult.series : series;
 
-  // Chart, timeline, and event picker all span "now" → life expectancy.
-  const horizonMonths = planHorizonMonths(budget, START_YEAR);
+  // The add/edit form's own funding pool excludes the draw of whatever is being edited —
+  // otherwise a spend being revised would see its own prior amount as already spent,
+  // understating what is available to fund the very edit in progress.
+  const editingId = drawer?.kind === "event" ? drawer.eventId : undefined;
+  const funding = useMemo(() => projection.funding(editingId), [projection, editingId]);
 
-  // The net-worth *breakdown* chart's data. Names/order come through supported engine seams
-  // — account descriptors and the household's liabilities, labelled by kind — never the
-  // SimAccount class, so presentation stays off the sim-construction path.
+  const horizonMonths = planHorizonMonths(plan, START_YEAR);
+  const currentAge = START_YEAR - plan.primary.birthYear;
+
+  const goHome = useCallback(() => {
+    setView("home");
+    setDrawer(null);
+  }, []);
+
+  // Load a starter scenario wholesale: plan AND seed timeline together, floored on the way in by
+  // the facade. Any open drawer is abandoned, since whatever it was editing belongs to the
+  // timeline being replaced.
+  const loadPreset = useCallback(
+    (preset: Preset) => {
+      setPresetId(preset.id);
+      loadState(presetState(preset));
+      setDrawer(null);
+      setSaved(false);
+    },
+    [loadState],
+  );
+
+  // Build the five answers into a whole scenario, replacing the current plan. A refusal keeps
+  // onboarding open with the engine's own reason — the reader is standing on the fields that
+  // caused it, so that is where it belongs.
+  const finishOnboarding = useCallback(
+    (answers: OnboardingAnswers) => {
+      const built = onboardingState(answers);
+      if (!built.ok) {
+        setOnboarding({ error: built.reason });
+        return;
+      }
+      loadState(built.state);
+      setOnboarding(null);
+      setView("home");
+      setDrawer(null);
+      setSaved(false);
+    },
+    [loadState],
+  );
+
+  const goTo = useCallback((next: View) => {
+    setView(next);
+    setDrawer(null);
+  }, []);
+
+  // Any write leaves the plan unsaved. Threaded through one wrapper rather than set at each call
+  // site so a new authoring surface cannot forget to mark the plan dirty.
+  const write = useCallback<Transact>(
+    (fn) => {
+      const outcome = transact(fn);
+      setSaved(false);
+      return outcome;
+    },
+    [transact],
+  );
+
+  const editingEvent = useMemo(
+    () =>
+      drawer?.kind === "event"
+        ? (ledger.events.find((e) => e.id === drawer.eventId) ?? null)
+        : null,
+    [drawer, ledger],
+  );
+
+  // A second solve, so it is computed only while an event's editor is actually open. `null` when
+  // the counterfactual cannot be formed — a later event depends on this one, so "the plan without
+  // it" is not a plan to compare against.
+  const impact = useMemo(
+    () =>
+      drawer?.kind === "event" ? impactView(state, usJurisdiction, drawer.eventId) : null,
+    [drawer, state],
+  );
+
+  const summary = useMemo(() => {
+    if (drawer?.kind !== "summary") return null;
+    if (drawer.of === "income") return incomeSummary(result.household, projection, result);
+    if (drawer.of === "spending") return spendingSummary(projection, result);
+    return netWorthSummary(projection, result.household, result);
+  }, [drawer, projection, result]);
+
+  const gantt = useMemo(
+    () => jobsGanttView(result.household, projection, ganttLabels),
+    [result.household, projection, ganttLabels],
+  );
+
+  // The blocked-projection soft warning, off the AUTHORED run: it names the plan as written,
+  // never the retirement preview. `null` until something stops, so its mere presence IS the
+  // condition holding — persistence and clearing fall out of the render.
+  const blocked = useMemo(
+    () => blockedWarning(ledger, result.series, funding),
+    [ledger, result.series, funding],
+  );
+
+  // Names and order come through supported engine seams — account descriptors and the
+  // household's liabilities, labelled by kind — never the SimAccount class, so presentation
+  // stays off the sim-construction path.
   const breakdown = useMemo(() => {
-    // The engine's synthetic last-resort borrowing is a revolving credit card in the model,
-    // so it charts as "Credit card" debt below zero: a plan living on borrowed money (or one
+    // The engine's synthetic last-resort borrowing is a revolving credit card in the model, so
+    // it charts as "Credit card" debt below zero: a plan living on borrowed money (or one
     // running dry in late retirement) shows that debt rather than the composition stopping.
     const liabilityLabels: Record<string, string> = {
       [SYNTHETIC_CARD_ID]: liabilityKindLabel("creditCard"),
     };
-    for (const liability of household.liabilities) {
+    for (const liability of result.household.liabilities) {
       liabilityLabels[liability.id] = liabilityKindLabel(liability.kind);
     }
     return buildNetWorthBreakdown(
-      chartSeries,
+      result.series,
       { accounts: projection.accountDescriptors(), liabilityLabels },
-      // The plan's own span, so this chart ends at the same year as the total above it.
       horizonMonths,
     );
-  }, [chartSeries, projection, household, horizonMonths]);
+  }, [result, projection, horizonMonths]);
+
+  const spending = useMemo(
+    () => spendingView(plan, ledger, result, retirement.headlineMonth),
+    [plan, ledger, result, retirement.headlineMonth],
+  );
+
+  // Markers carry per-event outcomes off the AUTHORED run, not the retirement preview: the
+  // timeline is an authoring surface, so a blocked/not-reached indicator must reflect the plan
+  // as written.
+  const markers = useMemo(() => timelineMarkers(ledger, result.series), [ledger, result.series]);
+
+  const accounts = useMemo(
+    () => accountsView(projection, result.household, result),
+    [projection, result],
+  );
 
   return (
-    <>
-      <h1>Your financial life</h1>
-      <p className="sub">
-        {budget.primary.name || "You"} · outlook to age {budget.primary.lifeExpectancy} · jurisdiction:{" "}
-        {usJurisdiction.id}
-      </p>
+    <AppShell
+      narrow={narrow}
+      saveHint={saved ? "All changes saved" : "Unsaved changes"}
+      onSave={() => setSaved(true)}
+      onHome={goHome}
+      onSettings={() => goTo("settings")}
+    >
+      {view === "home" ? (
+        <Home
+          view={home}
+          series={previewResult ? previewResult.series : result.series}
+          baselineSeries={previewResult ? result.series : undefined}
+          retirementMonth={retirement.headlineMonth}
+          horizonMonths={horizonMonths}
+          currentAge={currentAge}
+          narrow={narrow}
+          onOpenCard={(of) => setDrawer({ kind: "summary", of })}
+          onAddChange={() => setDrawer({ kind: "add", chosen: null })}
+          onEditChange={(eventId) => setDrawer({ kind: "event", eventId })}
+          blocked={blocked ? <BlockedWarning warning={blocked} /> : null}
+        />
+      ) : null}
 
-      <label className="field preset-picker">
-        <span className="field-label">Start from a scenario</span>
-        <select
-          value={presetId}
-          onChange={(e) => loadPreset(presetById(e.target.value))}
+      {view === "jobs" ? (
+        <WorkspacePage
+          title="Jobs & income"
+          sub="Manage your jobs and see how your income changes over time."
+          onBack={goHome}
+          narrow={narrow}
+          summary={[
+            {
+              label: "Household income",
+              value: abbreviateDollars((currentFlows(result.series)?.totalIncomeCents ?? 0) * 12),
+              sub: "per year, before tax",
+            },
+          ]}
         >
-          {PRESETS.map((preset) => (
-            <option key={preset.id} value={preset.id}>
-              {preset.label}
-            </option>
-          ))}
-        </select>
-        <span className="preset-desc">{presetById(presetId).description}</span>
-      </label>
-
-      <div className="layout">
-        <div className="main-col">
-          <div className="card">
-            {/* The plan's own span, so the axis reaches life expectancy even when the projection
-                stopped early — a blocked series is truncated at the block. */}
-            <NetWorthChart
-              series={chartSeries}
-              retirementMonth={retirement.headlineMonth}
-              horizonMonths={horizonMonths}
-            />
-
-            {/* Deep-link target for a read-only obligation whose fact lives on the timeline —
-                an event-spawned expense or a loan payment (see Base + Adjustments). */}
-            <div id={OBLIGATION_SURFACE_ANCHORS.timeline}>
-              <Timeline
-                markers={markers}
-                scrubMonth={scrubMonth}
-                horizonMonths={horizonMonths}
-                editableTypes={EDITABLE_EVENT_TYPES}
-                onScrub={setScrubMonth}
-                onEdit={setEditingId}
-                onRemove={removeEvent}
+          <Section
+            title="Jobs over time"
+            note="Every job in the household on one calendar — overlaps, gaps, and pay."
+            aside={
+              <Tabs
+                label="Label the axis by"
+                tabs={[
+                  { value: "dates" as const, label: "Dates" },
+                  { value: "ages" as const, label: "Ages" },
+                ]}
+                value={ganttLabels}
+                onChange={setGanttLabels}
               />
-            </div>
+            }
+          >
+            <JobsGantt view={gantt} />
+          </Section>
 
-            {conflict && (
-              <div className="alert alert-red">Can’t do that yet: {conflict}</div>
-            )}
-            {insolventMonth !== null && (
-              <div className="alert alert-red">
-                Plan becomes unfinanceable at {monthLabel(insolventMonth)}. Credit
-                is exhausted — structural changes required.
-              </div>
-            )}
-            {blocked ? <BlockedWarning warning={blocked} /> : null}
-
-            <p className="disclaimer">
-              Estimates include federal income tax for a single filer only — no state
-              or payroll tax. Not a licensed financial advisor. Jurisdiction:{" "}
-              {usJurisdiction.id}.
-            </p>
-
-            {report.assumptions.length > 0 && (
-              <details className="assumptions">
-                <summary>Assumptions &amp; simplifications</summary>
-                <ul>
-                  {report.assumptions.map((a) => (
-                    <li key={a.id}>{a.text}</li>
-                  ))}
-                </ul>
-              </details>
-            )}
-          </div>
-
-          <div className="card">
-            <SnapshotPanel ledger={ledger} result={result} month={scrubMonth} />
-          </div>
-        </div>
-
-        <div className="side-col">
-          <div className="card">
-            <AddEventForm
-              result={result}
-              funding={formFunding}
-              defaultMonth={Math.floor(scrubMonth / 12) * 12}
-              horizonMonths={horizonMonths}
-              onAdd={transact}
-              editing={
-                editingEvent
-                  ? { event: editingEvent, onRevise: reviseEvent, onCancel: () => setEditingId(null) }
-                  : undefined
-              }
-            />
-          </div>
-
-          <div className="card">
-            <StartingPositionPanel onAdd={transact} />
-          </div>
-
-          {/* Standing settings rather than a live readout: both start collapsed, so the
-              panels that answer "what is happening" keep the column. */}
-          <CollapsibleCard title="Budget & accounts" className="inputs">
-            <BudgetEditor budget={budget} transact={transact} />
-          </CollapsibleCard>
-
-          <CollapsibleCard title="Goals">
-            <GoalsPanel
-              budget={budget}
-              result={result}
+          <Section title="Jobs" note="Click a job to edit pay, dates, or raises.">
+            <JobsPanel
+              budget={plan}
+              transact={write}
+              household={result.household}
+              ledger={ledger}
               projection={projection}
-              transact={transact}
+              payDisplay={result.jobPayDisplay}
             />
-          </CollapsibleCard>
+          </Section>
+        </WorkspacePage>
+      ) : null}
 
-          <div className="card">
+      {view === "spending" ? (
+        <WorkspacePage
+          title="Spending"
+          sub="Household spending, today and over your lifetime."
+          onBack={goHome}
+          narrow={narrow}
+          summary={spending.tiles}
+          tabs={{
+            items: [
+              { value: "budget" as const, label: "Budget today" },
+              { value: "time" as const, label: "Spending over time" },
+            ],
+            value: spendTab,
+            onChange: setSpendTab,
+          }}
+        >
+          {spendTab === "time" ? (
+            <Section
+              title="How spending changes"
+              note="What the household spends now, and at each change still ahead."
+            >
+              <SpendingPhases phases={spending.phases} />
+            </Section>
+          ) : null}
+
+          <Section
+            title="Spending over time"
+            note="Everything you spend each month, including debt payments, in today’s dollars."
+          >
+            <BaseAdjustmentsPanel
+              plan={plan}
+              transact={write}
+              series={result.series}
+              personNames={
+                new Map(result.household.memberships.map((m) => [m.person.id, m.person.name]))
+              }
+              household={result.household}
+              ledger={ledger}
+              projection={projection}
+            />
+          </Section>
+        </WorkspacePage>
+      ) : null}
+
+      {view === "accounts" ? (
+        <WorkspacePage
+          title="Accounts"
+          sub="What you own, what you owe, and how that creates your net worth."
+          onBack={goHome}
+          narrow={narrow}
+          summary={[
+            { label: "Net worth", value: accounts.netWorth, sub: "today" },
+            { label: "Assets", value: accounts.assets, sub: "cash, investments, property" },
+            { label: "Debt", value: accounts.debt, sub: "mortgage and loans" },
+          ]}
+        >
+          <Section title="Accounts" note="What you own and what you owe, as of today.">
+            <AccountsList view={accounts} />
+          </Section>
+          <Section
+            title="Add what you already have"
+            note="A home, a loan, or a partner you started with — recorded as day-one facts."
+          >
+            <StartingPositionPanel onAdd={write} />
+          </Section>
+          <Section
+            title="What net worth is made of"
+            note="How cash, investments, property and debt compose the total over time."
+          >
+            <NetWorthBreakdownChart data={breakdown} />
+          </Section>
+          <Section
+            title="At a point in time"
+            note="Drag through the plan to see the household’s balances and flows at any month."
+          >
+            <Timeline
+              markers={markers}
+              scrubMonth={scrubMonth}
+              horizonMonths={horizonMonths}
+              editableTypes={EDITABLE_EVENT_TYPES}
+              onScrub={setScrubMonth}
+              onEdit={(eventId) => setDrawer({ kind: "event", eventId })}
+              onRemove={(id) => {
+                write((p) => {
+                  p.removeTransaction(id);
+                  return true as const;
+                });
+              }}
+            />
+            <SnapshotPanel ledger={ledger} result={result} month={scrubMonth} />
+          </Section>
+          <Section title="Goals" note="What you are saving towards, and in what order.">
+            <GoalsPanel budget={plan} result={result} projection={projection} transact={write} />
+          </Section>
+        </WorkspacePage>
+      ) : null}
+
+      {view === "settings" ? (
+        <WorkspacePage
+          title="Plan settings"
+          sub="Adjust the assumptions we use to project your future."
+          onBack={goHome}
+          narrow={narrow}
+        >
+          <Section
+            title="Household & market"
+            note="Who this plan is for, and the long-run averages behind it."
+          >
+            <BudgetEditor budget={plan} transact={write} />
+          </Section>
+          <Section title="Retirement & work" note="How we decide when you can stop.">
             <RetirementPanel
               view={retirement}
-              budget={budget}
-              previewing={previewing}
+              budget={plan}
+              previewing={previewResult !== null}
               onTogglePreview={setPreviewRetirement}
             />
-          </div>
-        </div>
-      </div>
+          </Section>
+          <Section
+            title="Model details"
+            note="What the engine assumed, and the figures it started from."
+          >
+            {/* A plan with no months is rejected at authoring time, so `months[0]` is present. */}
+            <DebugPanel
+              report={result.report}
+              budget={plan}
+              month0={result.series.months[0]!}
+            />
+          </Section>
+          <Section
+            title="Start over"
+            note="Replace this plan with a starter scenario — plan and timeline together."
+          >
+            <div className="mb-4">
+              <Button variant="secondary" size="md" onClick={() => setOnboarding({})}>
+                Build a new plan
+              </Button>
+            </div>
+            <Select
+              label="Start from a scenario"
+              hint={presetById(presetId).description}
+              options={PRESETS.map((p) => ({ value: p.id, label: p.label }))}
+              value={presetId}
+              onChange={(e) => loadPreset(presetById(e.target.value))}
+            />
+          </Section>
+        </WorkspacePage>
+      ) : null}
 
-      <div className="card">
-        <JobsPanel
-          budget={budget}
-          transact={transact}
-          household={household}
-          ledger={ledger}
-          projection={projection}
-          payDisplay={(previewResult ?? result).jobPayDisplay}
+      {onboarding ? (
+        <Onboarding
+          error={onboarding.error}
+          onFinish={finishOnboarding}
+          onCancel={() => setOnboarding(null)}
         />
-      </div>
+      ) : null}
 
-      <div className="card">
-        {/* Charts the SAME series the net-worth graph draws — plan plus the live timeline
-            — so its spending need counts loan payments and every other event, not just the
-            standing budget. Everything rides on that one series (the engine itemizes the
-            spending), so there is nothing else to pass. */}
-        <BaseAdjustmentsPanel
-          plan={budget}
-          transact={transact}
-          series={chartSeries}
-          personNames={personNames}
-          household={household}
-          ledger={ledger}
-          projection={projection}
-        />
-      </div>
+      {drawer ? (
+        <Drawer
+          narrow={narrow}
+          title={
+            drawer.kind === "summary"
+              ? (summary?.title ?? "Details")
+              : drawer.kind === "add"
+                ? "What do you want to change?"
+                : "Edit this change"
+          }
+          sub={
+            drawer.kind === "summary"
+              ? summary?.sub
+              : drawer.kind === "add" && drawer.chosen === null
+                ? "Pick a life change to add to your plan"
+                : undefined
+          }
+          onClose={() => setDrawer(null)}
+          footer={
+            editingEvent ? (
+              <>
+                <Button
+                  variant="ghost"
+                  size="md"
+                  iconLeft="trash-2"
+                  onClick={() => {
+                    // Only close on success. A removal the facade refuses (it would orphan a
+                    // later event that depends on this one) leaves the drawer open with the
+                    // conflict shown — closing it would discard the only explanation the
+                    // reader gets. The sentinel distinguishes success from a write that
+                    // returns nothing of its own.
+                    const removed =
+                      write((p) => {
+                        p.removeTransaction(editingEvent.id);
+                        return true as const;
+                      }) === true;
+                    if (removed) setDrawer(null);
+                  }}
+                >
+                  Delete
+                </Button>
+                <div className="flex-1" />
+                <Button variant="ghost" size="md" onClick={() => setDrawer(null)}>
+                  Cancel
+                </Button>
+              </>
+            ) : undefined
+          }
+        >
+          {conflict ? (
+            <div className="rounded-card border border-berry-500 bg-berry-100 px-4 py-3 text-[13.5px] text-berry-600">
+              Can’t do that yet: {conflict}
+            </div>
+          ) : null}
 
-      <div className="card">
-        {/* A plan with no months is rejected at authoring time (`invalidAge`), so `months[0]`
-            is always present here. */}
-        <DebugPanel report={report} budget={budget} month0={series.months[0]!} />
-      </div>
+          {drawer.kind === "summary" && summary ? (
+            <SummaryBody view={summary} onFollowCta={() => goTo(summary.cta.view)} />
+          ) : null}
 
-      <div className="card">
-        <NetWorthBreakdownChart data={breakdown} />
-      </div>
-    </>
+          {drawer.kind === "add" && drawer.chosen === null ? (
+            <ChangeChooser onChoose={(chosen) => setDrawer({ kind: "add", chosen })} />
+          ) : null}
+
+          {drawer.kind === "add" && drawer.chosen !== null ? (
+            <AddEventForm
+              kind={drawer.chosen}
+              result={result}
+              funding={funding}
+              defaultMonth={0}
+              horizonMonths={horizonMonths}
+              onAdd={(w) => {
+                write((p) => w(p));
+                setDrawer(null);
+              }}
+            />
+          ) : null}
+
+          {editingEvent && EDITABLE_EVENT_TYPES.has(editingEvent.type) ? (
+            <AddEventForm
+              result={result}
+              funding={funding}
+              defaultMonth={0}
+              horizonMonths={horizonMonths}
+              onAdd={write}
+              editing={{
+                event: editingEvent,
+                onRevise: (w) => {
+                  write((p) => {
+                    w(p);
+                    return true as const;
+                  });
+                  setDrawer(null);
+                },
+                onCancel: () => setDrawer(null),
+              }}
+            />
+          ) : null}
+
+          {editingEvent && impact ? <ImpactPanel view={impact} /> : null}
+
+          {editingEvent && !EDITABLE_EVENT_TYPES.has(editingEvent.type) ? (
+            <p className="text-[14px] text-muted">
+              This change can’t be edited in place yet — remove it and add it again to change it.
+            </p>
+          ) : null}
+        </Drawer>
+      ) : null}
+    </AppShell>
   );
 }
 

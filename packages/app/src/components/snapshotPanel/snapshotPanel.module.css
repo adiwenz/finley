@@ -19,11 +19,11 @@
   display: flex;
   justify-content: space-between;
   padding: 3px 0;
-  border-bottom: 1px solid var(--color-surface-sunken);
+  border-bottom: 1px solid var(--surface-sunken);
 }
 
 .snapList li.owed span:last-child {
-  color: var(--color-danger);
+  color: var(--state-danger);
 }
 
 .tag {
@@ -36,22 +36,22 @@
 }
 
 .tag.stock {
-  background: #e3ece6;
-  color: #2e5943;
+  background: var(--state-success-soft);
+  color: var(--leaf-900);
 }
 
 .tag.flow {
-  background: #f3e7d6;
-  color: #8a5a12;
+  background: var(--state-warning-soft);
+  color: var(--bark-800);
 }
 
 .snapNote {
   font-size: 12px;
-  color: var(--color-text-muted);
+  color: var(--ink-600);
   margin: var(--space-2) 0 0;
 }
 
 .snapNote.futureNote {
-  color: var(--color-text-faint);
+  color: var(--text-muted);
   font-style: italic;
 }

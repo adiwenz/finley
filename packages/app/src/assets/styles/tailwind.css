@@ -1,0 +1,598 @@
+/**
+ * The app's single stylesheet entry: Tailwind, the design tokens, and the element resets the
+ * design system's `base.css` defines.
+ *
+ * `@theme inline` re-exports the tokens rather than restating them — every value here is a
+ * `var(--…)` pointing at `tokens.css`, so `bg-surface-card` and `var(--surface-card)` cannot
+ * drift apart. `inline` (not plain `@theme`) is what keeps the generated utilities referencing
+ * the original variable instead of snapshotting its value at build time.
+ */
+
+/* Webfonts from Google Fonts. No brand binaries were supplied — these are the design system's
+   own substitutions, and swapping them is a change to this @import plus the font tokens.
+   First, because a bare `@import url(…)` must precede every rule the bundle emits, and the two
+   imports below inline rules at their own position. */
+@import url("https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
+@import "tailwindcss";
+@import "./tokens.css";
+
+@theme inline {
+  --font-display: var(--font-display);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  --color-leaf-900: var(--leaf-900);
+  --color-leaf-800: var(--leaf-800);
+  --color-leaf-700: var(--leaf-700);
+  --color-leaf-600: var(--leaf-600);
+  --color-leaf-500: var(--leaf-500);
+  --color-leaf-300: var(--leaf-300);
+  --color-leaf-100: var(--leaf-100);
+  --color-sprout-600: var(--sprout-600);
+  --color-sprout-500: var(--sprout-500);
+  --color-sprout-400: var(--sprout-400);
+  --color-sprout-200: var(--sprout-200);
+  --color-bark-800: var(--bark-800);
+  --color-bark-700: var(--bark-700);
+  --color-bark-600: var(--bark-600);
+  --color-bark-500: var(--bark-500);
+  --color-bark-200: var(--bark-200);
+  --color-soil-900: var(--soil-900);
+  --color-cream-50: var(--cream-50);
+  --color-cream-100: var(--cream-100);
+  --color-cream-200: var(--cream-200);
+  --color-cream-300: var(--cream-300);
+  --color-ink-900: var(--ink-900);
+  --color-ink-700: var(--ink-700);
+  --color-ink-600: var(--ink-600);
+  --color-ink-400: var(--ink-400);
+  --color-ink-200: var(--ink-200);
+  --color-ink-100: var(--ink-100);
+  --color-sky-600: var(--sky-600);
+  --color-sky-500: var(--sky-500);
+  --color-sky-100: var(--sky-100);
+  --color-sun-500: var(--sun-500);
+  --color-sun-100: var(--sun-100);
+  --color-berry-600: var(--berry-600);
+  --color-berry-500: var(--berry-500);
+  --color-berry-100: var(--berry-100);
+
+  --color-heading: var(--text-heading);
+  --color-body: var(--text-body);
+  --color-muted: var(--text-muted);
+  --color-inverse: var(--text-inverse);
+  --color-link: var(--text-link);
+  --color-on-brand: var(--text-on-brand);
+
+  --color-surface-page: var(--surface-page);
+  --color-surface-card: var(--surface-card);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-warm: var(--surface-warm);
+  --color-surface-brand: var(--surface-brand);
+  --color-surface-brand-soft: var(--surface-brand-soft);
+  --color-surface-accent-soft: var(--surface-accent-soft);
+
+  --color-border-subtle: var(--border-subtle);
+  --color-border-default: var(--border-default);
+  --color-border-strong: var(--border-strong);
+  --color-border-focus: var(--border-focus);
+
+  --color-state-info: var(--state-info);
+  --color-state-info-soft: var(--state-info-soft);
+  --color-state-success: var(--state-success);
+  --color-state-success-soft: var(--state-success-soft);
+  --color-state-warning: var(--state-warning);
+  --color-state-warning-soft: var(--state-warning-soft);
+  --color-state-danger: var(--state-danger);
+  --color-state-danger-soft: var(--state-danger-soft);
+
+  --radius-xs: var(--radius-xs);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-2xl: var(--radius-2xl);
+  --radius-pill: var(--radius-pill);
+  --radius-input: var(--radius-input);
+  --radius-card: var(--radius-card);
+  --radius-panel: var(--radius-panel);
+
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-card: var(--shadow-card);
+
+  --ease-standard: var(--ease-standard);
+  --ease-out-soft: var(--ease-out-soft);
+  --ease-grow: var(--ease-grow);
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    margin: 0;
+    background: var(--surface-page);
+    color: var(--text-body);
+    font: var(--type-body);
+    text-wrap: pretty;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    color: var(--text-heading);
+    letter-spacing: var(--tracking-tight);
+    margin: 0;
+  }
+
+  h1 {
+    font-size: var(--text-h1);
+    line-height: var(--leading-tight);
+    font-weight: var(--weight-bold);
+  }
+
+  h2 {
+    font-size: var(--text-h2);
+    line-height: var(--leading-snug);
+    font-weight: var(--weight-bold);
+  }
+
+  h3 {
+    font-size: var(--text-h3);
+    line-height: var(--leading-snug);
+    font-weight: var(--weight-semibold);
+  }
+
+  h4 {
+    font-size: var(--text-h4);
+    line-height: var(--leading-snug);
+    font-weight: var(--weight-semibold);
+  }
+
+  p {
+    margin: 0;
+  }
+
+  a {
+    color: var(--text-link);
+    text-decoration: none;
+    transition: color var(--duration-fast) var(--ease-standard);
+  }
+
+  a:hover {
+    color: var(--text-link-hover);
+  }
+
+  ::selection {
+    background: var(--sprout-200);
+    color: var(--leaf-900);
+  }
+
+  /* Focus is always visible and never removed — the ring is the system's one non-negotiable state. */
+  :focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--ink-100);
+    border-radius: var(--radius-pill);
+  }
+}
+
+/**
+ * The shared control vocabulary the authoring panels are written against — `.field`, `.btn`,
+ * `.hint`, `.alert` and friends.
+ *
+ * These are class names rather than utilities on each element because ~40 panel components name
+ * them, and several are structural hooks (a test finds a control by `.closest(".field")`).
+ * Restating 150 call sites as utility strings would be the same styling written 150 times, and
+ * one of them would drift. They live here, in Tailwind's component layer, built from the same
+ * tokens the utilities are — so a panel styled this way and a screen styled with utilities
+ * cannot disagree about what "an input" looks like.
+ *
+ * Every value below is a design-system token. Nothing here sets a raw colour or radius.
+ */
+@layer components {
+  .layout {
+    display: grid;
+    gap: var(--space-5);
+    align-items: start;
+  }
+
+  .inputs {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .card {
+    background: var(--surface-card);
+    border: var(--border-width) solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    padding: var(--gutter-card);
+    box-shadow: var(--shadow-card);
+  }
+
+  .hint {
+    font-size: var(--text-caption);
+    line-height: var(--leading-normal);
+    color: var(--text-muted);
+    margin: 2px 0 var(--space-2);
+  }
+
+  /* A hint that has become an error still occupies the hint's slot — errors replace guidance
+     rather than stacking under it, so the form never grows a line mid-edit. */
+  .hint.warn {
+    color: var(--state-danger);
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .field-label {
+    font: var(--type-label);
+    color: var(--ink-900);
+  }
+
+  .text-input,
+  select,
+  .name-field input,
+  .field-input-wrap {
+    border: var(--border-width) solid var(--border-default);
+    border-radius: var(--radius-input);
+    padding: 9px var(--space-3);
+    font-family: var(--font-sans);
+    font-size: var(--text-body-sm);
+    color: var(--ink-900);
+    background: var(--surface-card);
+    width: 100%;
+    transition:
+      border-color var(--duration-fast) var(--ease-standard),
+      box-shadow var(--duration-fast) var(--ease-standard);
+  }
+
+  .text-input:focus,
+  select:focus,
+  .name-field input:focus {
+    outline: none;
+    border-color: var(--border-focus);
+    box-shadow: var(--focus-ring);
+  }
+
+  /* An input with a unit or currency glued to it. The wrapper carries the border, so the two
+     halves read as one control and the focus ring surrounds both. */
+  .field-input-wrap {
+    display: flex;
+    align-items: center;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .field-input-wrap:focus-within {
+    border-color: var(--border-focus);
+    box-shadow: var(--focus-ring);
+  }
+
+  .field-affix {
+    padding: 0 var(--space-3);
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    color: var(--text-muted);
+    background: var(--surface-sunken);
+    border-right: var(--border-width) solid var(--border-default);
+  }
+
+  .field-input-wrap input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    outline: none;
+    padding: 9px var(--space-3);
+    font-family: var(--font-mono);
+    font-size: var(--text-body-sm);
+    color: var(--ink-900);
+    background: transparent;
+  }
+
+  /* A checkbox and its label on one row, top-aligned so a wrapped label keeps the box beside
+     its first line rather than centred against the block. */
+  .preview-toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    font-size: var(--text-body-sm);
+    color: var(--text-body);
+    margin: var(--space-1) 0 var(--space-2);
+    cursor: pointer;
+  }
+
+  .preview-toggle input {
+    margin-top: 3px;
+    accent-color: var(--leaf-600);
+  }
+
+  .divider {
+    border: none;
+    border-top: var(--border-width) solid var(--border-subtle);
+    margin: var(--space-3) 0;
+  }
+
+  /* Alerts. Amber is advisory, brick is a hard block — and money is never coloured
+     red-for-bad on its own; only a genuine refusal earns the danger tone. */
+  .alert {
+    margin-top: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-card);
+    font-size: var(--text-body-sm);
+    line-height: var(--leading-normal);
+  }
+
+  .alert-red {
+    background: var(--state-danger-soft);
+    border: var(--border-width) solid var(--state-danger);
+    color: var(--berry-600);
+  }
+
+  .alert-amber {
+    background: var(--state-warning-soft);
+    border: var(--border-width) solid var(--state-warning);
+    color: var(--bark-800);
+  }
+
+  /* The goal-deletion refusal is a heading plus one `\n`-joined line per blocking event;
+     preserve those newlines so the list reads as a list. */
+  .alert-list {
+    white-space: pre-line;
+  }
+
+  .budget-member,
+  .budget-shared {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .budget-shared h3 {
+    margin: var(--space-2) 0 0;
+  }
+
+  /* Progressive disclosure — advanced knobs behind the plain number. */
+  .advanced {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .advanced > summary {
+    cursor: pointer;
+    font-size: var(--text-caption);
+    font-weight: var(--weight-semibold);
+    color: var(--text-link);
+    margin: var(--space-1) 0;
+  }
+
+  .goal-list {
+    list-style: none;
+    padding: 0;
+    margin: var(--space-2) 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .goal-row {
+    border: var(--border-width) solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    padding: var(--space-3) var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .goal-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--space-2);
+  }
+
+  .goal-name {
+    font-weight: var(--weight-semibold);
+    color: var(--ink-900);
+    /* Let a long name wrap within its share of the row instead of pushing the on-track %
+       (or Funded pill) past the card's right edge. */
+    min-width: 0;
+  }
+
+  .goal-track {
+    font-family: var(--font-mono);
+    color: var(--leaf-700);
+    /* The % is a compact unit — never shrink or wrap it; the name yields instead. */
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  /* Derived, latched completion badge (In progress → Funded), never a stored status. */
+  .goal-status {
+    font-size: var(--text-micro);
+    font-weight: var(--weight-semibold);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-caps);
+    padding: 3px var(--space-2);
+    border-radius: var(--radius-pill);
+    white-space: nowrap;
+  }
+
+  .goal-status-funded {
+    color: var(--text-on-brand);
+    background: var(--leaf-700);
+  }
+
+  .goal-status-in-progress {
+    color: var(--ink-600);
+    background: var(--surface-sunken);
+    /* Rendered on its own line (a direct child of the column-flex .goal-row), so hug the
+       content width and left-align instead of stretching full width. */
+    align-self: flex-start;
+  }
+
+  .goal-meta,
+  .goal-disposition {
+    font-size: var(--text-caption);
+    color: var(--text-muted);
+  }
+
+  .goal-actions {
+    display: flex;
+    gap: var(--space-2);
+  }
+
+  /* Buttons are fully pill; hover darkens one step and press scales — never an opacity fade. */
+  .btn,
+  .goal-actions button {
+    font-family: var(--font-sans);
+    font-size: var(--text-body-sm);
+    font-weight: var(--weight-semibold);
+    padding: 7px var(--space-4);
+    border-radius: var(--radius-pill);
+    border: var(--border-width) solid var(--border-default);
+    background: var(--surface-card);
+    color: var(--leaf-800);
+    cursor: pointer;
+    transition: var(--transition-control);
+  }
+
+  .btn:hover:not(:disabled),
+  .goal-actions button:hover:not(:disabled) {
+    background: var(--surface-brand-soft);
+    border-color: var(--leaf-300);
+  }
+
+  .btn:active:not(:disabled) {
+    transform: scale(var(--press-scale));
+  }
+
+  .btn.primary {
+    background: var(--brand-primary);
+    color: var(--text-on-brand);
+    border-color: transparent;
+    box-shadow: var(--shadow-xs);
+  }
+
+  .btn.primary:hover:not(:disabled) {
+    background: var(--brand-primary-hover);
+    border-color: transparent;
+  }
+
+  .btn.link {
+    border: none;
+    background: none;
+    color: var(--text-link);
+    padding: 2px var(--space-2);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .btn.link:hover:not(:disabled) {
+    background: none;
+    color: var(--text-link-hover);
+  }
+
+  .btn:disabled,
+  .goal-actions button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  /* Segmented control — mutually-exclusive view toggles. The same white-pill-in-a-sunken-track
+     treatment as `Tabs`, so the two never look like different concepts. */
+  .seg {
+    display: inline-flex;
+    gap: var(--space-1);
+    padding: var(--space-1);
+    border-radius: var(--radius-pill);
+    background: var(--surface-sunken);
+  }
+
+  .seg-btn {
+    font-family: var(--font-sans);
+    font-size: var(--text-caption);
+    font-weight: var(--weight-semibold);
+    padding: 6px var(--space-4);
+    border: none;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--ink-600);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: var(--transition-control);
+  }
+
+  .seg-btn[aria-pressed="true"] {
+    background: var(--surface-card);
+    color: var(--leaf-900);
+    box-shadow: var(--shadow-xs);
+  }
+}
+
+@layer utilities {
+  /* The house heading pattern: 13px uppercase with wide tracking, sitting above a display
+     heading. Frequent enough across every screen to earn a class rather than five utilities. */
+  .eyebrow {
+    font: var(--type-eyebrow);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-caps);
+    color: var(--leaf-700);
+  }
+
+  /* Entrances are fades and 2px rises; the drawer is the one element that travels, and only
+     because it enters from an edge it stays attached to. */
+  @keyframes fin-rise {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes fin-slide {
+    from {
+      opacity: 0;
+      transform: translateX(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .animate-fin-rise {
+    animation: fin-rise var(--duration-base) var(--ease-standard);
+  }
+
+  .animate-fin-slide {
+    animation: fin-slide var(--duration-base) var(--ease-standard);
+  }
+}
