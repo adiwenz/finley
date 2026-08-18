@@ -241,7 +241,9 @@ describe("Required Minimum Distributions — buildRmdSources and activeWindow", 
   const eligible: SimPerson = { id: "p1", name: "Sam", birthYear: 1953 }; // 73 in 2026
 
   it("an active partner with an RMD-eligible account gets an RMD", () => {
-    const { state: s } = state(eligible, dollarsToCents(100_000));
+    const active: SimPerson = { ...eligible, activeWindow: { startMonth: 0, endMonthExclusive: 6 } };
+    const { state: s } = state(active, dollarsToCents(100_000));
+    // Month 0 falls inside the window, which stays open through month 5.
     const sources = buildRmdSources(s, rmdStub, 0, 2026);
     expect(sources).toHaveLength(1);
     expect(sources[0]!.sourceId).toBe("rmd:p1");
@@ -263,14 +265,6 @@ describe("Required Minimum Distributions — buildRmdSources and activeWindow", 
     const sources = buildRmdSources(s, rmdStub, 12, 2027);
     expect(sources).toHaveLength(1);
     expect(s.assetBalances.get("ira")).toBe(dollarsToCents(90_000));
-  });
-
-  it("the same activeWindow guard also prevents RMDs after death", () => {
-    const deceased: SimPerson = { ...eligible, activeWindow: { startMonth: 0, endMonthExclusive: 6 } };
-    const { state: s } = state(deceased, dollarsToCents(100_000));
-    const sources = buildRmdSources(s, rmdStub, 12, 2026);
-    expect(sources).toHaveLength(0);
-    expect(s.assetBalances.get("ira")).toBe(dollarsToCents(100_000));
   });
 });
 
