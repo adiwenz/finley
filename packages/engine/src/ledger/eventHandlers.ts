@@ -152,14 +152,14 @@ const relationship: EventHandler<RelationshipEvent> = {
           }
         : undefined,
     );
-    for (const planAcct of accounts) {
+    for (const planAcct of Object.values(accounts)) {
       state.accountsById.set(asAccountId(planAcct.account.id), planAcct);
     }
     if (!isPastAnchored) {
       const balances: readonly [PlanAccount, Cents][] = [
-        [accounts[0], standing.savingsBalanceCents],
-        [accounts[1], standing.retirementBalanceCents],
-        [accounts[2], standing.brokerageBalanceCents],
+        [accounts.savings, standing.savingsBalanceCents],
+        [accounts.retirement, standing.retirementBalanceCents],
+        [accounts.brokerage, standing.brokerageBalanceCents],
       ];
       for (const [planAcct, amountCents] of balances) {
         if (amountCents === 0) continue;

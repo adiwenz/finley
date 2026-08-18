@@ -215,9 +215,9 @@ export function buildPartnerAccounts(
     retirement: 0,
     brokerage: 0,
   },
-): PlanAccount[] {
-  return [
-    planAccount({
+): Record<StandingAccountKind, PlanAccount> {
+  return {
+    savings: planAccount({
       id: partnerAccountId("savings", ownerId),
       owners: [ownerId],
       label: `${name} — ${SAVINGS_LABEL}`,
@@ -226,7 +226,7 @@ export function buildPartnerAccounts(
       balanceCents: openingCents.savings,
       initialAnnualRate: standing.savingsReturnPct / 100,
     }),
-    planAccount({
+    retirement: planAccount({
       id: partnerAccountId("retirement", ownerId),
       owners: [ownerId],
       label: `${name} — ${RETIREMENT_LABEL}`,
@@ -236,7 +236,7 @@ export function buildPartnerAccounts(
       balanceCents: openingCents.retirement,
       initialAnnualRate: standing.retirementReturnPct / 100,
     }),
-    planAccount({
+    brokerage: planAccount({
       id: partnerAccountId("brokerage", ownerId),
       owners: [ownerId],
       label: `${name} — ${BROKERAGE_LABEL}`,
@@ -245,7 +245,7 @@ export function buildPartnerAccounts(
       balanceCents: openingCents.brokerage,
       initialAnnualRate: standing.brokerageReturnPct / 100,
     }),
-  ];
+  };
 }
 
 /** Presentation grouping, not tax shape. */
