@@ -272,7 +272,15 @@ export function App() {
           {/* Standing settings rather than a live readout: both start collapsed, so the
               panels that answer "what is happening" keep the column. */}
           <CollapsibleCard title="Budget & accounts" className="inputs">
-            <BudgetEditor budget={budget} transact={transact} />
+            <BudgetEditor
+              budget={budget}
+              transact={transact}
+              accounts={projection.accountDescriptors()}
+              series={chartSeries}
+              household={household}
+              personNames={personNames}
+              horizonMonths={horizonMonths}
+            />
           </CollapsibleCard>
 
           <CollapsibleCard title="Goals">
