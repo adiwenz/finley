@@ -612,6 +612,30 @@ describe("runWaterfall — goals (steps 4–5, fund-to-pace)", () => {
     expect(monthAfter.accountDepositsCents.get("car")).toBeUndefined();
   });
 
+  it("a personal goal's expiration guard applies the same as a shared goal's", () => {
+    const personalGoal: SimGoal = {
+      id: "p1-car",
+      name: "car",
+      targetCents: dollarsToCents(12000),
+      targetDate: 12,
+      fundAccountId: "car-fund",
+      priority: 5,
+      disposition: "retain",
+      scope: "personal",
+      ownerId: "p1",
+    };
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(3000))],
+        goals: [personalGoal],
+        accountBalanceCents: (id) => (id === "car-fund" ? dollarsToCents(6000) : 0),
+        nowMonth: 13, // one month past the goal's target month
+      }),
+    );
+    expect(r.accountDepositsCents.get("car-fund")).toBeUndefined();
+    expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(3000));
+  });
+
   it("personal goals pace from the owner's leftover after shared paces", () => {
     const personalGoal: SimGoal = {
       id: "p1-car",
