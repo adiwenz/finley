@@ -562,10 +562,9 @@ function runMonth(
     0,
   );
   // Returned basis within this month's decumulation draws, one entry per account — not income, so
-  // it joins the per-account investment-drawdown bands below rather than `incomeSources`'
-  // capital-gains/ordinary-income bands, mirroring how an explicit funding draw's own principal is
-  // folded in via `fundingDraw.investmentPrincipalDraws`. `decumulationDraws` never includes the
-  // liquid account (see `buildWithdrawalSources`), so every entry here is genuinely an investment.
+  // it bands below with the other investment-principal draws rather than as capital-gains/ordinary
+  // income. `decumulationDraws` never includes the liquid account (see `buildWithdrawalSources`),
+  // so every entry here is genuinely an investment.
   const decumulationPrincipalDraws: PrincipalDrawdownSource[] = withdrawal.decumulationDraws
     .filter((d) => d.principalCents > 0)
     .map((d) => ({
@@ -637,14 +636,10 @@ function runMonth(
     // The very list the waterfall funded above — expenses, debt and per-line rollups all
     // derive from it, so none can drift from the funded amount.
     obligations,
-    // The withdrawal channel's liquid-buffer drawdown, PLUS an explicit funding draw's own
-    // returned principal when it, too, sold the liquid account rather than an investment — two
-    // `savingsDrawdown`-category sources so a month spent from savings isn't a zero band. An
-    // April balance funded from savings needs no term of its own: it enlarged the month's cash
-    // need, so the withdrawal channel already drew for it.
-    withdrawal.liquidDrawdownCents +
-      (fundingDraw.principalDrawdownCents -
-        fundingDraw.investmentPrincipalDraws.reduce((total, d) => total + d.cents, 0)),
+    // Actual cash spent from the liquid buffer this month — decumulation's own drawdown plus
+    // an explicit funding draw's share, when that draw named the liquid account as a source.
+    // A month funded entirely from savings still needs this band, or it reads as zero income.
+    withdrawal.liquidDrawdownCents + fundingDraw.liquidPrincipalDrawdownCents,
     // Undefined when the jurisdiction declines a breakdown; the app then draws one band.
     taxByCategoryCents,
     // SAME-MONTH per-source haircut on `netCashFlowCents`: every cent of tax this month
@@ -661,12 +656,9 @@ function runMonth(
     // different questions and only coincide while no tax is raised outside the waterfall.
     taxBySourceCents,
     explicitExpenseObligations,
-    // Returned cost basis from selling an INVESTMENT account this month, one entry per account —
-    // a decumulation draw's principal (already excludes the liquid buffer, see
-    // `decumulationPrincipalDraws` above) plus an explicit funding draw's own investment-sourced
-    // principal — banded apart from the liquid buffer's own drawdown just above AND apart from
-    // each other, so "living off cash savings", "the brokerage returned its own contributions" and
-    // "the retirement account returned its own contributions" all read as different chart bands.
+    // Every investment account's returned principal this month, decumulation and explicit draws
+    // both — one band per account, so a brokerage sale and a retirement-account sale read as
+    // separate events rather than one anonymous "investment" line.
     [...decumulationPrincipalDraws, ...fundingDraw.investmentPrincipalDraws],
   );
   // The taxable base after this month's explicit draws but BEFORE decumulation, so the

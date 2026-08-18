@@ -216,8 +216,8 @@ export function buildWithdrawalSources(
       taxableCents: gainCents,
       // Reporting only bands the realized gain as income — `cashInflowCents` overrides the
       // `waterfallInflowCents` (full gross) fallback `buildFlows` would otherwise use. The
-      // returned principal is not income; it surfaces through the savings drawdown instead
-      // (see `decumulationDraws[].principalCents`, folded in at the simulator).
+      // returned principal is not income; it bands under this account's own name instead
+      // (see `decumulationDraws[].principalCents`, read by the simulator).
       cashInflowCents: gainCents,
       // Report by source account, so a draining "emergency fund" reads by name rather than
       // as an anonymous `capitalGains` band. Suffixed "draw" — parallel to the explicit funding
