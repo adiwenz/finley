@@ -268,6 +268,13 @@ export function projectKnownTaxYear(
 
   // ── 2. Explicitly-funded events, priced off their own resolved allocation ───────────────────
 
+  // Shared by (2)'s explicit-draw forecast and (3)'s decumulation forecast, so both price
+  // `earlyWithdrawalPenaltyCents` off the same age the real month will.
+  const ageOf = (ownerId: string): number | undefined => {
+    const birthYear = state.personsById.get(ownerId)?.birthYear;
+    return birthYear === undefined ? undefined : ctx.year - birthYear;
+  };
+
   // Working balances, threaded from here on: an event that drains the brokerage in March leaves
   // less of it for the ordinary decumulation forecast in (3), exactly as it will in the real run.
   const workingBalances = new Map(state.assetBalances);
@@ -294,9 +301,6 @@ export function projectKnownTaxYear(
     for (const sourceId of obligation.funding.orderedAccountIds) {
       const account = state.accounts.find((a) => a.id === sourceId);
       if (account !== undefined) {
-        // Same lookup `resolveFundingDraws`'s own real draw makes, so a forecast pre-tax draw
-        // prices `earlyWithdrawalPenaltyCents` off the same age the real month will.
-        const birthYear = state.personsById.get(account.ownerId)?.birthYear;
         sources.push({
           kind: "account",
           id: sourceId,
@@ -304,7 +308,7 @@ export function projectKnownTaxYear(
           category: account.taxProfile.withdrawalCategory,
           balanceCents: workingBalances.get(sourceId) ?? 0,
           basisCents: Math.max(0, workingBasis.get(sourceId) ?? 0),
-          age: birthYear === undefined ? undefined : ctx.year - birthYear,
+          age: ageOf(account.ownerId),
         });
         continue;
       }
@@ -412,6 +416,7 @@ export function projectKnownTaxYear(
     // these the forecast caps the year's draw at January's balance and understates the final year
     // of a decumulating plan by the growth earned before the account ran dry.
     monthlyRates: Array.from({ length: MONTHS_IN_TAX_YEAR }, (_, i) => a.getMonthlyRateAt(month + i)),
+    age: ageOf(a.ownerId),
   }));
 
   // ── 4. Solve the tax/funding circularity ────────────────────────────────────────────────────

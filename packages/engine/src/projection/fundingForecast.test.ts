@@ -44,6 +44,7 @@ function acct(
   basisDollars: number,
   liquidBuffer = false,
   monthlyRates: readonly number[] = FLAT,
+  age?: number,
 ): ForecastAccount {
   return {
     id,
@@ -53,6 +54,7 @@ function acct(
     basisCents: dollarsToCents(basisDollars),
     monthlyRates,
     ...(liquidBuffer ? { liquidBuffer } : {}),
+    ...(age === undefined ? {} : { age }),
   };
 }
 
@@ -152,6 +154,61 @@ describe("forecastFundingDraws — how a year's shortfall gets paid for", () => 
       CTX,
     ).draws;
     expect(draws.map((d) => d.accountId)).toEqual(["pretax"]);
+  });
+});
+
+describe("forecastFundingDraws — early-withdrawal penalty", () => {
+  /** Flat 10% on the taxable portion of an ordinary-income draw before 59½ — the US-2026 shape. */
+  const penaltyJurisdiction: Jurisdiction = {
+    ...proRata,
+    id: "penalty-10",
+    earlyWithdrawalPenaltyCents: (basis, ctx) =>
+      basis.category === "ordinaryIncome" && ctx.age < 59.5 ? Math.round(basis.grossCents * 0.1) : 0,
+  };
+
+  it("forecasts more sold from the next account to make up a penalized account's leakage", () => {
+    const draws = forecastFundingDraws(
+      evenly(12_000),
+      [
+        acct("pretax", "ordinaryIncome", 100_000, 0, false, FLAT, 35),
+        acct("brokerage", "capitalGains", 100_000, 100_000, false, FLAT, 35),
+      ],
+      penaltyJurisdiction,
+      CTX,
+    ).draws;
+    // The pretax account still SELLS the full $12,000 (unaffected by the penalty), but only
+    // $10,800 of it counted toward the need — the $1,200 penalty leakage is forecast pulling an
+    // extra $1,200 gross from the brokerage, exactly as the real draw would.
+    expect(draws[0]).toMatchObject({ accountId: "pretax", grossCents: dollarsToCents(12_000) });
+    expect(draws[1]).toMatchObject({ accountId: "brokerage", grossCents: dollarsToCents(1_200) });
+  });
+
+  it("forecasts no penalty once the account's forecast age clears the jurisdiction's threshold", () => {
+    const draws = forecastFundingDraws(
+      evenly(12_000),
+      [acct("pretax", "ordinaryIncome", 100_000, 0, false, FLAT, 60)],
+      penaltyJurisdiction,
+      CTX,
+    ).draws;
+    expect(draws).toEqual([
+      {
+        accountId: "pretax",
+        ownerId: "p1",
+        category: "ordinaryIncome",
+        grossCents: dollarsToCents(12_000),
+        taxableCents: dollarsToCents(12_000),
+      },
+    ]);
+  });
+
+  it("forecasts no penalty when the account carries no age", () => {
+    const draws = forecastFundingDraws(
+      evenly(12_000),
+      [acct("pretax", "ordinaryIncome", 100_000, 0)],
+      penaltyJurisdiction,
+      CTX,
+    ).draws;
+    expect(draws[0]!.grossCents).toBe(dollarsToCents(12_000));
   });
 });
 

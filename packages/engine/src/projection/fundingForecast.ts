@@ -79,6 +79,14 @@ export interface ForecastAccount {
    * before depletion. A genuinely flat account passes twelve zeroes and says so.
    */
   readonly monthlyRates: readonly number[];
+  /**
+   * The owner's age, ONLY so {@link
+   * import("../jurisdiction/jurisdiction").Jurisdiction.earlyWithdrawalPenaltyCents} can be
+   * forecast — mirrors {@link import("./withdrawal").WithdrawalState.personsById}'s lookup for
+   * the real decumulation draw this forecasts. Absent → the seam is never called and no penalty
+   * is forecast for this account, exactly as an unknown birth year skips it in the real draw.
+   */
+  readonly age?: number;
 }
 
 /** One account's forecast contribution to the year's funding need. */
@@ -156,6 +164,13 @@ export function evenMonthlyShares(annualCents: Cents): Cents[] {
  * OUTSIDE this function, by the caller's fixed point over the whole year's need (see {@link
  * import("./taxYearProjection").projectKnownTaxYear}) — which is the annual analogue of what
  * really happens, where the tax is paid from the following months' funding need.
+ *
+ * An early-withdrawal penalty is the one exception, forecast the same way the real draw charges
+ * it: netted out immediately, not solved by the fixed point above. `remaining` tracks NET
+ * delivered per account, so a penalized account's shortfall is forecast pulling more from the
+ * next account in line — the real draw's own behavior (see `withdrawal.ts`'s module doc). Get
+ * this wrong and a decumulating household under 59½ forecasts too little capital-gains income
+ * from its taxable accounts, reintroducing the December spike this module exists to prevent.
  */
 export function forecastFundingDraws(
   needByMonthCents: readonly Cents[],
@@ -196,12 +211,20 @@ export function forecastFundingDraws(
               { grossCents: gross, basisCents: bases[i]!, balanceCents: balance, category: account.category },
               ctx,
             ) ?? gross);
+      // No age → the real draw never calls the seam either, so the forecast must not invent one.
+      const penalty =
+        account.age === undefined
+          ? 0
+          : (jurisdiction.earlyWithdrawalPenaltyCents?.(
+              { grossCents: gross, basisCents: bases[i]!, balanceCents: balance, category: account.category },
+              { year: ctx.year, age: account.age },
+            ) ?? 0);
 
       balances[i] = balance - gross;
       bases[i] = Math.max(0, bases[i]! - (gross - taxable));
       grossByAccount[i] += gross;
       taxableByAccount[i] += taxable;
-      remaining -= gross;
+      remaining -= gross - penalty;
     }
     carriedNeed = remaining;
 
