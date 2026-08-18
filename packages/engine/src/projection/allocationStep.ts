@@ -143,6 +143,15 @@ function planMonthAllocation(
     // take-home rather than lowering it. Kept apart from this month's withholding because it pays
     // a DIFFERENT year and must never be credited against this one.
     settlementCashCents: (pid) => priorYearSettlements.get(pid)?.totalCents ?? 0,
+    // Every account this person owns, summed — the fallback split weight when nobody has
+    // positive take-home. Same pool `orderedAccountsForPerson` (withdrawal.ts) later draws
+    // from, so the split and the draw agree on what "this person's assets" means.
+    eligibleAssetsCentsByPerson: (pid) =>
+      state.accounts.reduce(
+        (sum, acc) =>
+          acc.ownerId === pid ? sum + Math.max(0, state.assetBalances.get(acc.id) ?? 0) : sum,
+        0,
+      ),
     // Absent seam → no payroll tax; the waterfall then leaves take-home untouched.
     computePayrollWithholdingCents: jurisdiction.computePayrollWithholdingCents
       ? (earnedByCategory) => jurisdiction.computePayrollWithholdingCents!(earnedByCategory, ctx)
@@ -220,7 +229,11 @@ export function projectObligationShortfallCents(
   sharedObligationCents: Cents,
   month: number,
   priorYearSettlements: PriorYearSettlements,
-): Cents {
+): {
+  totalCents: Cents;
+  /** See {@link import("./waterfall").WaterfallResult.obligationShortfallByPersonCents}. */
+  byPersonCents: ReadonlyMap<string, Cents>;
+} {
   const { input } = planMonthAllocation(
     state,
     incomeSources,
@@ -230,7 +243,11 @@ export function projectObligationShortfallCents(
     month,
     priorYearSettlements,
   );
-  return runWaterfall(input).obligationShortfallCents;
+  const result = runWaterfall(input);
+  return {
+    totalCents: result.obligationShortfallCents,
+    byPersonCents: result.obligationShortfallByPersonCents,
+  };
 }
 
 /**
