@@ -7,9 +7,11 @@ import {
   TAX_EXEMPT_TAX_PROFILE,
 } from "../plan/simAccount";
 import { SimCashFlowSeries, dollarsToCents } from "../money/cashFlowSeries";
+import type { Cents } from "../money/money";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction/jurisdiction";
 import { simulateHousehold, type HouseholdSimInput, type ProjectionSeries } from "./simulate";
 import type { SimPerson } from "./simulate.types";
+import { buildRmdSources, type RmdState } from "./rmd";
 
 /** Non-compounding by default, so balances move only by RMD withdrawal/deposit. */
 function account(
@@ -207,6 +209,68 @@ describe("Required Minimum Distributions — nothing is required of the dead", (
     const series = simulateHousehold(household(18), rmdStub);
     expect(series.months[12].accountBalancesCents["sams-ira"]).toBe(dollarsToCents(81_000));
     expect(series.months[35].accountBalancesCents["sams-ira"]).toBe(dollarsToCents(81_000));
+  });
+});
+
+/**
+ * `buildRmdSources` directly, rather than through `simulateHousehold` — the same
+ * `isPersonActiveAt` gate the death tests above exercise, but pointed at a `activeWindow` boundary
+ * closed by separation rather than death. There is no separate separation-vs-death branch to test;
+ * `activeWindow` is the one abstraction for both.
+ */
+describe("Required Minimum Distributions — buildRmdSources and activeWindow", () => {
+  function state(person: SimPerson, balanceCents: Cents): { state: RmdState; ira: SimAccount } {
+    const ira = new SimAccount({
+      id: "ira",
+      ownerId: person.id,
+      liquid: false,
+      taxProfile: PRE_TAX_TAX_PROFILE,
+      openingBalanceCents: balanceCents,
+      initialAnnualRate: 0,
+    });
+    return {
+      ira,
+      state: {
+        accounts: [ira],
+        assetBalances: new Map([["ira", balanceCents]]),
+        personsById: new Map([[person.id, person]]),
+      },
+    };
+  }
+
+  const eligible: SimPerson = { id: "p1", name: "Sam", birthYear: 1953 }; // 73 in 2026
+
+  it("an active partner with an RMD-eligible account gets an RMD", () => {
+    const { state: s } = state(eligible, dollarsToCents(100_000));
+    const sources = buildRmdSources(s, rmdStub, 0, 2026);
+    expect(sources).toHaveLength(1);
+    expect(sources[0]!.sourceId).toBe("rmd:p1");
+    expect(sources[0]!.waterfallInflowCents).toBe(dollarsToCents(10_000));
+    expect(s.assetBalances.get("ira")).toBe(dollarsToCents(90_000));
+  });
+
+  it("the same partner gets no RMD, and their account is untouched, once their activeWindow ends", () => {
+    const separated: SimPerson = { ...eligible, activeWindow: { startMonth: 0, endMonthExclusive: 6 } };
+    const { state: s } = state(separated, dollarsToCents(100_000));
+    // Month 12 — the next annual trigger — falls after the window closed at month 6.
+    const sources = buildRmdSources(s, rmdStub, 12, 2026);
+    expect(sources).toHaveLength(0);
+    expect(s.assetBalances.get("ira")).toBe(dollarsToCents(100_000));
+  });
+
+  it("a person with no activeWindow keeps getting the RMD unchanged", () => {
+    const { state: s } = state(eligible, dollarsToCents(100_000));
+    const sources = buildRmdSources(s, rmdStub, 12, 2027);
+    expect(sources).toHaveLength(1);
+    expect(s.assetBalances.get("ira")).toBe(dollarsToCents(90_000));
+  });
+
+  it("the same activeWindow guard also prevents RMDs after death", () => {
+    const deceased: SimPerson = { ...eligible, activeWindow: { startMonth: 0, endMonthExclusive: 6 } };
+    const { state: s } = state(deceased, dollarsToCents(100_000));
+    const sources = buildRmdSources(s, rmdStub, 12, 2026);
+    expect(sources).toHaveLength(0);
+    expect(s.assetBalances.get("ira")).toBe(dollarsToCents(100_000));
   });
 });
 
