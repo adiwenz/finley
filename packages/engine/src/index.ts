@@ -55,6 +55,7 @@ export type {
   SeparateInput,
   StartPartneredInput,
   HaveExistingChildInput,
+  PartnerAccountsInput,
 } from "./authoring/relationships";
 export type { BuyHomeInput, HomePurchaseInput, HomePurchaseAssessment } from "./authoring/housing";
 export type {

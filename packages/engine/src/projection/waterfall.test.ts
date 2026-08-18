@@ -390,6 +390,26 @@ describe("runWaterfall — shared obligations (step 3)", () => {
   });
 });
 
+describe("runWaterfall — personal obligations charged to their owner alone", () => {
+  it("a personal obligation exceeding its owner's own take-home is that person's shortfall alone, never drawn from the other partner's leftover", () => {
+    const r = runWaterfall(
+      makeInput({
+        personIds: ["hi", "lo"],
+        incomeSources: [wageSource("hi", dollarsToCents(500)), wageSource("lo", dollarsToCents(5000))],
+        sharedObligationCents: 0,
+        personalObligationCentsByPerson: (pid) => (pid === "hi" ? dollarsToCents(2000) : 0),
+      }),
+    );
+    // hi's own $500 take-home is entirely consumed by their $2000 personal obligation; the
+    // $1500 gap is a shortfall attributed to hi alone, not smoothed over by lo's $5000.
+    expect(r.shortfallCents).toBe(dollarsToCents(1500));
+    expect(r.obligationShortfallByPersonCents.get("hi")).toBe(dollarsToCents(1500));
+    expect(r.obligationShortfallByPersonCents.get("lo") ?? 0).toBe(0);
+    // lo's take-home lands in full; hi contributes nothing extra, having nothing left.
+    expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(5000));
+  });
+});
+
 describe("runWaterfall — goals (steps 4–5, fund-to-pace)", () => {
   // Dated goals are deadline-paced: amounts read as target ÷ months left.
   const datedGoal = (

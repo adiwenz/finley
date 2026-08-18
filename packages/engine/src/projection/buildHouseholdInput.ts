@@ -89,13 +89,22 @@ export function buildHouseholdSimInput(
     return liab;
   });
 
-  // Attach payoff outflows to their accounts without discarding account state.
-  const accounts = (base.initialAccounts ?? []).map(({ sim: acc }) => {
-    const transfers = household.accountTransfers
-      .filter((t) => t.accountId === acc.id)
-      .map((t) => ({ month: t.month, amountCents: t.amountCents }));
-    return transfers.length > 0 ? acc.withAdditionalTransfers(transfers) : acc;
-  });
+  // The primary's accounts (fixed, from the base) plus any an event minted (a partner's, from
+  // `household.eventAccounts`) — one list, so a partner's balance compounds and reports
+  // exactly like the primary's. Attach payoff/join/separation outflows to their accounts
+  // without discarding account state.
+  const accounts = [...(base.initialAccounts ?? []), ...household.eventAccounts].map(
+    ({ sim: acc }) => {
+      const transfers = household.accountTransfers
+        .filter((t) => t.accountId === acc.id)
+        .map((t) => ({
+          month: t.month,
+          amountCents: t.amountCents,
+          proportionalFraction: t.proportionalFraction,
+        }));
+      return transfers.length > 0 ? acc.withAdditionalTransfers(transfers) : acc;
+    },
+  );
 
   // Resolve each growth mode to its annual rate here, at the sim boundary; the simulator
   // compounds property value as it compounds accounts.

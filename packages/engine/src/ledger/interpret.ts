@@ -232,6 +232,7 @@ function toHousehold(state: InterpretState, base: LedgerBaseConfig): Household {
     endMonth: m.endMonth,
   }));
 
+  const eventAccounts = [...state.accountsById.values()];
   return assertAccountOwnersRostered({
     memberships,
     children: [...state.childrenById.values()],
@@ -239,8 +240,14 @@ function toHousehold(state: InterpretState, base: LedgerBaseConfig): Household {
     liabilities,
     properties,
     // The authoring side of the very accounts the simulation runs, so the ownership helpers
-    // and net worth read the same collection `buildHouseholdInput` compiles from.
-    accounts: authoringAccounts(base.initialAccounts),
+    // and net worth read the same collection `buildHouseholdInput` compiles from. Base
+    // accounts (the primary's, fixed from month 0) plus event-minted ones (a partner's,
+    // minted at `RelationshipEvent`) — one canonical list either way.
+    accounts: [...authoringAccounts(base.initialAccounts), ...authoringAccounts(eventAccounts)],
+    // The sim halves of the event-minted accounts — `base.initialAccounts` already carries
+    // the primary's; `buildHouseholdInput` merges the two into one account list, exactly as
+    // `accounts` above does for the authoring view.
+    eventAccounts,
     accountTransfers: [...state.accountTransfersByAccountId.values()].flat(),
     fundingDraws: [...state.fundingDraws],
   });

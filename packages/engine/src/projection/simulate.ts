@@ -429,12 +429,12 @@ function runMonth(
   // investments untouched — for decades, since a working household's gap is small and a card
   // compounds. There is now one subtraction, so a deduction added to the waterfall is netted here
   // by construction.
-  const shortfallBeforeDecumulationCents = projectObligationShortfallCents(
+  const shortfallBeforeDecumulation = projectObligationShortfallCents(
     state,
     preDecumulationSources,
     ctx,
     jurisdiction,
-    automaticFundingCents,
+    obligations,
     month,
     estimatedTaxPayments,
     priorYearSettlements,
@@ -445,12 +445,18 @@ function runMonth(
   // credit cascade. No gross-up anywhere: each draw sells exactly the gap, and its realized gain
   // rides `taxableCents` into THIS year's accumulator. RMD income is already inside the gap (it
   // was income in the pass that measured it), so the draw never double-withdraws.
+  //
+  // `byPersonCents` is a DRAW-ORDER preference, not a second total: whoever's share of the gap
+  // this is tries their own accounts first, so a partner's assets are never sold to cover the
+  // other's obligation while resources of their own still sit untouched — the household total
+  // liquidated is exactly `shortfallBeforeDecumulation.totalCents` either way.
   const withdrawal = buildWithdrawalSources(
     state,
     jurisdiction,
-    shortfallBeforeDecumulationCents,
+    shortfallBeforeDecumulation.totalCents,
     ctx,
     DEFAULT_LIQUIDATION_ORDER,
+    shortfallBeforeDecumulation.byPersonCents,
   );
   const incomeSources = [...nonWithdrawalSources, ...withdrawal.sources];
   const allocationSources = [...incomeSources, ...fundingDraw.gainSources];
@@ -470,7 +476,7 @@ function runMonth(
     allocationSources,
     ctx,
     jurisdiction,
-    automaticFundingCents,
+    obligations,
     month,
     estimatedTaxPayments,
     priorYearSettlements,

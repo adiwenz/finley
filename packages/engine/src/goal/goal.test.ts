@@ -20,6 +20,7 @@ function seriesFromFundBalances(balancesCents: readonly number[]): ProjectionSer
     month,
     netWorthNominalCents: bal,
     netWorthRealCents: bal,
+    netWorthByPersonCents: {},
     accountBalancesCents: { fund: bal },
     accountBasisCents: {},
     liabilityBalancesCents: {},
