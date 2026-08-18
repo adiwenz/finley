@@ -294,6 +294,9 @@ export function projectKnownTaxYear(
     for (const sourceId of obligation.funding.orderedAccountIds) {
       const account = state.accounts.find((a) => a.id === sourceId);
       if (account !== undefined) {
+        // Same lookup `resolveFundingDraws`'s own real draw makes, so a forecast pre-tax draw
+        // prices `earlyWithdrawalPenaltyCents` off the same age the real month will.
+        const birthYear = state.personsById.get(account.ownerId)?.birthYear;
         sources.push({
           kind: "account",
           id: sourceId,
@@ -301,6 +304,7 @@ export function projectKnownTaxYear(
           category: account.taxProfile.withdrawalCategory,
           balanceCents: workingBalances.get(sourceId) ?? 0,
           basisCents: Math.max(0, workingBasis.get(sourceId) ?? 0),
+          age: birthYear === undefined ? undefined : ctx.year - birthYear,
         });
         continue;
       }

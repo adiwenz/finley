@@ -14,6 +14,10 @@
  * credit source instead borrows against the card's headroom with no sale and no gain at all —
  * the discriminated {@link FundingSourceState} lets both walk the one ordered list, so the
  * user's authored order is honoured and never reshuffled.
+ *
+ * An early-withdrawal penalty on a pre-tax source is the one thing that IS netted out of the
+ * draw immediately — see {@link resolveOrderedFundingDraw}'s doc for why it, unlike income tax,
+ * can be priced and charged the same month.
  */
 
 import type { Cents } from "../money/money";
@@ -56,6 +60,14 @@ export interface AccountFundingSource {
    * returned principal is reported (see {@link FundingDrawReport.liquidPrincipalDrawdownCents}).
    */
   readonly liquid?: boolean;
+  /**
+   * The owner's age, ONLY so {@link
+   * import("../jurisdiction/jurisdiction").Jurisdiction.earlyWithdrawalPenaltyCents} can be
+   * priced — mirrors {@link import("./withdrawal").WithdrawalState.personsById}'s age lookup for
+   * the recurring decumulation cascade. Absent → the seam is never called and no penalty is
+   * charged for this source, exactly as an unknown birth year skips it there.
+   */
+  readonly age?: number;
 }
 
 /**
@@ -94,12 +106,16 @@ export interface ResolvedFundingSource {
   readonly grossCents: Cents;
   /** Realized taxable gain within `grossCents` — always 0 for a credit borrow. */
   readonly gainCents: Cents;
-  /** Always 0 — no federal income tax is charged against a funding draw, and no draw anywhere
-   * is grossed up for it. The gain joins the year's taxable income and is priced with it. */
+  /**
+   * The early-withdrawal penalty, if the jurisdiction charges one and the source carried an
+   * `age` — 0 for a credit borrow and for every other draw. Never federal income tax, which is
+   * never charged against a funding draw and never grossed up for; the gain joins the year's
+   * taxable income and is priced with it, unaffected by this field.
+   */
   readonly taxCents: Cents;
   /** `grossCents − gainCents`; the whole borrow for credit, which realizes no gain. */
   readonly principalCents: Cents;
-  /** Always equals `grossCents` — no gross-up, nothing is netted out of the draw. */
+  /** `grossCents − taxCents` (`= grossCents` for credit, and for any account draw with no penalty). */
   readonly netDeliveredCents: Cents;
 }
 
@@ -162,18 +178,26 @@ export function toTaxableRecord(taxableByOwner: TaxableByOwner): Record<string, 
 /**
  * Resolve an ordered draw of `amountCents` across `sources` without mutating account state. Each
  * source is taken in turn until the remainder is covered: an account source sells EXACTLY the
- * remainder, floored at what it holds — no gross-up, this is an ordinary mid-year draw and
- * federal income tax is never charged against it here; a credit source borrows the remainder
- * against its headroom (`limit − balance`, clamped at zero; a `null` limit is zero headroom, not
- * unbounded), tax-free. Both walk the ONE ordered list — a `[brokerage, visa]` list sells then
- * borrows, never reordered.
+ * remainder, floored at what it holds — no gross-up for federal income tax, which is never
+ * charged against it here; a credit source borrows the remainder against its headroom (`limit −
+ * balance`, clamped at zero; a `null` limit is zero headroom, not unbounded), tax-free. Both walk
+ * the ONE ordered list — a `[brokerage, visa]` list sells then borrows, never reordered.
+ *
+ * An early-withdrawal penalty is different: it IS netted out of what a source delivers, the
+ * moment it is priced (see `withdrawal.ts`'s module doc for why income tax and this penalty are
+ * treated differently). `remaining` tracks NET delivered, not gross sold, so a source that pays a
+ * penalty leaves the remainder bigger than `gross` would suggest, and the next source in line
+ * makes up the difference — the same as a source running out of balance mid-draw already forced.
+ * A source with no `age` (an unknown owner) is never charged.
  *
  * An account sale's realized gain still stacks onto `taxableByOwner`, so a second taxable
  * source from the same owner reports its gain on top of the first — hence this MUTATES
  * `taxableByOwner` (pass a copy to probe). A credit borrow realizes nothing and stacks nothing.
  *
  * Shared with the affordability reporter (`fundingLookup.availabilityAt`), so the reported
- * shortfall matches exactly what the sim would fall short by.
+ * shortfall matches exactly what the sim would fall short by — that caller does not (yet) supply
+ * an `age` per source, so its preview never reflects the penalty; only the simulator's own
+ * {@link resolveFundingDraws} does.
  */
 export function resolveOrderedFundingDraw(
   amountCents: Cents,
@@ -225,7 +249,7 @@ export function resolveOrderedFundingDraw(
 
     const balance = source.balanceCents;
     if (balance <= 0) continue;
-    const { id, ownerId, category, label, liquid } = source;
+    const { id, ownerId, category, label, liquid, age } = source;
     const basis = Math.max(0, source.basisCents);
     const basisFraction = balance > 0 ? Math.min(1, basis / balance) : 0;
     // The jurisdiction owns return-of-capital policy; absent the seam, fall back to the
@@ -236,12 +260,25 @@ export function resolveOrderedFundingDraw(
         ctx,
       ) ?? gross - Math.round(gross * basisFraction);
 
-    // Sell exactly the remainder, capped at the balance — no gross-up.
+    // Sell exactly the remainder, capped at the balance — no gross-up for income tax.
     const gross = Math.min(balance, remaining);
     const gain = gainOf(gross);
+    // Unlike income tax, the early-withdrawal penalty IS netted out immediately (see
+    // `withdrawal.ts`'s module doc for why this one can be): `net` is what actually reaches
+    // `remaining`, so a penalized source's leakage draws more from the NEXT source in line —
+    // no age on the source (an unknown owner) → the seam is never called, matching
+    // `earlyWithdrawalPenaltyCents`'s own absent-seam contract.
+    const penalty =
+      age === undefined
+        ? 0
+        : (jurisdiction.earlyWithdrawalPenaltyCents?.(
+            { grossCents: gross, basisCents: basis, balanceCents: balance, category },
+            { year: ctx.year, age },
+          ) ?? 0);
+    const net = gross - penalty;
     const base = taxableByOwner.get(ownerId) ?? {};
     taxableByOwner.set(ownerId, { ...base, [category]: (base[category] ?? 0) + gain });
-    remaining -= gross;
+    remaining -= net;
     perSource.push({
       kind: "account",
       id,
@@ -251,9 +288,9 @@ export function resolveOrderedFundingDraw(
       liquid,
       grossCents: gross,
       gainCents: gain,
-      taxCents: 0,
+      taxCents: penalty,
       principalCents: gross - gain,
-      netDeliveredCents: gross,
+      netDeliveredCents: net,
     });
   }
 
@@ -396,6 +433,14 @@ export function resolveFundingDraws(
     (o) => o.month === month && o.funding.kind === "explicit",
   );
 
+  // Priced once per call, not per source: the same lookup `buildWithdrawalSources` makes off
+  // `personsById`, so an explicitly-funded draw and the recurring decumulation cascade price
+  // `earlyWithdrawalPenaltyCents` off IDENTICAL ages for the same owner in the same month.
+  const ageOf = (ownerId: string): number | undefined => {
+    const birthYear = state.personsById.get(ownerId)?.birthYear;
+    return birthYear === undefined ? undefined : ctx.year - birthYear;
+  };
+
   for (const [index, obligation] of draws.entries()) {
     // Narrowing only: the filter above already established this.
     if (obligation.funding.kind !== "explicit") continue;
@@ -413,6 +458,7 @@ export function resolveFundingDraws(
           basisCents: Math.max(0, state.basisByAccount.get(sourceId) ?? 0),
           label: account.label ?? sourceId,
           liquid: account.liquid,
+          age: ageOf(account.ownerId),
         });
         continue;
       }
@@ -464,6 +510,7 @@ export function resolveFundingDraws(
           balanceCents: state.assetBalances.get(a.id) ?? 0,
           basisCents: Math.max(0, state.basisByAccount.get(a.id) ?? 0),
           liquid: a.liquid,
+          age: ageOf(a.ownerId),
         })),
         ...state.liabilities
           .filter(
