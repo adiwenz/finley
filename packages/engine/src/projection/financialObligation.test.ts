@@ -401,6 +401,25 @@ describe("buildObligations — one obligation per source", () => {
     expect(o.category).toBe("other");
     expect(o.amountCents).toBe(dollarsToCents(300));
   });
+
+  it("carries a liability's ownerId onto its debt-payment obligation, so it can be charged to that person alone", () => {
+    const loan = new AmortizingLoan({
+      id: "loan-partner",
+      ownerId: "p2",
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(20_000),
+      apr: 0.05,
+      termMonths: 60,
+    });
+    const payments = new Map([[loan.id, loan.monthlyPaymentCents(dollarsToCents(20_000), 1)]]);
+    const [o] = buildObligations([], 1, [loan], payments);
+    expect(o!.ownerId).toBe("p2");
+  });
+
+  it("leaves an expense-series obligation's ownerId absent — no real per-person authoring surface exists yet", () => {
+    const [o] = buildObligations([expenseSeries(300)], 0, [], new Map());
+    expect(o.ownerId).toBeUndefined();
+  });
 });
 
 describe("buildObligations — priority resolved from source kind", () => {

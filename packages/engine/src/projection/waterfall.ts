@@ -365,6 +365,45 @@ function proportionalSplit(
 }
 
 /**
+ * Step 2.5 — charge each person's OWN obligations against their OWN take-home, before the
+ * shared split (step 3) ever sees the remainder. Unlike a shared obligation's shortfall (which
+ * the other partner's discretionary leftover may cover, step 3's whole point), a personal
+ * obligation's shortfall is deliberately NEVER handed to the other person here: `covered` is
+ * floored at this person's own POSITIVE take-home, so a personal charge can never push an
+ * already-non-negative take-home below 0 (it can only shrink what step 3 later sees as this
+ * person's contribution to the shared pool). Whatever the person's own take-home can't cover is
+ * returned as their shortfall alone — decumulation reads it as a preference to try their own
+ * accounts first (see {@link import("./allocationStep").projectObligationShortfallCents}).
+ *
+ * A pre-existing NEGATIVE take-home (deductions exceeding cash, unrelated to this obligation)
+ * passes through untouched — `covered` is 0 whenever `th <= 0`, so that figure still reaches
+ * step 3's household-wide negative-take-home pooling exactly as it did before this step existed.
+ */
+function chargePersonalObligations(
+  input: WaterfallInput,
+  takeHomeByPerson: Map<string, Cents>,
+): {
+  takeHomeByPerson: Map<string, Cents>;
+  shortfallByPerson: Map<string, Cents>;
+  shortfallCents: Cents;
+} {
+  const personalOf = input.personalObligationCentsByPerson;
+  const adjustedTakeHomeByPerson = new Map<string, Cents>();
+  const shortfallByPerson = new Map<string, Cents>();
+  let shortfallCents: Cents = 0;
+  for (const pid of input.personIds) {
+    const th = takeHomeByPerson.get(pid) ?? 0;
+    const personal = Math.max(0, personalOf?.(pid) ?? 0);
+    const covered = Math.min(personal, Math.max(0, th));
+    adjustedTakeHomeByPerson.set(pid, th - covered);
+    const shortfall = personal - covered;
+    shortfallByPerson.set(pid, shortfall);
+    shortfallCents += shortfall;
+  }
+  return { takeHomeByPerson: adjustedTakeHomeByPerson, shortfallByPerson, shortfallCents };
+}
+
+/**
  * Step 3 — split shared obligations by the scheme, then take each person's share out of
  * their take-home. Only positive take-home contributes; an uncovered share becomes a
  * household shortfall, never silently absorbed by the other partner.
@@ -598,17 +637,31 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     sourceEarnedByPerson,
     deferredByPerson,
   );
+  const personalCharge = chargePersonalObligations(input, takeHomeByPerson);
   const {
     leftoverByPerson,
     totalDiscretionary,
-    shortfallCents,
-    obligationShortfallByPersonCents,
-  } = splitSharedObligation(input, takeHomeByPerson);
+    shortfallCents: sharedShortfallCents,
+    obligationShortfallByPersonCents: sharedObligationShortfallByPersonCents,
+  } = splitSharedObligation(input, personalCharge.takeHomeByPerson);
   const contributionShortfall = fundGoalsAndContributions(
     input,
     leftoverByPerson,
     totalDiscretionary,
     deposits,
+  );
+
+  // The household total is the shared split's shortfall plus every person's own unfundable
+  // personal obligation; per-person, the two never overlap (one key per person in each map), so
+  // a plain sum keeps the personal shortfall from vanishing into (or double-counting with) the
+  // shared figure.
+  const obligationShortfallCents = sharedShortfallCents + personalCharge.shortfallCents;
+  const obligationShortfallByPersonCents = new Map<string, Cents>(
+    input.personIds.map((pid) => [
+      pid,
+      (sharedObligationShortfallByPersonCents.get(pid) ?? 0) +
+        (personalCharge.shortfallByPerson.get(pid) ?? 0),
+    ]),
   );
 
   // Payroll tax charged must be fully attributed, or the cash-flow chart overstates
@@ -630,8 +683,8 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     deferredByPersonCents: deferredByPerson,
     combinedDepositsByPlanCents: combinedDepositsByPlan,
     accountDepositsCents: deposits,
-    shortfallCents: shortfallCents + contributionShortfall,
-    obligationShortfallCents: shortfallCents,
+    shortfallCents: obligationShortfallCents + contributionShortfall,
+    obligationShortfallCents,
     obligationShortfallByPersonCents,
   };
 }

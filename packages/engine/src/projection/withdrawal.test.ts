@@ -970,6 +970,21 @@ describe("Person-aware decumulation — fund each person's share from accounts a
     expect(st.assetBalances.get("p2-brokerage")).toBe(0);
   });
 
+  it("draws only the owing person's own account when they are the sole positive share (#160)", () => {
+    // A personal obligation routinely attributes the WHOLE gap to exactly one person — unlike a
+    // shared obligation's proportional split, which usually leaves both with something. That
+    // single-entry case must still prefer the owing person's own accounts, not fall through to
+    // the ownership-blind pooled pass and reach into the other partner's untouched assets.
+    const st = twoOwnerState({ "p1-brokerage": 10_000, "p2-brokerage": 10_000 });
+    const byPersonCents = new Map([
+      ["p1", 0],
+      ["p2", dollarsToCents(800)],
+    ]);
+    buildWithdrawalSources(st, nullJurisdiction, dollarsToCents(800), ctx, DEFAULT_LIQUIDATION_ORDER, byPersonCents);
+    expect(st.assetBalances.get("p2-brokerage")).toBe(dollarsToCents(9_200));
+    expect(st.assetBalances.get("p1-brokerage")).toBe(dollarsToCents(10_000));
+  });
+
   it("falls back to the pooled order, unchanged, when no per-person split is given", () => {
     const st = twoOwnerState({ "p1-brokerage": 10_000, "p2-brokerage": 10_000 });
     buildWithdrawalSources(st, nullJurisdiction, dollarsToCents(5_000), ctx);
@@ -1041,5 +1056,53 @@ describe("Person-aware decumulation — fund each person's share from accounts a
     expect(p1Drawn).toBeGreaterThan(0);
     expect(p2Drawn).toBeGreaterThan(0);
     expect(p1Drawn).toBeGreaterThan(p2Drawn);
+  });
+
+  it("end to end: a partner's own loan payment draws only their own brokerage, never the other partner's (#160)", () => {
+    // p2's income can't cover their own $1,000 loan payment; p1 earns plenty and has no
+    // obligation of their own. The gap is p2's alone — it must draw p2's brokerage, never p1's,
+    // even though p1's income and assets could easily absorb it.
+    const wage = (ownerId: string, monthlyDollars: number): SimOwnedSeries => ({
+      series: new SimCashFlowSeries(0, dollarsToCents(monthlyDollars), { type: "fixed" }, {
+        baselineUnit: "monthly",
+        taxCategory: "wages",
+      }),
+      ownerId,
+    });
+    const p1: SimPerson = { id: "p1", name: "Alice" };
+    const p2: SimPerson = { id: "p2", name: "Bob" };
+    // 0% APR, $12k over 12 months → a flat $1,000 payment, first due at month 1.
+    const loan = new AmortizingLoan({
+      id: "p2-auto",
+      ownerId: "p2",
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(12_000),
+      apr: 0,
+      termMonths: 12,
+    });
+    const series = simulateHousehold(
+      {
+        horizonMonths: 2,
+        annualInflationRate: 0,
+        startYear: 2026,
+        persons: [p1, p2],
+        accounts: [
+          ownedAccount("p1-brokerage", "p1", 100_000),
+          ownedAccount("p2-brokerage", "p2", 100_000),
+        ],
+        incomeSeries: [wage("p1", 5_000), wage("p2", 200)],
+        expenseSeries: [],
+        liabilities: [loan],
+      },
+      nullJurisdiction,
+    );
+    const month1 = series.months[1]!;
+    expect(month1.isInsolvent).toBe(false);
+    // p2's own $200 covers part of their $1,000 payment; the $800 gap comes out of p2's own
+    // brokerage.
+    expect(month1.accountBalancesCents["p2-brokerage"]).toBe(dollarsToCents(100_000 - 800));
+    // p1 has no obligation of their own and no shared obligation exists — p1's brokerage is
+    // untouched.
+    expect(month1.accountBalancesCents["p1-brokerage"]).toBe(dollarsToCents(100_000));
   });
 });

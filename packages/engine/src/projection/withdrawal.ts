@@ -233,9 +233,9 @@ export function buildWithdrawalSources(
   /**
    * {@link import("./waterfall").WaterfallResult.obligationShortfallByPersonCents} — whose
    * share of the gap this is, a PREFERENCE for {@link need}'s liquidation order (§ Household
-   * funding, step 3), never a second total. Fewer than two people carrying a positive share
-   * (a single-earner plan, or every dollar unattributed) sells in EXACTLY the pooled order
-   * below, unchanged from before this parameter existed.
+   * funding, step 3), never a second total. Absent, or every dollar unattributed (nobody
+   * carries a positive share), sells in EXACTLY the pooled order below, unchanged from before
+   * this parameter existed.
    */
   byPersonCents?: ReadonlyMap<string, Cents>,
 ): WithdrawalPlan {
@@ -273,9 +273,18 @@ export function buildWithdrawalSources(
   // clamped by an earlier person's draw either. Whatever the flooring leaves on the table (at
   // most one cent per person) falls through to the pooled pass below, same as an unattributed
   // shortfall.
+  //
+  // Runs even with exactly ONE positive entry: a personal obligation (§ Household funding,
+  // "person-specific obligations should remain assigned entirely to that person") routinely
+  // attributes the WHOLE gap to a single person, unlike a shared obligation's proportional
+  // split, which usually leaves both with something. Skipping straight to the ownership-blind
+  // pooled pass there would sell whichever account the roster lists first — often the OTHER
+  // partner's — for a debt that was never theirs. A single-person household's own lone entry
+  // still matches this: every account there is that person's, so the person-aware pass and the
+  // pooled pass draw the identical set in the identical order regardless.
   const positiveByPerson = [...(byPersonCents ?? [])].filter(([, cents]) => cents > 0);
   const totalByPerson = positiveByPerson.reduce((sum, [, cents]) => sum + cents, 0);
-  if (positiveByPerson.length >= 2 && totalByPerson > 0) {
+  if (totalByPerson > 0) {
     const needAtStart = need;
     for (const [pid, weightCents] of positiveByPerson) {
       if (need <= 0) break;
