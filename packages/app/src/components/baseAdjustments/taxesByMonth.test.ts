@@ -213,11 +213,12 @@ describe("describeTaxes", () => {
   });
 
   it("names the lifetime total and the peak year", () => {
-    // Peak in month 13 → Year 2.
+    // Peak in month 13 → Year 1 (months 0-11 are Year 0, matching every other tooltip's
+    // convention — see `format.ts`'s `yearOf`).
     const rows = Array.from({ length: 13 }, (_, i) => (i === 12 ? dollarsToCents(900) : dollarsToCents(300)));
     const summary = describeTaxes(buildTaxChartData(seriesOf(...rows)));
     expect(summary).toMatch(/in tax over the plan/);
-    expect(summary).toMatch(/Year 2/);
+    expect(summary).toMatch(/Year 1\b/);
     expect(summary).toMatch(/Federal income and payroll \(FICA\) tax only/);
   });
 });

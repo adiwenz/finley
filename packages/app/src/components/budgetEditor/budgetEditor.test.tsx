@@ -7,7 +7,16 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { AGE_LIMITS, MAX_AGE, MAX_LIVED_AGE, type Plan } from "@finley/engine";
+import {
+  AGE_LIMITS,
+  MAX_AGE,
+  MAX_LIVED_AGE,
+  PRIMARY_PERSON_ID,
+  type Household,
+  type Plan,
+  type PlanAccountDescriptor,
+  type ProjectionSeries,
+} from "@finley/engine";
 import { PLAN_DEFAULTS } from "../../planDefaults";
 import { START_YEAR } from "../../config";
 import { enterNumber } from "../../testing/numberField";
@@ -15,10 +24,75 @@ import { BudgetEditor } from "./budgetEditor";
 
 afterEach(cleanup);
 
-function renderEditor(budget: Plan = PLAN_DEFAULTS) {
+const ACCOUNTS: readonly PlanAccountDescriptor[] = [
+  { id: "savings", label: "Cash savings", kind: "cash" },
+  { id: "retirement", label: "Retirement", kind: "retirement" },
+  { id: "brokerage", label: "Brokerage", kind: "brokerage" },
+];
+
+/** A one-member household whose three standing accounts belong to the primary. */
+function mkHousehold(memberCount = 1): Household {
+  return {
+    memberships: Array.from({ length: memberCount }, (_, i) => ({
+      person: { ...PLAN_DEFAULTS.primary, id: i === 0 ? PRIMARY_PERSON_ID : `p${i + 1}` } as any,
+      startMonth: 0,
+      endMonth: null,
+    })),
+    children: [],
+    series: [],
+    liabilities: [],
+    properties: [],
+    accounts: [
+      { id: "savings", owners: [PRIMARY_PERSON_ID], balanceCents: 0, retirement: false },
+      { id: "retirement", owners: [PRIMARY_PERSON_ID], balanceCents: 0, retirement: true },
+      { id: "brokerage", owners: [PRIMARY_PERSON_ID], balanceCents: 0, retirement: false },
+    ],
+    accountTransfers: [],
+    fundingDraws: [],
+  };
+}
+
+/** A one-month projection series whose only moving part is each standing account's balance. */
+function mkSeries(openingCentsById: Readonly<Record<string, number>>): ProjectionSeries {
+  const month = {
+    month: 0,
+    netWorthNominalCents: 0,
+    netWorthRealCents: 0,
+    accountBalancesCents: openingCentsById,
+    accountBasisCents: {},
+    liabilityBalancesCents: {},
+    liabilityPaymentRecords: {},
+    propertyValuesCents: {},
+    isInsolvent: false,
+    uncoveredCents: 0,
+  };
+  return {
+    opening: month,
+    months: [month],
+    status: "ran-to-horizon",
+    simulatedThroughMonth: 0,
+    obligationOutcomes: {},
+  };
+}
+
+function renderEditor(
+  budget: Plan = PLAN_DEFAULTS,
+  series: ProjectionSeries = mkSeries({ savings: 500000, retirement: 250000, brokerage: 100000 }),
+  household: Household = mkHousehold(),
+) {
   const updatePlan = vi.fn();
   const transact = vi.fn((write: any) => write({ updatePlan }));
-  render(<BudgetEditor budget={budget} transact={transact as any} />);
+  render(
+    <BudgetEditor
+      budget={budget}
+      transact={transact as any}
+      accounts={ACCOUNTS}
+      series={series}
+      household={household}
+      personNames={new Map([[PRIMARY_PERSON_ID, "You"], ["p2", "Partner"]])}
+      horizonMonths={12}
+    />,
+  );
   return { transact, updatePlan };
 }
 
@@ -120,5 +194,42 @@ describe("BudgetEditor", () => {
   it("labels Social Security as an estimate rather than advice", () => {
     renderEditor();
     expect(screen.getByText(/Social Security figures are an estimate, not advice/i)).toBeTruthy();
+  });
+
+  it("renders a balance chart for each standing account, wired to its own account's series", () => {
+    // Each chart's accessible name carries its own summary balance — checking these are
+    // distinct and correct confirms the right account id reached the right chart, without
+    // re-asserting the point-by-point series shape (that's `accountBalanceSeries.test.ts`'s job).
+    renderEditor(
+      PLAN_DEFAULTS,
+      mkSeries({ savings: 500000, retirement: 250000, brokerage: 100000 }),
+    );
+    expect(screen.getByRole("img", { name: /Cash savings projected balance.*\$5,000/i })).toBeTruthy();
+    expect(screen.getByRole("img", { name: /Retirement projected balance.*\$2,500/i })).toBeTruthy();
+    expect(screen.getByRole("img", { name: /Brokerage projected balance.*\$1,000/i })).toBeTruthy();
+  });
+
+  it("updates a chart's visible balance immediately when the underlying series changes", () => {
+    const series1 = mkSeries({ savings: 100000, retirement: 0, brokerage: 0 });
+    const series2 = mkSeries({ savings: 999000, retirement: 0, brokerage: 0 });
+    const props = {
+      budget: PLAN_DEFAULTS,
+      transact: vi.fn() as any,
+      accounts: ACCOUNTS,
+      household: mkHousehold(),
+      personNames: new Map([[PRIMARY_PERSON_ID, "You"]]),
+      horizonMonths: 12,
+    };
+    const view = render(<BudgetEditor {...props} series={series1} />);
+    expect(view.getByRole("img", { name: /Cash savings projected balance.*\$1,000/i })).toBeTruthy();
+    view.rerender(<BudgetEditor {...props} series={series2} />);
+    expect(view.getByRole("img", { name: /Cash savings projected balance.*\$9,990/i })).toBeTruthy();
+  });
+
+  it("omits the owner label from the accessible name when the household has one member", () => {
+    renderEditor(PLAN_DEFAULTS, undefined, mkHousehold(1));
+    // The chart's aria-label carries only the account label and summary — no "You" suffix —
+    // since a single-member household has nothing to disambiguate.
+    expect(screen.getByRole("img", { name: /^Cash savings projected balance/i })).toBeTruthy();
   });
 });

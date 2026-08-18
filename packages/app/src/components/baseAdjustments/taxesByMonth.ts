@@ -19,6 +19,7 @@
  */
 
 import type { IncomeSourceCategory, ProjectionSeries } from "@finley/engine";
+import { yearOf } from "../../format";
 
 /** Which tax this band represents — drives its label suffix and colour family. */
 export type TaxBandKind = "incomeTax" | "payrollTax";
@@ -208,11 +209,6 @@ export function buildTaxChartData(series: ProjectionSeries): TaxChartData {
     peakMonth,
     hasAnyTax: totalCents > 0,
   };
-}
-
-/** 1-based year of an absolute month. */
-function yearOf(month: number): number {
-  return Math.floor(month / 12) + 1;
 }
 
 /** Whole dollars, grouped — the chart axis uses `formatDollars` instead. */
