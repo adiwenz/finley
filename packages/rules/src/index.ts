@@ -20,6 +20,10 @@ import {
 import { taxableWithdrawalCents, returnTaxTreatment } from "./investmentTax";
 import { RMD_ASSUMPTIONS } from "./rmd";
 import { payrollTaxCents, PAYROLL_TAX_ASSUMPTIONS } from "./payrollTax";
+import {
+  earlyWithdrawalPenaltyCents,
+  EARLY_WITHDRAWAL_PENALTY_ASSUMPTIONS,
+} from "./earlyWithdrawalPenalty";
 
 export {
   governmentBenefitBaseMonthlyCents,
@@ -55,6 +59,10 @@ export {
   type OrdinaryBracket,
 } from "./federalTax";
 export { taxableWithdrawalCents, returnTaxTreatment } from "./investmentTax";
+export {
+  earlyWithdrawalPenaltyCents,
+  EARLY_WITHDRAWAL_PENALTY_ASSUMPTIONS,
+} from "./earlyWithdrawalPenalty";
 export {
   payrollTaxTables,
   payrollTaxParts,
@@ -107,6 +115,7 @@ export const usJurisdiction: Jurisdiction = {
     return charge > 0 ? { wages: charge } : {};
   },
   taxableWithdrawalCents: (basis) => taxableWithdrawalCents(basis),
+  earlyWithdrawalPenaltyCents: (basis, ctx) => earlyWithdrawalPenaltyCents(basis, ctx),
   returnTaxTreatment: (returnKind) => returnTaxTreatment(returnKind),
   publicHealthCoverageAge: MEDICARE_ELIGIBILITY_AGE,
   isCoveredEarnings,
@@ -122,5 +131,6 @@ export const usJurisdiction: Jurisdiction = {
     ...CONTRIBUTION_LIMIT_ASSUMPTIONS,
     ...RMD_ASSUMPTIONS,
     ...PAYROLL_TAX_ASSUMPTIONS,
+    ...EARLY_WITHDRAWAL_PENALTY_ASSUMPTIONS,
   ],
 };

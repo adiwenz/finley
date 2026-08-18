@@ -128,6 +128,31 @@ describe("usJurisdiction (US-2026)", () => {
     );
   });
 
+  it("charges the flat 10% early-withdrawal penalty on a pre-tax draw before 59½, and nothing after", () => {
+    const basis: WithdrawalTaxBasis = {
+      grossCents: dollarsToCents(10_000),
+      basisCents: 0,
+      balanceCents: dollarsToCents(100_000),
+      category: "ordinaryIncome",
+    };
+    expect(usJurisdiction.earlyWithdrawalPenaltyCents!(basis, { year: 2026, age: 45 })).toBe(
+      dollarsToCents(1_000),
+    );
+    expect(usJurisdiction.earlyWithdrawalPenaltyCents!(basis, { year: 2026, age: 60 })).toBe(0);
+    // Never charged on a non-pre-tax category, whatever the age.
+    expect(
+      usJurisdiction.earlyWithdrawalPenaltyCents!(
+        { ...basis, category: "capitalGains" },
+        { year: 2026, age: 45 },
+      ),
+    ).toBe(0);
+  });
+
+  it("discloses the early-withdrawal penalty's flat-rate simplification through modelAssumptions", () => {
+    const ids = (usJurisdiction.modelAssumptions ?? []).map((a) => a.id);
+    expect(ids).toContain("earlyWithdrawalPenalty");
+  });
+
   it("gates the government benefit on the fully-insured eligibility rule", () => {
     // Empty covered-earnings record → under 40 credits → no benefit (the eligibility gate
     // lives inside the base function).

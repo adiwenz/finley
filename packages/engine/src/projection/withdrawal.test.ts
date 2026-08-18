@@ -568,6 +568,89 @@ describe("Decumulation draws carry the full withdrawal breakdown", () => {
   });
 });
 
+describe("Early-withdrawal penalty on a pre-tax draw", () => {
+  const ctx = { year: 2026 };
+
+  /** Flat 10% on the taxable portion of an ordinary-income draw before 59½ — the US-2026 shape. */
+  const penaltyJurisdiction: Jurisdiction = {
+    id: "penalty-10",
+    computeTaxCents: () => 0,
+    computeTaxByCategoryCents: () => ({}),
+    earlyWithdrawalPenaltyCents: (basis, wctx) =>
+      basis.category === "ordinaryIncome" && wctx.age < 59.5
+        ? Math.round(basis.grossCents * 0.1)
+        : 0,
+  };
+
+  function stateWithOwner(
+    accounts: SimAccount[],
+    dollarsById: Record<string, number>,
+    birthYear?: number,
+  ): WithdrawalState {
+    const assetBalances = new Map<string, number>();
+    for (const a of accounts) assetBalances.set(a.id, dollarsToCents(dollarsById[a.id] ?? 0));
+    return {
+      accounts,
+      assetBalances,
+      basisByAccount: new Map(),
+      liquidAccount: null,
+      ...(birthYear === undefined
+        ? {}
+        : { personsById: new Map([["p1", { id: "p1", name: "You", birthYear }]]) }),
+    };
+  }
+
+  it("charges the jurisdiction's penalty and draws more from the next account so the household still nets the need", () => {
+    const accounts = [
+      account("pretax", PRE_TAX_TAX_PROFILE, 0),
+      account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 0),
+    ];
+    const st = stateWithOwner(accounts, { pretax: 10_000, brokerage: 10_000 }, 2026 - 35);
+    const { decumulationDraws } = buildWithdrawalSources(
+      st,
+      penaltyJurisdiction,
+      dollarsToCents(1_000),
+      ctx,
+      ["taxDeferred", "taxable"],
+    );
+
+    const pretaxDraw = decumulationDraws.find((d) => d.sourceId === "pretax");
+    expect(pretaxDraw?.grossWithdrawnCents).toBe(dollarsToCents(1_000));
+    expect(pretaxDraw?.taxCents).toBe(dollarsToCents(100));
+    expect(pretaxDraw?.netDeliveredCents).toBe(dollarsToCents(900));
+
+    // The $100 lost to the penalty is made up from the next account in line.
+    const brokerageDraw = decumulationDraws.find((d) => d.sourceId === "brokerage");
+    expect(brokerageDraw?.grossWithdrawnCents).toBe(dollarsToCents(100));
+    expect(brokerageDraw?.taxCents).toBe(0);
+
+    const totalNet = decumulationDraws.reduce((s, d) => s + d.netDeliveredCents, 0);
+    expect(totalNet).toBe(dollarsToCents(1_000));
+  });
+
+  it("charges nothing at or past the jurisdiction's access age", () => {
+    const accounts = [account("pretax", PRE_TAX_TAX_PROFILE, 0)];
+    const st = stateWithOwner(accounts, { pretax: 10_000 }, 2026 - 60);
+    const { decumulationDraws } = buildWithdrawalSources(st, penaltyJurisdiction, dollarsToCents(1_000), ctx);
+    expect(decumulationDraws[0].taxCents).toBe(0);
+    expect(decumulationDraws[0].netDeliveredCents).toBe(dollarsToCents(1_000));
+  });
+
+  it("charges nothing when the account owner's age cannot be determined", () => {
+    const accounts = [account("pretax", PRE_TAX_TAX_PROFILE, 0)];
+    const st = stateWithOwner(accounts, { pretax: 10_000 });
+    const { decumulationDraws } = buildWithdrawalSources(st, penaltyJurisdiction, dollarsToCents(1_000), ctx);
+    expect(decumulationDraws[0].taxCents).toBe(0);
+  });
+
+  it("never charges a non-pre-tax account, whatever the owner's age", () => {
+    const accounts = [account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 0)];
+    const st = stateWithOwner(accounts, { brokerage: 10_000 }, 2026 - 35);
+    const { decumulationDraws } = buildWithdrawalSources(st, penaltyJurisdiction, dollarsToCents(1_000), ctx);
+    expect(decumulationDraws[0].taxCents).toBe(0);
+  });
+});
+
 describe("Decumulation reporting splits realized gain from returned principal (#122)", () => {
   /** Pro-rata capital gains, no tax — isolates the income/drawdown split from tax cash flow. */
   const proRataGains: Jurisdiction = {

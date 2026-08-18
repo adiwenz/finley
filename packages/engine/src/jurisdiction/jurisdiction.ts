@@ -46,6 +46,11 @@ export interface RmdContext extends JurisdictionContext {
   readonly birthYear: number;
 }
 
+/** The mirror-image context at the OTHER end of life from {@link RmdContext}: an age-gated withdrawal rule. */
+export interface WithdrawalContext extends JurisdictionContext {
+  readonly age: number;
+}
+
 export interface HealthCostContext extends JurisdictionContext {
   readonly age: number;
 }
@@ -130,6 +135,25 @@ export interface Jurisdiction {
    * climb to its least fixed point. Absent → the whole `grossCents` is taxable.
    */
   taxableWithdrawalCents?(basis: WithdrawalTaxBasis, ctx: JurisdictionContext): Cents;
+
+  /**
+   * Additional tax on a withdrawal taken before the jurisdiction's access age (US: 10% before
+   * 59½, IRC §72(t)) — layered ON TOP of ordinary income tax, never netted from it or from
+   * {@link taxableWithdrawalCents}. Priced off the SAME {@link WithdrawalTaxBasis}, so a
+   * jurisdiction can gate on `category` (US: only an `ordinaryIncome` — i.e. pre-tax — draw is
+   * eligible) the same way it decides what portion of a draw is taxable at all.
+   *
+   * Charged immediately, in the draw's own month — unlike {@link computeTaxCents}, this needs
+   * no annual reconciliation, because it is a flat rate on an amount already fully known the
+   * moment the draw is priced, not a bracket that depends on the rest of the year's income.
+   * The engine nets it out of what the draw DELIVERS (see {@link
+   * import("../projection/withdrawal").buildWithdrawalSources}), so a household short of what
+   * it asked for pulls more from the next account in line exactly as it would if a balance ran
+   * out early — no separate settlement machinery. Absent → no penalty (also the correct answer
+   * past the access age — a jurisdiction that implements this must return 0 there itself, since
+   * the engine does not gate the call by age).
+   */
+  earlyWithdrawalPenaltyCents?(basis: WithdrawalTaxBasis, ctx: WithdrawalContext): Cents;
 
   /**
    * How an account's periodic RETURN is taxed, given its neutral {@link
