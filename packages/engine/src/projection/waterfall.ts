@@ -443,6 +443,14 @@ function splitSharedObligation(
     unfundedDeductionsCents += Math.max(0, -rawTakeHomeCents);
   }
 
+  // Income while any exists, otherwise each person's eligible assets — shared by the real
+  // split below and the shortfall-attribution split further down, so the two can never weight
+  // people differently from each other.
+  const weightOf =
+    totalPositive > 0
+      ? (pid: string) => positiveTakeHome.get(pid) ?? 0
+      : (pid: string) => input.eligibleAssetsCentsByPerson?.(pid) ?? 0;
+
   const shareByPerson = new Map<string, Cents>();
   if (input.sharedObligationCents <= 0) {
     for (const pid of input.personIds) shareByPerson.set(pid, 0);
@@ -450,10 +458,6 @@ function splitSharedObligation(
     const shares = splitEven(input.sharedObligationCents, Math.max(1, input.personIds.length));
     input.personIds.forEach((pid, i) => shareByPerson.set(pid, shares[i] ?? 0));
   } else {
-    const weightOf =
-      totalPositive > 0
-        ? (pid: string) => positiveTakeHome.get(pid) ?? 0
-        : (pid: string) => input.eligibleAssetsCentsByPerson?.(pid) ?? 0;
     for (const [pid, share] of proportionalSplit(
       input.sharedObligationCents,
       input.personIds,
@@ -491,19 +495,15 @@ function splitSharedObligation(
   // rounding `shareByPerson` needs to stay cent-exact for the real allocation above cannot make
   // that promise). Never overshoots `shortfallCents` — at most `personIds.length − 1` cents go
   // unattributed, folded into the scalar total same as any other unattributed shortfall.
-  const shortfallWeightOf =
-    totalPositive > 0
-      ? (pid: string) => positiveTakeHome.get(pid) ?? 0
-      : (pid: string) => input.eligibleAssetsCentsByPerson?.(pid) ?? 0;
   const totalShortfallWeight = input.personIds.reduce(
-    (sum, pid) => sum + Math.max(0, shortfallWeightOf(pid)),
+    (sum, pid) => sum + Math.max(0, weightOf(pid)),
     0,
   );
   const obligationShortfallByPersonCents = new Map<string, Cents>(
     input.personIds.map((pid) => [
       pid,
       totalShortfallWeight > 0
-        ? Math.floor((shortfallCents * Math.max(0, shortfallWeightOf(pid))) / totalShortfallWeight)
+        ? Math.floor((shortfallCents * Math.max(0, weightOf(pid))) / totalShortfallWeight)
         : 0,
     ]),
   );
