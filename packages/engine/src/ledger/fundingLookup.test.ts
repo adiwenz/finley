@@ -98,7 +98,7 @@ describe("fundingLookup — credit sources", () => {
     // Month 0: the `opening` snapshot, before the card's own minimum-payment mechanics have had a
     // month to nudge the owed balance — otherwise a later month's amortization, not the headroom
     // math under test, would move the number.
-    const gate = fundingLookup(ledger, base, nullJurisdiction).availabilityAt(["visa"], 5_000_00, 0);
+    const gate = fundingLookup(ledger, base, nullJurisdiction).availabilityAt("expense", ["visa"], 5_000_00, 0);
 
     expect(gate.shortfallCents).toBe(0);
     expect(gate.availableCents).toBe(5_000_00);
@@ -116,7 +116,7 @@ describe("fundingLookup — credit sources", () => {
       cardLoanEvent({ creditLimitCents: 5_000_00, openingBalanceCents: 5_000_00 }),
     );
 
-    const gate = fundingLookup(ledger, base, nullJurisdiction).availabilityAt(["visa"], 1_000_00, 0);
+    const gate = fundingLookup(ledger, base, nullJurisdiction).availabilityAt("expense", ["visa"], 1_000_00, 0);
 
     expect(gate.availableCents).toBe(0);
     expect(gate.shortfallCents).toBe(1_000_00);
@@ -138,6 +138,7 @@ describe("fundingLookup — credit sources", () => {
       cardLoanEvent({ liabilityId: CARD_ID, creditLimitCents: CARD_LIMIT, openingBalanceCents: 0 }),
     );
     const gate = fundingLookup(ledger, base, nullJurisdiction).availabilityAt(
+      "expense",
       [ACCOUNT_ID, CARD_ID],
       AMOUNT,
       MONTH,
