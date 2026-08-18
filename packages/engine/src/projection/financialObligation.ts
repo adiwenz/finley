@@ -117,6 +117,16 @@ export interface FinancialObligation {
   readonly editable: boolean;
   readonly label: string;
   readonly category: ObligationCategory;
+  /**
+   * The person this obligation is charged to alone, when one is unambiguous — set only for a
+   * liability payment, from {@link SimLiability.ownerId}, which is always an authored household
+   * member. Absent on every expense-series obligation: a budget line has no real per-person
+   * authoring surface today (every line compiles under the primary person regardless of who it
+   * is really for — see `createProjectionBase`), and an event-spawned series' `ownerId` names
+   * who the expense is FOR (a child), not who owes it, so neither is safe to read as "charge
+   * this person's own take-home first."
+   */
+  readonly ownerId?: string;
 }
 
 /**
@@ -359,6 +369,7 @@ export function buildObligations(
       editable: false,
       label: LIABILITY_LABEL[liability.kind],
       category: "debtService",
+      ownerId: liability.ownerId,
     });
   }
 

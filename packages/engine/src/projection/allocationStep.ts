@@ -13,6 +13,7 @@ import {
 } from "./federalIncomeTax";
 import type { SimState } from "./runState";
 import type { SimOwnedSeries } from "./simulate.types";
+import type { FinancialObligation } from "./financialObligation";
 
 export function buildIncomeSources(
   incomeSeries: readonly SimOwnedSeries[],
@@ -76,6 +77,31 @@ interface MonthContribution {
 }
 
 /**
+ * The month's automatic obligations, split into the shared pool and each person's own —
+ * {@link FinancialObligation.ownerId} is the single source of truth for which is which, so the
+ * two totals can never drift apart from a parallel scalar. An obligation with no owner (every
+ * expense series today, plus a liability owned by nobody on the roster) is shared; only a
+ * liability whose owner IS a household member is personal.
+ */
+function splitAutomaticObligations(
+  obligations: readonly FinancialObligation[],
+  personIds: readonly string[],
+): { sharedObligationCents: Cents; personalCentsByPerson: Map<string, Cents> } {
+  const personIdSet = new Set(personIds);
+  const personalCentsByPerson = new Map<string, Cents>();
+  let sharedObligationCents: Cents = 0;
+  for (const o of obligations) {
+    if (o.funding.kind !== "automatic") continue;
+    if (o.ownerId !== undefined && personIdSet.has(o.ownerId)) {
+      personalCentsByPerson.set(o.ownerId, (personalCentsByPerson.get(o.ownerId) ?? 0) + o.amountCents);
+    } else {
+      sharedObligationCents += o.amountCents;
+    }
+  }
+  return { sharedObligationCents, personalCentsByPerson };
+}
+
+/**
  * Everything the month's waterfall runs on, assembled from `state` but writing NOTHING to it —
  * every closure here reads. Split out from {@link allocateMonth} so the month's cash shortfall can
  * be MEASURED before decumulation ({@link projectObligationShortfallCents}) with the identical
@@ -89,10 +115,14 @@ function planMonthAllocation(
   incomeSources: readonly IncomeSourceMonth[],
   ctx: JurisdictionContext,
   jurisdiction: Jurisdiction,
-  sharedObligationCents: Cents,
+  obligations: readonly FinancialObligation[],
   month: number,
   priorYearSettlements: PriorYearSettlements,
 ): { input: WaterfallInput; contributions: readonly MonthContribution[] } {
+  const { sharedObligationCents, personalCentsByPerson } = splitAutomaticObligations(
+    obligations,
+    state.personIds,
+  );
   // Per plan, but banded on the individual's age — the jurisdiction may raise the limit with
   // it. No birth year → the un-banded limit.
   const combinedLimit = jurisdiction.combinedPlanDepositLimitCents;
@@ -121,6 +151,7 @@ function planMonthAllocation(
     personIds: state.personIds,
     incomeSources,
     sharedObligationCents,
+    personalObligationCentsByPerson: (pid) => personalCentsByPerson.get(pid) ?? 0,
     sharedScheme: state.sharedScheme,
     surplusDestination: state.surplusDestination,
     goals: state.goals,
@@ -226,7 +257,7 @@ export function projectObligationShortfallCents(
   incomeSources: readonly IncomeSourceMonth[],
   ctx: JurisdictionContext,
   jurisdiction: Jurisdiction,
-  sharedObligationCents: Cents,
+  obligations: readonly FinancialObligation[],
   month: number,
   priorYearSettlements: PriorYearSettlements,
 ): {
@@ -239,7 +270,7 @@ export function projectObligationShortfallCents(
     incomeSources,
     ctx,
     jurisdiction,
-    sharedObligationCents,
+    obligations,
     month,
     priorYearSettlements,
   );
@@ -269,7 +300,7 @@ export function allocateMonth(
   incomeSources: readonly IncomeSourceMonth[],
   ctx: JurisdictionContext,
   jurisdiction: Jurisdiction,
-  sharedObligationCents: Cents,
+  obligations: readonly FinancialObligation[],
   month: number,
   priorYearSettlements: PriorYearSettlements,
 ): {
@@ -306,7 +337,7 @@ export function allocateMonth(
     incomeSources,
     ctx,
     jurisdiction,
-    sharedObligationCents,
+    obligations,
     month,
     priorYearSettlements,
   );

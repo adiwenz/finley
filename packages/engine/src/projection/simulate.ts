@@ -268,7 +268,7 @@ function runMonth(
     preDecumulationSources,
     ctx,
     jurisdiction,
-    automaticFundingCents,
+    obligations,
     month,
     priorYearSettlements,
   );
@@ -311,7 +311,7 @@ function runMonth(
     allocationSources,
     ctx,
     jurisdiction,
-    automaticFundingCents,
+    obligations,
     month,
     priorYearSettlements,
   );
