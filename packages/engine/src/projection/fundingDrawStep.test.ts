@@ -96,7 +96,7 @@ const penaltyJurisdiction: Jurisdiction = {
 };
 
 describe("resolveOrderedFundingDraw — early-withdrawal penalty", () => {
-  it("nets the penalty out of what a pre-tax source delivers, drawing more from the next source to make up the rest", () => {
+  it("charges the penalty WITHOUT touching what the draw delivers — a $1,000 need sells exactly $1,000 gross from the pre-tax source, never $1,100, and never touches the next source", () => {
     const base = freshBase();
     const result = resolveOrderedFundingDraw(
       1_000_00,
@@ -106,20 +106,17 @@ describe("resolveOrderedFundingDraw — early-withdrawal penalty", () => {
       base,
     );
 
+    expect(result.perSource).toHaveLength(1);
     const pretax = result.perSource[0]!;
     expect(pretax.grossCents).toBe(1_000_00);
     expect(pretax.taxCents).toBe(100_00);
-    expect(pretax.netDeliveredCents).toBe(900_00);
-
-    const brokerage = result.perSource[1]!;
-    expect(brokerage.grossCents).toBe(100_00);
-    expect(brokerage.taxCents).toBe(0);
+    expect(pretax.netDeliveredCents).toBe(1_000_00);
 
     expect(result.netDeliveredCents).toBe(1_000_00);
     expect(result.shortfallCents).toBe(0);
   });
 
-  it("reports a real shortfall when the penalized source is the only one and can't make up its own leakage", () => {
+  it("never reports a shortfall from the penalty alone — a $1,000 need is fully met by a $1,000 pre-tax balance even though it also owes a $100 penalty", () => {
     const base = freshBase();
     const result = resolveOrderedFundingDraw(
       1_000_00,
@@ -128,8 +125,9 @@ describe("resolveOrderedFundingDraw — early-withdrawal penalty", () => {
       CTX,
       base,
     );
-    expect(result.netDeliveredCents).toBe(900_00);
-    expect(result.shortfallCents).toBe(100_00);
+    expect(result.perSource[0]!.taxCents).toBe(100_00);
+    expect(result.netDeliveredCents).toBe(1_000_00);
+    expect(result.shortfallCents).toBe(0);
   });
 
   it("charges nothing when the source carries no age", () => {

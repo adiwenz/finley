@@ -15,9 +15,8 @@
  * the discriminated {@link FundingSourceState} lets both walk the one ordered list, so the
  * user's authored order is honoured and never reshuffled.
  *
- * An early-withdrawal penalty on a pre-tax source is the one thing that IS netted out of the
- * draw immediately — see {@link resolveOrderedFundingDraw}'s doc for why it, unlike income tax,
- * can be priced and charged the same month.
+ * An early-withdrawal penalty on a pre-tax source is priced the same way income tax on the gain
+ * is: never netted out of what the draw delivers. See {@link resolveOrderedFundingDraw}'s doc.
  */
 
 import type { Cents } from "../money/money";
@@ -110,12 +109,14 @@ export interface ResolvedFundingSource {
    * The early-withdrawal penalty, if the jurisdiction charges one and the source carried an
    * `age` — 0 for a credit borrow and for every other draw. Never federal income tax, which is
    * never charged against a funding draw and never grossed up for; the gain joins the year's
-   * taxable income and is priced with it, unaffected by this field.
+   * taxable income and is priced with it, unaffected by this field. Reported for attribution
+   * only — NOT subtracted from {@link netDeliveredCents}; it settles through the annual true-up
+   * instead (see {@link resolveFundingDraws}'s doc).
    */
   readonly taxCents: Cents;
   /** `grossCents − gainCents`; the whole borrow for credit, which realizes no gain. */
   readonly principalCents: Cents;
-  /** `grossCents − taxCents` (`= grossCents` for credit, and for any account draw with no penalty). */
+  /** `= grossCents` — nothing, including the penalty, is netted out of what a source delivers. */
   readonly netDeliveredCents: Cents;
 }
 
@@ -183,11 +184,13 @@ export function toTaxableRecord(taxableByOwner: TaxableByOwner): Record<string, 
  * balance`, clamped at zero; a `null` limit is zero headroom, not unbounded), tax-free. Both walk
  * the ONE ordered list — a `[brokerage, visa]` list sells then borrows, never reordered.
  *
- * An early-withdrawal penalty is different: it IS netted out of what a source delivers, the
- * moment it is priced (see `withdrawal.ts`'s module doc for why income tax and this penalty are
- * treated differently). `remaining` tracks NET delivered, not gross sold, so a source that pays a
- * penalty leaves the remainder bigger than `gross` would suggest, and the next source in line
- * makes up the difference — the same as a source running out of balance mid-draw already forced.
+ * An early-withdrawal penalty is priced the same way as income tax on the gain: it is fully known
+ * the moment the draw is priced, but it is NEVER netted out of what the source delivers —
+ * `remaining` tracks gross sold, exactly as it would with no penalty at all. The penalty is
+ * reported per source (`taxCents`) so the caller can fold it into {@link
+ * import("./runState").SimState.earlyWithdrawalPenaltyByPersonYear}, which settles it through the
+ * ordinary annual true-up ({@link import("./taxYearSettlement").finalizeTaxYear}) — the same
+ * "priced now, settled with the year" treatment income tax on the very same draw already gets.
  * A source with no `age` (an unknown owner) is never charged.
  *
  * An account sale's realized gain still stacks onto `taxableByOwner`, so a second taxable
@@ -263,11 +266,9 @@ export function resolveOrderedFundingDraw(
     // Sell exactly the remainder, capped at the balance — no gross-up for income tax.
     const gross = Math.min(balance, remaining);
     const gain = gainOf(gross);
-    // Unlike income tax, the early-withdrawal penalty IS netted out immediately (see
-    // `withdrawal.ts`'s module doc for why this one can be): `net` is what actually reaches
-    // `remaining`, so a penalized source's leakage draws more from the NEXT source in line —
-    // no age on the source (an unknown owner) → the seam is never called, matching
-    // `earlyWithdrawalPenaltyCents`'s own absent-seam contract.
+    // Priced the same way income tax on `gain` is: fully known now, but never netted out of
+    // what the source delivers — no age on the source (an unknown owner) → the seam is never
+    // called, matching `earlyWithdrawalPenaltyCents`'s own absent-seam contract.
     const penalty =
       age === undefined
         ? 0
@@ -275,10 +276,9 @@ export function resolveOrderedFundingDraw(
             { grossCents: gross, basisCents: basis, balanceCents: balance, category },
             { year: ctx.year, age },
           ) ?? 0);
-    const net = gross - penalty;
     const base = taxableByOwner.get(ownerId) ?? {};
     taxableByOwner.set(ownerId, { ...base, [category]: (base[category] ?? 0) + gain });
-    remaining -= net;
+    remaining -= gross;
     perSource.push({
       kind: "account",
       id,
@@ -290,7 +290,7 @@ export function resolveOrderedFundingDraw(
       gainCents: gain,
       taxCents: penalty,
       principalCents: gross - gain,
-      netDeliveredCents: net,
+      netDeliveredCents: gross,
     });
   }
 
@@ -350,6 +350,14 @@ export interface FundingDrawReport {
   readonly investmentPrincipalDraws: readonly PrincipalDrawdownSource[];
   readonly taxableByOwnerAfter: TaxableByOwner;
   readonly resolvedFunding: readonly ResolvedFunding[];
+  /**
+   * Σ each applied draw's per-source `taxCents` (the early-withdrawal penalty), by the drawn
+   * account's owner — for the caller to fold into {@link
+   * import("./runState").SimState.earlyWithdrawalPenaltyByPersonYear}. Never netted out of a
+   * draw's delivered cash (see the module doc); a blocked draw's never-applied sources
+   * contribute nothing here.
+   */
+  readonly earlyWithdrawalPenaltyByOwnerCents: ReadonlyMap<string, Cents>;
   /**
    * The first draw this month whose named sources could not cover it, if any — the block. When
    * set, this draw and every draw after it were NOT applied: no balance moved, no gain or tax
@@ -415,6 +423,7 @@ export function resolveFundingDraws(
   const resolvedFunding: ResolvedFunding[] = [];
   let liquidPrincipalDrawdownCents = 0;
   const investmentPrincipalDraws: PrincipalDrawdownSource[] = [];
+  const earlyWithdrawalPenaltyByOwnerCents = new Map<string, Cents>();
   let block: FundingBlock | undefined;
   const omittedSourceEventIds = new Set<string>();
 
@@ -602,6 +611,12 @@ export function resolveFundingDraws(
         s.id,
         Math.max(0, (state.basisByAccount.get(s.id) ?? 0) - s.principalCents),
       );
+      if (s.taxCents > 0) {
+        earlyWithdrawalPenaltyByOwnerCents.set(
+          s.ownerId,
+          (earlyWithdrawalPenaltyByOwnerCents.get(s.ownerId) ?? 0) + s.taxCents,
+        );
+      }
       // Returned principal surfaces through the savings drawdown — for an expense draw, which
       // the expense graph shows the other half of. An acquisition's principal became a house;
       // banding it would report a month of living off savings that never happened. Split by
@@ -645,6 +660,7 @@ export function resolveFundingDraws(
     investmentPrincipalDraws,
     taxableByOwnerAfter: working,
     resolvedFunding,
+    earlyWithdrawalPenaltyByOwnerCents,
     ...(block !== undefined ? { block } : {}),
     omittedSourceEventIds,
   };

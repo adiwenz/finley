@@ -106,6 +106,20 @@ export interface SimState {
    */
   readonly taxableIncomeByPersonYear: Map<string, TaxableByCategory>;
   /**
+   * A FLAT dollar tax liability, per person per calendar year, keyed `${personId}|${year}` —
+   * separate from {@link taxableIncomeByPersonYear} because it is not proportional taxable
+   * income run through the jurisdiction's brackets, it is already a priced tax amount (US: the
+   * 10% early-withdrawal penalty, {@link
+   * import("../jurisdiction/jurisdiction").Jurisdiction.earlyWithdrawalPenaltyCents}). Folded
+   * in the same month the penalty is charged (see {@link
+   * import("./withdrawal").buildWithdrawalSources} and {@link
+   * import("./fundingDrawStep").resolveFundingDraws}), and added on top of the year's priced
+   * income tax at the close ({@link import("./taxYearSettlement").finalizeTaxYear}), so it
+   * settles through the SAME April true-up channel as ordinary income tax rather than being
+   * netted out of the withdrawal that caused it.
+   */
+  readonly earlyWithdrawalPenaltyByPersonYear: Map<string, Cents>;
+  /**
    * The per-SOURCE breakdown behind {@link taxableIncomeByPersonYear}, keyed the same way
    * (`${personId}|${year}`) — a sourceKey → running `{category, taxableCents}` map, summed
    * across every month the source contributed. The year's close reads this alongside the
@@ -228,6 +242,7 @@ export function cloneSimState(state: SimState): SimState {
     earnedByPersonYear: copyMap(state.earnedByPersonYear),
     combinedDepositsByPlanYear: copyMap(state.combinedDepositsByPlanYear),
     taxableIncomeByPersonYear: copyMap(state.taxableIncomeByPersonYear),
+    earlyWithdrawalPenaltyByPersonYear: copyMap(state.earlyWithdrawalPenaltyByPersonYear),
     taxableBySourceByPersonYear: copyMap(state.taxableBySourceByPersonYear),
     estimatedFederalTaxByPersonYear: copyMap(state.estimatedFederalTaxByPersonYear),
     federalTaxPaidByPersonYear: copyMap(state.federalTaxPaidByPersonYear),
@@ -335,6 +350,7 @@ export function initSimState(input: HouseholdSimInput): SimState {
     earnedByPersonYear: new Map<string, TaxableByCategory>(),
     combinedDepositsByPlanYear: new Map<string, Cents>(),
     taxableIncomeByPersonYear: new Map<string, TaxableByCategory>(),
+    earlyWithdrawalPenaltyByPersonYear: new Map<string, Cents>(),
     taxableBySourceByPersonYear: new Map<string, Map<string, SourceTaxable>>(),
     estimatedFederalTaxByPersonYear: new Map<string, EstimatedTaxYear>(),
     federalTaxPaidByPersonYear: new Map<string, FederalTaxPayment>(),

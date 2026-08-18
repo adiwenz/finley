@@ -266,7 +266,7 @@ describe("OneTimeSpendEvent — an early-withdrawal penalty on a pre-tax source"
       basis.category === "ordinaryIncome" && ctx.age < 59.5 ? Math.round(basis.grossCents * 0.1) : 0,
   };
 
-  it("nets the penalty out of the real simulated draw, pulling more from the next named source to still fund the spend", () => {
+  it("delivers the full $1,000 toward the spend WITHOUT touching the next named source — the penalty never reduces spendable cash", () => {
     // personLit's birth year (1990) is age 36 in the base's 2026 start year — well under 59½.
     const base: LedgerBaseConfig = {
       horizonMonths: 12,
@@ -287,17 +287,17 @@ describe("OneTimeSpendEvent — an early-withdrawal penalty on a pre-tax source"
     expect(withoutPenalty.months[1].accountBalancesCents.retirement).toBe(10_000_00 - 1_000_00);
     expect(withoutPenalty.months[1].accountBalancesCents.brokerage).toBe(10_000_00);
 
-    // With the penalty: the pre-tax account still sells $1,000 gross, but only $900 counts toward
-    // the spend — the $100 lost to the penalty is made up by selling MORE from the brokerage, the
-    // next named source, so the $1,000 purchase still completes.
+    // With the penalty: the pre-tax account still sells exactly $1,000 gross, fully funding the
+    // spend on its own — the $100 penalty is priced and reported, but never subtracted from what
+    // the sale delivers, so the brokerage (the next named source) is never touched, and the
+    // month's net worth is unaffected by the penalty. It settles later, through the ordinary
+    // annual tax true-up, not as an immediate cash haircut on the withdrawal that caused it.
     const withPenalty = buildProjection(household, base, penaltyJurisdiction);
     expect(withPenalty.status).toBe("ran-to-horizon");
     expect(withPenalty.months[1].accountBalancesCents.retirement).toBe(10_000_00 - 1_000_00);
-    expect(withPenalty.months[1].accountBalancesCents.brokerage).toBe(10_000_00 - 100_00);
-    // The household is left with $100 less net worth than the no-penalty run — the penalty itself,
-    // paid for out of an account the spend never would have touched otherwise.
+    expect(withPenalty.months[1].accountBalancesCents.brokerage).toBe(10_000_00);
     expect(withPenalty.months[1].netWorthNominalCents).toBe(
-      (withoutPenalty.months[1].netWorthNominalCents ?? 0) - 100_00,
+      withoutPenalty.months[1].netWorthNominalCents,
     );
   });
 });

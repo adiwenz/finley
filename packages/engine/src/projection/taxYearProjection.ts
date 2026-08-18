@@ -285,6 +285,17 @@ export function projectKnownTaxYear(
   // a home purchase short of its down payment is a March problem, not a twelfth of one every
   // month, and the waterfall will meet it by selling in March against March's balances.
   const unresolvedEventByMonth: Cents[] = Array.from({ length: MONTHS_IN_TAX_YEAR }, () => 0);
+  // Forecast early-withdrawal penalty, by owner — flat dollars, not proportional taxable
+  // income, so it is tracked apart from `knownBases`/`forecastAccounts` and added to the
+  // estimate's `totalCents` directly in `price()` below, the same top-up `finalizeTaxYear`
+  // gives the actual penalty at year-end (see `runState.ts`'s `earlyWithdrawalPenaltyByPersonYear`
+  // doc). Never netted out of a draw's delivered cash here either — see `resolveOrderedFundingDraw`
+  // and `forecastFundingDraws`'s own docs.
+  const forecastPenaltyByOwner = new Map<string, Cents>();
+  const addForecastPenalty = (ownerId: string, cents: Cents): void => {
+    if (cents <= 0) return;
+    forecastPenaltyByOwner.set(ownerId, (forecastPenaltyByOwner.get(ownerId) ?? 0) + cents);
+  };
 
   const thisYearsDraws = state.fundingDraws
     .filter(
@@ -355,6 +366,7 @@ export function projectKnownTaxYear(
         s.category,
         s.gainCents,
       );
+      addForecastPenalty(s.ownerId, s.taxCents);
     }
   }
 
@@ -426,28 +438,56 @@ export function projectKnownTaxYear(
     forecast: readonly ForecastDraw[],
   ): { estimates: Map<string, EstimatedTaxYear>; totalCents: Cents } => {
     const bases = cloneBases(knownBases);
+    // Flat penalty dollars, seeded from the known explicit-event draws and topped up with this
+    // pass's forecast decumulation draws — never run through `annualFederalTax`'s brackets (see
+    // the `forecastPenaltyByOwner` doc above).
+    const penaltyByOwner = new Map(forecastPenaltyByOwner);
     for (const draw of forecast) {
       // Keyed on the account id, the same `sourceId` `buildWithdrawalSources` gives the real
       // draw — so a year's estimated instalments band under "Retirement account" alongside the
       // actual withdrawals they are anticipating.
       addTaxable(bases, draw.ownerId, draw.accountId, draw.category, draw.taxableCents);
+      if (draw.earlyWithdrawalPenaltyCents > 0) {
+        penaltyByOwner.set(
+          draw.ownerId,
+          (penaltyByOwner.get(draw.ownerId) ?? 0) + draw.earlyWithdrawalPenaltyCents,
+        );
+      }
     }
     const estimates = new Map<string, EstimatedTaxYear>();
     let totalCents = 0;
     for (const pid of state.personIds) {
       const base = bases.get(pid);
-      const { totalCents: personCents, byCategoryCents } = annualFederalTax(
+      const { totalCents: incomeTaxCents, byCategoryCents } = annualFederalTax(
         jurisdiction,
         ctx,
         pid,
         base?.byCategory ?? {},
       );
+      const penaltyCents = penaltyByOwner.get(pid) ?? 0;
+      const personCents = incomeTaxCents + penaltyCents;
       if (personCents <= 0) continue;
       totalCents += personCents;
+      // The penalty rides `ordinaryIncome` and its own source key, exactly as `finalizeTaxYear`
+      // bands the actual penalty at year-end — so `Σ byCategoryCents === totalCents` even when
+      // the bracket-priced income tax alone is $0 (a household under the standard deduction
+      // still owes the flat penalty), which is what `estimatedPaymentForMonth`'s own
+      // reconciliation needs from every estimate it apportions.
+      const byCategoryCentsWithPenalty: TaxableByCategory =
+        penaltyCents > 0 ? { ...byCategoryCents } : byCategoryCents;
+      const sourceWeights = [...(base?.weights.values() ?? [])];
+      if (penaltyCents > 0) {
+        addCategory(byCategoryCentsWithPenalty, "ordinaryIncome", penaltyCents);
+        sourceWeights.push({
+          key: "earlyWithdrawalPenalty",
+          category: "ordinaryIncome",
+          taxableCents: penaltyCents,
+        });
+      }
       estimates.set(pid, {
         totalCents: personCents,
-        byCategoryCents,
-        sourceWeights: [...(base?.weights.values() ?? [])],
+        byCategoryCents: byCategoryCentsWithPenalty,
+        sourceWeights,
       });
     }
     return { estimates, totalCents };

@@ -97,6 +97,12 @@ export interface ForecastDraw {
   readonly grossCents: Cents;
   /** The realized gain within {@link grossCents} — for a pre-tax account, the whole of it. */
   readonly taxableCents: Cents;
+  /**
+   * The early-withdrawal penalty forecast on this account's draws — never netted out of {@link
+   * grossCents} (see {@link forecastFundingDraws}'s doc). Reported so the caller can anticipate
+   * it in the year's tax estimate, the same as {@link taxableCents} anticipates income tax.
+   */
+  readonly earlyWithdrawalPenaltyCents: Cents;
 }
 
 export interface FundingForecast {
@@ -165,12 +171,12 @@ export function evenMonthlyShares(annualCents: Cents): Cents[] {
  * import("./taxYearProjection").projectKnownTaxYear}) — which is the annual analogue of what
  * really happens, where the tax is paid from the following months' funding need.
  *
- * An early-withdrawal penalty is the one exception, forecast the same way the real draw charges
- * it: netted out immediately, not solved by the fixed point above. `remaining` tracks NET
- * delivered per account, so a penalized account's shortfall is forecast pulling more from the
- * next account in line — the real draw's own behavior (see `withdrawal.ts`'s module doc). Get
- * this wrong and a decumulating household under 59½ forecasts too little capital-gains income
- * from its taxable accounts, reintroducing the December spike this module exists to prevent.
+ * An early-withdrawal penalty is forecast the same way the real draw charges it: NEVER netted
+ * out of what an account delivers (see `withdrawal.ts`'s module doc) — `remaining` tracks gross
+ * sold, exactly as it would with no penalty at all. It is reported per account ({@link
+ * ForecastDraw.earlyWithdrawalPenaltyCents}) so the caller can anticipate it in the year's tax
+ * estimate the same way {@link ForecastDraw.taxableCents} anticipates income tax, rather than
+ * dumping the whole thing on the following April's true-up as an unanticipated spike.
  */
 export function forecastFundingDraws(
   needByMonthCents: readonly Cents[],
@@ -185,6 +191,7 @@ export function forecastFundingDraws(
   const bases = ordered.map((a) => Math.max(0, a.basisCents));
   const grossByAccount = ordered.map(() => 0);
   const taxableByAccount = ordered.map(() => 0);
+  const penaltyByAccount = ordered.map(() => 0);
 
   // SIGNED between months: a surplus month carries forward as a negative and pays for a lean one.
   let carriedNeed = 0;
@@ -224,7 +231,9 @@ export function forecastFundingDraws(
       bases[i] = Math.max(0, bases[i]! - (gross - taxable));
       grossByAccount[i] += gross;
       taxableByAccount[i] += taxable;
-      remaining -= gross - penalty;
+      penaltyByAccount[i] += penalty;
+      // Never netted — see the module doc.
+      remaining -= gross;
     }
     carriedNeed = remaining;
 
@@ -249,6 +258,7 @@ export function forecastFundingDraws(
       category: ordered[i]!.category,
       grossCents: grossByAccount[i]!,
       taxableCents: taxableByAccount[i]!,
+      earlyWithdrawalPenaltyCents: penaltyByAccount[i]!,
     });
   }
 

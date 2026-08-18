@@ -141,3 +141,37 @@ describe("settling a closed year", () => {
     expect(state.pendingTaxSettlementsByPersonYear.has("p1|2026")).toBe(true);
   });
 });
+
+describe("the early-withdrawal penalty settles through the SAME annual true-up as income tax", () => {
+  /** No income tax at all — isolates the penalty's own path through the close. */
+  const noIncomeTax: Jurisdiction = {
+    id: "no-income-tax",
+    computeTaxCents: () => 0,
+    computeTaxByCategoryCents: () => ({}),
+  };
+
+  it("is added on top of the year's priced income tax, never netted into the withdrawal itself", () => {
+    const state = initSimState(input);
+    // A $1,000 draw already reached the household in full this year (see `withdrawal.ts` /
+    // `fundingDrawStep.ts`, which fold this same accumulator) — the close must still charge its
+    // $100 penalty, entirely apart from whether any income tax is owed.
+    state.earlyWithdrawalPenaltyByPersonYear.set("p1|2026", dollarsToCents(100));
+    finalizeTaxYear(state, noIncomeTax, { year: 2026 }, 11);
+
+    expect(pendingSettlementTotalCents(state, { year: 2027 })).toBe(dollarsToCents(100));
+  });
+
+  it("adds the flat penalty on top of a nonzero bracket-priced income tax", () => {
+    const state = stateWithClosedYear(); // $40k ordinaryIncome under flat25 → $10,000 income tax
+    state.earlyWithdrawalPenaltyByPersonYear.set("p1|2026", dollarsToCents(100));
+    finalizeTaxYear(state, flat25, { year: 2026 }, 11);
+
+    expect(pendingSettlementTotalCents(state, { year: 2027 })).toBe(dollarsToCents(10_100));
+  });
+
+  it("charges nothing extra when no penalty was accumulated", () => {
+    const state = stateWithClosedYear();
+    finalizeTaxYear(state, flat25, { year: 2026 }, 11);
+    expect(pendingSettlementTotalCents(state, { year: 2027 })).toBe(dollarsToCents(10_000));
+  });
+});

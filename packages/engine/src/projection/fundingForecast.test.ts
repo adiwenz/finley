@@ -166,8 +166,8 @@ describe("forecastFundingDraws — early-withdrawal penalty", () => {
       basis.category === "ordinaryIncome" && ctx.age < 59.5 ? Math.round(basis.grossCents * 0.1) : 0,
   };
 
-  it("forecasts more sold from the next account to make up a penalized account's leakage", () => {
-    const draws = forecastFundingDraws(
+  it("forecasts the penalty WITHOUT touching the account's forecast draw — never pulls extra from the next account", () => {
+    const { draws, unfundedCents } = forecastFundingDraws(
       evenly(12_000),
       [
         acct("pretax", "ordinaryIncome", 100_000, 0, false, FLAT, 35),
@@ -175,12 +175,21 @@ describe("forecastFundingDraws — early-withdrawal penalty", () => {
       ],
       penaltyJurisdiction,
       CTX,
-    ).draws;
-    // The pretax account still SELLS the full $12,000 (unaffected by the penalty), but only
-    // $10,800 of it counted toward the need — the $1,200 penalty leakage is forecast pulling an
-    // extra $1,200 gross from the brokerage, exactly as the real draw would.
-    expect(draws[0]).toMatchObject({ accountId: "pretax", grossCents: dollarsToCents(12_000) });
-    expect(draws[1]).toMatchObject({ accountId: "brokerage", grossCents: dollarsToCents(1_200) });
+    );
+    // The pretax account sells exactly the $12,000 need, fully forecast — the $1,200 penalty is
+    // reported on it but never treated as leakage the brokerage has to cover, exactly like the
+    // real draw (`buildWithdrawalSources`/`resolveOrderedFundingDraw`).
+    expect(draws).toEqual([
+      {
+        accountId: "pretax",
+        ownerId: "p1",
+        category: "ordinaryIncome",
+        grossCents: dollarsToCents(12_000),
+        taxableCents: dollarsToCents(12_000),
+        earlyWithdrawalPenaltyCents: dollarsToCents(1_200),
+      },
+    ]);
+    expect(unfundedCents).toBe(0);
   });
 
   it("forecasts no penalty once the account's forecast age clears the jurisdiction's threshold", () => {
@@ -197,6 +206,7 @@ describe("forecastFundingDraws — early-withdrawal penalty", () => {
         category: "ordinaryIncome",
         grossCents: dollarsToCents(12_000),
         taxableCents: dollarsToCents(12_000),
+        earlyWithdrawalPenaltyCents: 0,
       },
     ]);
   });
@@ -209,6 +219,7 @@ describe("forecastFundingDraws — early-withdrawal penalty", () => {
       CTX,
     ).draws;
     expect(draws[0]!.grossCents).toBe(dollarsToCents(12_000));
+    expect(draws[0]!.earlyWithdrawalPenaltyCents).toBe(0);
   });
 });
 

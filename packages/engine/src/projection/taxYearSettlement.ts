@@ -106,7 +106,19 @@ export function finalizeTaxYear(
     // The SAME annual pricing the year's estimate came from — that estimate is this very
     // function applied to a simulated year — so `actual − paid` is a difference of two comparable
     // figures rather than a comparison of two unrelated tax computations.
-    const { totalCents, byCategoryCents } = annualFederalTax(jurisdiction, ctx, pid, actualBase);
+    const { totalCents: incomeTaxCents, byCategoryCents } = annualFederalTax(
+      jurisdiction,
+      ctx,
+      pid,
+      actualBase,
+    );
+    // A FLAT top-up, not proportional taxable income run through the jurisdiction's brackets —
+    // the early-withdrawal penalty is already a priced dollar amount (see
+    // `earlyWithdrawalPenaltyByPersonYear`'s doc in `runState.ts`), so it is added on top of the
+    // bracket-priced liability rather than mixed into `byCategoryCents`, which must reconcile
+    // exactly to `annualFederalTax`'s own `totalCents` (asserted inside it).
+    const penaltyCents = state.earlyWithdrawalPenaltyByPersonYear.get(key) ?? 0;
+    const totalCents = incomeTaxCents + penaltyCents;
     const trueUpCents = totalCents - paid.totalCents;
     if (trueUpCents === 0) continue;
 
@@ -142,6 +154,18 @@ export function finalizeTaxYear(
     ])) {
       const cents = (actualBySource[source] ?? 0) - (paid.bySourceCents[source] ?? 0);
       if (cents !== 0) settlementBySource[source] = cents;
+    }
+    // The penalty rides its own dedicated bucket — `ordinaryIncome` because that is the only
+    // category `earlyWithdrawalPenaltyCents` gates on (US rules), and a source key of its own
+    // (`earlyWithdrawalPenalty`) rather than any account's, since it is not that account's
+    // income. Any anticipated share the year's instalments already collected (see
+    // `taxYearProjection.ts`'s estimate) is folded into `paid.totalCents`/`byCategoryCents`
+    // already, via the same category — this simply adds what the instalments did NOT yet
+    // account for, keeping `Σ settlementByCategory === Σ settlementBySource === trueUpCents`.
+    if (penaltyCents !== 0) {
+      addCategory(settlementByCategory, "ordinaryIncome", penaltyCents);
+      settlementBySource.earlyWithdrawalPenalty =
+        (settlementBySource.earlyWithdrawalPenalty ?? 0) + penaltyCents;
     }
 
     state.pendingTaxSettlementsByPersonYear.set(key, {

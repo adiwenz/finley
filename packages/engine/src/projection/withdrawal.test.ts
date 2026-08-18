@@ -600,13 +600,13 @@ describe("Early-withdrawal penalty on a pre-tax draw", () => {
     };
   }
 
-  it("charges the jurisdiction's penalty and draws more from the next account so the household still nets the need", () => {
+  it("charges the jurisdiction's penalty WITHOUT touching what the draw delivers — a $1,000 need sells exactly $1,000, never $1,100", () => {
     const accounts = [
       account("pretax", PRE_TAX_TAX_PROFILE, 0),
       account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 0),
     ];
     const st = stateWithOwner(accounts, { pretax: 10_000, brokerage: 10_000 }, 2026 - 35);
-    const { decumulationDraws } = buildWithdrawalSources(
+    const { decumulationDraws, earlyWithdrawalPenaltyByOwnerCents } = buildWithdrawalSources(
       st,
       penaltyJurisdiction,
       dollarsToCents(1_000),
@@ -614,26 +614,34 @@ describe("Early-withdrawal penalty on a pre-tax draw", () => {
       ["taxDeferred", "taxable"],
     );
 
+    // The $1,000 need is fully met by the pre-tax account alone — the penalty is reported, not
+    // subtracted from what the sale delivers, so the brokerage is never touched.
+    expect(decumulationDraws).toHaveLength(1);
     const pretaxDraw = decumulationDraws.find((d) => d.sourceId === "pretax");
     expect(pretaxDraw?.grossWithdrawnCents).toBe(dollarsToCents(1_000));
     expect(pretaxDraw?.taxCents).toBe(dollarsToCents(100));
-    expect(pretaxDraw?.netDeliveredCents).toBe(dollarsToCents(900));
-
-    // The $100 lost to the penalty is made up from the next account in line.
-    const brokerageDraw = decumulationDraws.find((d) => d.sourceId === "brokerage");
-    expect(brokerageDraw?.grossWithdrawnCents).toBe(dollarsToCents(100));
-    expect(brokerageDraw?.taxCents).toBe(0);
+    expect(pretaxDraw?.netDeliveredCents).toBe(dollarsToCents(1_000));
 
     const totalNet = decumulationDraws.reduce((s, d) => s + d.netDeliveredCents, 0);
     expect(totalNet).toBe(dollarsToCents(1_000));
+
+    // The $100 penalty is reported separately, by owner, for the caller to settle through the
+    // year's tax true-up — never as a reduction of `need`.
+    expect(earlyWithdrawalPenaltyByOwnerCents.get("p1")).toBe(dollarsToCents(100));
   });
 
   it("charges nothing at or past the jurisdiction's access age", () => {
     const accounts = [account("pretax", PRE_TAX_TAX_PROFILE, 0)];
     const st = stateWithOwner(accounts, { pretax: 10_000 }, 2026 - 60);
-    const { decumulationDraws } = buildWithdrawalSources(st, penaltyJurisdiction, dollarsToCents(1_000), ctx);
+    const { decumulationDraws, earlyWithdrawalPenaltyByOwnerCents } = buildWithdrawalSources(
+      st,
+      penaltyJurisdiction,
+      dollarsToCents(1_000),
+      ctx,
+    );
     expect(decumulationDraws[0].taxCents).toBe(0);
     expect(decumulationDraws[0].netDeliveredCents).toBe(dollarsToCents(1_000));
+    expect(earlyWithdrawalPenaltyByOwnerCents.size).toBe(0);
   });
 
   it("charges nothing when the account owner's age cannot be determined", () => {

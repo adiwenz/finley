@@ -455,6 +455,23 @@ function runMonth(
   const incomeSources = [...nonWithdrawalSources, ...withdrawal.sources];
   const allocationSources = [...incomeSources, ...fundingDraw.gainSources];
 
+  // Fold this month's early-withdrawal penalty into the year's flat additional tax liability —
+  // never netted out of what a draw delivered (see `withdrawal.ts`/`fundingDrawStep.ts`'s module
+  // docs) — so it settles through the SAME annual true-up as ordinary income tax
+  // (`finalizeTaxYear`, below) rather than as an immediate cash haircut.
+  for (const byOwner of [
+    fundingDraw.earlyWithdrawalPenaltyByOwnerCents,
+    withdrawal.earlyWithdrawalPenaltyByOwnerCents,
+  ]) {
+    for (const [ownerId, cents] of byOwner) {
+      const key = `${ownerId}|${ctx.year}`;
+      state.earlyWithdrawalPenaltyByPersonYear.set(
+        key,
+        (state.earlyWithdrawalPenaltyByPersonYear.get(key) ?? 0) + cents,
+      );
+    }
+  }
+
   const {
     taxCents,
     payrollTaxCents,
