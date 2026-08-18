@@ -171,6 +171,7 @@ export interface InterpretContext {
    * interpretation and undo, when handlers skip projection-dependent checks.
    */
   readonly fundingAvailabilityAt?: (
+    treatment: FundingTreatment,
     sourceIds: readonly string[],
     amountCents: Cents,
     month: number,

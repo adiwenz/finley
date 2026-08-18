@@ -296,7 +296,7 @@ describe("OneTimeSpendEvent — funding-source availability reflects prior spend
     const pool = funding.sourcesAt(0, "expense");
     expect(pool.find((s) => s.id === "savings")?.balanceCents).toBe(0);
 
-    const gate = funding.availabilityAt(["savings"], 100, 0);
+    const gate = funding.availabilityAt("expense", ["savings"], 100, 0);
     expect(gate.availableCents).toBe(0);
     expect(gate.shortfallCents).toBe(100);
   });
@@ -313,7 +313,7 @@ describe("OneTimeSpendEvent — funding-source availability reflects prior spend
     const pool = funding.sourcesAt(5, "expense");
     expect(pool.find((s) => s.id === "savings")?.balanceCents).toBe(0);
 
-    const gate = funding.availabilityAt(["savings"], 100, 5);
+    const gate = funding.availabilityAt("expense", ["savings"], 100, 5);
     expect(gate.availableCents).toBe(0);
     expect(gate.shortfallCents).toBe(100);
   });
@@ -330,7 +330,7 @@ describe("OneTimeSpendEvent — funding-source availability reflects prior spend
     expect(funding.sourcesAt(0, "expense").find((s) => s.id === "savings")?.balanceCents).toBe(
       600_000,
     );
-    const gate = funding.availabilityAt(["savings"], 600_000, 0);
+    const gate = funding.availabilityAt("expense", ["savings"], 600_000, 0);
     expect(gate.shortfallCents).toBe(0);
     expect(gate.availableCents).toBe(600_000);
   });
@@ -483,7 +483,7 @@ describe("OneTimeSpendEvent — gate == sim across a decumulation month", () => 
     };
     const buy = spend({ month: 23, amountCents: DOWN, fundingSourceIds: ["cash"] });
 
-    const gate = fundingLookup(emptyLedger, base, jur).availabilityAt(["cash"], DOWN, 23);
+    const gate = fundingLookup(emptyLedger, base, jur).availabilityAt("expense", ["cash"], DOWN, 23);
     expect(gate.shortfallCents).toBe(0);
 
     const accepted = addEvent(emptyLedger, base, buy, jur);
@@ -537,7 +537,7 @@ describe("OneTimeSpendEvent — gate == sim across a decumulation month", () => 
     };
     const buy = spend({ month: 23, amountCents: ASK, fundingSourceIds: ["cash"] });
 
-    const gate = fundingLookup(emptyLedger, base, jur).availabilityAt(["cash"], ASK, 23);
+    const gate = fundingLookup(emptyLedger, base, jur).availabilityAt("expense", ["cash"], ASK, 23);
     expect(gate.shortfallCents).toBe(ASK - CASH);
     expect(gate.shortfallCents).toBeGreaterThan(0);
 
@@ -820,8 +820,8 @@ describe("OneTimeSpendEvent — moving a spend to a different month reprices at 
     expect(funding.sourcesAt(1, "expense").find((s) => s.id === "savings")?.balanceCents).toBe(
       400_000,
     );
-    expect(funding.availabilityAt(["savings"], 400_000, 1).shortfallCents).toBe(0);
-    expect(funding.availabilityAt(["savings"], 500_000, 1).shortfallCents).toBe(100_000);
+    expect(funding.availabilityAt("expense", ["savings"], 400_000, 1).shortfallCents).toBe(0);
+    expect(funding.availabilityAt("expense", ["savings"], 500_000, 1).shortfallCents).toBe(100_000);
   });
 
   it("saving B moved to month 1 at $4,000 succeeds; at $5,000 (over what's available there) is refused", () => {

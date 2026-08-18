@@ -20,7 +20,7 @@ import {
   type TaxableByCategory,
 } from "../projection/fundingDrawStep";
 import { classifyFundingFailure, type EligibleAccountState, type FundingFailure } from "../projection/fundingFailure";
-import type { FundingTreatment } from "../projection/fundingEligibility";
+import { getEligibleFundingSources, type FundingTreatment } from "../projection/fundingEligibility";
 import { nullJurisdiction, type Jurisdiction, type JurisdictionContext } from "../jurisdiction/jurisdiction";
 import type { HouseholdLiability } from "./household";
 import { isPreExisting } from "../projection/nowMarker";
@@ -37,15 +37,14 @@ const DEFAULT_START_YEAR = 2026;
  * FundingAvailability.taxCents}), so the verdict's `availableCents` is exactly what the
  * selected sources hold, capped at the amount asked.
  *
- * The pool is every liquid account that could fund a draw (cash goal fund included,
- * retirement excluded, credit never — a liability, not an asset), largest first. Membership
- * is a property of the ACCOUNT, not the month, so an emptied account is listed at $0.
+ * The pool is every account eligible under `treatment`'s own rule ({@link
+ * getEligibleFundingSources}) — an `expense` admits every account the household owns plus every
+ * credit card, an `asset-acquisition` only liquid, non-credit accounts — largest first.
+ * Membership is a property of the ACCOUNT, not the month, so an emptied account is listed at $0.
  */
 export interface FundingLookup {
   /**
-   * The pool at `treatment`'s eligibility — liquid accounts always, plus every credit card the
-   * household has taken when `treatment` is `"expense"` ({@link getEligibleFundingSources}'s own
-   * rule: an expense admits credit, an asset acquisition never does). Defaults to
+   * The pool at `treatment`'s eligibility ({@link getEligibleFundingSources}). Defaults to
    * `"asset-acquisition"`, the pool Home Purchase's down payment has always seen, so an existing
    * caller passing one argument is unaffected.
    */
@@ -53,7 +52,13 @@ export interface FundingLookup {
     month: number,
     treatment?: FundingTreatment,
   ) => readonly FundingSourceBalance[];
+  /**
+   * The VERDICT for a selection under `treatment`'s eligibility — a source `treatment` would not
+   * admit (an illiquid account named against an asset acquisition, say) contributes 0, exactly as
+   * {@link sourcesAt} would never have offered it.
+   */
   readonly availabilityAt: (
+    treatment: FundingTreatment,
     sourceIds: readonly string[],
     amountCents: number,
     month: number,
@@ -146,8 +151,8 @@ export function fundingLookupExcludingEvent(
 
   return {
     sourcesAt: (month, treatment) => lookupAt(month).sourcesAt(month, treatment),
-    availabilityAt: (sourceIds, amountCents, month) =>
-      lookupAt(month).availabilityAt(sourceIds, amountCents, month),
+    availabilityAt: (treatment, sourceIds, amountCents, month) =>
+      lookupAt(month).availabilityAt(treatment, sourceIds, amountCents, month),
     failureAt: (treatment, sourceIds, amountCents, month) =>
       lookupAt(month).failureAt(treatment, sourceIds, amountCents, month),
   };
@@ -172,11 +177,13 @@ export function fundingLookup(
   const startYear = base.startYear ?? DEFAULT_START_YEAR;
   // `||`, not `??`, so an empty-string label falls back to the id too. The category prices
   // each sale's tax under its own provenance (a tax-exempt cash reserve untaxed; a taxable
-  // brokerage bears its gain).
-  const liquidAccounts = (base.initialAccounts ?? []).map((a) => a.sim).filter((a) => a.liquid);
-  const labelById = new Map(liquidAccounts.map((a) => [a.id, a.label || a.id]));
-  const ownerById = new Map(liquidAccounts.map((a) => [a.id, a.ownerId]));
-  const categoryById = new Map(liquidAccounts.map((a) => [a.id, a.taxProfile.withdrawalCategory]));
+  // brokerage bears its gain). Every account, not just the liquid ones — `getEligibleFundingSources`
+  // is what narrows this to a treatment's own eligible subset, downstream in `sourcesAt`/`failureAt`.
+  const assetAccounts = (base.initialAccounts ?? []).map((a) => a.sim);
+  const labelById = new Map(assetAccounts.map((a) => [a.id, a.label || a.id]));
+  const ownerById = new Map(assetAccounts.map((a) => [a.id, a.ownerId]));
+  const categoryById = new Map(assetAccounts.map((a) => [a.id, a.taxProfile.withdrawalCategory]));
+  const liquidById = new Map(assetAccounts.map((a) => [a.id, a.liquid]));
   const household = interpretLedger(ledger, base);
   // A card the household has already taken (via a LoanEvent), keyed for the credit-aware source
   // resolution below. Its `creditLimitCents` is authored, never `null` — a null limit (zero usable
@@ -276,25 +283,36 @@ export function fundingLookup(
     treatment: FundingTreatment = "asset-acquisition",
   ): readonly FundingSourceBalance[] => {
     const m = monthAt(month);
-    const pool: FundingSourceBalance[] = [];
-    for (const [id, label] of labelById) {
-      pool.push({ id, label, balanceCents: (m?.accountBalancesCents[id] ?? 0) as number });
-    }
-    // Credit joins the pool only for an `expense` — {@link getEligibleFundingSources}'s own rule
-    // (an asset acquisition never admits it), applied here by simply never pushing a card
-    // outside that branch rather than filtering after the fact.
-    if (treatment === "expense") {
-      for (const card of cardById.values()) {
+    // One eligibility pass over every asset account plus every card the household has taken —
+    // {@link getEligibleFundingSources} is the sole arbiter of which of them `treatment` admits,
+    // so the picker's pool can never diverge from the engine's own rule.
+    const candidates = [
+      ...assetAccounts.map((a) => ({ kind: "account" as const, id: a.id, liquid: a.liquid })),
+      ...[...cardById.values()].map((c) => ({
+        kind: "credit" as const,
+        id: c.id,
+        liquid: false,
+        credit: true as const,
+      })),
+    ];
+    const pool: FundingSourceBalance[] = getEligibleFundingSources(treatment, candidates).map((c) => {
+      if (c.kind === "credit") {
+        const card = cardById.get(c.id)!;
         const owed = (m?.liabilityBalancesCents[card.id] ?? 0) as number;
-        pool.push({
+        return {
           id: card.id,
           label: card.id,
           balanceCents: Math.max(0, card.creditLimitCents - owed),
-          kind: "credit",
+          kind: "credit" as const,
           limited: true,
-        });
+        };
       }
-    }
+      return {
+        id: c.id,
+        label: labelById.get(c.id) ?? c.id,
+        balanceCents: (m?.accountBalancesCents[c.id] ?? 0) as number,
+      };
+    });
     return pool.sort((a, b) => b.balanceCents - a.balanceCents);
   };
 
@@ -332,21 +350,30 @@ export function fundingLookup(
    * a card the household has taken resolves to its remaining headroom (`limit − owed`), the SAME
    * primitive the simulator borrows against — a mixed `[checking, visa]` list here and in
    * `resolveFundingDraws` price identically, so the gate and the sim can never disagree about what
-   * an explicitly-named card delivers.
+   * an explicitly-named card delivers. A source `treatment` does not admit ({@link
+   * getEligibleFundingSources}) contributes 0, exactly as `sourcesAt` would never have offered it —
+   * so a down payment can never be priced against an illiquid account even if the caller names one.
    */
   const selectedSources = (
+    treatment: FundingTreatment,
     sourceIds: readonly string[],
     balanceOf: (id: string) => number,
     basisOf: (id: string) => number,
     liabilityBalanceOf: (id: string) => number,
   ) => {
+    const eligibleIds = new Set(
+      getEligibleFundingSources(treatment, [
+        ...assetAccounts.map((a) => ({ id: a.id, liquid: a.liquid })),
+        ...[...cardById.values()].map((c) => ({ id: c.id, liquid: false, credit: true as const })),
+      ]).map((c) => c.id),
+    );
     const named: FundingSourceBalance[] = [];
     const fundingSources: FundingSourceState[] = [];
     for (const id of sourceIds) {
       const card = cardById.get(id);
       if (card !== undefined) {
         const owed = liabilityBalanceOf(id);
-        const headroom = Math.max(0, card.creditLimitCents - owed);
+        const headroom = eligibleIds.has(id) ? Math.max(0, card.creditLimitCents - owed) : 0;
         named.push({ id, label: id, balanceCents: headroom, kind: "credit", limited: true });
         if (headroom > 0) {
           const source: CreditFundingSource = {
@@ -363,9 +390,9 @@ export function fundingLookup(
       }
       const label = labelById.get(id) ?? id;
       const balance = balanceOf(id);
-      const isLiquidBucket = labelById.has(id) && balance > 0;
-      named.push({ id, label, balanceCents: isLiquidBucket ? balance : 0 });
-      if (isLiquidBucket) {
+      const isKnownAccount = labelById.has(id) && eligibleIds.has(id) && balance > 0;
+      named.push({ id, label, balanceCents: isKnownAccount ? balance : 0 });
+      if (isKnownAccount) {
         fundingSources.push({
           id,
           ownerId: ownerById.get(id) ?? "",
@@ -380,12 +407,19 @@ export function fundingLookup(
   };
 
   const availabilityAt = (
+    treatment: FundingTreatment,
     sourceIds: readonly string[],
     amountCents: number,
     month: number,
   ): FundingAvailability => {
     const { ctx, taxableByOwner, balanceOf, basisOf, liabilityBalanceOf } = contextAt(month);
-    const { named, fundingSources } = selectedSources(sourceIds, balanceOf, basisOf, liabilityBalanceOf);
+    const { named, fundingSources } = selectedSources(
+      treatment,
+      sourceIds,
+      balanceOf,
+      basisOf,
+      liabilityBalanceOf,
+    );
 
     const { perSource, netDeliveredCents, shortfallCents } = resolveOrderedFundingDraw(
       amountCents,
@@ -414,7 +448,13 @@ export function fundingLookup(
     month: number,
   ): FundingFailure => {
     const { ctx, taxableByOwner, balanceOf, basisOf, liabilityBalanceOf } = contextAt(month);
-    const { named, fundingSources } = selectedSources(sourceIds, balanceOf, basisOf, liabilityBalanceOf);
+    const { named, fundingSources } = selectedSources(
+      treatment,
+      sourceIds,
+      balanceOf,
+      basisOf,
+      liabilityBalanceOf,
+    );
 
     // Price the selection over a COPY: the classifier below prices its own probes (the whole
     // eligible pool, then each alternative) over the UNMUTATED base, mirroring how a blocked
@@ -425,20 +465,21 @@ export function fundingLookup(
     const selected = resolveOrderedFundingDraw(amountCents, fundingSources, jurisdiction, ctx, probe);
     const selectedTaxCents = selected.perSource.reduce((sum, s) => sum + s.taxCents, 0);
 
-    // The whole eligible pool the classifier weighs alternatives against — liquid accounts plus
-    // every card the household has taken, mirroring `resolveFundingDraws`' own block-time pool so
-    // an "unselected card could cover this" advisory reads the same from the gate as from a
-    // blocked simulation. `getEligibleFundingSources` (inside the classifier) is what keeps a card
-    // out of an `asset-acquisition`'s alternatives — the pool itself carries both.
+    // The whole account pool the classifier weighs alternatives against — every asset account,
+    // illiquid ones included, plus every card the household has taken, mirroring
+    // `resolveFundingDraws`' own block-time pool so an "unselected source could cover this"
+    // advisory reads the same from the gate as from a blocked simulation. `getEligibleFundingSources`
+    // (inside the classifier) is what narrows this to `treatment`'s own eligible subset — the pool
+    // itself carries every account and lets `liquid` name the true fact.
     const accounts: EligibleAccountState[] = [
-      ...liquidAccounts.map((a) => ({
+      ...assetAccounts.map((a) => ({
         id: a.id,
         ownerId: a.ownerId,
         category: a.taxProfile.withdrawalCategory,
         balanceCents: balanceOf(a.id),
         basisCents: basisOf(a.id),
         label: labelById.get(a.id) ?? a.id,
-        liquid: true,
+        liquid: liquidById.get(a.id) ?? false,
       })),
       ...[...cardById.values()].map((c) => ({
         kind: "credit" as const,

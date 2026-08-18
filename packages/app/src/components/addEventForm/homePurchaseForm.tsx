@@ -130,7 +130,8 @@ export function HomePurchaseForm({
     [draft.sourceIds, pool],
   );
   const availability = useMemo(
-    () => funding.availabilityAt(sourceIds, dollarsToCents(draft.down), draft.month),
+    () =>
+      funding.availabilityAt("asset-acquisition", sourceIds, dollarsToCents(draft.down), draft.month),
     [funding, sourceIds, draft.down, draft.month],
   );
 

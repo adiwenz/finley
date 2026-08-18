@@ -451,7 +451,7 @@ describe("Federal income tax — the year's balance settles the following April"
     // It bands as the account's ORDINARY draw — there is no settlement-specific source any more,
     // because there is no settlement-specific sale.
     const bands = april.flows!.incomeSources;
-    expect(bands.find((s) => s.sourceId === "pretax")?.label).toBe("pretax");
+    expect(bands.find((s) => s.sourceId === "pretax")?.label).toBe("pretax draw");
     expect(bands.some((s) => s.sourceId?.startsWith("tax-settlement"))).toBe(false);
   });
 

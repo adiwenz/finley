@@ -357,6 +357,7 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     // household can re-point the funding themselves. Nothing here reorders, substitutes, or
     // liquidates on their behalf.
     const affordability = context.fundingAvailabilityAt?.(
+      "asset-acquisition",
       event.downPaymentSourceIds,
       event.downPaymentCents,
       event.month,
@@ -536,6 +537,7 @@ const oneTimeSpend: EventHandler<OneTimeSpendEvent> = {
       }
     }
     const affordability = context.fundingAvailabilityAt?.(
+      "expense",
       event.fundingSourceIds,
       event.amountCents,
       event.month,

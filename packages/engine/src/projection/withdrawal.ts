@@ -214,10 +214,17 @@ export function buildWithdrawalSources(
       waterfallInflowCents: gross,
       taxCategory: withdrawalCategory,
       taxableCents: gainCents,
+      // Reporting only bands the realized gain as income — `cashInflowCents` overrides the
+      // `waterfallInflowCents` (full gross) fallback `buildFlows` would otherwise use. The
+      // returned principal is not income; it bands under this account's own name instead
+      // (see `decumulationDraws[].principalCents`, read by the simulator).
+      cashInflowCents: gainCents,
       // Report by source account, so a draining "emergency fund" reads by name rather than
-      // as an anonymous `capitalGains` band.
+      // as an anonymous `capitalGains` band. Suffixed "draw" — parallel to the explicit funding
+      // pipeline's "<Account> gains" — so this reads as the same KIND of thing (a realized-gain
+      // band from a sale) rather than, say, interest or growth on the account.
       sourceId: account.id,
-      label: account.label ?? account.id,
+      label: `${account.label ?? account.id} draw`,
     });
     // `gross − gain` is the returned basis (the same figure that reduced `basisByAccount`
     // above); `taxCents` is always 0 and `netDeliveredCents` always equals `gross` — no tax

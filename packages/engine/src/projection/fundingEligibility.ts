@@ -26,13 +26,16 @@ export interface EligibilityCandidate {
 
 /**
  * The eligible subset of `accounts` for `treatment`, in input order. Membership is a property of
- * the ACCOUNT, not the month — an emptied liquid account (or a maxed-out card) stays eligible and
- * is reported at its capacity so the picker's pool is stable across months. Whether a card can
- * actually cover a draw is a headroom question the picker greys out on, never an eligibility one.
+ * the ACCOUNT, not the month — an emptied account (or a maxed-out card) stays eligible and is
+ * reported at its capacity so the picker's pool is stable across months. Whether a source can
+ * actually cover a draw is a headroom/balance question the picker greys out on, never an
+ * eligibility one.
  *
- * The two treatments differ in exactly one rule: an `expense` admits credit cards, an
- * `asset-acquisition` does not (no bank funds a down payment on a card). Retirement is illiquid
- * and excluded from both.
+ * An `expense` admits every account the household owns, illiquid ones (retirement, brokerage)
+ * included, plus every credit card — a one-time spend can be paid from wherever the money sits.
+ * An `asset-acquisition` is narrower: no bank funds a down payment on a card, and a lender wants
+ * liquid, verifiable funds, so it admits only liquid, non-credit accounts. Retirement stays out of
+ * an asset acquisition's pool for that reason.
  */
 export function getEligibleFundingSources<A extends EligibilityCandidate>(
   treatment: FundingTreatment,
@@ -40,7 +43,7 @@ export function getEligibleFundingSources<A extends EligibilityCandidate>(
 ): readonly A[] {
   switch (treatment) {
     case "expense":
-      return accounts.filter((a) => a.liquid || a.credit === true);
+      return accounts;
     case "asset-acquisition":
       return accounts.filter((a) => a.liquid && a.credit !== true);
   }

@@ -72,7 +72,7 @@ export function OneTimeSpendForm({
     [draft.sourceIds, pool],
   );
   const availability = useMemo(
-    () => funding.availabilityAt(sourceIds, dollarsToCents(draft.amount), draft.month),
+    () => funding.availabilityAt("expense", sourceIds, dollarsToCents(draft.amount), draft.month),
     [funding, sourceIds, draft.amount, draft.month],
   );
   // Cash/investment balances and credit headroom are both already netted into this ONE verdict —

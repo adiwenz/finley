@@ -126,6 +126,7 @@ function affordabilityOf(
     month: number;
   };
   return fundingLookup(ledger, base, jurisdiction).availabilityAt(
+    "asset-acquisition",
     buy.downPaymentSourceIds,
     buy.downPaymentCents,
     buy.month,
@@ -1279,7 +1280,7 @@ describe("HomePurchaseEvent — §4.5 gate == sim across a decumulation month", 
     // it stands BEFORE the month's decumulation — the full $60k buffer — so it predicts zero
     // shortfall and (cash has no gain) zero tax. This is the load-bearing read: end-of-month
     // `cash` is $0 there, and a gate reading it would predict a full $60k shortfall and block.
-    const gate = fundingLookup(emptyLedger, base, jur()).availabilityAt(["cash"], DOWN, 23);
+    const gate = fundingLookup(emptyLedger, base, jur()).availabilityAt("asset-acquisition", ["cash"], DOWN, 23);
     expect(gate.taxCents).toBe(0);
     expect(gate.shortfallCents).toBe(0);
 
