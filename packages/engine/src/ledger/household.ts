@@ -14,6 +14,7 @@ import type { Person } from "../plan/person";
 import type { PlanDescriptor } from "../projection/waterfall";
 import type { LiabilityId, PersonId, PropertyId, SeriesId } from "../plan/ids";
 import type { Account } from "../plan/account";
+import type { PlanAccount } from "../plan/planAccount";
 import type { Child, SeriesRole } from "./eventTypes";
 import type { AccountTransfer, LiabilityTransfer } from "./transfers";
 
@@ -123,6 +124,15 @@ export interface Household {
    * interpretation enforces.
    */
   readonly accounts: readonly Account[];
+  /**
+   * The accounts an event minted — today, exactly a partner's three standing accounts, from
+   * `RelationshipEvent` — paired with their compiled {@link
+   * import("../plan/simAccount").SimAccount}. The primary's accounts are NOT here: they ride
+   * on `LedgerBaseConfig.initialAccounts` and are already reflected in {@link accounts}
+   * above; {@link import("../projection/buildHouseholdInput").buildHouseholdSimInput} merges
+   * the two lists into the one the simulator runs.
+   */
+  readonly eventAccounts: readonly PlanAccount[];
   readonly accountTransfers: readonly AccountTransfer[];
   /**
    * Explicitly-funded obligations — ordered cross-account down-payment / spend draws, resolved

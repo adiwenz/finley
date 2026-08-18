@@ -9,11 +9,45 @@ import { invalidAge } from "../plan/plan";
 import type { PersonId } from "../job/job";
 import type { Jurisdiction } from "../jurisdiction/jurisdiction";
 import type { Person } from "../plan/person";
+import type { Cents } from "../money/money";
+import type { PartnerStandingAccounts } from "../ledger/eventTypes";
 import type { ProjectionState, Written } from "./state";
 import { mint } from "./mint";
 import { appendEvent } from "./eventWrite";
 import { earliestDeath, yearOfMonth } from "./reachability";
 import { resolveJobInput, type JobInput } from "./jobs";
+
+/**
+ * The partner's three standing accounts, as authored: every field optional, since a partner
+ * need not state any money of their own. A balance absent or 0 means that account opens
+ * empty; a return rate absent mirrors the PRIMARY's own rate for that account kind — the
+ * household's one market assumption, not a second one per partner — resolved here, at
+ * authoring time, into the fully-stated {@link PartnerStandingAccounts} the event carries
+ * (replay never re-reads the plan to reconstruct it).
+ */
+export interface PartnerAccountsInput {
+  readonly savingsBalanceCents?: Cents;
+  readonly savingsReturnPct?: number;
+  readonly retirementBalanceCents?: Cents;
+  readonly retirementReturnPct?: number;
+  readonly brokerageBalanceCents?: Cents;
+  readonly brokerageReturnPct?: number;
+}
+
+function resolvePartnerAccounts(
+  state: ProjectionState,
+  input: PartnerAccountsInput | undefined,
+): PartnerStandingAccounts {
+  const plan = state.scenario.plan;
+  return {
+    savingsBalanceCents: input?.savingsBalanceCents ?? 0,
+    savingsReturnPct: input?.savingsReturnPct ?? plan.savingsReturnPct,
+    retirementBalanceCents: input?.retirementBalanceCents ?? 0,
+    retirementReturnPct: input?.retirementReturnPct ?? plan.retirementReturnPct,
+    brokerageBalanceCents: input?.brokerageBalanceCents ?? 0,
+    brokerageReturnPct: input?.brokerageReturnPct ?? plan.brokerageReturnPct,
+  };
+}
 
 /**
  * The incoming partner. `birthYear` is REQUIRED: it makes a benefit basis and the age-50
@@ -45,6 +79,8 @@ export interface MarryInput {
    */
   readonly lifeExpectancy: number;
   readonly jobs?: readonly JobInput[];
+  /** The partner's standing accounts — see {@link PartnerAccountsInput}. Absent ⇒ none. */
+  readonly accounts?: PartnerAccountsInput;
 }
 
 /**
@@ -66,6 +102,8 @@ export interface StartPartneredInput {
   /** See {@link MarryInput.lifeExpectancy} — required, never defaulted from the primary. */
   readonly lifeExpectancy: number;
   readonly jobs?: readonly JobInput[];
+  /** See {@link MarryInput.accounts}. */
+  readonly accounts?: PartnerAccountsInput;
 }
 
 /**
@@ -199,11 +237,12 @@ export function applyMarriage(
     benefitClaimingAge: input.benefitClaimingAge ?? 67,
     jobs,
   };
+  const accounts = resolvePartnerAccounts(state, input.accounts);
   return {
     state: appendEvent(
       state,
       jurisdiction,
-      { id, type: "RelationshipEvent", month: input.month, person },
+      { id, type: "RelationshipEvent", month: input.month, person, accounts },
       nextSeq,
     ),
     result: id,

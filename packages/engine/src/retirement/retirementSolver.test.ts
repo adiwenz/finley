@@ -265,6 +265,7 @@ describe("retirementSolver — a blocked projection is a third state", () => {
       month: 0,
       netWorthNominalCents: 1_000_000,
       netWorthRealCents: 1_000_000,
+      netWorthByPersonCents: {},
       accountBalancesCents: {},
       accountBasisCents: {},
       liabilityBalancesCents: {},
