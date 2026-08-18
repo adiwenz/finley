@@ -196,31 +196,20 @@ describe("BudgetEditor", () => {
     expect(screen.getByText(/Social Security figures are an estimate, not advice/i)).toBeTruthy();
   });
 
-  it("renders a balance chart for each standing account", () => {
-    renderEditor();
-    expect(screen.getByRole("img", { name: /Cash savings projected balance/i })).toBeTruthy();
-    expect(screen.getByRole("img", { name: /Retirement projected balance/i })).toBeTruthy();
-    expect(screen.getByRole("img", { name: /Brokerage projected balance/i })).toBeTruthy();
-  });
-
-  it("seeds every account's chart with today's balance as its first point", () => {
+  it("renders a balance chart for each standing account, wired to its own account's series", () => {
+    // Each chart's accessible name carries its own summary balance — checking these are
+    // distinct and correct confirms the right account id reached the right chart, without
+    // re-asserting the point-by-point series shape (that's `accountBalanceSeries.test.ts`'s job).
     renderEditor(
       PLAN_DEFAULTS,
       mkSeries({ savings: 500000, retirement: 250000, brokerage: 100000 }),
     );
-    const firstPoints = screen
-      .getAllByTestId("account-balance-first-point")
-      .map((el) => JSON.parse(el.textContent || "{}"));
-    expect(firstPoints).toEqual(
-      expect.arrayContaining([
-        { x: 0, balanceCents: 500000 },
-        { x: 0, balanceCents: 250000 },
-        { x: 0, balanceCents: 100000 },
-      ]),
-    );
+    expect(screen.getByRole("img", { name: /Cash savings projected balance.*\$5,000/i })).toBeTruthy();
+    expect(screen.getByRole("img", { name: /Retirement projected balance.*\$2,500/i })).toBeTruthy();
+    expect(screen.getByRole("img", { name: /Brokerage projected balance.*\$1,000/i })).toBeTruthy();
   });
 
-  it("updates a chart's balance immediately when the underlying series changes", () => {
+  it("updates a chart's visible balance immediately when the underlying series changes", () => {
     const series1 = mkSeries({ savings: 100000, retirement: 0, brokerage: 0 });
     const series2 = mkSeries({ savings: 999000, retirement: 0, brokerage: 0 });
     const props = {
@@ -232,9 +221,9 @@ describe("BudgetEditor", () => {
       horizonMonths: 12,
     };
     const view = render(<BudgetEditor {...props} series={series1} />);
-    expect(view.getAllByTestId("account-balance-first-point")[0]!.textContent).toContain("100000");
+    expect(view.getByRole("img", { name: /Cash savings projected balance.*\$1,000/i })).toBeTruthy();
     view.rerender(<BudgetEditor {...props} series={series2} />);
-    expect(view.getAllByTestId("account-balance-first-point")[0]!.textContent).toContain("999000");
+    expect(view.getByRole("img", { name: /Cash savings projected balance.*\$9,990/i })).toBeTruthy();
   });
 
   it("omits the owner label from the accessible name when the household has one member", () => {

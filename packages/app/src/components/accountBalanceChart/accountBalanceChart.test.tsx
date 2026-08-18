@@ -2,8 +2,9 @@
  * @vitest-environment node
  *
  * Render coverage via the server renderer (Recharts needs a real width, absent in jsdom) —
- * see the equivalent note on `netWorthBreakdownChart.test.tsx`. Pins the wiring: label,
- * summary, the hidden "today" point mirror, and the owner label being caller-controlled.
+ * see the equivalent note on `netWorthBreakdownChart.test.tsx`. Pins the visible wiring only
+ * (label, summary) — the underlying point data (today's balance, per-month values) is the
+ * data-builder's own contract, tested directly in `accountBalanceSeries.test.ts`.
  */
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -38,12 +39,6 @@ describe("AccountBalanceChart", () => {
     const data = buildAccountBalanceData(series(), "savings");
     const html = renderToStaticMarkup(<AccountBalanceChart label="Cash savings" data={data} />);
     expect(html).toContain('aria-label="Cash savings projected balance over time. $1,020 projected"');
-  });
-
-  it("mirrors today's opening balance as the first charted point", () => {
-    const data = buildAccountBalanceData(series(), "savings");
-    const html = renderToStaticMarkup(<AccountBalanceChart label="Cash savings" data={data} />);
-    expect(html).toContain("&quot;x&quot;:0,&quot;balanceCents&quot;:100000");
   });
 
   it("reports no balance to project for an account with no charted points", () => {

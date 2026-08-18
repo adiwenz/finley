@@ -71,11 +71,6 @@ export function AccountBalanceChart({ label, ownerLabel, data }: AccountBalanceC
 
   return (
     <div role="img" aria-label={`${label} projected balance over time. ${summary}`}>
-      {/* Hidden data mirror for tests / screen readers — the opening ("Today") point every
-          projection stock chart is required to seed with, asserted without SVG layout. */}
-      <output data-testid="account-balance-first-point" hidden>
-        {JSON.stringify(data.points[0] ?? {})}
-      </output>
       <ResponsiveContainer width="100%" height={120}>
         <ComposedChart data={[...data.points]} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
           <defs>
