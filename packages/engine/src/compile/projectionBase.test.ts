@@ -332,7 +332,7 @@ describe("createProjectionBase — income reported by source + savings drawdown"
     // asset the retiree liquidates — after the job they authored an end for.
     const series = project(retiringAt(60), mockJurisdiction());
     const named = series.months.some((m) =>
-      (m.flows?.incomeSources ?? []).some((s) => s.label === "Emergency fund"),
+      (m.flows?.incomeSources ?? []).some((s) => s.label === "Emergency fund draw"),
     );
     expect(named).toBe(true);
   });
@@ -422,14 +422,14 @@ describe("createProjectionBase — a goal declares its account type", () => {
     const series = project(plan, mockJurisdiction());
     const anyCapitalGainsFromGoal = series.months.some((m) =>
       (m.flows?.incomeSources ?? []).some(
-        (s) => s.label === "Emergency fund" && s.category === "capitalGains",
+        (s) => s.label === "Emergency fund draw" && s.category === "capitalGains",
       ),
     );
     expect(anyCapitalGainsFromGoal).toBe(false);
     // Not vacuous: it IS drawn down, tax-free, under the goal's name.
     const drawnByName = series.months.some((m) =>
       (m.flows?.incomeSources ?? []).some(
-        (s) => s.label === "Emergency fund" && s.category === "taxedAtAccrual",
+        (s) => s.label === "Emergency fund draw" && s.category === "taxedAtAccrual",
       ),
     );
     expect(drawnByName).toBe(true);

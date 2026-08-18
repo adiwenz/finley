@@ -578,7 +578,7 @@ describe("Decumulation reporting splits realized gain from returned principal (#
       balanceCents <= 0 ? grossCents : Math.round((grossCents * (balanceCents - basisCents)) / balanceCents),
   };
 
-  it("reports only the realized gain as capital-gains income and the returned principal as savings drawdown", () => {
+  it("reports only the realized gain as capital-gains income and the returned principal as the account's own principal-drawdown band", () => {
     // Brokerage opens at $10k (basis == balance). One month of 100% growth before the expense
     // hits leaves it at $20k balance / $10k basis — a clean 50% gain fraction — so the $4,000
     // withdrawal in month 1 splits evenly: $2,000 gain, $2,000 returned principal.
@@ -598,11 +598,13 @@ describe("Decumulation reporting splits realized gain from returned principal (#
 
     const flows = series.months[1].flows!;
     expect(flows.cashFlowIncomeByCategoryCents["capitalGains"]).toBe(dollarsToCents(2_000));
-    const savingsDrawdown = flows.incomeSources.find((s) => s.sourceId === "savings-drawdown");
-    expect(savingsDrawdown?.cashInflowCents).toBe(dollarsToCents(2_000));
+    const investmentDrawdown = flows.incomeSources.find((s) => s.sourceId === "brokerage:principal");
+    expect(investmentDrawdown?.cashInflowCents).toBe(dollarsToCents(2_000));
+    expect(investmentDrawdown?.label).toBe("brokerage (principal)");
     // The full $4,000 need still reached the household — the waterfall lost nothing.
     expect(
-      flows.cashFlowIncomeByCategoryCents["capitalGains"]! + (savingsDrawdown?.cashInflowCents ?? 0),
+      flows.cashFlowIncomeByCategoryCents["capitalGains"]! +
+        (investmentDrawdown?.cashInflowCents ?? 0),
     ).toBe(dollarsToCents(4_000));
   });
 
@@ -610,7 +612,8 @@ describe("Decumulation reporting splits realized gain from returned principal (#
     // Mirrors the brokerage case above with a Roth-style account instead: `buildWithdrawalSources`
     // reads `principalCents`/`realizedGainCents` off basis alone, with no category check, so a
     // tax-exempt account past its basis splits identically — the growth bands under its own
-    // `taxExempt` category rather than `capitalGains`, and the basis returns as savings drawdown.
+    // `taxExempt` category rather than `capitalGains`, and the basis returns as investment
+    // principal drawdown.
     const series = simulateHousehold(
       baseInput(
         [
@@ -626,8 +629,9 @@ describe("Decumulation reporting splits realized gain from returned principal (#
 
     const flows = series.months[1].flows!;
     expect(flows.cashFlowIncomeByCategoryCents["taxExempt"]).toBe(dollarsToCents(2_000));
-    const savingsDrawdown = flows.incomeSources.find((s) => s.sourceId === "savings-drawdown");
-    expect(savingsDrawdown?.cashInflowCents).toBe(dollarsToCents(2_000));
+    const investmentDrawdown = flows.incomeSources.find((s) => s.sourceId === "roth:principal");
+    expect(investmentDrawdown?.cashInflowCents).toBe(dollarsToCents(2_000));
+    expect(investmentDrawdown?.label).toBe("roth (principal)");
   });
 
   it("reports no capital-gains income for a basis-only (no-gain) brokerage withdrawal", () => {
@@ -640,8 +644,8 @@ describe("Decumulation reporting splits realized gain from returned principal (#
     );
     const flows = series.months[0].flows!;
     expect(flows.cashFlowIncomeByCategoryCents["capitalGains"]).toBe(0);
-    const savingsDrawdown = flows.incomeSources.find((s) => s.sourceId === "savings-drawdown");
-    expect(savingsDrawdown?.cashInflowCents).toBe(dollarsToCents(3_000));
+    const investmentDrawdown = flows.incomeSources.find((s) => s.sourceId === "brokerage:principal");
+    expect(investmentDrawdown?.cashInflowCents).toBe(dollarsToCents(3_000));
   });
 
   it("still reports a retirement-account withdrawal as full retirement income (unaffected)", () => {
@@ -899,6 +903,6 @@ describe("Liquid-buffer drawdown reporting", () => {
     };
     const { sources } = buildWithdrawalSources(st, nullJurisdiction, dollarsToCents(5_000), ctx);
     expect(sources[0].sourceId).toBe("brokerage");
-    expect(sources[0].label).toBe("Brokerage");
+    expect(sources[0].label).toBe("Brokerage draw");
   });
 });

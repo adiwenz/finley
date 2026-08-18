@@ -23,6 +23,22 @@ import {
 
 export const SAVINGS_DRAWDOWN_SOURCE_ID = "savings-drawdown";
 const SAVINGS_DRAWDOWN_LABEL = "Savings drawdown";
+/** `${account.id}:principal` — namespaced so it never collides with that account's own
+ * realized-gain band, which bands under the bare account id. */
+const principalDrawdownSourceId = (accountId: string): string => `${accountId}:principal`;
+
+/**
+ * One investment account's returned cost basis this month — not income, so it bands apart from
+ * `incomeSources`' tax-category bands, but named by the SAME account so the chart can tell "sold
+ * some of the brokerage" from "sold some of the Roth" rather than lumping every investment
+ * account's principal into one anonymous band.
+ */
+export interface PrincipalDrawdownSource {
+  /** The account's own id — namespaced into a distinct band id by {@link principalDrawdownSourceId}. */
+  readonly sourceId: string;
+  readonly label: string;
+  readonly cents: Cents;
+}
 
 /**
  * Charge the month's STRANDED haircut — tax or deferral attributed to a source that banded no
@@ -91,9 +107,12 @@ function applyStrandedHaircut(
  * somewhere else is absent from both while still being taxed. `sourceId`/`label` ride through;
  * a source lacking them falls back to its tax category.
  *
- * `liquidDrawdownCents` (the gap cash savings covered) is appended as its own
- * `savingsDrawdown` source but stays OUT of the rollup and total: a drawdown is spending an
- * asset, not income.
+ * `liquidDrawdownCents` (the gap actual cash savings covered) and `investmentPrincipalDrawdowns`
+ * (the gap covered by the returned cost basis of each sold investment, one band per account) are
+ * each appended as their own `savingsDrawdown`-category source but stay OUT of the rollup and
+ * total: a drawdown is spending an asset, not income. Kept apart — and kept per-account rather
+ * than pooled — so the chart can tell spending actual cash savings apart from a brokerage sale
+ * apart from a retirement-account sale, instead of one anonymous "investment" line.
  *
  * `taxByCategoryCents`, `taxBySourceCents`, `payrollTaxBySourceCents` and
  * `deferralBySourceCents` ride through pre-computed — attribution is the jurisdiction's call.
@@ -130,6 +149,16 @@ export function buildFlows(
   // `resolvedFunding` is a partition of the FUNDED total, known only after the shortfall cascade
   // settles which obligations came up short — later than this reporting pass — so the simulator
   // attaches it to the returned bands rather than this pure re-description computing it.
+  /**
+   * Returned basis (cost basis, not gain) from selling an INVESTMENT account this month — a
+   * decumulation draw's or an explicit funding draw's `principalCents` — kept apart from
+   * `liquidDrawdownCents` so the chart can tell "spent from actual cash savings" from "sold an
+   * investment and got its own contributions back." One entry PER ACCOUNT, so a brokerage
+   * drawdown and a retirement-account drawdown band separately rather than merging into one
+   * anonymous "investment" line; entries sharing an account id are summed into that account's one
+   * band. Never merged into {@link SAVINGS_DRAWDOWN_SOURCE_ID}.
+   */
+  investmentPrincipalDrawdowns: readonly PrincipalDrawdownSource[] = [],
 ): Omit<ProjectionMonthFlows, "resolvedFunding"> {
   const cashFlowIncomeByCategoryCents: Record<string, Cents> = {};
   let totalIncomeCents = 0;
@@ -201,6 +230,25 @@ export function buildFlows(
       category: "savingsDrawdown",
       cashInflowCents: liquidDrawdownCents,
       netCashFlowCents: liquidDrawdownCents,
+    });
+  }
+  // One band PER ACCOUNT — entries may arrive from both the decumulation cascade and an explicit
+  // funding draw in the same month, so same-account entries are summed before banding rather than
+  // pushed as separate same-labeled bands.
+  const investmentPrincipalByAccount = new Map<string, { label: string; cents: Cents }>();
+  for (const draw of investmentPrincipalDrawdowns) {
+    if (draw.cents <= 0) continue;
+    const existing = investmentPrincipalByAccount.get(draw.sourceId);
+    if (existing !== undefined) existing.cents += draw.cents;
+    else investmentPrincipalByAccount.set(draw.sourceId, { label: draw.label, cents: draw.cents });
+  }
+  for (const [accountId, { label, cents }] of investmentPrincipalByAccount) {
+    sources.push({
+      sourceId: principalDrawdownSourceId(accountId),
+      label: `${label} (principal)`,
+      category: "savingsDrawdown",
+      cashInflowCents: cents,
+      netCashFlowCents: cents,
     });
   }
   applyStrandedHaircut(sources, [

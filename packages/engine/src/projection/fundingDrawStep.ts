@@ -21,6 +21,7 @@ import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdic
 import type { TaxCategory } from "../money/cashFlowSeries";
 import type { SimState } from "./runState";
 import type { IncomeSourceMonth } from "./waterfall";
+import type { PrincipalDrawdownSource } from "./reportFlows";
 import { attributeExplicitObligation, type ResolvedFunding } from "./resolvedFunding";
 import type { FinancialObligation } from "./financialObligation";
 import {
@@ -49,6 +50,12 @@ export interface AccountFundingSource {
   readonly balanceCents: Cents;
   readonly basisCents: Cents;
   readonly label?: string;
+  /**
+   * Mirrors {@link import("../plan/simAccount").SimAccount.liquid} — the cash buffer, not a tax
+   * fact — so a draw against it can be told apart from one against an investment when its
+   * returned principal is reported (see {@link FundingDrawReport.principalDrawdownCents}).
+   */
+  readonly liquid?: boolean;
 }
 
 /**
@@ -81,6 +88,8 @@ export interface ResolvedFundingSource {
   /** The account's withdrawal tax category; `"borrow"` for a credit borrow, which realizes none. */
   readonly category: TaxCategory;
   readonly label?: string;
+  /** Mirrors {@link AccountFundingSource.liquid}; absent (`undefined`) for a credit source. */
+  readonly liquid?: boolean;
   /** Sold from the account, exactly the amount asked; for credit, the amount borrowed. */
   readonly grossCents: Cents;
   /** Realized taxable gain within `grossCents` — always 0 for a credit borrow. */
@@ -216,7 +225,7 @@ export function resolveOrderedFundingDraw(
 
     const balance = source.balanceCents;
     if (balance <= 0) continue;
-    const { id, ownerId, category, label } = source;
+    const { id, ownerId, category, label, liquid } = source;
     const basis = Math.max(0, source.basisCents);
     const basisFraction = balance > 0 ? Math.min(1, basis / balance) : 0;
     // The jurisdiction owns return-of-capital policy; absent the seam, fall back to the
@@ -239,6 +248,7 @@ export function resolveOrderedFundingDraw(
       ownerId,
       category,
       label,
+      liquid,
       grossCents: gross,
       gainCents: gain,
       taxCents: 0,
@@ -279,9 +289,13 @@ export function resolveOrderedFundingDraw(
  *
  * - `gainSources` — every gain realized this month, for the TAXABLE pool;
  * - `reportedGainSources` — the subset the cash-flow chart may band: expense-funding draws only;
- * - `principalDrawdownCents` — returned principal that reached the household (a cash source
- *   contributes its whole draw), folded into the `savingsDrawdown` band. Expense-funding draws
- *   only, for the same reason;
+ * - `principalDrawdownCents` — ALL returned principal that reached the household, cash and
+ *   investment sources alike (a cash source contributes its whole draw), folded into the
+ *   `savingsDrawdown` band. Expense-funding draws only, for the same reason;
+ * - `investmentPrincipalDraws` — the subset of `principalDrawdownCents` sold out of a non-liquid
+ *   (investment) account, one entry per account, so the chart can band each apart from spending
+ *   the actual cash buffer AND apart from each other — a brokerage sale and a retirement-account
+ *   sale read as different events to a household even though neither is taxable;
  * - `taxableByOwnerAfter` — the taxable base with this month's draws stacked in, read by the
  *   authoring gate (via `flows`) so a second money-out event in the same month is priced
  *   over its sibling's realized gain;
@@ -297,6 +311,7 @@ export interface FundingDrawReport {
   readonly gainSources: readonly IncomeSourceMonth[];
   readonly reportedGainSources: readonly IncomeSourceMonth[];
   readonly principalDrawdownCents: Cents;
+  readonly investmentPrincipalDraws: readonly PrincipalDrawdownSource[];
   readonly taxableByOwnerAfter: TaxableByOwner;
   readonly resolvedFunding: readonly ResolvedFunding[];
   /**
@@ -363,6 +378,7 @@ export function resolveFundingDraws(
   const reportedGainSources: IncomeSourceMonth[] = [];
   const resolvedFunding: ResolvedFunding[] = [];
   let principalDrawdownCents = 0;
+  const investmentPrincipalDraws: PrincipalDrawdownSource[] = [];
   let block: FundingBlock | undefined;
   const omittedSourceEventIds = new Set<string>();
 
@@ -397,6 +413,7 @@ export function resolveFundingDraws(
           balanceCents: state.assetBalances.get(sourceId) ?? 0,
           basisCents: Math.max(0, state.basisByAccount.get(sourceId) ?? 0),
           label: account.label ?? sourceId,
+          liquid: account.liquid,
         });
         continue;
       }
@@ -541,8 +558,20 @@ export function resolveFundingDraws(
       );
       // Returned principal surfaces through the savings drawdown — for an expense draw, which
       // the expense graph shows the other half of. An acquisition's principal became a house;
-      // banding it would report a month of living off savings that never happened.
-      if (!fundsAnAsset) principalDrawdownCents += s.principalCents;
+      // banding it would report a month of living off savings that never happened. Split by
+      // `liquid` so the chart can tell actual cash savings apart from an investment's own
+      // returned cost basis, which reads as a different event to a household even though
+      // neither is taxable.
+      if (!fundsAnAsset) {
+        principalDrawdownCents += s.principalCents;
+        if (s.liquid !== true && s.principalCents > 0) {
+          investmentPrincipalDraws.push({
+            sourceId: s.id,
+            label: s.label ?? s.id,
+            cents: s.principalCents,
+          });
+        }
+      }
 
       // A zero-gain (cash) source books no band: pure returned principal, surfacing only
       // through the savings drawdown. A positive gain is net-neutral cash-wise
@@ -550,6 +579,9 @@ export function resolveFundingDraws(
       // still taxABLE: `taxableCents` carries it into `allocateMonth`'s taxable pool so it
       // reaches the caller's annual accumulator, settled with the rest of the year's.
       if (s.gainCents > 0) {
+        // Suffixed so this doesn't read as the SAME band as the recurring decumulation draw's
+        // "<Account>" — same account, but a one-time explicit draw (a One-Time Spend or asset
+        // purchase) is a different event from the month-to-month withdrawal cascade.
         const gainSource: IncomeSourceMonth = {
           ownerId: s.ownerId,
           waterfallInflowCents: 0,
@@ -557,7 +589,7 @@ export function resolveFundingDraws(
           taxCategory: s.category,
           taxableCents: s.gainCents,
           sourceId: `${prefix}:${s.id}`,
-          label: s.label ?? s.id,
+          label: `${s.label ?? s.id} gains`,
         };
         // Always taxed; banded only when the cash reached the household.
         gainSources.push(gainSource);
@@ -570,6 +602,7 @@ export function resolveFundingDraws(
     gainSources,
     reportedGainSources,
     principalDrawdownCents,
+    investmentPrincipalDraws,
     taxableByOwnerAfter: working,
     resolvedFunding,
     ...(block !== undefined ? { block } : {}),
