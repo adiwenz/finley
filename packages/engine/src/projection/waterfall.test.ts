@@ -535,6 +535,107 @@ describe("runWaterfall — goals (steps 4–5, fund-to-pace)", () => {
     expect(r.accountDepositsCents.get("checking")).toBeUndefined();
   });
 
+  it("a goal that expires before reaching its target stops receiving contributions after its end month", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(3000))],
+        goals: [datedGoal("car", 1, dollarsToCents(12000), "car", 12)],
+        accountBalanceCents: (id) => (id === "car" ? dollarsToCents(6000) : 0),
+        nowMonth: 13, // one month past the goal's target month
+      }),
+    );
+    expect(r.accountDepositsCents.get("car")).toBeUndefined();
+    expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(3000));
+  });
+
+  it("a fully funded goal does not receive additional contributions", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(3000))],
+        goals: [datedGoal("car", 1, dollarsToCents(12000), "car", 12)],
+        accountBalanceCents: (id) => (id === "car" ? dollarsToCents(12000) : 0),
+        nowMonth: 6, // still well within the funding window
+      }),
+    );
+    expect(r.accountDepositsCents.get("car")).toBeUndefined();
+    expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(3000));
+  });
+
+  it("expiration of one goal lets a still-active goal pace normally and the rest reach surplus", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(3000))],
+        goals: [
+          datedGoal("car", 1, dollarsToCents(12000), "car", 12), // expired, short of target
+          datedGoal("house", 2, dollarsToCents(24000), "house", 37), // 24 months still remain
+        ],
+        accountBalanceCents: (id) => (id === "car" ? dollarsToCents(6000) : 0),
+        nowMonth: 13,
+      }),
+    );
+    expect(r.accountDepositsCents.get("car")).toBeUndefined();
+    expect(r.accountDepositsCents.get("house")).toBe(dollarsToCents(1000));
+    expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(2000));
+  });
+
+  it("money accumulated while the goal was active is left untouched once it expires", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(3000))],
+        goals: [datedGoal("car", 1, dollarsToCents(12000), "car", 12)],
+        accountBalanceCents: (id) => (id === "car" ? dollarsToCents(9000) : 0),
+        nowMonth: 20, // well past expiration
+      }),
+    );
+    expect(r.accountDepositsCents.has("car")).toBe(false);
+  });
+
+  it("funds in its final active month but receives exactly $0 starting the following month", () => {
+    const finalMonth = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(3000))],
+        goals: [datedGoal("car", 1, dollarsToCents(12000), "car", 12)],
+        accountBalanceCents: (id) => (id === "car" ? dollarsToCents(11000) : 0),
+        nowMonth: 12, // the goal's final active month
+      }),
+    );
+    expect(finalMonth.accountDepositsCents.get("car")).toBe(dollarsToCents(1000));
+
+    const monthAfter = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(3000))],
+        goals: [datedGoal("car", 1, dollarsToCents(12000), "car", 12)],
+        accountBalanceCents: (id) => (id === "car" ? dollarsToCents(11000) : 0),
+        nowMonth: 13,
+      }),
+    );
+    expect(monthAfter.accountDepositsCents.get("car")).toBeUndefined();
+  });
+
+  it("a personal goal's expiration guard applies the same as a shared goal's", () => {
+    const personalGoal: SimGoal = {
+      id: "p1-car",
+      name: "car",
+      targetCents: dollarsToCents(12000),
+      targetDate: 12,
+      fundAccountId: "car-fund",
+      priority: 5,
+      disposition: "retain",
+      scope: "personal",
+      ownerId: "p1",
+    };
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [wageSource("p1", dollarsToCents(3000))],
+        goals: [personalGoal],
+        accountBalanceCents: (id) => (id === "car-fund" ? dollarsToCents(6000) : 0),
+        nowMonth: 13, // one month past the goal's target month
+      }),
+    );
+    expect(r.accountDepositsCents.get("car-fund")).toBeUndefined();
+    expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(3000));
+  });
+
   it("personal goals pace from the owner's leftover after shared paces", () => {
     const personalGoal: SimGoal = {
       id: "p1-car",

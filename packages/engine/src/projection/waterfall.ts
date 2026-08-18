@@ -461,6 +461,9 @@ function fundGoalsAndContributions(
   // Pass 1 — dated goals funded to their sinking-fund pace, in priority order.
   for (const goal of orderedGoals) {
     if (goal.targetDate === "asap") continue;
+    // Funding window closes the month after the deadline: the deadline month itself still
+    // paces normally (any remaining gap is due in full), but nothing funds it after that.
+    if (nowMonth > goal.targetDate) continue;
     const current = input.accountBalanceCents(goal.fundAccountId);
     const monthsRemaining = goal.targetDate - nowMonth;
     const pace = requiredContributionCents(
