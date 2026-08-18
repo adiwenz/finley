@@ -337,21 +337,63 @@ function payrollTaxForPerson(
 }
 
 /**
+ * Split `totalCents` across `personIds` proportional to `weightOf`, cumulative-rounded so the
+ * shares sum to `totalCents` exactly. All-zero weight (nobody to split by — no income, or no
+ * `eligibleAssetsCentsByPerson` seam) leaves every share 0, same as a non-positive `totalCents`:
+ * the caller reads the gap between "assigned" and `totalCents` as unattributed, not lost.
+ */
+function proportionalSplit(
+  totalCents: Cents,
+  personIds: readonly string[],
+  weightOf: (pid: string) => number,
+): Map<string, Cents> {
+  const shareByPerson = new Map<string, Cents>();
+  const totalWeight = personIds.reduce((sum, pid) => sum + Math.max(0, weightOf(pid)), 0);
+  if (totalCents <= 0 || totalWeight <= 0) {
+    for (const pid of personIds) shareByPerson.set(pid, 0);
+    return shareByPerson;
+  }
+  let prevCum = 0;
+  let acc = 0;
+  for (const pid of personIds) {
+    acc += Math.max(0, weightOf(pid));
+    const cum = Math.round((totalCents * acc) / totalWeight);
+    shareByPerson.set(pid, cum - prevCum);
+    prevCum = cum;
+  }
+  return shareByPerson;
+}
+
+/**
  * Step 3 — split shared obligations by the scheme, then take each person's share out of
  * their take-home. Only positive take-home contributes; an uncovered share becomes a
  * household shortfall, never silently absorbed by the other partner.
+ *
+ * While the household has ANY positive take-home, the split is proportional to it (§ Household
+ * funding, step 1). Only when nobody has positive take-home does it fall back to each person's
+ * {@link WaterfallInput.eligibleAssetsCentsByPerson} (step 2) — the same {@link proportionalSplit}
+ * cumulative-rounding technique, just weighted by assets instead of income. No seam (or nobody
+ * with assets either) leaves the obligation entirely unattributed to a person — still counted in
+ * `shortfallCents`, just not in {@link obligationShortfallByPersonCents}, which decumulation reads
+ * only as a PREFERENCE for whose accounts to try first, never as the total it must cover.
  *
  * A NEGATIVE take-home is a real cash need: deductions (`deferralCents + taxCents`)
  * exceeded the cash that reached the waterfall (`waterfallInflowCents`) — usually tax on
  * cash credited OUTSIDE the waterfall, though the treatment is cause-agnostic. It is the
  * HOUSEHOLD's to pay, so the combined discretionary pool covers it first and only the
- * uncoverable part falls to the cascade. Clamping it to 0 overstated the ending balance
- * and kept an unpayable bill from ever surfacing as insolvency.
+ * uncoverable part falls to the cascade — left unattributed to a person for the same reason.
+ * Clamping it to 0 overstated the ending balance and kept an unpayable bill from ever
+ * surfacing as insolvency.
  */
 function splitSharedObligation(
   input: WaterfallInput,
   takeHomeByPerson: Map<string, Cents>,
-): { leftoverByPerson: Map<string, Cents>; totalDiscretionary: Cents; shortfallCents: Cents } {
+): {
+  leftoverByPerson: Map<string, Cents>;
+  totalDiscretionary: Cents;
+  shortfallCents: Cents;
+  obligationShortfallByPersonCents: Map<string, Cents>;
+} {
   const positiveTakeHome = new Map<string, Cents>();
   let totalPositive: Cents = 0;
   let unfundedDeductionsCents: Cents = 0;
@@ -368,18 +410,17 @@ function splitSharedObligation(
   } else if (input.sharedScheme === "even") {
     const shares = splitEven(input.sharedObligationCents, Math.max(1, input.personIds.length));
     input.personIds.forEach((pid, i) => shareByPerson.set(pid, shares[i] ?? 0));
-  } else if (totalPositive <= 0) {
-    // 0/0 guard: nobody can contribute, so the whole obligation is a shortfall.
-    for (const pid of input.personIds) shareByPerson.set(pid, 0);
   } else {
-    // Cumulative rounding so the shares sum to the obligation exactly.
-    let prevCum = 0;
-    let acc = 0;
-    for (const pid of input.personIds) {
-      acc += positiveTakeHome.get(pid) ?? 0;
-      const cum = Math.round((input.sharedObligationCents * acc) / totalPositive);
-      shareByPerson.set(pid, cum - prevCum);
-      prevCum = cum;
+    const weightOf =
+      totalPositive > 0
+        ? (pid: string) => positiveTakeHome.get(pid) ?? 0
+        : (pid: string) => input.eligibleAssetsCentsByPerson?.(pid) ?? 0;
+    for (const [pid, share] of proportionalSplit(
+      input.sharedObligationCents,
+      input.personIds,
+      weightOf,
+    )) {
+      shareByPerson.set(pid, share);
     }
   }
 
@@ -395,15 +436,40 @@ function splitSharedObligation(
     leftoverByPerson.set(pid, leftover);
     totalDiscretionary += leftover;
   }
-  // Unassigned obligation is unmet. Only the zero-income branch leaves any; elsewhere the
-  // shares sum to the obligation and this term is 0.
+  // Unassigned obligation is unmet. Only an all-zero-weight fallback leaves any; whenever a
+  // split actually ran (income or assets), `proportionalSplit`'s cumulative rounding sums the
+  // shares to the obligation exactly and this term is 0.
   const assignedShare = [...shareByPerson.values()].reduce((s, v) => s + v, 0);
   shortfallCents += Math.max(0, input.sharedObligationCents - assignedShare);
   const coveredByDiscretionary = Math.min(unfundedDeductionsCents, totalDiscretionary);
   totalDiscretionary -= coveredByDiscretionary;
   shortfallCents += unfundedDeductionsCents - coveredByDiscretionary;
 
-  return { leftoverByPerson, totalDiscretionary, shortfallCents };
+  // A SEPARATE, preference-only split of the now-finalized `shortfallCents`, weighted the same
+  // way as the real split but independently FLOORED rather than cumulative-rounded: two people
+  // with IDENTICAL weight get the IDENTICAL target from the identical formula, with no
+  // positional tie-break to land the odd cent on one of them arbitrarily (the cumulative
+  // rounding `shareByPerson` needs to stay cent-exact for the real allocation above cannot make
+  // that promise). Never overshoots `shortfallCents` — at most `personIds.length − 1` cents go
+  // unattributed, folded into the scalar total same as any other unattributed shortfall.
+  const shortfallWeightOf =
+    totalPositive > 0
+      ? (pid: string) => positiveTakeHome.get(pid) ?? 0
+      : (pid: string) => input.eligibleAssetsCentsByPerson?.(pid) ?? 0;
+  const totalShortfallWeight = input.personIds.reduce(
+    (sum, pid) => sum + Math.max(0, shortfallWeightOf(pid)),
+    0,
+  );
+  const obligationShortfallByPersonCents = new Map<string, Cents>(
+    input.personIds.map((pid) => [
+      pid,
+      totalShortfallWeight > 0
+        ? Math.floor((shortfallCents * Math.max(0, shortfallWeightOf(pid))) / totalShortfallWeight)
+        : 0,
+    ]),
+  );
+
+  return { leftoverByPerson, totalDiscretionary, shortfallCents, obligationShortfallByPersonCents };
 }
 
 /**
@@ -532,10 +598,12 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     sourceEarnedByPerson,
     deferredByPerson,
   );
-  const { leftoverByPerson, totalDiscretionary, shortfallCents } = splitSharedObligation(
-    input,
-    takeHomeByPerson,
-  );
+  const {
+    leftoverByPerson,
+    totalDiscretionary,
+    shortfallCents,
+    obligationShortfallByPersonCents,
+  } = splitSharedObligation(input, takeHomeByPerson);
   const contributionShortfall = fundGoalsAndContributions(
     input,
     leftoverByPerson,
@@ -564,5 +632,6 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     accountDepositsCents: deposits,
     shortfallCents: shortfallCents + contributionShortfall,
     obligationShortfallCents: shortfallCents,
+    obligationShortfallByPersonCents,
   };
 }

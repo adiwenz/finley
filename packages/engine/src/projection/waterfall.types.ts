@@ -96,6 +96,13 @@ export interface WaterfallInput {
   readonly goalFundMonthlyRate?: (accountId: string) => number;
   /** Current (beginning-of-step) balance of any account — goal need is target − this. */
   readonly accountBalanceCents: (accountId: string) => Cents;
+  /**
+   * A person's eligible available assets — the fallback weight a shared obligation splits by
+   * when nobody has positive take-home (§ Household funding, step 2). Absent, or every
+   * person's weight 0, leaves the obligation unattributed to anyone (see
+   * {@link WaterfallResult.obligationShortfallByPersonCents}), same as today.
+   */
+  readonly eligibleAssetsCentsByPerson?: (personId: string) => Cents;
   /** The default liquid account — the `idle` surplus destination. Null if none. */
   readonly liquidAccountId: string | null;
   /**
@@ -244,4 +251,13 @@ export interface WaterfallResult {
    * ranking debt/needs ahead of a goal.
    */
   readonly obligationShortfallCents: Cents;
+  /**
+   * {@link obligationShortfallCents} broken out by the person whose share of the shared
+   * obligation went unfunded — a PREFERENCE for decumulation (try this person's own accounts
+   * for this much before reaching for anyone else's), never a second total: Σ over this map
+   * is ≤ `obligationShortfallCents`, and the difference (a negative-take-home deficit the
+   * discretionary pool couldn't absorb, or a split with no assets seam to attribute by) is
+   * still fully counted in the scalar, just not owed to any one person.
+   */
+  readonly obligationShortfallByPersonCents: ReadonlyMap<string, Cents>;
 }

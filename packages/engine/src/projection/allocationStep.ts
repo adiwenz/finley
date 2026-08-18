@@ -128,6 +128,14 @@ function planMonthAllocation(
     goalFundMonthlyRate: (id) => accountsById.get(id)?.getMonthlyRateAt(month) ?? 0,
     accountBalanceCents: (id) => state.assetBalances.get(id) ?? 0,
     liquidAccountId: state.liquidAccount?.id ?? null,
+    // Every account this person owns, summed — the fallback split weight when nobody has
+    // positive take-home. Same pool `orderedAccountsForPerson` (withdrawal.ts) later draws
+    // from, so the split and the draw agree on what "this person's assets" means.
+    eligibleAssetsCentsByPerson: (pid) =>
+      state.accounts.reduce(
+        (sum, acc) => (acc.ownerId === pid ? sum + Math.max(0, state.assetBalances.get(acc.id) ?? 0) : sum),
+        0,
+      ),
     // The month's federal income-tax CASH: an even twelfth of this year's estimated liability,
     // plus (in April only) the balance left over from the year just closed. Fixed for the month:
     // the waterfall must never re-derive income tax from the income in front of it. Signed, so an
@@ -188,7 +196,11 @@ export function projectObligationShortfallCents(
   month: number,
   estimatedTaxPayments: ReadonlyMap<string, FederalTaxPayment>,
   priorYearSettlements: PriorYearSettlements,
-): Cents {
+): {
+  totalCents: Cents;
+  /** See {@link import("./waterfall").WaterfallResult.obligationShortfallByPersonCents}. */
+  byPersonCents: ReadonlyMap<string, Cents>;
+} {
   const { input } = planMonthAllocation(
     state,
     incomeSources,
@@ -199,7 +211,11 @@ export function projectObligationShortfallCents(
     estimatedTaxPayments,
     priorYearSettlements,
   );
-  return runWaterfall(input).obligationShortfallCents;
+  const result = runWaterfall(input);
+  return {
+    totalCents: result.obligationShortfallCents,
+    byPersonCents: result.obligationShortfallByPersonCents,
+  };
 }
 
 /**

@@ -144,47 +144,24 @@ export interface DecumulationDrawResult {
   readonly netDeliveredCents: Cents;
 }
 
-export function buildWithdrawalSources(
+/**
+ * Sell up to `targetCents` from `candidates`, in order, capped at each account's balance —
+ * the one sale mechanic both the per-person pass and the pooled pass below run, so a draw's
+ * gain/basis/reporting shape cannot drift between them. Returns what was actually raised
+ * (≤ `targetCents`; less when the candidates together fall short).
+ */
+function drainAccounts(
+  candidates: readonly SimAccount[],
+  targetCents: Cents,
   state: WithdrawalState,
   jurisdiction: Jurisdiction,
-  /**
-   * The month's uncovered obligation cash — what the waterfall over non-decumulation income
-   * alone could not fund, deductions and all. Already net of income: a household whose pay
-   * covers the month is short 0 and sells nothing.
-   */
-  shortfallCents: Cents,
   ctx: JurisdictionContext,
-  liquidationOrder: readonly AccountTaxTreatment[] = DEFAULT_LIQUIDATION_ORDER,
-): WithdrawalPlan {
-  const gap = shortfallCents;
-  if (gap <= 0) return { sources: [], liquidDrawdownCents: 0, decumulationDraws: [] };
-
-  // Spend the liquid buffer first: the cascade charges whatever the withdrawal leaves
-  // uncovered against the liquid account.
-  const liquidBuffer =
-    state.liquidAccount !== null
-      ? Math.max(0, state.assetBalances.get(state.liquidAccount.id) ?? 0)
-      : 0;
-  const liquidDrawdownCents = Math.min(gap, liquidBuffer);
-  let need = gap - liquidBuffer;
-  if (need <= 0) return { sources: [], liquidDrawdownCents, decumulationDraws: [] };
-
-  // The shared order, minus the liquid account: it is not exempt from being drawn — it is drawn
-  // FIRST, above, as `liquidDrawdownCents`, and the cascade charges whatever is left against it
-  // directly. Selling it again here would double-spend the same cash. (The `liquid` flag itself
-  // means "eligible to *receive* deposits"; a drawdown runs the other way, so every other
-  // account — investment or not — is a valid source.)
-  const liquidId = state.liquidAccount?.id ?? null;
-  const orderedSources = orderedLiquidationAccounts(
-    state.accounts,
-    liquidId,
-    liquidationOrder,
-  ).filter((a) => a.id !== liquidId);
-
-  const sources: IncomeSourceMonth[] = [];
-  const decumulationDraws: DecumulationDrawResult[] = [];
-  for (const account of orderedSources) {
-    if (need <= 0) break;
+  sources: IncomeSourceMonth[],
+  decumulationDraws: DecumulationDrawResult[],
+): Cents {
+  let remaining = targetCents;
+  for (const account of candidates) {
+    if (remaining <= 0) break;
     const balance = state.assetBalances.get(account.id) ?? 0;
     if (balance <= 0) continue;
 
@@ -198,17 +175,18 @@ export function buildWithdrawalSources(
         { grossCents: draw, basisCents: basis, balanceCents: balance, category: withdrawalCategory },
         ctx,
       ) ?? draw;
-    // Sell exactly `need`, capped at the balance — no gross-up. Only the gain is booked as
-    // `taxableCents` on the returned source (fed to the caller's annual accumulator); the
-    // full gross is still paid out as take-home below, and no tax is netted out of it.
-    const gross = Math.min(balance, need);
+    // Sell exactly what's still needed, capped at the balance — no gross-up. Only the gain is
+    // booked as `taxableCents` on the returned source (fed to the caller's annual
+    // accumulator); the full gross is still paid out as take-home below, and no tax is netted
+    // out of it.
+    const gross = Math.min(balance, remaining);
     const gainCents = gainOf(gross);
 
     // The rest of the gross is returned principal; reduce basis by it (method-agnostic:
     // gross − taxable).
     state.basisByAccount.set(account.id, basis - (gross - gainCents));
     state.assetBalances.set(account.id, balance - gross);
-    need -= gross;
+    remaining -= gross;
     sources.push({
       ownerId: account.ownerId,
       waterfallInflowCents: gross,
@@ -237,6 +215,101 @@ export function buildWithdrawalSources(
       taxCents: 0,
       netDeliveredCents: gross,
     });
+  }
+  return targetCents - remaining;
+}
+
+export function buildWithdrawalSources(
+  state: WithdrawalState,
+  jurisdiction: Jurisdiction,
+  /**
+   * The month's uncovered obligation cash — what the waterfall over non-decumulation income
+   * alone could not fund, deductions and all. Already net of income: a household whose pay
+   * covers the month is short 0 and sells nothing.
+   */
+  shortfallCents: Cents,
+  ctx: JurisdictionContext,
+  liquidationOrder: readonly AccountTaxTreatment[] = DEFAULT_LIQUIDATION_ORDER,
+  /**
+   * {@link import("./waterfall").WaterfallResult.obligationShortfallByPersonCents} — whose
+   * share of the gap this is, a PREFERENCE for {@link need}'s liquidation order (§ Household
+   * funding, step 3), never a second total. Fewer than two people carrying a positive share
+   * (a single-earner plan, or every dollar unattributed) sells in EXACTLY the pooled order
+   * below, unchanged from before this parameter existed.
+   */
+  byPersonCents?: ReadonlyMap<string, Cents>,
+): WithdrawalPlan {
+  const gap = shortfallCents;
+  if (gap <= 0) return { sources: [], liquidDrawdownCents: 0, decumulationDraws: [] };
+
+  // Spend the liquid buffer first: the cascade charges whatever the withdrawal leaves
+  // uncovered against the liquid account. Household-wide, not per-person — same buffer
+  // `runState.ts` seeds a shortfall against later, regardless of whose share this gap is.
+  const liquidBuffer =
+    state.liquidAccount !== null
+      ? Math.max(0, state.assetBalances.get(state.liquidAccount.id) ?? 0)
+      : 0;
+  const liquidDrawdownCents = Math.min(gap, liquidBuffer);
+  let need = gap - liquidBuffer;
+  if (need <= 0) return { sources: [], liquidDrawdownCents, decumulationDraws: [] };
+
+  // The liquid account is never sold again here — it is drawn FIRST, above, as
+  // `liquidDrawdownCents`, and the cascade charges whatever is left against it directly.
+  // Selling it again here would double-spend the same cash. (The `liquid` flag itself means
+  // "eligible to *receive* deposits"; a drawdown runs the other way, so every other account —
+  // investment or not — is a valid source.)
+  const liquidId = state.liquidAccount?.id ?? null;
+
+  const sources: IncomeSourceMonth[] = [];
+  const decumulationDraws: DecumulationDrawResult[] = [];
+
+  // Person-aware pass: try each person's OWN investment accounts for their share of `need`
+  // FIRST — the fix for "account ordering arbitrarily causing one person's assets to fund the
+  // household while the other's remain untouched" (§ Household funding). Each target is
+  // FLOORED against the `need` this pass started with (never rounded, never cumulative), so
+  // two people with IDENTICAL weight compute the identical target from the identical formula —
+  // no positional tie-break to land on one of them arbitrarily — and the sum of every floored
+  // target can only fall short of `need`, never overshoot it, so no one's target is ever
+  // clamped by an earlier person's draw either. Whatever the flooring leaves on the table (at
+  // most one cent per person) falls through to the pooled pass below, same as an unattributed
+  // shortfall.
+  const positiveByPerson = [...(byPersonCents ?? [])].filter(([, cents]) => cents > 0);
+  const totalByPerson = positiveByPerson.reduce((sum, [, cents]) => sum + cents, 0);
+  if (positiveByPerson.length >= 2 && totalByPerson > 0) {
+    const needAtStart = need;
+    for (const [pid, weightCents] of positiveByPerson) {
+      if (need <= 0) break;
+      const targetCents = Math.min(Math.floor((needAtStart * weightCents) / totalByPerson), need);
+      if (targetCents <= 0) continue;
+      const personCandidates = orderedLiquidationAccounts(
+        state.accounts.filter((a) => a.ownerId === pid && a.id !== liquidId),
+        null,
+        liquidationOrder,
+      );
+      need -= drainAccounts(
+        personCandidates,
+        targetCents,
+        state,
+        jurisdiction,
+        ctx,
+        sources,
+        decumulationDraws,
+      );
+    }
+  }
+
+  // Shared pooled pass, in the same order as before this function took a per-person hint:
+  // whatever `need` remains — a single funding-eligible person, cross-person coverage once
+  // someone's own accounts ran dry, or an unattributed slice (a negative-take-home deficit
+  // the split could not name a person for). Never lets an account go negative: `drainAccounts`
+  // caps every sale at the account's own balance, same as the per-person pass above.
+  if (need > 0) {
+    const pooledCandidates = orderedLiquidationAccounts(
+      state.accounts,
+      liquidId,
+      liquidationOrder,
+    ).filter((a) => a.id !== liquidId);
+    need -= drainAccounts(pooledCandidates, need, state, jurisdiction, ctx, sources, decumulationDraws);
   }
 
   return { sources, liquidDrawdownCents, decumulationDraws };
