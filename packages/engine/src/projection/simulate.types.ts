@@ -83,6 +83,16 @@ export interface ProjectionMonth {
   readonly netWorthNominalCents: Cents | null;
   readonly netWorthRealCents: Cents | null;
   /**
+   * `netWorthNominalCents` broken out by owner — accounts, properties and liabilities each
+   * attributed to the person who owns them, so the app can chart primary, partner and
+   * combined net worth over time without re-deriving ownership itself. A joint account's
+   * balance is NOT split across its owners; it rides on whichever single `ownerId` the
+   * compiled {@link import("../plan/simAccount").SimAccount} carries (joint ownership is
+   * unrepresentable in the compiled shape — see `plan/planAccount.ts`). `null` exactly where
+   * `netWorthNominalCents` is `null`, for the same reason.
+   */
+  readonly netWorthByPersonCents: Readonly<Record<string, Cents>> | null;
+  /**
    * Present on the FIRST insolvent month and no other — the one month where "how far short did
    * this plan fall, and what would that have cost?" has a defined answer. Absent everywhere
    * else, including on later insolvent months, which have no such answer to give.

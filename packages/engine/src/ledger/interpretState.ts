@@ -22,6 +22,7 @@ import type { AccountTransfer, LiabilityTransfer } from "./transfers";
 import type { FinancialObligation } from "../projection/financialObligation";
 import type { FundingFailure } from "../projection/fundingFailure";
 import type { FundingTreatment } from "../projection/fundingEligibility";
+import type { PlanAccount } from "../plan/planAccount";
 
 export interface PersonMembership {
   readonly person: Person;
@@ -92,6 +93,13 @@ export interface InterpretState {
   readonly seriesById: Map<SeriesId, SeriesDef>;
   readonly liabilitiesById: Map<LiabilityId, LiabilityDef>;
   readonly propertiesById: Map<PropertyId, PropertyDef>;
+  /**
+   * Accounts minted by an event — today, exactly a partner's three standing accounts, minted
+   * by the `RelationshipEvent` handler. The primary's accounts never appear here: they arrive
+   * on the base, unconditionally, from month 0. Merged with the base's at both the household
+   * (`interpret.ts`) and simulator (`buildHouseholdInput.ts`) boundaries.
+   */
+  readonly accountsById: Map<AccountId, PlanAccount>;
   readonly accountTransfersByAccountId: Map<AccountId, AccountTransfer[]>;
   /**
    * Explicitly-funded obligations — cross-account down-payment / spend draws, appended in event
@@ -108,6 +116,7 @@ export function freshState(): InterpretState {
     seriesById: new Map(),
     liabilitiesById: new Map(),
     propertiesById: new Map(),
+    accountsById: new Map(),
     accountTransfersByAccountId: new Map(),
     fundingDraws: [],
   };

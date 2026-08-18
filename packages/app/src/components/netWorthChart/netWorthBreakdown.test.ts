@@ -20,6 +20,7 @@ function mkMonth(m: MonthSpec, month: number) {
     month,
     netWorthNominalCents: 0,
     netWorthRealCents: 0,
+    netWorthByPersonCents: {},
     accountBalancesCents: m.accounts ?? {},
     // Inert here: the breakdown charts balances, never the embedded gain.
     accountBasisCents: {},

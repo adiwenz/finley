@@ -44,9 +44,41 @@ export interface CausedByFields {
 
 // Event types
 
+/**
+ * A partner's three standing accounts (mirroring what {@link
+ * import("../compile/projectionBase").buildPlanAccounts} gives the primary), fully resolved —
+ * balances default to 0 and return rates to the primary's own at authoring time
+ * ({@link import("../authoring/relationships").applyMarriage}), so replay never needs the plan
+ * to reconstruct them.
+ */
+export interface PartnerStandingAccounts {
+  readonly savingsBalanceCents: Cents;
+  readonly savingsReturnPct: number;
+  readonly retirementBalanceCents: Cents;
+  readonly retirementReturnPct: number;
+  readonly brokerageBalanceCents: Cents;
+  readonly brokerageReturnPct: number;
+}
+
+/** A partner joining with none of their own money — the default when `accounts` is omitted. */
+export const ZERO_PARTNER_ACCOUNTS: PartnerStandingAccounts = {
+  savingsBalanceCents: 0,
+  savingsReturnPct: 0,
+  retirementBalanceCents: 0,
+  retirementReturnPct: 0,
+  brokerageBalanceCents: 0,
+  brokerageReturnPct: 0,
+};
+
 export interface RelationshipEvent extends EventBase {
   readonly type: "RelationshipEvent";
   readonly person: Person;
+  /**
+   * The partner's three standing accounts. Absent ⇒ {@link ZERO_PARTNER_ACCOUNTS} — a partner
+   * with no accounts field contributes nothing, so every fixture written before this field
+   * existed replays unchanged.
+   */
+  readonly accounts?: PartnerStandingAccounts;
 }
 
 /**

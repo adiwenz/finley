@@ -81,6 +81,11 @@ export function snapshotMonth(state: SimState, params: MonthSnapshotParams): Pro
   const isFirstInsolventMonth = isInsolvent && !priorInsolvency;
   let nominalNetWorth: Cents = 0;
 
+  const netWorthByPerson = new Map<string, Cents>();
+  const addToOwner = (ownerId: string, deltaCents: Cents): void => {
+    netWorthByPerson.set(ownerId, (netWorthByPerson.get(ownerId) ?? 0) + deltaCents);
+  };
+
   const accountBalancesCents: Record<string, Cents> = {};
   const accountBasisCents: Record<string, Cents> = {};
   for (const acc of state.accounts) {
@@ -90,6 +95,7 @@ export function snapshotMonth(state: SimState, params: MonthSnapshotParams): Pro
     // check can read a would-be liquidation's untaxed gain `balance − basis`.
     accountBasisCents[acc.id] = state.basisByAccount.get(acc.id) ?? 0;
     nominalNetWorth += bal;
+    addToOwner(acc.ownerId, bal);
   }
 
   const liabilityBalancesCents: Record<string, Cents> = {};
@@ -97,6 +103,7 @@ export function snapshotMonth(state: SimState, params: MonthSnapshotParams): Pro
     const bal = state.liabilityBalances.get(liab.id) ?? 0;
     liabilityBalancesCents[liab.id] = bal;
     nominalNetWorth -= bal;
+    addToOwner(liab.ownerId, -bal);
   }
 
   const propertyValuesCents: Record<string, Cents> = {};
@@ -104,6 +111,7 @@ export function snapshotMonth(state: SimState, params: MonthSnapshotParams): Pro
     const value = state.propertyValues.get(p.id) ?? 0;
     propertyValuesCents[p.id] = value;
     nominalNetWorth += value;
+    addToOwner(p.ownerId, value);
   }
 
   return {
@@ -112,6 +120,7 @@ export function snapshotMonth(state: SimState, params: MonthSnapshotParams): Pro
     netWorthRealCents: netWorthTerminated
       ? null
       : toRealCents(nominalNetWorth, annualInflationRate, elapsedMonths),
+    netWorthByPersonCents: netWorthTerminated ? null : Object.fromEntries(netWorthByPerson),
     // Present on exactly one month per run. `nominalNetWorth` is the contaminated total — the
     // figure the plan reached only by dropping what it could not pay — so the only form it is
     // published in is one that has charged the shortfall back.

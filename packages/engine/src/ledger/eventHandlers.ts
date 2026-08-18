@@ -36,6 +36,9 @@ import {
 import { PRE_NOW_MONTH, isPreExisting } from "../projection/nowMarker";
 import { explicitObligation } from "../projection/financialObligation";
 import type { FundingFailure } from "../projection/fundingFailure";
+import { buildPartnerAccounts } from "../compile/projectionBase";
+import { ZERO_PARTNER_ACCOUNTS } from "./eventTypes";
+import type { PlanAccount } from "../plan/planAccount";
 
 export interface EventHandler<E extends LifeEvent> {
   check(event: E, state: InterpretState, context: InterpretContext): ValidationResult;
@@ -126,6 +129,47 @@ const relationship: EventHandler<RelationshipEvent> = {
       startMonth: event.month,
       endMonth: null,
     });
+
+    // A negative month is `startPartnered`'s true-past anchor — unreachable by a simulated
+    // transfer, since the sim never processes a month before 0 — so that path opens each
+    // account directly at its authored balance, the same way a pre-existing home or loan
+    // holding opens at its current value with no reconstruction. A month ≥ 0 is a processed
+    // month, so it opens at 0 and the balance lands as a one-time transfer AT that month:
+    // present in every later net-worth snapshot, absent from every earlier one, and never
+    // routed through the waterfall as income, a contribution, or a transfer of cash flow.
+    const ownerId = asPersonId(event.person.id);
+    const standing = event.accounts ?? ZERO_PARTNER_ACCOUNTS;
+    const isPastAnchored = event.month < 0;
+    const accounts = buildPartnerAccounts(
+      ownerId,
+      event.person.name,
+      standing,
+      isPastAnchored
+        ? {
+            savings: standing.savingsBalanceCents,
+            retirement: standing.retirementBalanceCents,
+            brokerage: standing.brokerageBalanceCents,
+          }
+        : undefined,
+    );
+    for (const planAcct of accounts) {
+      state.accountsById.set(asAccountId(planAcct.account.id), planAcct);
+    }
+    if (!isPastAnchored) {
+      const balances: readonly [PlanAccount, Cents][] = [
+        [accounts[0], standing.savingsBalanceCents],
+        [accounts[1], standing.retirementBalanceCents],
+        [accounts[2], standing.brokerageBalanceCents],
+      ];
+      for (const [planAcct, amountCents] of balances) {
+        if (amountCents === 0) continue;
+        pushAccountTransfer(state, {
+          accountId: asAccountId(planAcct.account.id),
+          month: event.month,
+          amountCents,
+        });
+      }
+    }
   },
 };
 
@@ -217,6 +261,23 @@ const separation: EventHandler<SeparationEvent> = {
         baseline: { unit: "monthly", monthlyCents: event.childSupportMonthlyCents },
         growthMode: { type: "fixed" },
       });
+    }
+
+    // The departing partner's INDIVIDUALLY-owned accounts leave with them: drained to zero at
+    // this month by a full proportional transfer, exactly as `applyAssetTransfers` drains any
+    // other one-time outflow — not a sale (no gain, no tax), and not the account ceasing to
+    // exist, just leaving this household's books. A joint account is untouched: dividing it is
+    // the separation model's job, not this one's.
+    for (const [id, planAcct] of state.accountsById) {
+      const owners = planAcct.account.owners;
+      if (owners.length === 1 && owners[0] === event.partnerPersonId) {
+        pushAccountTransfer(state, {
+          accountId: id,
+          month: event.month,
+          amountCents: 0,
+          proportionalFraction: -1,
+        });
+      }
     }
   },
 };
