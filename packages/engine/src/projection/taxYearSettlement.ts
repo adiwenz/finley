@@ -3,14 +3,13 @@
  * of this module.
  *
  * A tax year's liability is annual and becomes exactly knowable the moment December's income has
- * folded into {@link import("./runState").SimState.taxableIncomeByPersonYear}. Nothing is
- * withheld or estimated for it during the year it is earned in (see
- * {@link import("./federalIncomeTax")}'s module doc), so the WHOLE of it — not merely a
- * shortfall against instalments — is settled in April of the FOLLOWING year, the way a real
- * filing is:
+ * folded into {@link import("./runState").SimState.taxableIncomeByPersonYear}. Wages were
+ * withheld against as they were paid ({@link import("./withholding")}); everything else — gains,
+ * pre-tax withdrawals, RMDs, penalties, one-off taxable events — bore no in-year cash at all. So
+ * what is settled in April of the FOLLOWING year is the DIFFERENCE, the way a real filing is:
  *
  * ```
- * 2028 taxable activity → exact 2028 liability → 2028 balance due/refund → April 2029 cash flow
+ * 2028 taxable activity → exact 2028 liability → less 2028 withholding → April 2029 cash flow
  * ```
  *
  * Two consequences follow, and both are why this arrangement replaced a December true-up:
@@ -22,6 +21,9 @@
  *     2029's own estimate and settlement account for it normally. A closed year is never reopened.
  *  2. **No December spike.** The balance leaves the year it belongs to and lands in a month with
  *     eleven ordinary months around it, funded by the ordinary waterfall like any other need.
+ *     What lands there is only ever the UNWITHHELD part: a household living on wages settles at
+ *     or near zero, and April is a real event only for a year that produced income no payer
+ *     withheld against.
  *
  * A settlement is SIGNED: positive is tax due, negative is a refund. Both ride the same channel —
  * the month's federal income-tax charge (see {@link import("./allocationStep").allocateMonth}) —
@@ -36,8 +38,14 @@
 import type { Cents } from "../money/money";
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
 import type { SimState } from "./runState";
-import { addCategory, attributeTaxToSources, type TaxableByCategory } from "./taxAttribution";
+import {
+  addCategory,
+  attributeSignedTaxToSources,
+  subtractCategories,
+  type TaxableByCategory,
+} from "./taxAttribution";
 import { annualFederalTax, MONTHS_IN_TAX_YEAR, type FederalTaxPayment } from "./federalIncomeTax";
+import { totalOfCategories } from "./withholding";
 
 /**
  * The tax year's last month — December, when month 0 is January. The year's actual liability is
@@ -66,13 +74,16 @@ function settlementKey(personId: string, taxYear: number): string {
 }
 
 /**
- * Close the tax year: price each person's ACTUAL annual taxable income and park the WHOLE
- * liability against `ctx.year` for April of the next year to charge (or, if negative — a
- * jurisdiction issuing a credit — refund). A no-op in every month but the year's last.
+ * Close the tax year: price each person's ACTUAL annual taxable income, subtract the federal
+ * income tax already WITHHELD against it during the year, and park the remaining balance against
+ * `ctx.year` for April of the next year to charge (or, if negative — over-withheld — refund). A
+ * no-op in every month but the year's last.
  *
- * Nothing was withheld or estimated for this liability during the year (see {@link
- * import("./federalIncomeTax")}'s module doc), so there is no "instalments already paid" to net
- * against — the settlement IS the annual liability, in full.
+ * This is the arithmetic of a tax return, and the only place the two figures meet: withholding
+ * saw wages alone, month by month, and never anything that had not happened yet ({@link
+ * import("./withholding")}); the liability priced here sees everything the year actually produced
+ * — gains, pre-tax withdrawals, RMDs, the early-withdrawal penalty. The difference is exactly the
+ * tax on what a payer never withheld against, and April settles it.
  *
  * Mutates only {@link import("./runState").SimState.pendingTaxSettlementsByPersonYear} — no sale,
  * no borrow, no refund, no change to the year's taxable base. December is not a cash event.
@@ -113,20 +124,26 @@ export function finalizeTaxYear(
     // bracket-priced liability rather than mixed into `byCategoryCents`, which must reconcile
     // exactly to `annualFederalTax`'s own `totalCents` (asserted inside it).
     const penaltyCents = state.earlyWithdrawalPenaltyByPersonYear.get(key) ?? 0;
-    const totalCents = incomeTaxCents + penaltyCents;
+    // Real cash already handed over during the year, by category — subtracted from the same
+    // category it was withheld against, so a year of pure wages settles at exactly zero and a
+    // year with an unwithheld October withdrawal settles at the tax on that withdrawal alone.
+    const withheldByCategory = state.federalWithheldByPersonYear.get(key) ?? {};
+    const netByCategory = subtractCategories(byCategoryCents, withheldByCategory);
+    const totalCents = incomeTaxCents + penaltyCents - totalOfCategories(withheldByCategory);
     if (totalCents === 0) continue;
 
     // The year's real sources — a job, a benefit, an account draw — weighted by what each
     // actually contributed to the taxable base, so April's charge bands back to where the
-    // liability came from.
+    // liability came from. Signed: a category the year over-withheld on refunds through the same
+    // sources it was collected from.
     const settlementBySource: Record<string, Cents> = {};
-    attributeTaxToSources(
-      byCategoryCents,
+    attributeSignedTaxToSources(
+      netByCategory,
       [...(state.taxableBySourceByPersonYear.get(key)?.values() ?? [])],
       settlementBySource,
     );
 
-    const settlementByCategory: TaxableByCategory = { ...byCategoryCents };
+    const settlementByCategory: TaxableByCategory = { ...netByCategory };
     // The penalty rides its own dedicated bucket — `ordinaryIncome` because that is the only
     // category `earlyWithdrawalPenaltyCents` gates on (US rules), and a source key of its own
     // (`earlyWithdrawalPenalty`) rather than any account's, since it is not that account's income.

@@ -128,14 +128,30 @@ export interface WaterfallInput {
   ) => Partial<Record<TaxCategory, Cents>>;
   /**
    * The PRIOR tax year's settled balance, charged (or refunded) in the April it is due — the
-   * household's only federal-income-tax cash flow all year (see
+   * true-up of what {@link computeWithholdingByCategoryCents} withheld against that year (see
    * {@link import("./federalIncomeTax")}'s module doc). Deducted from take-home like any other
    * withholding; signed, so a refund raises it.
    *
-   * A FIXED figure, deliberately not a function of this month's income: income tax is annual,
-   * and the waterfall sees one month. Absent → no income tax charged.
+   * A FIXED figure, deliberately not a function of this month's income: the balance belongs to a
+   * year that is already closed, and the waterfall sees one month. Absent → none charged.
    */
   readonly priorYearTaxSettlementCents?: (personId: string) => Cents;
+  /**
+   * THIS month's federal income-tax withholding for one person, by category — the incremental
+   * charge due on their year-to-date wages, which the caller prices (it owns the year-to-date
+   * base and the running total already withheld; see {@link
+   * import("./withholding").monthlyWithholdingByCategoryCents}).
+   *
+   * Handed this month's POST-deferral taxable income by category, since a 401(k) deferral is
+   * withheld against no more than it is taxed on. The caller returns only the categories a payer
+   * withholds against (US: `wages`), so a capital gain or a pre-tax withdrawal in the same month
+   * contributes nothing — those bear no in-year cash and reach the household through the
+   * following April instead. Absent → nothing withheld.
+   */
+  readonly computeWithholdingByCategoryCents?: (
+    personId: string,
+    monthTaxableByCategory: Partial<Record<TaxCategory, Cents>>,
+  ) => Partial<Record<TaxCategory, Cents>>;
   /**
    * A person's year-to-date earned gross by category BEFORE this month — the base the
    * cumulative payroll figure builds on. Absent → nothing earned yet this year. Only
@@ -161,10 +177,14 @@ export interface WaterfallInput {
 
 export interface WaterfallResult {
   /**
-   * The federal income tax charged this month, summed across persons: Σ of what {@link
-   * WaterfallInput.priorYearTaxSettlementCents} supplied, never a figure this waterfall priced.
-   * The liability itself is annual — {@link taxableByPersonCents} is what a caller folds into the
-   * year's running accumulator, and December reconciles the two.
+   * The federal income-tax CASH charged this month, summed across persons: this month's wage
+   * withholding ({@link WaterfallInput.computeWithholdingByCategoryCents}) plus, in April, the
+   * prior year's settled balance ({@link WaterfallInput.priorYearTaxSettlementCents}). Both are
+   * figures the CALLER priced; this waterfall prices no tax itself.
+   *
+   * Not the year's liability, and not meant to be: that is annual, priced at the year's close
+   * off {@link taxableByPersonCents} as the caller accumulates it, and the difference between
+   * the two is what April settles.
    */
   readonly taxCents: Cents;
   /**
@@ -191,13 +211,29 @@ export interface WaterfallResult {
    * WaterfallInput.priorEarnedByPersonCents} is current. A person with no income is absent.
    */
   readonly earnedThisMonthByPersonCents: ReadonlyMap<string, TaxableByCategory>;
-  /** Always `{}`: the caller priced the installment, so it owns the split — see {@link taxCents}. */
+  /**
+   * The WITHHOLDING slice of {@link taxCents} broken out per {@link TaxCategory} — exactly what
+   * {@link WaterfallInput.computeWithholdingByCategoryCents} returned, summed across persons.
+   * April's settled balance is NOT in here: the caller priced it against a different year and
+   * owns its split.
+   */
   readonly taxByCategoryCents: Partial<Record<TaxCategory, Cents>>;
-  /** Always `{}` — see {@link taxByCategoryCents}. */
+  /**
+   * The same withholding, apportioned to the income SOURCES that bore it — keyed like {@link
+   * payrollTaxBySourceCents}, weighted within each category by this month's post-deferral taxable
+   * amount. Σ === Σ {@link taxByCategoryCents}. `{}` when nothing was withheld.
+   */
   readonly taxBySourceCents: Readonly<Record<string, Cents>>;
   /**
-   * This month's taxable income by {@link TaxCategory}, per person — POST-deferral. NOT the
-   * base of {@link taxCents}, which is an installment on the whole year's estimate: the caller
+   * What each person had withheld this month, by category — the caller folds it into its
+   * year-to-date accumulator ({@link import("./runState").SimState.federalWithheldByPersonYear}),
+   * which is both what next month's incremental charge is measured against and what the year's
+   * close subtracts from the actual liability. A person withheld nothing for is absent.
+   */
+  readonly withheldThisMonthByPersonCents: ReadonlyMap<string, TaxableByCategory>;
+  /**
+   * This month's taxable income by {@link TaxCategory}, per person — POST-deferral. NOT the base
+   * of {@link taxCents}, which is withholding plus an old year's balance: the caller
    * folds this into its year-to-date accumulator (mirroring {@link
    * earnedThisMonthByPersonCents}), so the December reconciliation reads the complete year's
    * ACTUAL total regardless of which month each dollar landed in.

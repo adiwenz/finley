@@ -19,6 +19,7 @@ import type { TaxCategory } from "../money/cashFlowSeries";
 import {
   addCategory,
   attributeTaxToSources,
+  mergeCategories,
   type SourceTaxable,
   type TaxableByCategory,
 } from "./taxAttribution";
@@ -220,13 +221,20 @@ function applyDeferrals(
 }
 
 /**
- * Step 2 — payroll tax, plus (in April only) the prior tax year's settled balance. That balance
- * is a fixed figure the caller supplies ({@link WaterfallInput.priorYearTaxSettlementCents}); this
- * function never prices tax itself, because the liability is annual and only the caller knows the
- * year (see {@link import("../jurisdiction/jurisdiction").Jurisdiction.computeTaxCents}'s ANNUAL
- * contract). So take-home is gross minus deferral minus payroll tax minus that settlement, while
- * `taxableByPerson` rides back to the caller UNCHARGED — the year's actual liability is priced
- * once, at close, from the complete taxable income the year produced, never from this month's.
+ * Step 2 — the month's two REAL tax charges: payroll tax, and federal income-tax withholding on
+ * wages (plus, in April only, the prior tax year's settled balance).
+ *
+ * This function never prices income tax itself. The liability is annual and only the caller knows
+ * the year (see {@link import("../jurisdiction/jurisdiction").Jurisdiction.computeTaxCents}'s
+ * ANNUAL contract), so both income-tax figures arrive already priced: the withholding increment
+ * from {@link WaterfallInput.computeWithholdingByCategoryCents} — which sees only wages, and only
+ * the year to date — and the settled balance from {@link
+ * WaterfallInput.priorYearTaxSettlementCents}. Take-home is gross minus deferral minus all three.
+ *
+ * `taxableByPerson` still rides back to the caller UNCHARGED: withholding is an estimate on part
+ * of the year's income, not the liability. The year's actual tax is priced once, at close, off
+ * the complete taxable income the year produced, and the difference from what was withheld is
+ * what April settles.
  */
 function computeTakeHome(
   input: WaterfallInput,
@@ -234,17 +242,25 @@ function computeTakeHome(
   taxableByPerson: Map<string, TaxableByCategory>,
   earnedGrossByPerson: Map<string, TaxableByCategory>,
   sourceEarnedByPerson: Map<string, SourceTaxable[]>,
+  sourceTaxableByPerson: Map<string, SourceTaxable[]>,
   deferredByPerson: Map<string, Cents>,
 ): {
   taxCents: Cents;
+  taxByCategoryCents: TaxableByCategory;
+  taxBySourceCents: Record<string, Cents>;
+  withheldThisMonthByPerson: Map<string, TaxableByCategory>;
   payrollTaxCents: Cents;
   payrollTaxBySourceCents: Record<string, Cents>;
   takeHomeByPerson: Map<string, Cents>;
 } {
   const payrollSeam = input.computePayrollTaxCents;
   const payrollBreakdownSeam = input.computePayrollTaxByCategoryCents;
+  const withholdingSeam = input.computeWithholdingByCategoryCents;
   let taxCents: Cents = 0;
   let payrollTaxCents: Cents = 0;
+  const taxByCategoryCents: TaxableByCategory = {};
+  const taxBySourceCents: Record<string, Cents> = {};
+  const withheldThisMonthByPerson = new Map<string, TaxableByCategory>();
   const payrollTaxBySourceCents: Record<string, Cents> = {};
   const takeHomeByPerson = new Map<string, Cents>();
   for (const pid of input.personIds) {
@@ -273,28 +289,40 @@ function computeTakeHome(
         payrollTaxBySourceCents,
       );
     }
+    // This month's income-tax withholding: priced by the caller off the year TO DATE, so it can
+    // only ever reflect income the household has already received. Attributed within each
+    // category by this month's POST-deferral taxable weight — the same base it was withheld on,
+    // and the same average-rate split payroll tax uses just above.
+    const withheld = withholdingSeam?.(pid, taxableByPerson.get(pid) ?? {}) ?? {};
+    let withheldCents: Cents = 0;
+    for (const [category, cents] of Object.entries(withheld)) {
+      if (!cents) continue;
+      withheldCents += cents;
+      addCategory(taxByCategoryCents, category as TaxCategory, cents);
+    }
+    if (withheldCents !== 0) {
+      withheldThisMonthByPerson.set(pid, { ...withheld });
+      attributeTaxToSources(withheld, sourceTaxableByPerson.get(pid) ?? [], taxBySourceCents);
+    }
+
     const priorYearTaxSettlement = input.priorYearTaxSettlementCents?.(pid) ?? 0;
-    taxCents += priorYearTaxSettlement;
-    takeHomeByPerson.set(pid, gross - deferral - payrollTax - priorYearTaxSettlement);
+    taxCents += withheldCents + priorYearTaxSettlement;
+    takeHomeByPerson.set(pid, gross - deferral - payrollTax - withheldCents - priorYearTaxSettlement);
   }
   // Every person's taxable base is present, even an all-zero one, so the caller's fold into
   // the annual accumulator never has to special-case a person with no income this month.
   for (const pid of input.personIds) {
     if (!taxableByPerson.has(pid)) taxableByPerson.set(pid, {});
   }
-  return { taxCents, payrollTaxCents, payrollTaxBySourceCents, takeHomeByPerson };
-}
-
-/** Merge two per-category maps into a new one; used to add this month's earnings onto the year-to-date base. */
-function mergeCategories(
-  a: TaxableByCategory | undefined,
-  b: TaxableByCategory | undefined,
-): TaxableByCategory {
-  const out: TaxableByCategory = { ...(a ?? {}) };
-  for (const [category, cents] of Object.entries(b ?? {})) {
-    if (cents) addCategory(out, category as TaxCategory, cents);
-  }
-  return out;
+  return {
+    taxCents,
+    taxByCategoryCents,
+    taxBySourceCents,
+    withheldThisMonthByPerson,
+    payrollTaxCents,
+    payrollTaxBySourceCents,
+    takeHomeByPerson,
+  };
 }
 
 /**
@@ -518,12 +546,21 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     deferredByPerson,
     combinedDepositsByPlan,
   } = applyDeferrals(input, deposits);
-  const { taxCents, payrollTaxCents, payrollTaxBySourceCents, takeHomeByPerson } = computeTakeHome(
+  const {
+    taxCents,
+    taxByCategoryCents,
+    taxBySourceCents,
+    withheldThisMonthByPerson,
+    payrollTaxCents,
+    payrollTaxBySourceCents,
+    takeHomeByPerson,
+  } = computeTakeHome(
     input,
     grossByPerson,
     taxableByPerson,
     earnedGrossByPerson,
     sourceEarnedByPerson,
+    sourceTaxableByPerson,
     deferredByPerson,
   );
   const { leftoverByPerson, totalDiscretionary, shortfallCents } = splitSharedObligation(
@@ -537,19 +574,24 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     deposits,
   );
 
-  // Payroll tax charged must be fully attributed, or the cash-flow chart overstates
-  // take-home. Fail loudly on an incomplete jurisdiction rather than falling back. Income
-  // tax has no such check here — this function is handed a scalar installment, and the caller
-  // that priced it owns its category/source splits (see {@link computeTakeHome}).
+  // Every tax charged must be fully attributed, or the cash-flow chart overstates take-home.
+  // Fail loudly on an incomplete jurisdiction rather than falling back. The withholding slice is
+  // checked against its own Σ rather than `taxCents`: April's settled balance is also inside
+  // `taxCents`, and the caller that priced it against a closed year owns its splits.
   assertPayrollTaxAttributionReconciles(payrollTaxCents, payrollTaxBySourceCents);
+  assertTaxAttributionReconciles(
+    Object.values(taxByCategoryCents).reduce((sum: Cents, cents) => sum + (cents ?? 0), 0),
+    taxBySourceCents,
+  );
 
   return {
     taxCents,
     payrollTaxCents,
     payrollTaxBySourceCents,
     earnedThisMonthByPersonCents: earnedGrossByPerson,
-    taxByCategoryCents: {},
-    taxBySourceCents: {},
+    taxByCategoryCents,
+    taxBySourceCents,
+    withheldThisMonthByPersonCents: withheldThisMonthByPerson,
     taxableByPersonCents: taxableByPerson,
     taxableBySourcePersonCents: sourceTaxableByPerson,
     deferralBySourceCents: Object.fromEntries(deferralBySource),

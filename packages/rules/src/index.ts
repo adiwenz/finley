@@ -95,11 +95,15 @@ export {
 export const usJurisdiction: Jurisdiction = {
   id: "US-2026",
   // ANNUAL in, ANNUAL out — the engine calls this on a whole year of taxable income, never a
-  // monthly slice: on the year's scheduled income to pace its estimated payments, and on its
-  // actual income to reconcile them in December.
+  // monthly slice: on the year's ACTUAL income at its close, and on year-to-date wages annualized
+  // to size each month's withholding.
   computeTaxCents: (annualByCategory, ctx) => federalAnnualTaxCents(annualByCategory, ctx.year),
   computeTaxByCategoryCents: (annualByCategory, ctx) =>
     federalAnnualTaxByCategoryCents(annualByCategory, ctx.year),
+  // What an employer withholds federal income tax against as it pays it. Wages only: nobody
+  // withholds against a brokerage gain, an IRA draw or an RMD, so the tax on those reaches the
+  // household in the following April's true-up instead of month by month.
+  isWithheldCategory: (category) => category === "wages",
   // Employee FICA on EARNED income only: `wages`, never the `ordinaryIncome` a retirement
   // withdrawal books, so a 401(k)/IRA draw is never payroll-taxed. The engine feeds the
   // year-to-date total and charges the difference, so the wage-base cap binds cumulatively.

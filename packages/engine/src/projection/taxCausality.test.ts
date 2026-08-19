@@ -1,9 +1,15 @@
 /**
  * The causal rule this suite pins: a transaction or event in month M must never change cash
- * flows in months < M. Federal income tax is priced ANNUALLY but charged only once — the whole
- * of it, the following April ({@link import("./federalIncomeTax")}'s module doc) — so nothing
- * about a later month's event can reach backward into an earlier month's balances, withdrawals,
- * or tax payments. Real in-year tax cash (payroll withholding) is untouched by any of this.
+ * flows in months < M. Federal income tax is priced ANNUALLY and the unwithheld part of it is
+ * charged once, the following April ({@link import("./federalIncomeTax")}'s module doc), so
+ * nothing about a later month's event can reach backward into an earlier month's balances,
+ * withdrawals, or tax payments. Real in-year tax cash (payroll tax) is untouched by any of this.
+ *
+ * Every jurisdiction fixture below declines {@link
+ * import("../jurisdiction/jurisdiction").Jurisdiction.isWithheldCategory}, so nothing is withheld
+ * during the year and April carries the whole liability — the clean case, where any in-year tax
+ * charge at all would be a causality violation. {@link import("./taxWithholding.test")} pins the
+ * same rule with wage withholding switched on.
  */
 import { describe, it, expect } from "vitest";
 import {

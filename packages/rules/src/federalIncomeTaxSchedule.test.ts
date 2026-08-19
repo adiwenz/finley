@@ -1,9 +1,9 @@
 /**
  * The payment SCHEDULE against a real progressive schedule, end to end through the public
  * `Projection` surface. The engine's own tax tests run on flat-rate fixtures, where a year's tax
- * is linear in income; only a bracketed jurisdiction can show that the following April's whole
- * charge is pricing through the one annual seam rather than a schedule that happens to agree by
- * arithmetic.
+ * is linear in income; only a bracketed jurisdiction can show that monthly withholding plus the
+ * following April's balance price through the one annual seam rather than through a schedule that
+ * happens to agree by arithmetic.
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -117,16 +117,23 @@ describe("federal income tax — instalments and the following April's balance, 
     }
   });
 
-  it("charges nothing during the year the income is earned in, settling it whole the following April", () => {
+  it("withholds smoothly on wages every month, settling only the unwithheld remainder in April", () => {
     const result = run();
     const taxes = result.series.months.slice(0, 16).map((m) => m.flows?.taxCents ?? 0);
-    // Nothing is withheld or estimated for federal income tax while the year is live — no month
-    // before the settling April charges a cent, which is what removes any dependence on how
-    // wages or interest accrue through the year.
-    for (const tax of taxes.slice(0, 15)) expect(tax).toBe(0);
-    // April 2027 (month 15) charges the whole of 2026's liability at once — wages plus a full
-    // year of interest — which the annual liability formula in the sibling test above already
-    // pins to the cent.
-    expect(taxes[15]).toBeGreaterThan(0);
+
+    // A level salary withholds a level amount: the annualized run rate is the same $96k every
+    // month, so each month charges a twelfth of the tax on it. Cent-level rounding aside, no
+    // month is distinguishable from its neighbours — the balance never builds up on money that
+    // was never the household's.
+    const inYear = taxes.slice(0, 12);
+    for (const tax of inYear) expect(tax).toBeGreaterThan(0);
+    expect(Math.max(...inYear) - Math.min(...inYear)).toBeLessThanOrEqual(1);
+
+    // April 2027 (month 15) carries its own twelfth PLUS 2026's balance. That balance is the tax
+    // on the year's interest alone — nobody withholds against a savings account — so it is real
+    // but small next to the withholding beside it, not a year's liability landing at once.
+    const balance = taxes[15]! - taxes[14]!;
+    expect(balance).toBeGreaterThan(0);
+    expect(balance).toBeLessThan(taxes[14]!);
   });
 });

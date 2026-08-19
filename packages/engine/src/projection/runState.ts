@@ -105,6 +105,19 @@ export interface SimState {
    */
   readonly taxableIncomeByPersonYear: Map<string, TaxableByCategory>;
   /**
+   * Federal income tax ACTUALLY WITHHELD so far this year, by category, per person per calendar
+   * year, keyed `${personId}|${year}` — real cash the household has already parted with, charged
+   * month by month against wages ({@link import("./withholding")}). Two readers, and both need
+   * it: next month's withholding charges the DIFFERENCE against this running total, and the
+   * year's close subtracts it from the actual annual liability to arrive at the April balance
+   * ({@link import("./taxYearSettlement").finalizeTaxYear}).
+   *
+   * Monotone non-decreasing in every category — withholding never refunds mid-year — so an
+   * earlier month's charge can never be revised by a later one. Resets naturally each January as
+   * the key's year rolls over, mirroring {@link earnedByPersonYear}.
+   */
+  readonly federalWithheldByPersonYear: Map<string, TaxableByCategory>;
+  /**
    * A FLAT dollar tax liability, per person per calendar year, keyed `${personId}|${year}` —
    * separate from {@link taxableIncomeByPersonYear} because it is not proportional taxable
    * income run through the jurisdiction's brackets, it is already a priced tax amount (US: the
@@ -222,6 +235,7 @@ export function cloneSimState(state: SimState): SimState {
     earnedByPersonYear: copyMap(state.earnedByPersonYear),
     combinedDepositsByPlanYear: copyMap(state.combinedDepositsByPlanYear),
     taxableIncomeByPersonYear: copyMap(state.taxableIncomeByPersonYear),
+    federalWithheldByPersonYear: copyMap(state.federalWithheldByPersonYear),
     earlyWithdrawalPenaltyByPersonYear: copyMap(state.earlyWithdrawalPenaltyByPersonYear),
     taxableBySourceByPersonYear: copyMap(state.taxableBySourceByPersonYear),
     pendingTaxSettlementsByPersonYear: copyMap(state.pendingTaxSettlementsByPersonYear),
@@ -328,6 +342,7 @@ export function initSimState(input: HouseholdSimInput): SimState {
     earnedByPersonYear: new Map<string, TaxableByCategory>(),
     combinedDepositsByPlanYear: new Map<string, Cents>(),
     taxableIncomeByPersonYear: new Map<string, TaxableByCategory>(),
+    federalWithheldByPersonYear: new Map<string, TaxableByCategory>(),
     earlyWithdrawalPenaltyByPersonYear: new Map<string, Cents>(),
     taxableBySourceByPersonYear: new Map<string, Map<string, SourceTaxable>>(),
     pendingTaxSettlementsByPersonYear: new Map<string, FederalTaxPayment>(),

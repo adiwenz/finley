@@ -87,14 +87,21 @@ export interface Jurisdiction {
    * jurisdiction owns what share of each is taxed, and at what rate.
    *
    * ANNUAL in, ANNUAL out: `taxableByCategory` is a FULL CALENDAR YEAR of taxable income by
-   * category — never a monthly slice. The engine calls it once, at year-end, on the year's
-   * ACTUAL accumulated total (see {@link import("../projection/runState").SimState.taxableIncomeByPersonYear}),
-   * and charges the WHOLE result the following April ({@link
-   * import("../projection/taxYearSettlement")}) — nothing is withheld or estimated for it
-   * during the year it is earned in. The engine owns collecting the total and all payment
-   * timing; this seam only prices a year. Calling it on anything less than a full year (a
-   * monthly slice, an annualized ×12 estimate) misprices lumpy income — the engine never does
-   * this.
+   * category — never a monthly slice. The engine calls it in exactly two places, and never on a
+   * partial year:
+   *
+   *  1. **The year's close**, on the year's ACTUAL accumulated total (see {@link
+   *     import("../projection/runState").SimState.taxableIncomeByPersonYear}) — the authoritative
+   *     liability, trued up the following April ({@link
+   *     import("../projection/taxYearSettlement")}).
+   *  2. **Monthly wage withholding**, on the year-to-date wages of the {@link
+   *     isWithheldCategory} categories ANNUALIZED to a full year (see {@link
+   *     import("../projection/withholding")}) — the paycheck approximation every payer makes,
+   *     and still a full year of income as far as this seam is concerned. Only income the
+   *     household has ALREADY earned feeds it, so the answer never depends on a later month.
+   *
+   * The engine owns collecting the totals and all payment timing; this seam only prices a year.
+   * Calling it on a raw monthly slice would misprice lumpy income — the engine never does this.
    */
   computeTaxCents(
     taxableByCategory: Partial<Record<TaxCategory, Cents>>,
@@ -210,6 +217,25 @@ export interface Jurisdiction {
     annualEarnedByCategory: Partial<Record<TaxCategory, Cents>>,
     ctx: JurisdictionContext,
   ): Partial<Record<TaxCategory, Cents>>;
+
+  /**
+   * Which income categories a payer WITHHOLDS federal income tax on as it pays them (US: `wages`
+   * — an employer withholds against a paycheck; nobody withholds against a brokerage gain, an
+   * IRA draw or an RMD unless asked to).
+   *
+   * The engine withholds monthly on exactly these categories and no others, pricing the charge
+   * through {@link computeTaxCents} on the year-to-date total of them, annualized (see {@link
+   * import("../projection/withholding").monthlyWithholdingByCategoryCents}). Everything else —
+   * gains, pre-tax withdrawals, RMDs, early-withdrawal penalties, one-off taxable events — bears
+   * no in-year cash at all and reaches the household only through the following April's true-up.
+   *
+   * This is deliberately NOT the same question as {@link computePayrollTaxCents}'s earned-income
+   * set, even though US answers both with `wages`: one asks what FICA is levied on, the other
+   * what an income-tax payer withholds against.
+   *
+   * Absent → nothing is withheld during the year, and the whole annual liability settles in April.
+   */
+  isWithheldCategory?(taxCategory: TaxCategory): boolean;
 
   /**
    * Which income categories count toward the covered-earnings {@link EarningsRecord}

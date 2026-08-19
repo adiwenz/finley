@@ -3,7 +3,12 @@ import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdic
 import type { TaxCategory } from "../money/cashFlowSeries";
 import { orderBudgetLines, resolveBudgetLineMonthlyCents } from "../budget/budgetLine";
 import { runWaterfall, type IncomeSourceMonth, type WaterfallInput } from "./waterfall";
-import { addCategory, type TaxableByCategory } from "./taxAttribution";
+import {
+  addCategory,
+  mergeCategories as mergeCategoryMaps,
+  type TaxableByCategory,
+} from "./taxAttribution";
+import { monthlyWithholdingByCategoryCents, withheldCategoriesOnly } from "./withholding";
 import { assertTaxAttributionReconciles } from "./waterfallInvariants";
 import type { FederalTaxPayment } from "./federalIncomeTax";
 import type { SimState } from "./runState";
@@ -53,11 +58,10 @@ export function remainingDeferralRoomCents(
 }
 
 /**
- * The PRIOR tax year's balance, per person, in the April it settles — signed, positive due. It is
- * the household's ONLY federal-income-tax cash all year: nothing is withheld or estimated during
- * the year the income is earned in (see `federalIncomeTax.ts`'s module doc), so this settlement,
- * charged alongside payroll tax through the ordinary waterfall, is the whole of it. Empty in every
- * month but April.
+ * The PRIOR tax year's balance, per person, in the April it settles — signed, positive due: the
+ * true-up of that year's actual liability against what it withheld (see `federalIncomeTax.ts`'s
+ * module doc). Charged alongside payroll tax and this month's own wage withholding through the
+ * ordinary waterfall. Empty in every month but April.
  */
 type PriorYearSettlements = ReadonlyMap<string, FederalTaxPayment>;
 
@@ -121,10 +125,30 @@ function planMonthAllocation(
     goalFundMonthlyRate: (id) => accountsById.get(id)?.getMonthlyRateAt(month) ?? 0,
     accountBalanceCents: (id) => state.assetBalances.get(id) ?? 0,
     liquidAccountId: state.liquidAccount?.id ?? null,
-    // The month's federal income-tax CASH: 0 every month but April, which charges (or refunds)
-    // the balance left over from the year just closed — see `federalIncomeTax.ts`'s module doc.
-    // Signed, so an April refund raises take-home rather than lowering it.
+    // The balance left over from the year just closed: 0 every month but April, which charges
+    // (or refunds) it — see `federalIncomeTax.ts`'s module doc. Signed, so an April refund raises
+    // take-home rather than lowering it.
     priorYearTaxSettlementCents: (pid) => priorYearSettlements.get(pid)?.totalCents ?? 0,
+    // This month's withholding on wages — the household's in-year income-tax cash. Priced off
+    // the year TO DATE (the running accumulator below, plus this month's own taxable income) and
+    // the running total already withheld, so it can only ever reflect income already received:
+    // an event next October moves this month's charge by nothing, because nothing here can see
+    // it. Both accumulators are folded AFTER the waterfall runs (see {@link allocateMonth}), so
+    // the base read here is genuinely "before this month".
+    computeWithholdingByCategoryCents: (pid, monthTaxableByCategory) =>
+      monthlyWithholdingByCategoryCents(
+        jurisdiction,
+        ctx,
+        mergeCategoryMaps(
+          withheldCategoriesOnly(
+            jurisdiction,
+            state.taxableIncomeByPersonYear.get(`${pid}|${ctx.year}`) ?? {},
+          ),
+          withheldCategoriesOnly(jurisdiction, monthTaxableByCategory),
+        ),
+        state.federalWithheldByPersonYear.get(`${pid}|${ctx.year}`) ?? {},
+        month,
+      ),
     // Absent seam → no payroll tax; the waterfall then leaves take-home untouched.
     computePayrollTaxCents: jurisdiction.computePayrollTaxCents
       ? (earnedByCategory) => jurisdiction.computePayrollTaxCents!(earnedByCategory, ctx)
@@ -286,10 +310,10 @@ export function allocateMonth(
   }
 
   // Fold this month's taxable income into the year-to-date accumulator — the ONLY thing that
-  // determines the year's federal income-tax liability. What the month CHARGED in cash (nothing,
-  // except in April) is unrelated to this figure; December reads the complete total once, so the
-  // month a dollar landed in never changes the annual liability, and a later month's event can
-  // never rewrite an earlier month's charge.
+  // determines the year's federal income-tax liability. What the month WITHHELD in cash is an
+  // estimate on part of it, and is tracked separately; December reads this complete total once,
+  // so the month a dollar landed in never changes the annual liability, and a later month's event
+  // can never rewrite an earlier month's charge.
   for (const [pid, taxable] of result.taxableByPersonCents) {
     const key = `${pid}|${ctx.year}`;
     let running = state.taxableIncomeByPersonYear.get(key);
@@ -319,13 +343,28 @@ export function allocateMonth(
     }
   }
 
-  // This month's federal-income-tax CASH breakdown — empty every month but April, which charges
-  // (or refunds) the prior year's settled balance. A settled balance bands under the sources that
-  // produced the income it taxes, which are last year's; a source no longer paying this month is
-  // stranded and spread across the month's real ones downstream ({@link
-  // import("./reportFlows").buildFlows}).
-  const taxByCategoryCents: TaxableByCategory = {};
-  const taxBySourceCents: Record<string, Cents> = {};
+  // Fold this month's withholding into the year-to-date total already withheld — what next
+  // month's incremental charge is measured against, and what the year's close subtracts from the
+  // actual liability to size April's balance. Monotone, so no later month can revise it.
+  for (const [pid, withheld] of result.withheldThisMonthByPersonCents) {
+    const key = `${pid}|${ctx.year}`;
+    let running = state.federalWithheldByPersonYear.get(key);
+    if (running === undefined) {
+      running = {};
+      state.federalWithheldByPersonYear.set(key, running);
+    }
+    for (const [category, cents] of Object.entries(withheld)) {
+      if (cents) addCategory(running, category as TaxCategory, cents);
+    }
+  }
+
+  // This month's federal-income-tax CASH breakdown: the wage withholding the waterfall just
+  // charged (already split by category and source there), plus — in April only — the prior year's
+  // settled balance. A settled balance bands under the sources that produced the income it taxes,
+  // which are last year's; a source no longer paying this month is stranded and spread across the
+  // month's real ones downstream ({@link import("./reportFlows").buildFlows}).
+  const taxByCategoryCents: TaxableByCategory = { ...result.taxByCategoryCents };
+  const taxBySourceCents: Record<string, Cents> = { ...result.taxBySourceCents };
   for (const [, payment] of priorYearSettlements) {
     if (payment.totalCents === 0) continue;
     for (const [category, cents] of Object.entries(payment.byCategoryCents)) {

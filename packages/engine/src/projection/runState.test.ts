@@ -65,6 +65,7 @@ function populatedState(): SimState {
   state.earnedByPersonYear.set("p1|2026", { wages: dollarsToCents(60_000) });
   state.combinedDepositsByPlanYear.set("p1:401k|2026", dollarsToCents(2_000));
   state.taxableIncomeByPersonYear.set("p1|2026", { wages: dollarsToCents(58_000) });
+  state.federalWithheldByPersonYear.set("p1|2026", { wages: dollarsToCents(6_000) });
   state.earlyWithdrawalPenaltyByPersonYear.set("p1|2026", dollarsToCents(100));
   state.taxableBySourceByPersonYear.set(
     "p1|2026",

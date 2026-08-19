@@ -1,8 +1,8 @@
 /**
  * **What the money has to answer for once the last member dies.**
  *
- * During life, federal income tax accrues through the year and is charged in full the following
- * April ({@link import("./taxYearSettlement")}). Death ends that cycle mid-stream: a household
+ * During life, federal income tax is withheld on wages as they are paid and trued up the
+ * following April ({@link import("./taxYearSettlement")}). Death ends that cycle mid-stream: a household
  * that dies in October never reaches the April that would have settled the year, and the
  * projection has no month left in which to charge it. This module answers what replaces it, by
  * arithmetic on the terminal state alone. Nothing is sold, no balance moves, no month is
@@ -51,6 +51,7 @@ import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdic
 import type { SimState } from "./runState";
 import { annualFederalTax } from "./federalIncomeTax";
 import { unsettledBalancesFromEarlierYearsCents } from "./taxYearSettlement";
+import { totalOfCategories } from "./withholding";
 
 /**
  * The terminal state, settled — every figure a stock, none of them a cash flow. Signed only where
@@ -148,11 +149,12 @@ export interface EstateSettlement {
  * Every federal income-tax dollar accrued and unpaid at death, signed positive when owed.
  *
  * Two sources, and both are needed. The final year's own balance is priced off its complete
- * taxable income through the death month, by the SAME annual call the year's close uses (nothing
- * was withheld against it during life — see {@link import("./federalIncomeTax")}'s module doc, so
- * the whole of it is owed). Ahead of it sits any balance a completed year parked for an April the
- * run never reached — a death in February leaves the whole prior year unsettled, and that debt is
- * as real as the final year's.
+ * taxable income through the death month, by the SAME annual call the year's close uses, less the
+ * tax already withheld against it while the household was alive — the same subtraction {@link
+ * import("./taxYearSettlement").finalizeTaxYear} makes, and it can go either way: a wage earner
+ * who died in November is owed a refund. Ahead of it sits any balance a completed year parked for
+ * an April the run never reached — a death in February leaves the whole prior year unsettled, and
+ * that debt is as real as the final year's.
  *
  * The final year's parked balance, if December closed it, is deliberately skipped: it IS the first
  * term, and counting both would charge the estate twice.
@@ -167,6 +169,7 @@ function finalTaxBalanceCents(
     const key = `${pid}|${ctx.year}`;
     const base = state.taxableIncomeByPersonYear.get(key) ?? {};
     balance += annualFederalTax(jurisdiction, ctx, pid, base).totalCents;
+    balance -= totalOfCategories(state.federalWithheldByPersonYear.get(key) ?? {});
   }
   return balance;
 }
