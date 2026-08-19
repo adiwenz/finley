@@ -13,7 +13,7 @@ import { interpretLedger } from "./interpret";
 import { buildProjection } from "../projection/buildHouseholdInput";
 import type { LedgerBaseConfig } from "./ledgerBase";
 import type { NewLifeEvent } from "./eventTypes";
-import { CAPITAL_GAINS_TAX_PROFILE } from "../plan/simAccount";
+import { CAPITAL_GAINS_TAX_PROFILE, PRE_TAX_TAX_PROFILE } from "../plan/simAccount";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction/jurisdiction";
 import { personLit } from "./events.testSupport";
 import { planAccount, type PlanAccount } from "../plan/planAccount";
@@ -233,6 +233,75 @@ describe("OneTimeSpendEvent — a credit card among the funding sources", () => 
   });
 });
 
+describe("OneTimeSpendEvent — an early-withdrawal penalty on a pre-tax source", () => {
+  function retirement(openingCents: number): PlanAccount {
+    return planAccount({
+      id: "retirement",
+      owners: ["p1" as PersonId],
+      liquid: false,
+      beneficiaryDesignated: true,
+      taxProfile: PRE_TAX_TAX_PROFILE,
+      balanceCents: openingCents,
+      initialAnnualRate: 0,
+    });
+  }
+
+  function brokerage(openingCents: number): PlanAccount {
+    return planAccount({
+      id: "brokerage",
+      owners: ["p1" as PersonId],
+      liquid: false,
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
+      balanceCents: openingCents,
+      initialAnnualRate: 0,
+    });
+  }
+
+  /** Flat 10% on the taxable portion of an ordinary-income (pre-tax) draw before 59½. */
+  const penaltyJurisdiction: Jurisdiction = {
+    id: "penalty-10",
+    computeTaxCents: () => 0,
+    computeTaxByCategoryCents: () => ({}),
+    earlyWithdrawalPenaltyCents: (basis, ctx) =>
+      basis.category === "ordinaryIncome" && ctx.age < 59.5 ? Math.round(basis.grossCents * 0.1) : 0,
+  };
+
+  it("delivers the full $1,000 toward the spend WITHOUT touching the next named source — the penalty never reduces spendable cash", () => {
+    // personLit's birth year (1990) is age 36 in the base's 2026 start year — well under 59½.
+    const base: LedgerBaseConfig = {
+      horizonMonths: 12,
+      annualInflationRate: 0,
+      startYear: 2026,
+      initialPersons: [personLit("p1", "Alice")],
+      initialAccounts: [retirement(10_000_00), brokerage(10_000_00)],
+    };
+    const ledger = addWithBase(
+      emptyLedger,
+      base,
+      spend({ month: 1, amountCents: 1_000_00, fundingSourceIds: ["retirement", "brokerage"] }),
+    );
+    const household = interpretLedger(ledger, base);
+
+    // No penalty: the $1,000 spend is fully covered by the pre-tax account alone.
+    const withoutPenalty = buildProjection(household, base, nullJurisdiction);
+    expect(withoutPenalty.months[1].accountBalancesCents.retirement).toBe(10_000_00 - 1_000_00);
+    expect(withoutPenalty.months[1].accountBalancesCents.brokerage).toBe(10_000_00);
+
+    // With the penalty: the pre-tax account still sells exactly $1,000 gross, fully funding the
+    // spend on its own — the $100 penalty is priced and reported, but never subtracted from what
+    // the sale delivers, so the brokerage (the next named source) is never touched, and the
+    // month's net worth is unaffected by the penalty. It settles later, through the ordinary
+    // annual tax true-up, not as an immediate cash haircut on the withdrawal that caused it.
+    const withPenalty = buildProjection(household, base, penaltyJurisdiction);
+    expect(withPenalty.status).toBe("ran-to-horizon");
+    expect(withPenalty.months[1].accountBalancesCents.retirement).toBe(10_000_00 - 1_000_00);
+    expect(withPenalty.months[1].accountBalancesCents.brokerage).toBe(10_000_00);
+    expect(withPenalty.months[1].netWorthNominalCents).toBe(
+      withoutPenalty.months[1].netWorthNominalCents,
+    );
+  });
+});
+
 describe("OneTimeSpendEvent — sibling explicit events in the same month", () => {
   it("the second is priced against what the first left, in event-sequence order", () => {
     const base = baseWith(5_000_000); // $50k
@@ -420,29 +489,21 @@ describe("OneTimeSpendEvent — investment-funded spend is NOT grossed up for fe
     expect(gainBand?.category).toBe("capitalGains");
     expect(gainBand!.cashInflowCents).toBeGreaterThan(0);
     const drawdownBand = at.flows!.incomeSources.find((s) => s.category === "savingsDrawdown");
-    // Gain + returned principal conserves to exactly the amount spent — no gross-up inflated it.
-    // The month's own tax instalment is drawn from the same liquid brokerage and bands as savings
-    // drawdown alongside the spend's principal, so it is the one other term in the identity.
-    expect((gainBand?.cashInflowCents ?? 0) + (drawdownBand?.cashInflowCents ?? 0)).toBe(
-      SPEND + at.flows!.taxCents,
-    );
+    // Gain + returned principal conserves to exactly the amount spent — no gross-up inflated it,
+    // and nothing else is drawn this month either: no tax is withheld or estimated during the
+    // year it is earned in (see `federalIncomeTax.ts`'s module doc).
+    expect(at.flows!.taxCents).toBe(0);
+    expect((gainBand?.cashInflowCents ?? 0) + (drawdownBand?.cashInflowCents ?? 0)).toBe(SPEND);
 
-    // ...and paced across the whole year rather than landing in the month it was realized. The
-    // year's estimate comes from simulating the year, and a simulated June performs this very
-    // draw, so January already knows what it will cost. The spend month is no heavier than any
-    // other, which is what stops a funding draw from spiking the tax chart.
-    const instalments = series.months.slice(0, 12).map((m) => m.flows!.taxCents);
-    for (const tax of instalments) expect(Math.abs(tax - instalments[0]!)).toBeLessThanOrEqual(1);
-    expect(instalments[6]).toBe(at.flows!.taxCents);
+    // Nothing is charged for the rest of the year either — no instalment, no December spike.
+    for (const month of series.months.slice(0, 15)) expect(month.flows!.taxCents).toBe(0);
 
+    // The whole of it lands the following April (month 15), in one lump — exactly the naive 30%
+    // of the gain, no more: nothing was sold in-year to fund the tax itself, so there is no
+    // recursive top-up from that sale's own gain to give back.
     const april = series.months[15].flows!;
     const naive = Math.round(gainBand!.cashInflowCents * 0.3);
-    // Exactly the naive 30% of the gain — NO gross-up. The year slightly over-collects, because
-    // the brokerage the instalments themselves are drawn from realizes gain of its own as they are
-    // paid; April 2027 gives that back. Settling in the same December used to mean selling more of
-    // the appreciated brokerage to pay the bill, whose own gain enlarged the bill, recursively.
-    expect(instalments.reduce((s, t) => s + t, 0) + april.taxCents).toBe(naive);
-    expect(april.taxCents).toBeLessThan(0);
+    expect(april.taxCents).toBe(naive);
   });
 });
 

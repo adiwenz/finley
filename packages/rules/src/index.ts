@@ -20,6 +20,10 @@ import {
 import { taxableWithdrawalCents, returnTaxTreatment } from "./investmentTax";
 import { RMD_ASSUMPTIONS } from "./rmd";
 import { payrollTaxCents, PAYROLL_TAX_ASSUMPTIONS } from "./payrollTax";
+import {
+  earlyWithdrawalPenaltyCents,
+  EARLY_WITHDRAWAL_PENALTY_ASSUMPTIONS,
+} from "./earlyWithdrawalPenalty";
 
 export {
   governmentBenefitBaseMonthlyCents,
@@ -56,6 +60,10 @@ export {
 } from "./federalTax";
 export { taxableWithdrawalCents, returnTaxTreatment } from "./investmentTax";
 export {
+  earlyWithdrawalPenaltyCents,
+  EARLY_WITHDRAWAL_PENALTY_ASSUMPTIONS,
+} from "./earlyWithdrawalPenalty";
+export {
   payrollTaxTables,
   payrollTaxParts,
   payrollTaxCents,
@@ -87,11 +95,15 @@ export {
 export const usJurisdiction: Jurisdiction = {
   id: "US-2026",
   // ANNUAL in, ANNUAL out — the engine calls this on a whole year of taxable income, never a
-  // monthly slice: on the year's scheduled income to pace its estimated payments, and on its
-  // actual income to reconcile them in December.
+  // monthly slice: on the year's ACTUAL income at its close, and on year-to-date wages annualized
+  // to size each month's withholding.
   computeTaxCents: (annualByCategory, ctx) => federalAnnualTaxCents(annualByCategory, ctx.year),
   computeTaxByCategoryCents: (annualByCategory, ctx) =>
     federalAnnualTaxByCategoryCents(annualByCategory, ctx.year),
+  // What an employer withholds federal income tax against as it pays it. Wages only: nobody
+  // withholds against a brokerage gain, an IRA draw or an RMD, so the tax on those reaches the
+  // household in the following April's true-up instead of month by month.
+  isWithheldCategory: (category) => category === "wages",
   // Employee FICA on EARNED income only: `wages`, never the `ordinaryIncome` a retirement
   // withdrawal books, so a 401(k)/IRA draw is never payroll-taxed. The engine feeds the
   // year-to-date total and charges the difference, so the wage-base cap binds cumulatively.
@@ -107,6 +119,7 @@ export const usJurisdiction: Jurisdiction = {
     return charge > 0 ? { wages: charge } : {};
   },
   taxableWithdrawalCents: (basis) => taxableWithdrawalCents(basis),
+  earlyWithdrawalPenaltyCents: (basis, ctx) => earlyWithdrawalPenaltyCents(basis, ctx),
   returnTaxTreatment: (returnKind) => returnTaxTreatment(returnKind),
   publicHealthCoverageAge: MEDICARE_ELIGIBILITY_AGE,
   isCoveredEarnings,
@@ -122,5 +135,6 @@ export const usJurisdiction: Jurisdiction = {
     ...CONTRIBUTION_LIMIT_ASSUMPTIONS,
     ...RMD_ASSUMPTIONS,
     ...PAYROLL_TAX_ASSUMPTIONS,
+    ...EARLY_WITHDRAWAL_PENALTY_ASSUMPTIONS,
   ],
 };

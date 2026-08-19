@@ -65,20 +65,12 @@ function populatedState(): SimState {
   state.earnedByPersonYear.set("p1|2026", { wages: dollarsToCents(60_000) });
   state.combinedDepositsByPlanYear.set("p1:401k|2026", dollarsToCents(2_000));
   state.taxableIncomeByPersonYear.set("p1|2026", { wages: dollarsToCents(58_000) });
+  state.federalWithheldByPersonYear.set("p1|2026", { wages: dollarsToCents(6_000) });
+  state.earlyWithdrawalPenaltyByPersonYear.set("p1|2026", dollarsToCents(100));
   state.taxableBySourceByPersonYear.set(
     "p1|2026",
     new Map([["job:p1", { key: "job:p1", category: "wages" as const, taxableCents: dollarsToCents(58_000) }]]),
   );
-  state.estimatedFederalTaxByPersonYear.set("p1|2026", {
-    totalCents: dollarsToCents(9_000),
-    byCategoryCents: { wages: dollarsToCents(9_000) },
-    sourceWeights: [{ key: "job:p1", category: "wages", taxableCents: dollarsToCents(58_000) }],
-  });
-  state.federalTaxPaidByPersonYear.set("p1|2026", {
-    totalCents: dollarsToCents(750),
-    byCategoryCents: { wages: dollarsToCents(750) },
-    bySourceCents: { "job:p1": dollarsToCents(750) },
-  });
   state.pendingTaxSettlementsByPersonYear.set("p1|2025", {
     totalCents: dollarsToCents(300),
     byCategoryCents: { wages: dollarsToCents(300) },

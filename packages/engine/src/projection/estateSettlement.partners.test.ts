@@ -161,20 +161,25 @@ describe("Estate settlement — a household of two", () => {
 
   it("stops the dead partner's wages at their death, so the estate inherits nothing they never earned", () => {
     // The income series runs the whole horizon; the active window is what ends it. Sam is paid for
-    // six months of a twelve-month run, so the household banks six — not twelve — of them.
-    const paidTo = (deathMonth: number | undefined): Cents => {
+    // six months of a twelve-month run, so the household banks six — not twelve — of them. Nothing
+    // is withheld during the year it is earned in, so the cash balance is the gross wage total and
+    // the tax on it is a separate, unpaid estate obligation.
+    const paidTo = (deathMonth: number | undefined): { assets: Cents; taxDue: Cents } => {
       const series = couple(
         12,
         [person("p1"), person("p2", deathMonth)],
         [account("cash", "p1", 0, true)],
         { incomeSeries: [wages("p2", 1_000)] },
       );
-      return settlementOf(series).totalAssetsCents;
+      const settlement = settlementOf(series);
+      return { assets: settlement.totalAssetsCents, taxDue: settlement.finalTaxDueCents };
     };
     const wholeYear = paidTo(undefined);
     const halfYear = paidTo(6);
-    expect(wholeYear).toBe(dollarsToCents(12_000) - Math.round(dollarsToCents(12_000) * RATE));
-    expect(halfYear).toBe(dollarsToCents(6_000) - Math.round(dollarsToCents(6_000) * RATE));
+    expect(wholeYear.assets).toBe(dollarsToCents(12_000));
+    expect(wholeYear.taxDue).toBe(Math.round(dollarsToCents(12_000) * RATE));
+    expect(halfYear.assets).toBe(dollarsToCents(6_000));
+    expect(halfYear.taxDue).toBe(Math.round(dollarsToCents(6_000) * RATE));
   });
 
   it("prices the final year's tax over BOTH members, including one who died inside it", () => {
@@ -192,19 +197,23 @@ describe("Estate settlement — a household of two", () => {
       { incomeSeries: [wages("p1", 1_000), wages("p2", 1_000)] },
     );
     const settlement = settlementOf(series);
-    // Year 1 is months 12–22: Alex is paid all eleven, Sam months 12–18, seven of them.
+    // Year 1 is months 12–22: Alex is paid all eleven, Sam months 12–18, seven of them. It never
+    // reaches its own December close (month 23, past the horizon), so nothing of it was ever
+    // charged — the estate owes the WHOLE liability, both members' shares included.
     const finalYearLiabilityCents = Math.round(
       (dollarsToCents(11_000) + dollarsToCents(7_000)) * RATE,
     );
-    const instalmentsPaidCents = series.months
-      .slice(12)
-      .reduce((total, m) => total + m.flows!.taxCents, 0);
-    // The year's whole liability, over both of them, is instalments plus the estate's balance —
-    // nothing of Sam's seven months goes uncharged just because Sam died in July.
-    expect(instalmentsPaidCents + settlement.finalTaxDueCents).toBe(finalYearLiabilityCents);
-    // And what is left over is exactly the twelfth instalment the run had no December to pay: the
-    // estimate saw both members' years, Sam's death included, and priced eleven of the twelve.
-    expect(settlement.finalTaxDueCents).toBe(Math.round(finalYearLiabilityCents / 12));
+    // Year 1 itself charges nothing in-run (months 12–22, excluding month 15's charge below).
+    const yearOneMonths = series.months.slice(12).filter((_, i) => i + 12 !== 15);
+    expect(yearOneMonths.every((m) => m.flows!.taxCents === 0)).toBe(true);
+    // Month 15 (April) instead settles YEAR 0's own whole liability — both members, all twelve
+    // months — unrelated to year 1's.
+    expect(series.months[15]!.flows!.taxCents).toBe(
+      Math.round(dollarsToCents(12_000 + 12_000) * RATE),
+    );
+    // Nothing of Sam's seven months goes uncharged just because Sam died in July: the estate owes
+    // the year's whole liability, over both of them.
+    expect(settlement.finalTaxDueCents).toBe(finalYearLiabilityCents);
     // The estate is worse off by exactly that unpaid balance.
     expect(settlement.terminalEconomicNetWorthCents).toBe(
       settlement.totalAssetsCents - settlement.finalTaxDueCents,
@@ -214,9 +223,8 @@ describe("Estate settlement — a household of two", () => {
   it("closes the dead partner's last tax year inside the household's life, not at the estate", () => {
     // Sam dies in October of year 0, having earned $40,000 that year. The first death is not an
     // ending, so that year closes in its OWN December and settles in its own April, out of the
-    // surviving household — it is not carried a decade forward to the estate. Here it is settled
-    // by the instalments alone: the year's estimate is a simulation of the year, so it already
-    // knew Sam's wages stopped in September and paced the whole liability across the twelve.
+    // surviving household — it is not carried a decade forward to the estate. Nothing is withheld
+    // during the year it is earned in, so year 0 charges nothing until April settles it whole.
     const series = couple(
       36,
       [person("p1"), person("p2", 10)],
@@ -226,9 +234,11 @@ describe("Estate settlement — a household of two", () => {
     const yearZeroTaxCents = series.months
       .slice(0, 12)
       .reduce((total, m) => total + m.flows!.taxCents, 0);
-    expect(yearZeroTaxCents).toBe(Math.round(dollarsToCents(40_000) * RATE));
-    // Which leaves the following April nothing to charge…
-    expect(series.months[15]!.flows!.taxCents).toBe(0);
+    expect(yearZeroTaxCents).toBe(0);
+    // April of year 1 (month 15) settles year 0's whole liability at once.
+    expect(series.months[15]!.flows!.taxCents).toBe(Math.round(dollarsToCents(40_000) * RATE));
+    // Which leaves the year afterward nothing to charge…
+    expect(series.months[16]!.flows!.taxCents).toBe(0);
     // …and the estate, dying two years later, no trace of the year Sam died in.
     expect(settlementOf(series).finalTaxDueCents).toBe(0);
   });

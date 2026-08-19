@@ -2,6 +2,7 @@ import type { Cents } from "../money/money";
 import type { AccountTaxTreatment, SimAccount } from "../plan/simAccount";
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
 import type { IncomeSourceMonth } from "./waterfall";
+import type { SimPerson } from "./simulate.types";
 
 /**
  * The slice of `SimState` decumulation reads and mutates, declared structurally to keep
@@ -18,6 +19,14 @@ export interface WithdrawalState {
   readonly basisByAccount: Map<string, Cents>;
   /** The shortfall sink: spent down BEFORE any investment is liquidated. */
   readonly liquidAccount: SimAccount | null;
+  /**
+   * Read for an account owner's birth year, to price {@link
+   * import("../jurisdiction/jurisdiction").Jurisdiction.earlyWithdrawalPenaltyCents} — the
+   * mirror-image lookup {@link import("./rmd").RmdState} makes at the other end of life.
+   * Absent (or an owner missing from it) → the owner's age is unknown, so the seam is never
+   * called and no penalty is ever charged for that account.
+   */
+  readonly personsById?: ReadonlyMap<string, SimPerson>;
 }
 
 /**
@@ -73,13 +82,6 @@ export interface LiquidationRankable {
  * The ONE account order every money-out path drains in: the liquid cash account first — it is
  * spent before anything is sold — then by `liquidationOrder` rank, ties held in the roster's own
  * order by a stable sort.
- *
- * Shared rather than re-derived, because two callers must agree on it: decumulation ({@link
- * buildWithdrawalSources}, which then drops the liquid account because the shortfall charge
- * already spent it) and the year-start funding forecast ({@link
- * import("./fundingForecast").forecastFundingDraws}). The forecast's whole value is that it
- * predicts the draws the real waterfall will take, which it cannot do from a second copy of this
- * ranking free to drift from the first.
  */
 export function orderedLiquidationAccounts<T extends LiquidationRankable>(
   accounts: readonly T[],
@@ -104,11 +106,23 @@ export function orderedLiquidationAccounts<T extends LiquidationRankable>(
  * tax instalments, which is the point: the one arithmetic that decides what a household has left
  * lives in one place, so a deduction cannot be docked there and missed here.
  *
- * The liquid buffer is spent first, and only the remainder is sold. Each draw sells EXACTLY
- * `need` (capped at the account's balance) — no gross-up: the tax this draw's own gain causes is
- * not charged here, or in any other month, but folded into the year's actual taxable income and
- * settled with the year. The realized gain still rides `taxableCents` on the returned source, so
- * it reaches the caller's annual accumulator; it is simply not netted out of the draw itself.
+ * The liquid buffer is spent first, and only the remainder is sold. Each draw SELLS exactly
+ * `need` (capped at the account's balance) — no gross-up for income tax: the tax this draw's own
+ * gain causes is not charged here, or in any other month, but folded into the year's actual
+ * taxable income and settled with the year. The realized gain still rides `taxableCents` on the
+ * returned source, so it reaches the caller's annual accumulator; it is simply not netted out of
+ * the draw itself.
+ *
+ * An early-withdrawal penalty ({@link
+ * import("../jurisdiction/jurisdiction").Jurisdiction.earlyWithdrawalPenaltyCents}) is priced the
+ * SAME way as income tax on the gain, not differently: a $1,000 draw delivers $1,000 of spendable
+ * cash toward `need` — the penalty is never netted out of what the sale delivers. It is reported
+ * per draw ({@link DecumulationDrawResult.taxCents}) and summed by owner ({@link
+ * WithdrawalPlan.earlyWithdrawalPenaltyByOwnerCents}) so the caller can fold it into {@link
+ * import("./runState").SimState.earlyWithdrawalPenaltyByPersonYear}, which settles it through the
+ * ordinary annual true-up ({@link import("./taxYearSettlement").finalizeTaxYear}) alongside
+ * income tax — the same "priced now, settled with the year" treatment every other withdrawal
+ * consequence gets, rather than a same-month cash haircut a balance running low never causes.
  *
  * No double-withdraw against RMDs: their sources already sit in `nonWithdrawalSources` and
  * their forced draw already reduced these balances, so total pre-tax drawn settles at
@@ -131,6 +145,13 @@ export interface WithdrawalPlan {
    * with {@link sources}; empty when nothing was liquidated.
    */
   readonly decumulationDraws: readonly DecumulationDrawResult[];
+  /**
+   * Σ {@link DecumulationDrawResult.taxCents}, by the drawn account's owner — the early-
+   * withdrawal penalty this month's decumulation priced, for the caller to fold into {@link
+   * import("./runState").SimState.earlyWithdrawalPenaltyByPersonYear}. Never netted out of
+   * {@link sources} or {@link decumulationDraws[].netDeliveredCents} — see the module doc.
+   */
+  readonly earlyWithdrawalPenaltyByOwnerCents: ReadonlyMap<string, Cents>;
 }
 
 /** One account's liquidation, gross down to the net cash it delivered toward the month. */
@@ -140,7 +161,14 @@ export interface DecumulationDrawResult {
   /** Returned basis (`gross − gain`); the amount the draw reduced the account's basis by. */
   readonly principalCents: Cents;
   readonly realizedGainCents: Cents;
+  /**
+   * The early-withdrawal penalty, if the jurisdiction charges one — 0 for every other draw.
+   * Never income tax on the gain, which is never charged here (see the module doc). Reported
+   * for attribution only: NOT subtracted from {@link netDeliveredCents} — it settles through the
+   * annual true-up instead (see {@link WithdrawalPlan.earlyWithdrawalPenaltyByOwnerCents}).
+   */
   readonly taxCents: Cents;
+  /** `grossWithdrawnCents` — nothing is netted out of a decumulation draw's delivered cash. */
   readonly netDeliveredCents: Cents;
 }
 
@@ -157,7 +185,13 @@ export function buildWithdrawalSources(
   liquidationOrder: readonly AccountTaxTreatment[] = DEFAULT_LIQUIDATION_ORDER,
 ): WithdrawalPlan {
   const gap = shortfallCents;
-  if (gap <= 0) return { sources: [], liquidDrawdownCents: 0, decumulationDraws: [] };
+  const nothing = {
+    sources: [],
+    liquidDrawdownCents: 0,
+    decumulationDraws: [],
+    earlyWithdrawalPenaltyByOwnerCents: new Map<string, Cents>(),
+  };
+  if (gap <= 0) return nothing;
 
   // Spend the liquid buffer first: the cascade charges whatever the withdrawal leaves
   // uncovered against the liquid account.
@@ -167,7 +201,7 @@ export function buildWithdrawalSources(
       : 0;
   const liquidDrawdownCents = Math.min(gap, liquidBuffer);
   let need = gap - liquidBuffer;
-  if (need <= 0) return { sources: [], liquidDrawdownCents, decumulationDraws: [] };
+  if (need <= 0) return { ...nothing, liquidDrawdownCents };
 
   // The shared order, minus the liquid account: it is not exempt from being drawn — it is drawn
   // FIRST, above, as `liquidDrawdownCents`, and the cascade charges whatever is left against it
@@ -183,6 +217,7 @@ export function buildWithdrawalSources(
 
   const sources: IncomeSourceMonth[] = [];
   const decumulationDraws: DecumulationDrawResult[] = [];
+  const earlyWithdrawalPenaltyByOwnerCents = new Map<string, Cents>();
   for (const account of orderedSources) {
     if (need <= 0) break;
     const balance = state.assetBalances.get(account.id) ?? 0;
@@ -200,9 +235,28 @@ export function buildWithdrawalSources(
       ) ?? draw;
     // Sell exactly `need`, capped at the balance — no gross-up. Only the gain is booked as
     // `taxableCents` on the returned source (fed to the caller's annual accumulator); the
-    // full gross is still paid out as take-home below, and no tax is netted out of it.
+    // full gross is still paid out as take-home below, and no INCOME tax is netted out of it.
     const gross = Math.min(balance, need);
     const gainCents = gainOf(gross);
+
+    // Age is looked up per account owner, mirroring `buildRmdSources` — an owner missing from
+    // `personsById`, or absent `birthYear`, means the age cannot be priced, so the seam is
+    // never called and no penalty is charged, exactly like an RMD that never triggers for the
+    // same reason.
+    const birthYear = state.personsById?.get(account.ownerId)?.birthYear;
+    const penaltyCents =
+      birthYear === undefined
+        ? 0
+        : (jurisdiction.earlyWithdrawalPenaltyCents?.(
+            { grossCents: gross, basisCents: basis, balanceCents: balance, category: withdrawalCategory },
+            { year: ctx.year, age: ctx.year - birthYear },
+          ) ?? 0);
+    if (penaltyCents > 0) {
+      earlyWithdrawalPenaltyByOwnerCents.set(
+        account.ownerId,
+        (earlyWithdrawalPenaltyByOwnerCents.get(account.ownerId) ?? 0) + penaltyCents,
+      );
+    }
 
     // The rest of the gross is returned principal; reduce basis by it (method-agnostic:
     // gross − taxable).
@@ -215,9 +269,10 @@ export function buildWithdrawalSources(
       taxCategory: withdrawalCategory,
       taxableCents: gainCents,
       // Reporting only bands the realized gain as income — `cashInflowCents` overrides the
-      // `waterfallInflowCents` (full gross) fallback `buildFlows` would otherwise use. The
-      // returned principal is not income; it bands under this account's own name instead
-      // (see `decumulationDraws[].principalCents`, read by the simulator).
+      // `waterfallInflowCents` fallback `buildFlows` would otherwise use. The returned
+      // principal is not income; it bands under this account's own name instead (see
+      // `decumulationDraws[].principalCents`, read by the simulator). The penalty is neither —
+      // it never reaches `cashInflowCents`, so it never shows up disguised as gain.
       cashInflowCents: gainCents,
       // Report by source account, so a draining "emergency fund" reads by name rather than
       // as an anonymous `capitalGains` band. Suffixed "draw" — parallel to the explicit funding
@@ -227,17 +282,18 @@ export function buildWithdrawalSources(
       label: `${account.label ?? account.id} draw`,
     });
     // `gross − gain` is the returned basis (the same figure that reduced `basisByAccount`
-    // above); `taxCents` is always 0 and `netDeliveredCents` always equals `gross` — no tax
-    // is charged against an ordinary mid-year draw.
+    // above); `taxCents` carries the early-withdrawal penalty (0 outside it — no INCOME tax is
+    // ever charged against an ordinary mid-year draw), reported but not subtracted —
+    // `netDeliveredCents` is `gross`, see the module doc.
     decumulationDraws.push({
       sourceId: account.id,
       grossWithdrawnCents: gross,
       principalCents: gross - gainCents,
       realizedGainCents: gainCents,
-      taxCents: 0,
+      taxCents: penaltyCents,
       netDeliveredCents: gross,
     });
   }
 
-  return { sources, liquidDrawdownCents, decumulationDraws };
+  return { sources, liquidDrawdownCents, decumulationDraws, earlyWithdrawalPenaltyByOwnerCents };
 }

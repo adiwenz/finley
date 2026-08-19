@@ -290,24 +290,22 @@ describe("Estate settlement — final federal income tax", () => {
     );
   });
 
-  it("counts a final-year overpayment as an estate asset rather than a debt", () => {
-    // Dying in June leaves six months of a twelve-month estimate already paid against six months
-    // of wages — an overpayment, and the estate collects it. $120k/yr paced at $1,666.67 a month
-    // is $10,000 paid in; six months' $60k wages owe $4,000 under this schedule.
+  it("owes tax on income actually earned through death — there is no such thing as a mid-year overpayment", () => {
+    // Nothing is withheld or estimated during the year it is earned in (see
+    // `federalIncomeTax.ts`'s module doc), so a household dying in June owes the flat annual tax
+    // on the six months of wages it actually earned — never a refund, since nothing was ever
+    // paid in against them. $10k/mo × 6 months = $60,000, which owes $4,000 under this schedule.
     const settlement = settlementOf(
       dies(18, [cash(50_000)], { incomeSeries: [series(10_000)] }, progressiveAnnual()),
     );
-    expect(settlement.finalTaxDueCents).toBe(0);
-    expect(settlement.finalTaxRefundCents).toBe(dollarsToCents(6_000));
-    // Probate assets are the accounts PLUS the refund, and both verdicts carry it through.
-    expect(settlement.probateAssetsCents).toBe(
-      settlement.estateAccountsCents + settlement.finalTaxRefundCents,
-    );
+    expect(settlement.finalTaxDueCents).toBe(dollarsToCents(4_000));
+    expect(settlement.finalTaxRefundCents).toBe(0);
+    expect(settlement.probateAssetsCents).toBe(settlement.estateAccountsCents);
     expect(settlement.probateSurplusCents).toBe(
-      settlement.probateAssetsCents - settlement.unsecuredDebtCents,
+      settlement.probateAssetsCents - settlement.finalTaxDueCents - settlement.unsecuredDebtCents,
     );
     expect(settlement.terminalEconomicNetWorthCents).toBe(
-      settlement.totalAssetsCents + settlement.finalTaxRefundCents,
+      settlement.totalAssetsCents - settlement.finalTaxDueCents,
     );
   });
 
@@ -365,19 +363,20 @@ describe("Estate settlement — what the estate holds", () => {
     const settlement = settlementOf(spent);
     // Ground truth for the returned principal is the basis reduction itself; ground truth for the
     // realized gain is the `capitalGains` band, which reports the gain ALONE rather than the
-    // draw's full gross. Together they are what the brokerage actually paid out this year — funding
-    // the $48k of expenses AND the year's estimated tax instalments, which the forecast now sizes
-    // off a compounding balance rather than January's.
+    // draw's full gross. Together they are what the brokerage actually paid out this year —
+    // funding exactly the $48k of expenses, since nothing is withheld or estimated for tax during
+    // the year (see `federalIncomeTax.ts`'s module doc): that liability is entirely the estate's.
     const basisConsumedCents = dollarsToCents(100_000) - last.accountBasisCents.brokerage;
     const gainRealizedCents = sum(
       spent.months.map((m) => m.flows!.cashFlowIncomeByCategoryCents["capitalGains"] ?? 0),
     );
     const grossDrawnCents = basisConsumedCents + gainRealizedCents;
-    expect(grossDrawnCents).toBeGreaterThan(dollarsToCents(48_000));
+    expect(grossDrawnCents).toBe(dollarsToCents(48_000));
     expect(basisConsumedCents).toBeGreaterThan(0);
     expect(gainRealizedCents).toBeGreaterThan(0);
     // Everything the year owed, wherever it was charged: the ordinary rate on realized GAIN, not
-    // on the gross the household actually spent.
+    // on the gross the household actually spent. Nothing was charged in-year, so it is entirely
+    // the estate's.
     expect(sum(spent.months.map((m) => m.flows!.taxCents)) + settlement.finalTaxDueCents).toBe(
       Math.round(gainRealizedCents * RATE),
     );
@@ -724,9 +723,9 @@ describe("Estate settlement — the retirement solver's terminal criterion", () 
    *
    * A household near the end of life, dying in June of its last year: it takes a $240,000 lump
    * distribution in January, spends $120,000 in February, and carries an unsecured $70,000 loan to
-   * the grave. That shape is what makes the tax controllable — the year's liability is paced as
-   * twelve instalments and death stops it after six, so exactly half the year's tax is left
-   * outstanding, and the schedule below sets what half that is.
+   * the grave. That shape is what makes the tax controllable — nothing is withheld or estimated
+   * during the year it is earned in (see `federalIncomeTax.ts`'s module doc), so the WHOLE of the
+   * year's liability, whatever the schedule below sets it to, lands on the estate.
    */
   describe("the boundary, with the final tax as the lever", () => {
     /**
@@ -763,22 +762,20 @@ describe("Estate settlement — the retirement solver's terminal criterion", () 
     const paidInLifeCents = (run: ProjectionSeries): Cents =>
       sum(run.months.map((m) => m.flows!.taxCents));
 
-    it("halves a year's tax at a June death — six instalments paid, six left to the estate", () => {
-      // The premise. $60,000 for the year, $5,000 a month, dead after the sixth: the estate's
-      // charge is the six months the household did not live to pay, not a residue of anything.
+    it("owes the WHOLE year's tax at a June death — nothing was ever withheld in life", () => {
+      // The premise. $60,000 for the year, and dead after the sixth month having paid nothing
+      // toward it: the estate's charge is the full liability, not a residue of anything.
       const run = diesOwing(dollarsToCents(60_000));
-      expect(run.months.map((m) => m.flows!.taxCents)).toEqual(
-        Array(6).fill(dollarsToCents(5_000)),
-      );
-      expect(paidInLifeCents(run)).toBe(dollarsToCents(30_000));
-      expect(settlementOf(run).finalTaxDueCents).toBe(dollarsToCents(30_000));
+      expect(run.months.map((m) => m.flows!.taxCents)).toEqual(Array(6).fill(0));
+      expect(paidInLifeCents(run)).toBe(0);
+      expect(settlementOf(run).finalTaxDueCents).toBe(dollarsToCents(60_000));
       expect(settlementOf(run).finalTaxRefundCents).toBe(0);
       // And the position it is charged against: $100,000 of assets against $70,000 of debt, less
       // the loan principal repaid on the way, which leaves cash and debt lower by the same amount.
       const last = run.months[5]!;
       expect(settlementOf(run).totalAssetsCents).toBe(last.accountBalancesCents.cash);
       expect(settlementOf(run).totalAssetsCents - settlementOf(run).totalDebtCents).toBe(
-        dollarsToCents(30_000),
+        dollarsToCents(60_000),
       );
     });
 
@@ -799,13 +796,13 @@ describe("Estate settlement — the retirement solver's terminal criterion", () 
       expect(planOutcome(short)).toBe("fails");
     });
 
-    it("charges the estate the cent, not just the year — the settlement's own term moves", () => {
-      // The cent above lands on the twelfth instalment, so it is the year that got dearer and the
-      // estate's charge that stayed put. Two cents splits one to each half, which is the assertion
-      // that actually pins `finalTaxDueCents`: nothing else in this file states it to the cent.
+    it("charges the estate the cent — the settlement's own term moves with the year's liability", () => {
+      // Nothing is ever paid in life, so the whole two-cent increase lands on `finalTaxDueCents`,
+      // which is the assertion that actually pins it to the cent: nothing else in this file states
+      // it that precisely.
       const dearer = diesOwing(dollarsToCents(60_000) + 2);
-      expect(paidInLifeCents(dearer)).toBe(dollarsToCents(30_000) + 1);
-      expect(settlementOf(dearer).finalTaxDueCents).toBe(dollarsToCents(30_000) + 1);
+      expect(paidInLifeCents(dearer)).toBe(0);
+      expect(settlementOf(dearer).finalTaxDueCents).toBe(dollarsToCents(60_000) + 2);
       expect(settlementOf(dearer).terminalEconomicNetWorthCents).toBe(-2);
       expect(planOutcome(dearer)).toBe("fails");
     });
@@ -866,19 +863,23 @@ describe("Estate settlement — cost", () => {
 });
 
 describe("Estate settlement — life is unchanged", () => {
-  it("still pays a smooth monthly estimate and still settles the prior year in April", () => {
+  it("still charges nothing during the year and settles each closed year the following April", () => {
+    // Three full years of steady $10k/mo wages under a flat 25% rate — $30,000/yr — with the
+    // household living past two Aprils but dying before the third.
     const working = dies(36, [cash(50_000)], { incomeSeries: [series(10_000)] });
     const taxes = working.months.map((m) => m.flows!.taxCents);
-    // Twelve equal instalments a year on steady wages — no December spike, no terminal spike.
-    for (let month = 0; month < 12; month++) {
-      expect(Math.abs(taxes[month] - dollarsToCents(2_500))).toBeLessThanOrEqual(1);
+    // Nothing is charged during the year it is earned in — no monthly instalment, ever.
+    for (const month of [...Array(12).keys(), ...[12, 13, 14], ...[16, 17, 18, 19, 20, 21, 22, 23], ...[24, 25, 26, 28, 29, 30, 31, 32, 33, 34, 35]]) {
+      expect(taxes[month]).toBe(0);
     }
-    // The estimate is exact on wages this steady, so April of year 2 settles nothing and looks
-    // like every other month.
-    expect(Math.abs(taxes[15] - taxes[14])).toBeLessThanOrEqual(1);
-    expect(sum(taxes)).toBe(dollarsToCents(90_000));
-    // And nothing is left for the estate to finish.
-    expect(settlementOf(working).finalTaxDueCents).toBe(0);
+    // April of year 1 (month 15) settles the whole of year 0; April of year 2 (month 27) settles
+    // the whole of year 1 — each one the year's complete liability, in one charge.
+    expect(taxes[15]).toBe(dollarsToCents(30_000));
+    expect(taxes[27]).toBe(dollarsToCents(30_000));
+    expect(sum(taxes)).toBe(dollarsToCents(60_000));
+    // Year 2 never reaches its settling April (month 39, past the horizon) — its whole liability
+    // is left for the estate to finish.
+    expect(settlementOf(working).finalTaxDueCents).toBe(dollarsToCents(30_000));
   });
 
   it("settles a real prior-year balance in April, not at the horizon", () => {

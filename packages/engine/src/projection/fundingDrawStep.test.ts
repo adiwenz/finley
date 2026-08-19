@@ -38,6 +38,11 @@ function creditCard(id: string, balanceCents: number, creditLimitCents: number |
   return { kind: "credit", id, ownerId: OWNER, balanceCents, creditLimitCents, label: id };
 }
 
+/** A pre-tax (basis-0, `ordinaryIncome`) account, optionally carrying its owner's age. */
+function preTax(id: string, balanceCents: number, age?: number): FundingSourceState {
+  return { kind: "account", id, ownerId: OWNER, category: "ordinaryIncome", balanceCents, basisCents: 0, label: id, age };
+}
+
 function freshBase(): TaxableByOwner {
   return new Map();
 }
@@ -78,5 +83,62 @@ describe("resolveOrderedFundingDraw — credit sources", () => {
     // The brokerage's realized gain still stacks onto the owner base even though it went untaxed
     // here — it feeds the annual settlement; the borrow added nothing taxable.
     expect(base.get(OWNER)?.capitalGains).toBe(5_000_00);
+  });
+});
+
+/** Flat 10% on the taxable portion of an ordinary-income (pre-tax) draw before 59½. */
+const penaltyJurisdiction: Jurisdiction = {
+  id: "test-penalty",
+  computeTaxCents: () => 0,
+  computeTaxByCategoryCents: () => ({}),
+  earlyWithdrawalPenaltyCents: (basis, wctx) =>
+    basis.category === "ordinaryIncome" && wctx.age < 59.5 ? Math.round(basis.grossCents * 0.1) : 0,
+};
+
+describe("resolveOrderedFundingDraw — early-withdrawal penalty", () => {
+  it("charges the penalty WITHOUT touching what the draw delivers — a $1,000 need sells exactly $1,000 gross from the pre-tax source, never $1,100, and never touches the next source", () => {
+    const base = freshBase();
+    const result = resolveOrderedFundingDraw(
+      1_000_00,
+      [preTax("pretax", 10_000_00, 35), appreciated("brokerage", 10_000_00)],
+      penaltyJurisdiction,
+      CTX,
+      base,
+    );
+
+    expect(result.perSource).toHaveLength(1);
+    const pretax = result.perSource[0]!;
+    expect(pretax.grossCents).toBe(1_000_00);
+    expect(pretax.taxCents).toBe(100_00);
+    expect(pretax.netDeliveredCents).toBe(1_000_00);
+
+    expect(result.netDeliveredCents).toBe(1_000_00);
+    expect(result.shortfallCents).toBe(0);
+  });
+
+  it("never reports a shortfall from the penalty alone — a $1,000 need is fully met by a $1,000 pre-tax balance even though it also owes a $100 penalty", () => {
+    const base = freshBase();
+    const result = resolveOrderedFundingDraw(
+      1_000_00,
+      [preTax("pretax", 1_000_00, 35)],
+      penaltyJurisdiction,
+      CTX,
+      base,
+    );
+    expect(result.perSource[0]!.taxCents).toBe(100_00);
+    expect(result.netDeliveredCents).toBe(1_000_00);
+    expect(result.shortfallCents).toBe(0);
+  });
+
+  it("charges nothing when the source carries no age", () => {
+    const base = freshBase();
+    const result = resolveOrderedFundingDraw(
+      1_000_00,
+      [preTax("pretax", 10_000_00)],
+      penaltyJurisdiction,
+      CTX,
+      base,
+    );
+    expect(result.perSource[0]!.taxCents).toBe(0);
   });
 });

@@ -37,15 +37,18 @@ export const MODEL_ASSUMPTIONS: readonly ModelAssumption[] = [
       "plan unfinanceable even while investment balances remain.",
   },
   {
-    id: "incomeTaxPaidAsEvenEstimates",
+    id: "incomeTaxWithheldOnPayThenTruedUpInApril",
     text:
-      "Federal income tax is worked out on your whole year's income, but paid in twelve " +
-      "equal monthly instalments sized on the income the plan already knows is coming — " +
-      "your pay, pensions, benefits and required withdrawals. Money the plan could not have " +
-      "predicted, such as selling investments to fund a house or a one-off cost, is not " +
-      "part of those instalments: the tax on it is settled in December, so that month can " +
-      "show a larger payment (or a refund, if the instalments overshot). The year always " +
-      "costs the same in total; only the timing within it is an approximation.",
+      "Federal income tax is withheld from your pay each month, the way an employer does it: " +
+      "the plan takes what you have earned so far this year, treats it as your run rate for " +
+      "the year, and collects that month's share of the tax on it. Nothing is withheld " +
+      "against anything else — selling investments, drawing from a retirement account, a " +
+      "required withdrawal, an early-withdrawal penalty or a one-off taxable event all pay " +
+      "nothing at the time. At the end of the year the plan works out what you actually owed " +
+      "on everything, subtracts what was withheld, and settles the difference the following " +
+      "April, exactly like filing a return. So April can show a larger payment — or a refund, " +
+      "if withholding overshot — and the plan never reaches back to change a month that has " +
+      "already happened just because something taxable happens later.",
   },
   {
     id: "retirementAgeExtendsContinuationJob",

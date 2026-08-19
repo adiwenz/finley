@@ -234,8 +234,11 @@ describe("government-benefit accumulation + benefit seam", () => {
       birthYear: 1959, // turns 67 in 2026 → claims from month 0
       benefitClaimingAge: 67,
     };
-    const series = simulateHousehold(baseInput(person), stub);
-    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(900) * 12);
+    // Nothing is withheld during the year the benefit is earned in — the whole liability
+    // settles the following April (month 15), charging the year's twelve months at once:
+    // 10% of $12,000.
+    const series = simulateHousehold(baseInput(person, { horizonMonths: 16 }), stub);
+    expect(series.months[15].flows!.taxCents).toBe(dollarsToCents(1_200));
   });
 
   it("inflates the post-claim benefit by the COLA (CPI) rate each year", () => {
@@ -331,8 +334,11 @@ describe("government-benefit accumulation + benefit seam", () => {
       birthYear: 1959,
       benefitClaimingAge: 67,
     };
-    const series = simulateHousehold(baseInput(person), stub);
-    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(800) * 12);
+    // Nothing is withheld during the year the benefit is earned in — the whole liability
+    // settles the following April (month 15), charging the year's twelve months at once:
+    // 20% of $12,000.
+    const series = simulateHousehold(baseInput(person, { horizonMonths: 16 }), stub);
+    expect(series.months[15].flows!.taxCents).toBe(dollarsToCents(2_400));
   });
 
   it("benefitColaRate defaults to general inflation when unset", () => {

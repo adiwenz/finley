@@ -1,9 +1,9 @@
 /**
  * The payment SCHEDULE against a real progressive schedule, end to end through the public
  * `Projection` surface. The engine's own tax tests run on flat-rate fixtures, where a year's tax
- * is linear in income and so a twelve-way split reconciles by arithmetic; only a bracketed
- * jurisdiction can show that the instalments and the year's closing balance are pricing through
- * one annual seam rather than two schedules that happen to agree.
+ * is linear in income; only a bracketed jurisdiction can show that monthly withholding plus the
+ * following April's balance price through the one annual seam rather than through a schedule that
+ * happens to agree by arithmetic.
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -117,17 +117,23 @@ describe("federal income tax — instalments and the following April's balance, 
     }
   });
 
-  it("paces twelve equal instalments and settles the unpredictable income the following April", () => {
+  it("withholds smoothly on wages every month, settling only the unwithheld remainder in April", () => {
     const result = run();
     const taxes = result.series.months.slice(0, 16).map((m) => m.flows?.taxCents ?? 0);
-    // Wages are known at the year's start, so all TWELVE months are one figure (±1¢ of cumulative
-    // rounding) — no drift as income accrues, which is what YTD annualization did, and no December
-    // true-up either. April carries the previous year's balance, and 2026 has no previous year.
-    for (const tax of taxes.slice(0, 12)) expect(Math.abs(tax - taxes[0]!)).toBeLessThanOrEqual(1);
-    // The interest is no longer unknowable: the year's estimate comes from simulating the year,
-    // and a simulated month credits and books it exactly as a real one does. So April 2027 is an
-    // ordinary month too — 2026's balance is a rounding-scale residue either way it falls, not the
-    // tax on a year of interest.
-    expect(Math.abs(taxes[15]! - taxes[14]!)).toBeLessThan(taxes[14]! / 20);
+
+    // A level salary withholds a level amount: the annualized run rate is the same $96k every
+    // month, so each month charges a twelfth of the tax on it. Cent-level rounding aside, no
+    // month is distinguishable from its neighbours — the balance never builds up on money that
+    // was never the household's.
+    const inYear = taxes.slice(0, 12);
+    for (const tax of inYear) expect(tax).toBeGreaterThan(0);
+    expect(Math.max(...inYear) - Math.min(...inYear)).toBeLessThanOrEqual(1);
+
+    // April 2027 (month 15) carries its own twelfth PLUS 2026's balance. That balance is the tax
+    // on the year's interest alone — nobody withholds against a savings account — so it is real
+    // but small next to the withholding beside it, not a year's liability landing at once.
+    const balance = taxes[15]! - taxes[14]!;
+    expect(balance).toBeGreaterThan(0);
+    expect(balance).toBeLessThan(taxes[14]!);
   });
 });

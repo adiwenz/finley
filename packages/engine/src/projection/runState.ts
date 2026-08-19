@@ -10,7 +10,7 @@ import {
 } from "../liability/liability";
 import type { TaxCategory } from "../money/cashFlowSeries";
 import type { SourceTaxable, TaxableByCategory } from "./taxAttribution";
-import type { EstimatedTaxYear, FederalTaxPayment } from "./federalIncomeTax";
+import type { FederalTaxPayment } from "./federalIncomeTax";
 import type { BudgetLine } from "../budget/budgetLine";
 import type { SimGoal } from "../goal/goal";
 import type { SharedContributionScheme, SurplusDestination } from "./waterfall";
@@ -99,12 +99,38 @@ export interface SimState {
    * realized investment gain that becomes taxable THIS person's income, folded in the month
    * it occurs. The AUTHORITATIVE base of the year's liability, and the only one: the year's
    * close prices it off this complete total (see {@link Jurisdiction.computeTaxCents}'s ANNUAL
-   * contract), so the month a dollar landed in never moves the final tax. Contrast {@link
-   * estimatedFederalTaxByPersonYear}, which is this same total on a SIMULATED copy of the year,
-   * priced before the year runs and used only to pace payments. Resets naturally each January as the key's year rolls over,
-   * mirroring {@link earnedByPersonYear}.
+   * contract), so the month a dollar landed in never moves the final tax, and a later month's
+   * event never rewrites an earlier month's charge. Resets naturally each January as the key's
+   * year rolls over, mirroring {@link earnedByPersonYear}.
    */
   readonly taxableIncomeByPersonYear: Map<string, TaxableByCategory>;
+  /**
+   * Federal income tax ACTUALLY WITHHELD so far this year, by category, per person per calendar
+   * year, keyed `${personId}|${year}` — real cash the household has already parted with, charged
+   * month by month against wages ({@link import("./withholding")}). Two readers, and both need
+   * it: next month's withholding charges the DIFFERENCE against this running total, and the
+   * year's close subtracts it from the actual annual liability to arrive at the April balance
+   * ({@link import("./taxYearSettlement").finalizeTaxYear}).
+   *
+   * Monotone non-decreasing in every category — withholding never refunds mid-year — so an
+   * earlier month's charge can never be revised by a later one. Resets naturally each January as
+   * the key's year rolls over, mirroring {@link earnedByPersonYear}.
+   */
+  readonly federalWithheldByPersonYear: Map<string, TaxableByCategory>;
+  /**
+   * A FLAT dollar tax liability, per person per calendar year, keyed `${personId}|${year}` —
+   * separate from {@link taxableIncomeByPersonYear} because it is not proportional taxable
+   * income run through the jurisdiction's brackets, it is already a priced tax amount (US: the
+   * 10% early-withdrawal penalty, {@link
+   * import("../jurisdiction/jurisdiction").Jurisdiction.earlyWithdrawalPenaltyCents}). Folded
+   * in the same month the penalty is charged (see {@link
+   * import("./withdrawal").buildWithdrawalSources} and {@link
+   * import("./fundingDrawStep").resolveFundingDraws}), and added on top of the year's priced
+   * income tax at the close ({@link import("./taxYearSettlement").finalizeTaxYear}), so it
+   * settles through the SAME April true-up channel as ordinary income tax rather than being
+   * netted out of the withdrawal that caused it.
+   */
+  readonly earlyWithdrawalPenaltyByPersonYear: Map<string, Cents>;
   /**
    * The per-SOURCE breakdown behind {@link taxableIncomeByPersonYear}, keyed the same way
    * (`${personId}|${year}`) — a sourceKey → running `{category, taxableCents}` map, summed
@@ -114,25 +140,6 @@ export interface SimState {
    * import("./taxAttribution").attributeTaxToSources} already uses for payroll tax monthly.
    */
   readonly taxableBySourceByPersonYear: Map<string, Map<string, SourceTaxable>>;
-  /**
-   * The tax year's ESTIMATED federal income-tax liability per person, keyed
-   * `${personId}|${year}` and priced ONCE at the year's first processed month, by SIMULATING the
-   * year on a clone of this state and pricing what it actually produced (`priceTaxYear` in {@link
-   * import("./simulate").simulateHousehold}). Held for the whole year so every month's installment
-   * comes from the same estimate — re-pricing mid-year from what has happened so far is the
-   * year-to-date annualization this model exists to avoid. Absent for a person the forecast year
-   * leaves owing nothing.
-   */
-  readonly estimatedFederalTaxByPersonYear: Map<string, EstimatedTaxYear>;
-  /**
-   * Federal income tax already PAID this calendar year, per person, keyed
-   * `${personId}|${year}` — the running sum of the monthly estimated installments, with the
-   * category and source splits the tax chart bands on. The year's close parks
-   * `actual annual tax − this` as a balance for the next April to charge (or refund), so the
-   * year's total charge always lands on the actual liability however far the estimate missed. A
-   * prior year's balance settled in April is NOT folded in here: it pays a different year.
-   */
-  readonly federalTaxPaidByPersonYear: Map<string, FederalTaxPayment>;
   /**
    * A CLOSED tax year's remaining balance, per person, keyed `${personId}|${taxYear}` — the
    * year's actual liability less the instalments it collected, SIGNED (positive due, negative
@@ -228,9 +235,9 @@ export function cloneSimState(state: SimState): SimState {
     earnedByPersonYear: copyMap(state.earnedByPersonYear),
     combinedDepositsByPlanYear: copyMap(state.combinedDepositsByPlanYear),
     taxableIncomeByPersonYear: copyMap(state.taxableIncomeByPersonYear),
+    federalWithheldByPersonYear: copyMap(state.federalWithheldByPersonYear),
+    earlyWithdrawalPenaltyByPersonYear: copyMap(state.earlyWithdrawalPenaltyByPersonYear),
     taxableBySourceByPersonYear: copyMap(state.taxableBySourceByPersonYear),
-    estimatedFederalTaxByPersonYear: copyMap(state.estimatedFederalTaxByPersonYear),
-    federalTaxPaidByPersonYear: copyMap(state.federalTaxPaidByPersonYear),
     pendingTaxSettlementsByPersonYear: copyMap(state.pendingTaxSettlementsByPersonYear),
     personsById: copyMap(state.personsById),
     earningsByPerson: copyMap(state.earningsByPerson),
@@ -335,9 +342,9 @@ export function initSimState(input: HouseholdSimInput): SimState {
     earnedByPersonYear: new Map<string, TaxableByCategory>(),
     combinedDepositsByPlanYear: new Map<string, Cents>(),
     taxableIncomeByPersonYear: new Map<string, TaxableByCategory>(),
+    federalWithheldByPersonYear: new Map<string, TaxableByCategory>(),
+    earlyWithdrawalPenaltyByPersonYear: new Map<string, Cents>(),
     taxableBySourceByPersonYear: new Map<string, Map<string, SourceTaxable>>(),
-    estimatedFederalTaxByPersonYear: new Map<string, EstimatedTaxYear>(),
-    federalTaxPaidByPersonYear: new Map<string, FederalTaxPayment>(),
     pendingTaxSettlementsByPersonYear: new Map<string, FederalTaxPayment>(),
     personsById,
     earningsByPerson,

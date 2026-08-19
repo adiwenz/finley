@@ -46,6 +46,11 @@ export interface RmdContext extends JurisdictionContext {
   readonly birthYear: number;
 }
 
+/** The mirror-image context at the OTHER end of life from {@link RmdContext}: an age-gated withdrawal rule. */
+export interface WithdrawalContext extends JurisdictionContext {
+  readonly age: number;
+}
+
 export interface HealthCostContext extends JurisdictionContext {
   readonly age: number;
 }
@@ -82,13 +87,21 @@ export interface Jurisdiction {
    * jurisdiction owns what share of each is taxed, and at what rate.
    *
    * ANNUAL in, ANNUAL out: `taxableByCategory` is a FULL CALENDAR YEAR of taxable income by
-   * category — never a monthly slice. The engine calls it twice a year: once on the income the
-   * year is SCHEDULED to bring, to pace twelve even estimated payments, and once at year-end
-   * on the year's ACTUAL accumulated total, to reconcile against them (see {@link
-   * import("../projection/runState").SimState}'s two accumulators). The engine owns collecting
-   * both totals and all payment timing; this seam only prices a year. Calling it on anything
-   * less than a full year (a monthly slice, an annualized ×12 estimate) misprices lumpy income
-   * — the engine never does this.
+   * category — never a monthly slice. The engine calls it in exactly two places, and never on a
+   * partial year:
+   *
+   *  1. **The year's close**, on the year's ACTUAL accumulated total (see {@link
+   *     import("../projection/runState").SimState.taxableIncomeByPersonYear}) — the authoritative
+   *     liability, trued up the following April ({@link
+   *     import("../projection/taxYearSettlement")}).
+   *  2. **Monthly wage withholding**, on the year-to-date wages of the {@link
+   *     isWithheldCategory} categories ANNUALIZED to a full year (see {@link
+   *     import("../projection/withholding")}) — the paycheck approximation every payer makes,
+   *     and still a full year of income as far as this seam is concerned. Only income the
+   *     household has ALREADY earned feeds it, so the answer never depends on a later month.
+   *
+   * The engine owns collecting the totals and all payment timing; this seam only prices a year.
+   * Calling it on a raw monthly slice would misprice lumpy income — the engine never does this.
    */
   computeTaxCents(
     taxableByCategory: Partial<Record<TaxCategory, Cents>>,
@@ -122,14 +135,28 @@ export interface Jurisdiction {
    * How much of a post-tax withdrawal is TAXABLE. The engine owns the basis STATE, the
    * jurisdiction the return-of-capital POLICY and its method (pro-rata, specific-lot,
    * average-cost); the engine reduces basis by `grossCents − taxable`, so the state update
-   * stays method-agnostic.
-   *
-   * The year-start estimate's decumulation fixed point ({@link
-   * import("../projection/taxYearProjection").projectKnownTaxYear}) probes it repeatedly, so it
-   * MUST be pure and monotone non-decreasing in `grossCents` — that is what lets the estimate
-   * climb to its least fixed point. Absent → the whole `grossCents` is taxable.
+   * stays method-agnostic. MUST be pure. Absent → the whole `grossCents` is taxable.
    */
   taxableWithdrawalCents?(basis: WithdrawalTaxBasis, ctx: JurisdictionContext): Cents;
+
+  /**
+   * Additional tax on a withdrawal taken before the jurisdiction's access age (US: 10% before
+   * 59½, IRC §72(t)) — layered ON TOP of ordinary income tax, never netted from it or from
+   * {@link taxableWithdrawalCents}. Priced off the SAME {@link WithdrawalTaxBasis}, so a
+   * jurisdiction can gate on `category` (US: only an `ordinaryIncome` — i.e. pre-tax — draw is
+   * eligible) the same way it decides what portion of a draw is taxable at all.
+   *
+   * Charged immediately, in the draw's own month — unlike {@link computeTaxCents}, this needs
+   * no annual reconciliation, because it is a flat rate on an amount already fully known the
+   * moment the draw is priced, not a bracket that depends on the rest of the year's income.
+   * The engine nets it out of what the draw DELIVERS (see {@link
+   * import("../projection/withdrawal").buildWithdrawalSources}), so a household short of what
+   * it asked for pulls more from the next account in line exactly as it would if a balance ran
+   * out early — no separate settlement machinery. Absent → no penalty (also the correct answer
+   * past the access age — a jurisdiction that implements this must return 0 there itself, since
+   * the engine does not gate the call by age).
+   */
+  earlyWithdrawalPenaltyCents?(basis: WithdrawalTaxBasis, ctx: WithdrawalContext): Cents;
 
   /**
    * How an account's periodic RETURN is taxed, given its neutral {@link
@@ -190,6 +217,25 @@ export interface Jurisdiction {
     annualEarnedByCategory: Partial<Record<TaxCategory, Cents>>,
     ctx: JurisdictionContext,
   ): Partial<Record<TaxCategory, Cents>>;
+
+  /**
+   * Which income categories a payer WITHHOLDS federal income tax on as it pays them (US: `wages`
+   * — an employer withholds against a paycheck; nobody withholds against a brokerage gain, an
+   * IRA draw or an RMD unless asked to).
+   *
+   * The engine withholds monthly on exactly these categories and no others, pricing the charge
+   * through {@link computeTaxCents} on the year-to-date total of them, annualized (see {@link
+   * import("../projection/withholding").monthlyWithholdingByCategoryCents}). Everything else —
+   * gains, pre-tax withdrawals, RMDs, early-withdrawal penalties, one-off taxable events — bears
+   * no in-year cash at all and reaches the household only through the following April's true-up.
+   *
+   * This is deliberately NOT the same question as {@link computePayrollTaxCents}'s earned-income
+   * set, even though US answers both with `wages`: one asks what FICA is levied on, the other
+   * what an income-tax payer withholds against.
+   *
+   * Absent → nothing is withheld during the year, and the whole annual liability settles in April.
+   */
+  isWithheldCategory?(taxCategory: TaxCategory): boolean;
 
   /**
    * Which income categories count toward the covered-earnings {@link EarningsRecord}

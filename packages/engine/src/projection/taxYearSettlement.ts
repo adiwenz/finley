@@ -3,12 +3,13 @@
  * of this module.
  *
  * A tax year's liability is annual and becomes exactly knowable the moment December's income has
- * folded into {@link import("./runState").SimState.taxableIncomeByPersonYear}. Its BALANCE — the
- * liability less the estimated instalments already paid — is not a December cash flow. It is
- * settled in April of the FOLLOWING year, the way a real filing is:
+ * folded into {@link import("./runState").SimState.taxableIncomeByPersonYear}. Wages were
+ * withheld against as they were paid ({@link import("./withholding")}); everything else — gains,
+ * pre-tax withdrawals, RMDs, penalties, one-off taxable events — bore no in-year cash at all. So
+ * what is settled in April of the FOLLOWING year is the DIFFERENCE, the way a real filing is:
  *
  * ```
- * 2028 taxable activity → exact 2028 liability → 2028 balance due/refund → April 2029 cash flow
+ * 2028 taxable activity → exact 2028 liability → less 2028 withholding → April 2029 cash flow
  * ```
  *
  * Two consequences follow, and both are why this arrangement replaced a December true-up:
@@ -20,6 +21,9 @@
  *     2029's own estimate and settlement account for it normally. A closed year is never reopened.
  *  2. **No December spike.** The balance leaves the year it belongs to and lands in a month with
  *     eleven ordinary months around it, funded by the ordinary waterfall like any other need.
+ *     What lands there is only ever the UNWITHHELD part: a household living on wages settles at
+ *     or near zero, and April is a real event only for a year that produced income no payer
+ *     withheld against.
  *
  * A settlement is SIGNED: positive is tax due, negative is a refund. Both ride the same channel —
  * the month's federal income-tax charge (see {@link import("./allocationStep").allocateMonth}) —
@@ -33,15 +37,15 @@
 
 import type { Cents } from "../money/money";
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
-import type { TaxCategory } from "../money/cashFlowSeries";
 import type { SimState } from "./runState";
-import { addCategory, attributeTaxToSources, type TaxableByCategory } from "./taxAttribution";
 import {
-  annualFederalTax,
-  MONTHS_IN_TAX_YEAR,
-  NO_FEDERAL_TAX_PAID,
-  type FederalTaxPayment,
-} from "./federalIncomeTax";
+  addCategory,
+  attributeSignedTaxToSources,
+  subtractCategories,
+  type TaxableByCategory,
+} from "./taxAttribution";
+import { annualFederalTax, MONTHS_IN_TAX_YEAR, type FederalTaxPayment } from "./federalIncomeTax";
+import { totalOfCategories } from "./withholding";
 
 /**
  * The tax year's last month — December, when month 0 is January. The year's actual liability is
@@ -70,18 +74,24 @@ function settlementKey(personId: string, taxYear: number): string {
 }
 
 /**
- * Close the tax year: price each person's ACTUAL annual taxable income, subtract the estimated
- * instalments they already paid, and park the signed difference against `ctx.year` for April of
- * the next year to charge or refund. A no-op in every month but the year's last.
+ * Close the tax year: price each person's ACTUAL annual taxable income, subtract the federal
+ * income tax already WITHHELD against it during the year, and park the remaining balance against
+ * `ctx.year` for April of the next year to charge (or, if negative — over-withheld — refund). A
+ * no-op in every month but the year's last.
+ *
+ * This is the arithmetic of a tax return, and the only place the two figures meet: withholding
+ * saw wages alone, month by month, and never anything that had not happened yet ({@link
+ * import("./withholding")}); the liability priced here sees everything the year actually produced
+ * — gains, pre-tax withdrawals, RMDs, the early-withdrawal penalty. The difference is exactly the
+ * tax on what a payer never withheld against, and April settles it.
  *
  * Mutates only {@link import("./runState").SimState.pendingTaxSettlementsByPersonYear} — no sale,
- * no borrow, no refund, no change to the year's taxable base. That is the point: December stops
- * being a cash event, so the December net-worth sawtooth a decumulating household used to show
- * has nothing left to come from.
+ * no borrow, no refund, no change to the year's taxable base. December is not a cash event.
  *
  * Called after the month's own income has folded into `taxableIncomeByPersonYear` (via {@link
  * import("./allocationStep").allocateMonth}), so the base read here is the COMPLETE year
- * regardless of which month each dollar landed in.
+ * regardless of which month each dollar landed in — an event in October changes THIS total, and
+ * so April's settlement, but never a month before October.
  *
  * A run that stops before its next April leaves the last year's balance parked and unsettled, and
  * it is deliberately NOT hurried forward into December: doing so would restore the very spike
@@ -101,51 +111,50 @@ export function finalizeTaxYear(
   for (const pid of state.personIds) {
     const key = settlementKey(pid, ctx.year);
     const actualBase = state.taxableIncomeByPersonYear.get(key) ?? {};
-    const paid = state.federalTaxPaidByPersonYear.get(key) ?? NO_FEDERAL_TAX_PAID;
 
-    // The SAME annual pricing the year's estimate came from — that estimate is this very
-    // function applied to a simulated year — so `actual − paid` is a difference of two comparable
-    // figures rather than a comparison of two unrelated tax computations.
-    const { totalCents, byCategoryCents } = annualFederalTax(jurisdiction, ctx, pid, actualBase);
-    const trueUpCents = totalCents - paid.totalCents;
-    if (trueUpCents === 0) continue;
+    const { totalCents: incomeTaxCents, byCategoryCents } = annualFederalTax(
+      jurisdiction,
+      ctx,
+      pid,
+      actualBase,
+    );
+    // A FLAT top-up, not proportional taxable income run through the jurisdiction's brackets —
+    // the early-withdrawal penalty is already a priced dollar amount (see
+    // `earlyWithdrawalPenaltyByPersonYear`'s doc in `runState.ts`), so it is added on top of the
+    // bracket-priced liability rather than mixed into `byCategoryCents`, which must reconcile
+    // exactly to `annualFederalTax`'s own `totalCents` (asserted inside it).
+    const penaltyCents = state.earlyWithdrawalPenaltyByPersonYear.get(key) ?? 0;
+    // Real cash already handed over during the year, by category — subtracted from the same
+    // category it was withheld against, so a year of pure wages settles at exactly zero and a
+    // year with an unwithheld October withdrawal settles at the tax on that withdrawal alone.
+    const withheldByCategory = state.federalWithheldByPersonYear.get(key) ?? {};
+    const netByCategory = subtractCategories(byCategoryCents, withheldByCategory);
+    const totalCents = incomeTaxCents + penaltyCents - totalOfCategories(withheldByCategory);
+    if (totalCents === 0) continue;
 
     // The year's real sources — a job, a benefit, an account draw — weighted by what each
     // actually contributed to the taxable base, so April's charge bands back to where the
-    // liability came from. No settlement-draw weights any more: the sale that funds this balance
-    // happens in April and is April's own income, keyed by its own account like any other draw.
-    const actualBySource: Record<string, Cents> = {};
-    attributeTaxToSources(
-      byCategoryCents,
+    // liability came from. Signed: a category the year over-withheld on refunds through the same
+    // sources it was collected from.
+    const settlementBySource: Record<string, Cents> = {};
+    attributeSignedTaxToSources(
+      netByCategory,
       [...(state.taxableBySourceByPersonYear.get(key)?.values() ?? [])],
-      actualBySource,
+      settlementBySource,
     );
 
-    // Both breakdowns are differences against what the year already charged, so the year's twelve
-    // instalments plus this balance sum to the actual annual liability — category by category and
-    // source by source, not merely in total.
-    const settlementByCategory: TaxableByCategory = {};
-    for (const category of new Set([
-      ...Object.keys(byCategoryCents),
-      ...Object.keys(paid.byCategoryCents),
-    ]) as Set<TaxCategory>) {
-      addCategory(
-        settlementByCategory,
-        category,
-        (byCategoryCents[category] ?? 0) - (paid.byCategoryCents[category] ?? 0),
-      );
-    }
-    const settlementBySource: Record<string, Cents> = {};
-    for (const source of new Set([
-      ...Object.keys(actualBySource),
-      ...Object.keys(paid.bySourceCents),
-    ])) {
-      const cents = (actualBySource[source] ?? 0) - (paid.bySourceCents[source] ?? 0);
-      if (cents !== 0) settlementBySource[source] = cents;
+    const settlementByCategory: TaxableByCategory = { ...netByCategory };
+    // The penalty rides its own dedicated bucket — `ordinaryIncome` because that is the only
+    // category `earlyWithdrawalPenaltyCents` gates on (US rules), and a source key of its own
+    // (`earlyWithdrawalPenalty`) rather than any account's, since it is not that account's income.
+    if (penaltyCents !== 0) {
+      addCategory(settlementByCategory, "ordinaryIncome", penaltyCents);
+      settlementBySource.earlyWithdrawalPenalty =
+        (settlementBySource.earlyWithdrawalPenalty ?? 0) + penaltyCents;
     }
 
     state.pendingTaxSettlementsByPersonYear.set(key, {
-      totalCents: trueUpCents,
+      totalCents,
       byCategoryCents: settlementByCategory,
       bySourceCents: settlementBySource,
     });
@@ -155,15 +164,12 @@ export function finalizeTaxYear(
 /**
  * The prior tax year's balance, per person, in the April it is due — and CONSUMED: every entry
  * returned is deleted from the pending map, so nothing can be charged twice. Empty in every other
- * month, and empty in an April whose prior year came out exactly on estimate.
+ * month, and empty in an April whose prior year owed nothing.
  *
- * Signed, like what it was stored as. The caller charges it through the same channel as the
- * month's estimated instalment, which is what puts it through the ordinary funding waterfall: a
- * balance due enlarges the month's cash need and may be funded by a taxable withdrawal, and that
- * withdrawal is income in the CURRENT year, folded into the current year's accumulator by the
- * ordinary path. It must NOT be credited to the current year's `federalTaxPaidByPersonYear` —
- * it pays a different year's liability, and crediting it would make December undercharge by
- * exactly this amount.
+ * Signed, like what it was stored as. The caller charges it through the ordinary funding
+ * waterfall: a balance due enlarges the month's cash need and may be funded by a taxable
+ * withdrawal, and that withdrawal is income in the CURRENT year, folded into the current year's
+ * accumulator by the ordinary path — a different year's liability from the one this balance pays.
  */
 export function dueTaxYearSettlements(
   state: SimState,
@@ -210,12 +216,9 @@ export function unsettledBalancesFromEarlierYearsCents(
 }
 
 /**
- * What the year-start estimate must add to the year's expected OUTFLOW: the household's whole
- * pending balance from the year just closed, which this year's April will have to fund. Read in
- * January, when December has already parked it and April has not yet consumed it.
- *
- * Signed — a refund is a negative outflow, and a household expecting one needs to decumulate that
- * much less. Read-only: consuming is {@link dueTaxYearSettlements}'s job alone.
+ * The household's whole pending tax balance from the year just closed, summed across persons —
+ * what this year's April will charge or refund, before that month consumes it. Signed. Read-only:
+ * consuming is {@link dueTaxYearSettlements}'s job alone.
  */
 export function pendingSettlementTotalCents(state: SimState, ctx: JurisdictionContext): Cents {
   let total = 0;

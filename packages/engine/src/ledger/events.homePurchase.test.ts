@@ -948,43 +948,38 @@ describe("HomePurchaseEvent — explicit draw resolves before automatic decumula
 
 describe("HomePurchaseEvent — investment-funded down payment is NOT grossed up for federal income tax", () => {
   it("draws exactly the down payment regardless of jurisdiction — net worth is identical at purchase", () => {
-    // An otherwise-identical no-tax run isolates any tax effect from the month's growth.
+    // An otherwise-identical no-tax run isolates any tax effect from the month's growth. Bought
+    // in month 1 (year 0, with one month of growth already embedded), so the gain it realizes
+    // settles at month 15 (April of year 1), comfortably inside a 24-month horizon.
     const base = baseWithAccounts([liquidAcct("brokerage", 8_000_000, 0.12)]);
-    const ledger = addFinanced(emptyLedger, base, { month: 12, downPaymentSourceIds: ["brokerage"] });
+    const ledger = addFinanced(emptyLedger, base, { month: 1, downPaymentSourceIds: ["brokerage"] });
     const household = interpretLedger(ledger, base);
     const taxed = buildProjection(household, base, flatCapitalGains(0.2));
     const untaxed = buildProjection(household, base, nullJurisdiction);
 
-    const at = taxed.months[12];
+    const at = taxed.months[1];
     // No gross-up: the down-payment draw sells exactly the down payment, same as under no tax at
     // all. The purchase's own funding is untouched by the jurisdiction — nothing extra is sold at
-    // the taxable event to prepay the tax that event causes.
-    // The two runs are identical up to month 11, so the whole month-12 gap between them is the
-    // extra cash the taxed run parted with. If the draw were grossed up that gap would be the
-    // ~25% markup on the down payment; it is instead the month's ordinary tax instalment (plus
-    // the growth that instalment no longer earns), which is a far smaller number.
-    expect(taxed.months[11].accountBalancesCents.brokerage).toBe(
-      untaxed.months[11].accountBalancesCents.brokerage,
+    // the taxable event to prepay the tax that event causes. And nothing is withheld during the
+    // year the gain is realized in (see `federalIncomeTax.ts`'s module doc), so the two runs stay
+    // identical straight through the purchase month itself.
+    expect(taxed.months[1].accountBalancesCents.brokerage).toBe(
+      untaxed.months[1].accountBalancesCents.brokerage,
     );
-    const extraSpent =
-      untaxed.months[12].accountBalancesCents.brokerage! -
-      taxed.months[12].accountBalancesCents.brokerage!;
-    expect(extraSpent).toBeGreaterThanOrEqual(at.flows!.taxCents);
-    expect(extraSpent).toBeLessThan(Math.round(at.flows!.taxCents * 1.02));
+    expect(at.flows!.taxCents).toBe(0);
+    expect(at.netWorthNominalCents!).toBe(untaxed.months[1].netWorthNominalCents!);
     // The home purchase itself is unaffected either way: equity is price − financed.
     expect(at.propertyValuesCents.house1).toBe(PRICE);
     expect(at.liabilityBalancesCents["house1-mortgage"]).toBe(FINANCED);
 
-    // What the jurisdiction DOES change is when the tax on the realized gain is collected. The
-    // down payment's funding is explicitly allocated, so January's estimate already prices it and
-    // the year pays it in twelfths — net worth diverges from the untaxed run steadily from the
-    // purchase month on, rather than all at once in a December cliff.
-    expect(at.flows!.taxCents).toBeGreaterThan(0);
-    expect(at.netWorthNominalCents!).toBeLessThan(untaxed.months[12].netWorthNominalCents!);
-    const settled = taxed.months[23];
-    expect(settled.netWorthNominalCents!).toBeLessThan(untaxed.months[23].netWorthNominalCents!);
-    // December is an ordinary month, not the whole year's bill.
-    expect(settled.flows!.taxCents).toBeLessThan(at.flows!.taxCents * 2);
+    // What the jurisdiction DOES change is when the tax on the realized gain is collected: the
+    // whole of it, the following April (month 15) — one lump, not a December cliff and not a
+    // string of instalments either.
+    const settled = taxed.months[15];
+    expect(settled.flows!.taxCents).toBeGreaterThan(0);
+    expect(settled.netWorthNominalCents!).toBeLessThan(untaxed.months[15].netWorthNominalCents!);
+    // Nothing charges again after the settlement.
+    expect(taxed.months[16].flows!.taxCents).toBe(0);
   });
 
   it("conserves net worth for a cash-funded down payment (no gain → nothing ever taxed)", () => {
@@ -1003,14 +998,16 @@ describe("HomePurchaseEvent — investment-funded down payment is NOT grossed up
     // attribution record, it enters the year's taxable base, and the year collects 20% of it. It
     // is simply not household cash flow, because the money went into the house, so nothing about
     // it appears on the cash-flow chart.
+    // Bought in month 1 (year 0, with one month of growth already embedded), so the gain it
+    // realizes settles at month 15 (April of year 1), comfortably inside a 24-month horizon.
     const base = baseWithAccounts([liquidAcct("brokerage", 8_000_000, 0.12)]);
     const ledger = addWithBase(
       emptyLedger,
       base,
-      purchase({ month: 12, downPaymentSourceIds: ["brokerage"] }),
+      purchase({ month: 1, downPaymentSourceIds: ["brokerage"] }),
     );
     const series = buildProjection(interpretLedger(ledger, base), base, flatCapitalGains(0.2));
-    const flows = series.months[12].flows!;
+    const flows = series.months[1].flows!;
 
     // The gain, read off the attribution record — the ledger of what the draw actually did,
     // which is unfiltered precisely because it is not a chart.
@@ -1024,33 +1021,23 @@ describe("HomePurchaseEvent — investment-funded down payment is NOT grossed up
     // must not read as cash the household could have spent.
     expect(flows.incomeSources.find((s) => s.sourceId === "downpayment:brokerage")).toBeUndefined();
     expect(flows.cashFlowIncomeByCategoryCents.capitalGains ?? 0).toBe(0);
-    // A savings drawdown DOES appear this month — the tax instalment is funded by selling the
-    // same brokerage — but it is that instalment and nothing else. It sits level with the month
-    // after it, where folding in the down payment's principal made it an order of magnitude
-    // larger and turned the purchase month into a spike of spendable cash.
-    const drawdownAt = (m: number): number =>
-      series.months[m].flows!.incomeSources.find((s) => s.category === "savingsDrawdown")
-        ?.cashInflowCents ?? 0;
-    expect(drawdownAt(12)).toBeGreaterThan(0);
-    expect(drawdownAt(12)).toBeLessThan(drawdownAt(13) * 2);
-    expect(drawdownAt(12)).toBeLessThan(gainCents);
+    // And nothing is charged or drawn for tax this month either — nothing is withheld or
+    // estimated during the year the gain is realized in (see `federalIncomeTax.ts`'s module doc).
+    expect(flows.taxCents).toBe(0);
+    expect(
+      flows.incomeSources.find((s) => s.category === "savingsDrawdown")?.cashInflowCents ?? 0,
+    ).toBe(0);
 
     // The purchase's own draw is not grossed up — nothing extra was sold to prepay the gain's
-    // tax. What IS charged in this month is the year's ordinary instalment: the down payment's
-    // funding is explicitly allocated, so January priced the gain and the twelve months of the
-    // purchase year each carry a twelfth of it.
-    const yearTwo = series.months.slice(12, 24).map((m) => m.flows!.taxCents);
-    for (const tax of yearTwo) expect(tax).toBeGreaterThan(0);
-    // No December cliff: the settlement is a true-up on the difference between the estimate and
-    // the year's actual base, not the bill itself. It stays within a month's instalment of its
-    // neighbours, where this used to be a single $133,796 charge against $0 in every other month.
-    expect(yearTwo[11]!).toBeLessThan(yearTwo[10]! * 2);
-    // And the year collects exactly 20% of the realized gain — no more. This used to come to
-    // $133,796 rather than $128,572: deferring the whole bill to December meant settling it by
-    // selling MORE of the appreciated brokerage, which realized further gain and recursively
-    // enlarged the bill. Paid in instalments through the year it comes out of the same cash the
-    // month's waterfall is already handling, and that recursive top-up never arises.
-    expect(yearTwo.reduce((s, t) => s + t, 0)).toBe(Math.round(gainCents * 0.2));
+    // tax. What IS charged is the WHOLE year's liability, in one lump, the following April
+    // (month 15) — not a December cliff and not a string of instalments either.
+    const settled = series.months[15].flows!;
+    expect(settled.taxCents).toBeGreaterThan(0);
+    // And the year collects exactly 20% of the realized gain — no more, and no recursive top-up
+    // from selling more of the appreciated brokerage to fund its own tax.
+    expect(settled.taxCents).toBe(Math.round(gainCents * 0.2));
+    // Nothing charges again after the settlement.
+    expect(series.months[16].flows!.taxCents).toBe(0);
   });
 });
 
