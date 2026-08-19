@@ -253,6 +253,30 @@ const BONUS_YEAR = teachingInput(MODEST_BUDGET, {
 const BONUS_MONTH = 5;
 
 /**
+ * Six unpaid months, then back to work — a career break, a gap between jobs, unpaid leave.
+ *
+ * The point is what payroll does with it. Withholding is sized per paycheck as though that rate
+ * of pay ran the whole year, so the first half of the year is withheld against an income the
+ * second half never delivers; the year closes far over-withheld and the following April hands the
+ * difference back. It is the cleanest refund the model produces, and the only one big enough to
+ * see: every other preset's April is a small balance DUE.
+ *
+ * Pay resumes in January because a job's span is year-granular — a mid-year stop is expressible
+ * only as a run of one-month adjustments, and stopping for good would leave the following April
+ * with no withholding of its own, which is exactly the thing a refund must be shown not to erase.
+ */
+const CAREER_BREAK = teachingInput(MODEST_BUDGET, {
+  name: "Nico",
+  jobs: [salariedJob(dollarsToCents(12_000))],
+  // Enough to carry six months of an unchanged budget without the shortfall cascade opening a
+  // credit card: a refund is hard to read on a chart that is also going insolvent underneath it.
+  openingBalanceCents: dollarsToCents(30_000),
+});
+
+/** July–December of the first projected year: the half `CAREER_BREAK` is not paid for. */
+const CAREER_BREAK_UNPAID_MONTHS = [6, 7, 8, 9, 10, 11];
+
+/**
  * The healthy default a fresh plan already opens on: literally the {@link DEFAULT_INPUT} the plan
  * defaults are built from, budget lines included. One document, so this preset reproduces
  * {@link PLAN_DEFAULTS} exactly rather than authoring a second source of truth for it.
@@ -290,6 +314,17 @@ export const PRESETS: readonly Preset[] = [
     label: "Two jobs",
     description: "A second job neither employer knows about — and the W-4 correction that keeps April from becoming a bill.",
     input: TWO_JOBS,
+  },
+  {
+    id: "career-break",
+    label: "Six months off",
+    description:
+      "Half a year unpaid, so payroll over-withholds for a year that never finished — and the following April pays it back.",
+    input: CAREER_BREAK,
+    incomeAdjustments: CAREER_BREAK_UNPAID_MONTHS.map((month) => ({
+      jobIndex: 0,
+      override: { month, kind: "setTo" as const, cents: 0 },
+    })),
   },
   {
     id: "bonus",

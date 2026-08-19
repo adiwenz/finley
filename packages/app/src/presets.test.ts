@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { dollarsToCents, Projection } from "@finley/engine";
+import { usJurisdiction } from "@finley/rules";
 import { PRESETS, presetById, presetState } from "./presets";
 import { DEFAULT_INPUT, PLAN_DEFAULTS } from "./planDefaults";
 
@@ -20,6 +22,7 @@ describe("presets", () => {
       "living-on-credit",
       "student-loan",
       "two-jobs",
+      "career-break",
       "bonus",
       "taxed-in-retirement",
     ]);
@@ -84,6 +87,58 @@ describe("presets", () => {
     // Both owned by the same person: the multiple-jobs correction is person-scoped, and a preset
     // that split them across a household would demonstrate the opposite of what it claims to.
     expect(new Set(jobs.map((job) => job.ownerId)).size).toBe(1);
+  });
+
+  /**
+   * The refund preset, pinned end to end.
+   *
+   * It exists to be looked at — it is the only scenario whose April hands money back at a scale a
+   * chart can show — so the figures it produces are the ones manual QA compares against, and they
+   * are held here rather than left to drift.
+   */
+  it("zeroes exactly the six unpaid months of the career-break preset", () => {
+    const preset = presetById("career-break");
+    const job = presetState(preset).scenario.plan.primary.jobs[0];
+    expect(job?.incomeOverrides?.map((o) => o.month)).toEqual([6, 7, 8, 9, 10, 11]);
+    expect(job?.incomeOverrides?.every((o) => o.kind === "setTo" && o.cents === 0)).toBe(true);
+  });
+
+  it("turns that half-year into a visible April refund the following year", () => {
+    const series = Projection.fromState(
+      presetState(presetById("career-break")),
+      usJurisdiction,
+    ).run(usJurisdiction).series;
+    const april = series.months[15]!.flows!;
+    // Big enough to read off a chart, and the only preset in that range: every other April is a
+    // balance DUE, of a few dollars to a few hundred.
+    expect(april.taxSettlementCents).toBe(-454_011);
+    expect(-april.taxSettlementCents).toBeGreaterThan(dollarsToCents(3_000));
+    expect(-april.taxSettlementCents).toBeLessThan(dollarsToCents(10_000));
+    // The refund exceeds the month's own withholding, so `taxCents` itself goes NEGATIVE — the
+    // shape that made the tax chart's clamp visible in the first place.
+    expect(april.taxCents).toBeLessThan(0);
+  });
+
+  it("keeps April's own withholding and FICA intact behind that refund", () => {
+    const series = Projection.fromState(
+      presetState(presetById("career-break")),
+      usJurisdiction,
+    ).run(usJurisdiction).series;
+    const [march, april, may] = [14, 15, 16].map((m) => series.months[m]!.flows!);
+    // Pay is level either side, so April's own withholding is its neighbours' — the refund
+    // settles a different year and must not touch it.
+    const withheld = (f: typeof april) => f.taxCents - f.taxSettlementCents;
+    expect(withheld(april!)).toBe(withheld(march!));
+    expect(withheld(april!)).toBe(withheld(may!));
+    expect(april!.payrollTaxCents).toBe(march!.payrollTaxCents);
+  });
+
+  it("stays solvent throughout, so the refund is not read against a plan collapsing under it", () => {
+    const result = Projection.fromState(
+      presetState(presetById("career-break")),
+      usJurisdiction,
+    ).run(usJurisdiction);
+    expect(result.series.months.slice(0, 24).some((m) => m.isInsolvent)).toBe(false);
   });
 
   it("falls back to the default preset for an unknown id", () => {
