@@ -217,8 +217,8 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
       id: "payroll-only-10",
       computeTaxCents: () => 0,
       computeTaxByCategoryCents: () => ({}),
-      computePayrollTaxCents: (byCat) => Math.round((byCat.ordinaryIncome ?? 0) * 0.1),
-      computePayrollTaxByCategoryCents: (byCat) => {
+      computePayrollWithholdingCents: (byCat) => Math.round((byCat.ordinaryIncome ?? 0) * 0.1),
+      computePayrollWithholdingByCategoryCents: (byCat) => {
         const t = Math.round((byCat.ordinaryIncome ?? 0) * 0.1);
         return t > 0 ? { ordinaryIncome: t } : {};
       },
@@ -698,13 +698,10 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
     // Every slice's applied amount is its own net; no slice flattens gross into the amount.
     for (const s of slices) expect(s.amountCents).toBe(s.withdrawal!.netDeliveredCents);
 
-    // The month's liquidation funds TWO things: the obligations, and the estimated tax
-    // instalment on the decumulation itself, which the year-start estimate now anticipates. Only
-    // the first is partitioned across obligations — the tax funds none of them — so the slices
-    // sum to the balance drop NET of the tax charged. The difference is the tax, not a lost cent.
-    const grossReduction =
-      dollarsToCents(100000) - month.accountBalancesCents["pretax"] - month.flows!.taxCents;
-    expect(month.flows!.taxCents).toBeGreaterThan(0);
+    // Nothing is withheld from a pre-tax withdrawal — no payroll system sees one — so the whole
+    // liquidation funds the obligations and nothing else. The tax on it is the following April's.
+    expect(month.flows!.taxCents).toBe(0);
+    const grossReduction = dollarsToCents(100000) - month.accountBalancesCents["pretax"];
     const sum = (pick: (w: NonNullable<(typeof slices)[number]["withdrawal"]>) => number) =>
       slices.reduce((t, s) => t + pick(s.withdrawal!), 0);
     // The slices partition that liquidation exactly: gross sums to it, and tax sums to gross

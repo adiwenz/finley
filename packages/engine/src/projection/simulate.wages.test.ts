@@ -102,3 +102,53 @@ describe("wagesByOwner — a household with a past, current and future job", () 
     expect(primaryWagesAt(afterEveryJob)).toEqual(EMPTY_MONTHLY_WAGES);
   });
 });
+
+describe("an authored bonus reaches payroll as SUPPLEMENTAL wages", () => {
+  /**
+   * The whole path, end to end: a user adds a bonus on a job → `compilePerson` separates the
+   * one-off slice from the standing salary → the waterfall hands both halves to the jurisdiction
+   * → the jurisdiction withholds on them by different methods.
+   *
+   * A stub jurisdiction reports what it was ASKED rather than what it charged, because the
+   * question here is whether the separation survives compilation, not what any rate comes to.
+   */
+  it("hands the bonus to the withholding seam apart from the salary it rides on", () => {
+    const seen: { regular: number; supplemental: number }[] = [];
+    const onlyCurrentJob: Plan = {
+      ...samplePlan,
+      primary: { ...samplePlan.primary, jobs: [CURRENT_JOB] },
+    };
+    const projection = Projection.fromState(stateOf(onlyCurrentJob), nullJurisdiction);
+    projection.addJobIncomeOverride(CURRENT_JOB.id, {
+      month: 4,
+      kind: "addBonus",
+      cents: dollarsToCents(10_000),
+    });
+
+    projection.run({
+      ...nullJurisdiction,
+      computeWageWithholdingCents: (request) => {
+        if (request.taxCategory === "wages" && request.regularWagesCents > 0) {
+          seen.push({
+            regular: request.regularWagesCents,
+            supplemental: request.supplementalWagesCents,
+          });
+        }
+        return 0;
+      },
+    });
+
+    // The bonus reaches payroll as SUPPLEMENTAL, and nothing else in the run does.
+    const withBonus = seen.filter((p) => p.supplemental > 0);
+    const withoutBonus = seen.filter((p) => p.supplemental === 0);
+    expect(withBonus.length).toBeGreaterThan(0);
+    expect(new Set(withBonus.map((p) => p.supplemental))).toEqual(
+      new Set([dollarsToCents(10_000) * (1 - 0.1)]),
+    );
+    // And — the point — the salary underneath the bonus is what an ordinary month pays. A bonus
+    // folded into the standing pay would arrive as a one-month raise and be annualized as one.
+    expect(new Set(withBonus.map((p) => p.regular))).toEqual(
+      new Set([withoutBonus[0]!.regular]),
+    );
+  });
+});

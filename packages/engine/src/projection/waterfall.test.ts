@@ -6,6 +6,7 @@ import {
 } from "./waterfallInvariants";
 import type { SimGoal } from "../goal/goal";
 import { dollarsToCents } from "../money/cashFlowSeries";
+import { flatWageWithholding } from "../testing/mockJurisdiction";
 
 function makeInput(over: Partial<WaterfallInput>): WaterfallInput {
   return {
@@ -19,6 +20,8 @@ function makeInput(over: Partial<WaterfallInput>): WaterfallInput {
     liquidAccountId: "checking",
     remainingDeferralRoomCents: () => Infinity,
     remainingCombinedDepositRoomCents: () => Infinity,
+    payPeriodsPerYear: 12,
+    periodsRemainingInTaxYear: 12,
     ...over,
   };
 }
@@ -297,21 +300,156 @@ describe("runWaterfall — federal income tax is never PRICED here, only charged
     expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(4000));
   });
 
-  it("deducts the caller's estimated instalment as a FIXED amount, unrelated to the month's income", () => {
-    const instalment = dollarsToCents(700);
+  it("deducts a settled prior-year balance as a FIXED amount, unrelated to the month's income", () => {
+    const balance = dollarsToCents(700);
     const withIncome = runWaterfall(
       makeInput({
         incomeSources: [wageSource("p1", dollarsToCents(5000))],
-        estimatedIncomeTaxCents: () => instalment,
+        settlementCashCents: () => balance,
       }),
     );
-    expect(withIncome.taxCents).toBe(instalment);
+    expect(withIncome.taxCents).toBe(balance);
     expect(withIncome.accountDepositsCents.get("checking")).toBe(dollarsToCents(4300));
-    // The same instalment in a month with NO income at all: an annual liability is paid on its
-    // own schedule, so a zero-income month still owes it and the gap falls to the cascade.
-    const noIncome = runWaterfall(makeInput({ estimatedIncomeTaxCents: () => instalment }));
-    expect(noIncome.taxCents).toBe(instalment);
-    expect(noIncome.shortfallCents).toBe(instalment);
+    // The same balance in a month with NO income at all: it is last year's liability falling due
+    // on its own date, so a zero-income April still owes it and the gap falls to the cascade.
+    const noIncome = runWaterfall(makeInput({ settlementCashCents: () => balance }));
+    expect(noIncome.taxCents).toBe(balance);
+    expect(noIncome.shortfallCents).toBe(balance);
+  });
+
+  it("withholds from each paycheck on that paycheck alone, and nothing from non-wage income", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [
+          wageSource("p1", dollarsToCents(5000)),
+          {
+            ownerId: "p1",
+            waterfallInflowCents: dollarsToCents(3000),
+            taxCategory: "ordinaryIncome",
+            sourceId: "ira",
+          },
+        ],
+        computeWageWithholdingCents: flatWageWithholding(0.1),
+      }),
+    );
+    expect(r.wageWithholdingCents).toBe(dollarsToCents(500));
+    expect(r.wageWithholdingBySourceCents).toEqual({ wages: dollarsToCents(500) });
+    // $8,000 in, $500 withheld — the IRA draw contributed nothing to the withholding.
+    expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(7500));
+  });
+
+  it("prices a bonus apart from the salary it rides on, without annualizing it", () => {
+    // A seam that annualizes regular pay but flat-rates the supplemental slice, so the two halves
+    // are distinguishable in the result.
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [
+          {
+            ownerId: "p1",
+            waterfallInflowCents: dollarsToCents(15000),
+            supplementalCents: dollarsToCents(10000),
+            taxCategory: "wages",
+            sourceId: "job:1",
+          },
+        ],
+        computeWageWithholdingCents: (request) => {
+          expect(request.regularWagesCents).toBe(dollarsToCents(5000));
+          expect(request.payPeriodsPerYear).toBe(12);
+          return Math.round(request.regularWagesCents * 0.1 + request.supplementalWagesCents * 0.22);
+        },
+      }),
+    );
+    expect(r.wageWithholdingCents).toBe(dollarsToCents(500) + dollarsToCents(2200));
+  });
+
+  it("tells a jurisdiction what every source of the same kind is paying a person this period", () => {
+    const seen: (readonly number[])[] = [];
+    runWaterfall(
+      makeInput({
+        incomeSources: [
+          { ...wageSource("p1", dollarsToCents(4000)), sourceId: "job:1" },
+          { ...wageSource("p1", dollarsToCents(3000)), sourceId: "job:2" },
+        ],
+        computeWageWithholdingCents: (request) => {
+          seen.push(request.concurrentRegularWagesCents);
+          return 0;
+        },
+      }),
+    );
+    // Highest-paying first, both times — the ordering a multiple-jobs correction picks its bearer
+    // from, and identical for every source because it describes the PERSON, not the source.
+    expect(seen).toEqual([
+      [dollarsToCents(4000), dollarsToCents(3000)],
+      [dollarsToCents(4000), dollarsToCents(3000)],
+    ]);
+  });
+
+  it("flags exactly one source — the highest-paying — to carry a multiple-jobs correction", () => {
+    const bearers: string[] = [];
+    runWaterfall(
+      makeInput({
+        incomeSources: [
+          { ...wageSource("p1", dollarsToCents(3000)), sourceId: "job:small" },
+          { ...wageSource("p1", dollarsToCents(4000)), sourceId: "job:big" },
+          // A different provenance entirely: it shares no brackets with the jobs as far as the
+          // engine is concerned, so it is grouped and flagged on its own.
+          { ...wageSource("p2", dollarsToCents(9000)), sourceId: "job:partner" },
+        ],
+        computeWageWithholdingCents: (request) => {
+          if (request.bearsMultipleJobsAdjustment) bearers.push(String(request.regularWagesCents));
+          return 0;
+        },
+      }),
+    );
+    expect(bearers).toEqual([
+      String(dollarsToCents(4000)),
+      String(dollarsToCents(9000)),
+    ]);
+  });
+
+  it("rolls a person's other sources up per category, so one employer never sees another's pay", () => {
+    const asked: string[] = [];
+    runWaterfall(
+      makeInput({
+        incomeSources: [{ ...wageSource("p1", dollarsToCents(4000)), sourceId: "job:1" }],
+        priorPersonWageYearToDate: (personId, taxCategory) => {
+          asked.push(`${personId}|${taxCategory}`);
+          return { wagesCents: dollarsToCents(20_000), withholdingCents: dollarsToCents(2_000) };
+        },
+        computeWageWithholdingCents: (request) => {
+          expect(request.priorPersonWagesCents).toBe(dollarsToCents(20_000));
+          expect(request.priorPersonWithholdingCents).toBe(dollarsToCents(2_000));
+          return 0;
+        },
+      }),
+    );
+    expect(asked).toEqual(["p1|wages"]);
+  });
+
+  it("carries only the regular half of a bonus month into the year-to-date", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [
+          {
+            ownerId: "p1",
+            waterfallInflowCents: dollarsToCents(15000),
+            supplementalCents: dollarsToCents(10000),
+            taxCategory: "wages",
+            sourceId: "job:1",
+          },
+        ],
+        computeWageWithholdingCents: (request) =>
+          Math.round(request.regularWagesCents * 0.1 + request.supplementalWagesCents * 0.22),
+      }),
+    );
+    const ytd = r.sourceYearToDateDeltas.get("p1")?.get("job:1");
+    // The month withheld $2,700 all told, but the basis a later multiple-jobs correction measures
+    // itself against carries the $5,000 of regular pay and the $500 it produced — and NOT the
+    // bonus. Otherwise next month would withhold as though the person had been given a raise.
+    expect(ytd?.wageWithholdingCents).toBe(dollarsToCents(2700));
+    expect(ytd?.regularWagesCents).toBe(dollarsToCents(5000));
+    expect(ytd?.regularWithholdingCents).toBe(dollarsToCents(500));
+    expect(ytd?.supplementalWagesCents).toBe(dollarsToCents(10000));
   });
 
   it("carries the month's taxable base back to the caller, unrelated to what it charged", () => {
@@ -836,8 +974,8 @@ describe("runWaterfall — unfunded deductions (deductions beyond the waterfall'
   const flatFica20 = (byCat: Partial<Record<string, number>>): number =>
     Math.round((byCat.wages ?? 0) * 0.2);
   const fica20Seam = {
-    computePayrollTaxCents: flatFica20,
-    computePayrollTaxByCategoryCents: separableBreakdown(flatFica20),
+    computePayrollWithholdingCents: flatFica20,
+    computePayrollWithholdingByCategoryCents: separableBreakdown(flatFica20),
   };
 
   it("turns a deduction larger than the cash reaching the waterfall into a shortfall", () => {
@@ -904,9 +1042,9 @@ describe("runWaterfall — employee payroll tax (FICA) seam", () => {
   // seam is REQUIRED alongside the scalar one (runtime-enforced) — `separableBreakdown`
   // derives it since this stand-in only ever looks at `wages`.
   const flatFicaSeam = {
-    computePayrollTaxCents: (byCat: Partial<Record<string, number>>) =>
+    computePayrollWithholdingCents: (byCat: Partial<Record<string, number>>) =>
       Math.round((byCat.wages ?? 0) * 0.0765),
-    computePayrollTaxByCategoryCents: separableBreakdown((byCat) =>
+    computePayrollWithholdingByCategoryCents: separableBreakdown((byCat) =>
       Math.round((byCat.wages ?? 0) * 0.0765),
     ),
   };
@@ -949,21 +1087,28 @@ describe("runWaterfall — employee payroll tax (FICA) seam", () => {
     const cappedPayroll = (byCat: Partial<Record<string, number>>) =>
       Math.round(Math.min(byCat.wages ?? 0, dollarsToCents(6000)) * 0.1);
     const cappedSeam = {
-      computePayrollTaxCents: cappedPayroll,
-      computePayrollTaxByCategoryCents: separableBreakdown(cappedPayroll),
+      computePayrollWithholdingCents: cappedPayroll,
+      computePayrollWithholdingByCategoryCents: separableBreakdown(cappedPayroll),
     };
-    // $5,000 already earned this year; another $5,000 this month → cumulative $10,000, but
-    // only $1,000 of it is still under the $6,000 cap. Charge = 10% × $1,000 = $100.
+    // $5,000 already earned this year from this source; another $5,000 this month → cumulative
+    // $10,000, but only $1,000 of it is still under the $6,000 cap. Charge = 10% × $1,000 = $100.
     const r = runWaterfall(
       makeInput({
         incomeSources: [wageSource("p1", dollarsToCents(5000))],
-        priorEarnedByPersonCents: () => ({ wages: dollarsToCents(5000) }),
+        priorSourceYearToDate: () => ({
+          earnedByCategory: { wages: dollarsToCents(5000) },
+          supplementalWagesCents: 0,
+          wageWithholdingCents: 0,
+          regularWagesCents: 0, regularWithholdingCents: 0,
+        }),
         ...cappedSeam,
       }),
     );
     expect(r.payrollTaxCents).toBe(dollarsToCents(100));
-    // And the month's earnings are reported back for the caller's accumulator.
-    expect(r.earnedThisMonthByPersonCents.get("p1")).toEqual({ wages: dollarsToCents(5000) });
+    // And the month's earnings are reported back for the caller's accumulator, per source.
+    expect(r.sourceYearToDateDeltas.get("p1")?.get("wages")?.earnedByCategory).toEqual({
+      wages: dollarsToCents(5000),
+    });
   });
 
   it("does not charge FICA on non-wage income (retirement-account withdrawals booked ordinaryIncome)", () => {
@@ -979,12 +1124,12 @@ describe("runWaterfall — employee payroll tax (FICA) seam", () => {
     expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(4000));
   });
 
-  it("models the annual-liability semantics: two jobs' combined wages settle ONE cumulative cap, no per-employer reconciliation", () => {
-    // A worker with two jobs (two sources, same person) earning $4,000 and $3,000 this
-    // month, cap at $6,000/yr, 10% under the cap. The engine never asks "which employer",
-    // only the person's COMBINED cumulative wages — the reconciled-annual-liability model,
-    // not a per-employer withholding simulation the two jobs would otherwise each cap
-    // independently against (which would over-count the cap and under-charge combined FICA).
+  it("caps each job independently, as a real employer does — the person's combined wages are not one payroll", () => {
+    // A worker with two jobs earning $4,000 and $3,000 this month, cap at $6,000/yr, 10% under
+    // the cap. Each employer applies the cap to its OWN wages, because neither can see the
+    // other's: 10% × $4,000 + 10% × $3,000 = $700. A single combined cap would charge $600 and
+    // silently reconcile on the first of January, erasing both the over-withholding that really
+    // happens and the credit that really corrects it on the return.
     const cappedPayroll = (byCat: Partial<Record<string, number>>) =>
       Math.round(Math.min(byCat.wages ?? 0, dollarsToCents(6000)) * 0.1);
     const r = runWaterfall(
@@ -993,14 +1138,13 @@ describe("runWaterfall — employee payroll tax (FICA) seam", () => {
           { ownerId: "p1", waterfallInflowCents: dollarsToCents(4000), taxCategory: "wages", sourceId: "jobA" },
           { ownerId: "p1", waterfallInflowCents: dollarsToCents(3000), taxCategory: "wages", sourceId: "jobB" },
         ],
-        computePayrollTaxCents: cappedPayroll,
-        computePayrollTaxByCategoryCents: separableBreakdown(cappedPayroll),
+        computePayrollWithholdingCents: cappedPayroll,
+        computePayrollWithholdingByCategoryCents: separableBreakdown(cappedPayroll),
       }),
     );
-    // Combined $7,000 against a $6,000 cap → only $6,000 is charged: 10% × $6,000 = $600,
-    // NOT 10% × $4,000 + 10% × $3,000 = $700 (what two independent per-employer caps would
-    // wrongly allow through).
-    expect(r.payrollTaxCents).toBe(dollarsToCents(600));
+    expect(r.payrollTaxCents).toBe(dollarsToCents(700));
+    expect(r.payrollTaxBySourceCents.jobA).toBe(dollarsToCents(400));
+    expect(r.payrollTaxBySourceCents.jobB).toBe(dollarsToCents(300));
   });
 
   it("attributes payroll tax back to the source that generated it — a bonus source and a base-salary source split proportionally to earned amount", () => {
@@ -1013,10 +1157,10 @@ describe("runWaterfall — employee payroll tax (FICA) seam", () => {
         ...flatFicaSeam,
       }),
     );
-    // 7.65% × $5,000 = $382.50 total, split 4:1 between salary and bonus.
+    // 7.65% of each source's own wages: $306 on the salary, $76.50 on the bonus.
     expect(r.payrollTaxCents).toBe(38250);
-    expect(r.payrollTaxBySourceCents.salary).toBe(30600); // 4/5 × 38250
-    expect(r.payrollTaxBySourceCents.bonus).toBe(7650); // 1/5 × 38250
+    expect(r.payrollTaxBySourceCents.salary).toBe(30600);
+    expect(r.payrollTaxBySourceCents.bonus).toBe(7650);
     expect(
       (r.payrollTaxBySourceCents.salary ?? 0) + (r.payrollTaxBySourceCents.bonus ?? 0),
     ).toBe(r.payrollTaxCents);

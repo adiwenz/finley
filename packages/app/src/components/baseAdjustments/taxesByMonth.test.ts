@@ -319,3 +319,198 @@ describe("buildTaxChartData — payroll tax (FICA) bands", () => {
     ]);
   });
 });
+
+/**
+ * April, the one month whose tax is not what a paycheck withheld.
+ *
+ * The chart's contract is TAX PAID. `flows.taxCents` is not that in a filing month: it carries a
+ * signed settlement, and `taxBySourceCents` carries that settlement's proportional attribution —
+ * which goes negative on whichever job the multiple-jobs correction had been concentrating
+ * withholding on. Clamping those bands at zero and stacking the rest is how a real $1,828.38
+ * balance came to be drawn as $3,665.00.
+ */
+describe("buildTaxChartData — April, and what a settlement is allowed to draw", () => {
+  /**
+   * A filing month as the engine really reports one: `taxCents` is the month's withholding plus
+   * the SIGNED settlement, `taxBySourceCents` is that same total apportioned, and
+   * `taxSettlementBySourceCents` is the settlement's own slice of it — signed, and summing to
+   * `taxSettlementCents`.
+   */
+  function filingMonth(spec: {
+    readonly withholding: Readonly<Record<string, number>>;
+    readonly settlementBySource?: Readonly<Record<string, number>>;
+    readonly payrollTax?: Readonly<Record<string, number>>;
+    readonly labels?: Readonly<Record<string, string>>;
+  }): ProjectionSeries {
+    const settlementBySource = spec.settlementBySource ?? {};
+    const payrollTax = spec.payrollTax ?? {};
+    const settlementCents = Object.values(settlementBySource).reduce((s, c) => s + c, 0);
+    const taxBySourceCents: Record<string, number> = { ...spec.withholding };
+    for (const [id, cents] of Object.entries(settlementBySource)) {
+      taxBySourceCents[id] = (taxBySourceCents[id] ?? 0) + cents;
+    }
+    const withheld = Object.values(spec.withholding).reduce((s, c) => s + c, 0);
+    const ids = [...new Set([...Object.keys(taxBySourceCents), ...Object.keys(payrollTax)])];
+    const months = [
+      { month: 0 },
+      {
+        month: 1,
+        flows: {
+          taxCents: withheld + settlementCents,
+          payrollTaxCents: Object.values(payrollTax).reduce((s, c) => s + c, 0),
+          taxBySourceCents,
+          payrollTaxBySourceCents: payrollTax,
+          taxSettlementCents: settlementCents,
+          taxSettlementBySourceCents: settlementBySource,
+          incomeSources: ids.map((id) => ({
+            sourceId: id,
+            label: spec.labels?.[id] ?? id,
+            category: id.startsWith("job") ? "wages" : "savingsInterest",
+            cashInflowCents: dollarsToCents(1),
+            netCashFlowCents: 0,
+          })),
+        },
+      },
+    ];
+    return { months } as unknown as ProjectionSeries;
+  }
+
+  /** The real two-jobs April: a $1,828.38 bill whose attribution swings ±$3,400. */
+  const twoJobsApril = () =>
+    filingMonth({
+      withholding: { "job:job-1": 157249, "job:job-2": 18463 },
+      settlementBySource: { "job:job-1": -340911, "job:job-2": 343439, "interest:savings": 4598 },
+      payrollTax: { "job:job-1": 63036, "job:job-2": 23638 },
+      labels: { "job:job-1": "Main job", "job:job-2": "Second job", "interest:savings": "Savings" },
+    });
+
+  it("draws a balance due as ONE settlement band of the amount actually paid", () => {
+    const row = buildTaxChartData(twoJobsApril()).rows[0]!;
+    expect(row.centsBySource["tax-settlement"]).toBe(7126);
+    expect(row.settlementCents).toBe(7126);
+    expect(row.settlementPaidCents).toBe(7126);
+    expect(row.refundCents).toBe(0);
+  });
+
+  it("never bands the settlement's per-source attribution — the negative one included", () => {
+    const data = buildTaxChartData(twoJobsApril());
+    const row = data.rows[0]!;
+    // The wrong answer is job-2 at $3,619.02 and savings at $45.98: the positive attribution
+    // pieces, stacked, with the −$3,409.11 dropped by the clamp.
+    expect(row.centsBySource["job:job-2"]).toBe(18463);
+    expect(row.centsBySource["interest:savings"]).toBeUndefined();
+    expect(data.sources.map((s) => s.id)).not.toContain("interest:savings");
+    expect(Object.values(row.centsBySource).every((c) => c >= 0)).toBe(true);
+  });
+
+  it("stacks to the tax the household ACTUALLY paid, not to the clamped attribution", () => {
+    const row = buildTaxChartData(twoJobsApril()).rows[0]!;
+    const banded = Object.values(row.centsBySource).reduce((s, c) => s + c, 0);
+    // Withholding 1,757.12 + FICA 866.74 + settlement 71.26. The clamped stack read 3,665.00
+    // for the income-tax half alone, against 1,828.38 really charged.
+    expect(banded).toBe(157249 + 18463 + 63036 + 23638 + 7126);
+    expect(row.taxCents).toBe(banded);
+    const incomeTaxBands = 157249 + 18463 + 7126;
+    expect(incomeTaxBands).toBe(182838); // === flows.taxCents, to the cent
+  });
+
+  it("keeps the signed attribution on the row for the tooltip and for reconciliation", () => {
+    const data = buildTaxChartData(twoJobsApril());
+    const row = data.rows[0]!;
+    expect(row.settlementBySourceCents).toEqual({
+      "job:job-1": -340911,
+      "job:job-2": 343439,
+      "interest:savings": 4598,
+    });
+    const net = Object.values(row.settlementBySourceCents).reduce((s, c) => s + c, 0);
+    expect(net).toBe(row.settlementCents);
+    // And it can be named, even for a source carrying no band this month.
+    expect(data.sourceLabels["interest:savings"]).toBe("Savings");
+  });
+
+  it("contributes NOTHING to the tax chart when the filing produces a refund", () => {
+    const row = buildTaxChartData(
+      filingMonth({
+        withholding: { "job:job-1": dollarsToCents(1500) },
+        settlementBySource: { "job:job-1": dollarsToCents(-3000) },
+      }),
+    ).rows[0]!;
+    expect(row.centsBySource["tax-settlement"]).toBeUndefined();
+    expect(row.settlementPaidCents).toBe(0);
+    expect(row.refundCents).toBe(dollarsToCents(3000));
+  });
+
+  it("leaves April's own withholding and FICA fully visible behind a refund", () => {
+    const row = buildTaxChartData(
+      filingMonth({
+        withholding: { "job:job-1": dollarsToCents(1100) },
+        payrollTax: { "job:job-1": dollarsToCents(400) },
+        settlementBySource: { "job:job-1": dollarsToCents(-3000) },
+      }),
+    ).rows[0]!;
+    // The refund does not net against the paycheck: $1,500 really left the household.
+    expect(row.centsBySource["job:job-1"]).toBe(dollarsToCents(1100));
+    expect(row.centsBySource["job:job-1::fica"]).toBe(dollarsToCents(400));
+    expect(row.taxCents).toBe(dollarsToCents(1500));
+  });
+
+  it("draws flat zero for a retiree whose April is a refund and nothing else", () => {
+    const row = buildTaxChartData(
+      filingMonth({ withholding: {}, settlementBySource: { "interest:savings": dollarsToCents(-3000) } }),
+    ).rows[0]!;
+    expect(row.taxCents).toBe(0);
+    expect(row.centsBySource).toEqual({});
+    expect(row.refundCents).toBe(dollarsToCents(3000));
+  });
+
+  it("leaves an ordinary non-filing month exactly as it was", () => {
+    const row = buildTaxChartData(
+      filingMonth({
+        withholding: { "job:job-1": 157249, "job:job-2": 18463 },
+        payrollTax: { "job:job-1": 63036 },
+      }),
+    ).rows[0]!;
+    expect(row.centsBySource).toEqual({
+      "job:job-1": 157249,
+      "job:job-2": 18463,
+      "job:job-1::fica": 63036,
+    });
+    expect(row.settlementCents).toBe(0);
+    expect(row.refundCents).toBe(0);
+    expect(row.taxCents).toBe(157249 + 18463 + 63036);
+  });
+
+  it("keeps federal withholding banded per job through a filing month", () => {
+    const data = buildTaxChartData(twoJobsApril());
+    const federal = data.sources.filter((s) => s.kind === "incomeTax");
+    expect(federal.map((s) => s.label)).toEqual(["Main job", "Second job"]);
+    const row = data.rows[0]!;
+    expect(row.centsBySource["job:job-1"]).toBe(157249);
+    expect(row.centsBySource["job:job-2"]).toBe(18463);
+  });
+
+  it("keeps FICA banded per job, apart from both withholding and the settlement", () => {
+    const data = buildTaxChartData(twoJobsApril());
+    expect(data.sources.filter((s) => s.kind === "payrollTax").map((s) => s.label)).toEqual([
+      "Main job — FICA",
+      "Second job — FICA",
+    ]);
+    const settlement = data.sources.filter((s) => s.kind === "settlement");
+    expect(settlement).toEqual([
+      { id: "tax-settlement", label: "Tax settlement", category: "tax-settlement", kind: "settlement" },
+    ]);
+    // Last in the stack: a once-a-year event reads as one, on top.
+    expect(data.sources[data.sources.length - 1]!.kind).toBe("settlement");
+  });
+
+  it("counts only tax paid in the lifetime total and the peak, so a refund inflates neither", () => {
+    const data = buildTaxChartData(
+      filingMonth({
+        withholding: { "job:job-1": dollarsToCents(1500) },
+        settlementBySource: { "job:job-1": dollarsToCents(-3000) },
+      }),
+    );
+    expect(data.totalCents).toBe(dollarsToCents(1500));
+    expect(data.peakMonthlyCents).toBe(dollarsToCents(1500));
+  });
+});

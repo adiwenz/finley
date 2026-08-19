@@ -10,6 +10,7 @@ import { apportionByWeight } from "@finley/engine";
 import { formatDollars } from "../../format";
 import { toAxisX } from "../monthAxis";
 import {
+  TAX_REFUND_CATEGORY,
   describeIncomeGap,
   incomeBandsForMode,
   type IncomeBasis,
@@ -34,6 +35,9 @@ const BENEFIT_COLORS = ["#2f6b66", "#5aa39a"];
 // Living off savings is NOT income — a muted earth family, set apart from the cool income
 // bands above it.
 const DRAW_COLORS = ["#c6b784", "#b08968", "#9c8459", "#d8c79a"];
+// A tax refund is cash arriving, but from a filing rather than from work or from capital — one
+// muted violet of its own, so it is not mistaken for either family it sits between.
+const TAX_REFUND_COLOR = "#7a6a8c";
 
 /**
  * Each family is walked in band order, which is stable across the Simple/Advanced toggle — so a
@@ -45,7 +49,8 @@ function colorsForBands(sources: readonly IncomeSourceBand[]): Map<string, strin
   let benefit = 0;
   let draw = 0;
   for (const s of sources) {
-    if (s.category === "wages") colors.set(s.id, WAGE_COLORS[wage++ % WAGE_COLORS.length]!);
+    if (s.category === TAX_REFUND_CATEGORY) colors.set(s.id, TAX_REFUND_COLOR);
+    else if (s.category === "wages") colors.set(s.id, WAGE_COLORS[wage++ % WAGE_COLORS.length]!);
     else if (s.category === "governmentRetirementBenefit") {
       colors.set(s.id, BENEFIT_COLORS[benefit++ % BENEFIT_COLORS.length]!);
     } else colors.set(s.id, DRAW_COLORS[draw++ % DRAW_COLORS.length]!);

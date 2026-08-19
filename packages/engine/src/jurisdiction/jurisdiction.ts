@@ -61,6 +61,83 @@ export interface WithdrawalTaxBasis {
   readonly category: TaxCategory;
 }
 
+/**
+ * One wage source's payment for ONE pay period, as a payroll system would see it — the input to
+ * {@link Jurisdiction.computeWageWithholdingCents}.
+ *
+ * Every field is a fact about the PAST or the PRESENT — this period's pay, what the year has
+ * already paid and withheld, how many periods are left. NOTHING here describes a month that has
+ * not happened, and that omission IS the causality guarantee: a figure computed from these fields
+ * cannot depend on the future, and cannot be revised once the period is paid. Where a real
+ * taxpayer would look ahead, the model does what the IRS's own worksheets do and extends the
+ * CURRENT period forward, which is knowledge, not foresight.
+ *
+ * Two scopes, and the difference matters. The per-SOURCE cumulative fields are what one employer
+ * genuinely tracks about itself, and band that employer's own rates. The per-PERSON ones are what
+ * the employee knows and their employers do not, and exist because withholding forms ask the
+ * employee to correct for exactly that gap.
+ */
+export interface WageWithholdingRequest {
+  /**
+   * The source's provenance, so the jurisdiction decides for itself which flows payroll
+   * withholds against. The engine consults this seam for EVERY income source and lets the answer
+   * be zero, exactly as it does for payroll tax — keeping "a wage is withheld against, a pension
+   * draw is not" a jurisdiction fact rather than an engine one.
+   */
+  readonly taxCategory: TaxCategory;
+  /**
+   * This period's RECURRING wages from this source, already net of any pre-tax deferral — the
+   * deferral reduces the income-tax base even where it leaves the payroll-tax base alone.
+   */
+  readonly regularWagesCents: Cents;
+  /**
+   * This period's one-off wages from the same source — a bonus. Separated because a jurisdiction
+   * may (and the US does) withhold on them by a different method precisely so that a one-off
+   * payment is not read as a permanent pay rise.
+   */
+  readonly supplementalWagesCents: Cents;
+  /** Supplemental wages this source already paid EARLIER in the year, for banded rates. */
+  readonly priorSupplementalWagesCents: Cents;
+  /**
+   * Income tax this source has already withheld earlier in the year. A jurisdiction may condition
+   * the supplemental method on whether anything has been withheld at all (the US does).
+   */
+  readonly priorRegularWithholdingCents: Cents;
+  /** How many periods of this size the year holds — the annualization factor. */
+  readonly payPeriodsPerYear: number;
+  /**
+   * Periods left in the tax year, THIS one included — 12 in January, 1 in December. The horizon a
+   * prospective mid-year correction has left to spread itself over.
+   */
+  readonly remainingPayPeriods: number;
+  /**
+   * This period's regular wages from EVERY source of this same {@link taxCategory} paying the
+   * person, this one included, highest first. A withholding form asks the employee about their
+   * OTHER jobs precisely because independent employers each price their own wages as if they were
+   * the person's only income, and the brackets are shared.
+   */
+  readonly concurrentRegularWagesCents: readonly Cents[];
+  /**
+   * True for the ONE source carrying the person's multiple-jobs correction — the highest-paying,
+   * as the W-4's own worksheet directs. Every other source withholds its own wages untouched, so
+   * the correction is applied once rather than once per employer.
+   */
+  readonly bearsMultipleJobsAdjustment: boolean;
+  /**
+   * The person's REGULAR wages of this category from ALL sources so far this year, after pre-tax
+   * deferral — including sources that have since stopped paying.
+   *
+   * Supplemental wages are excluded, and so is the withholding they produced. A bonus is not a
+   * rate of pay: counting one here would have every later paycheck withhold as though the person
+   * had been given a raise, and would quietly undo the whole point of withholding a bonus by a
+   * separate method. Whatever the flat rate got wrong about a bonus is a matter for the annual
+   * liability and the settlement that follows it, not for next month's payslip.
+   */
+  readonly priorPersonWagesCents: Cents;
+  /** Income tax already withheld against those regular wages, by all of those sources. */
+  readonly priorPersonWithholdingCents: Cents;
+}
+
 export interface ReturnTaxTreatment {
   readonly taxAtAccrual: boolean;
   /** Moot when `taxAtAccrual` is false. */
@@ -82,13 +159,15 @@ export interface Jurisdiction {
    * jurisdiction owns what share of each is taxed, and at what rate.
    *
    * ANNUAL in, ANNUAL out: `taxableByCategory` is a FULL CALENDAR YEAR of taxable income by
-   * category — never a monthly slice. The engine calls it twice a year: once on the income the
-   * year is SCHEDULED to bring, to pace twelve even estimated payments, and once at year-end
-   * on the year's ACTUAL accumulated total, to reconcile against them (see {@link
-   * import("../projection/runState").SimState}'s two accumulators). The engine owns collecting
-   * both totals and all payment timing; this seam only prices a year. Calling it on anything
-   * less than a full year (a monthly slice, an annualized ×12 estimate) misprices lumpy income
-   * — the engine never does this.
+   * category — never a monthly slice. AUTHORITATIVE: this is what the year actually OWES, priced
+   * once, at the year's close, on the income that actually arrived (see {@link
+   * import("../projection/runState").SimState.taxableIncomeByPersonYear}). What was withheld
+   * against it during the year is a separate, deliberately approximate figure
+   * ({@link computeWageWithholdingCents}); the difference is the refund or balance due.
+   *
+   * The engine owns collecting the year's total and all payment timing; this seam only prices a
+   * year. Calling it on anything less than a full year (a monthly slice, an annualized ×12
+   * estimate) misprices lumpy income — the engine never does this.
    */
   computeTaxCents(
     taxableByCategory: Partial<Record<TaxCategory, Cents>>,
@@ -124,10 +203,8 @@ export interface Jurisdiction {
    * average-cost); the engine reduces basis by `grossCents − taxable`, so the state update
    * stays method-agnostic.
    *
-   * The year-start estimate's decumulation fixed point ({@link
-   * import("../projection/taxYearProjection").projectKnownTaxYear}) probes it repeatedly, so it
-   * MUST be pure and monotone non-decreasing in `grossCents` — that is what lets the estimate
-   * climb to its least fixed point. Absent → the whole `grossCents` is taxable.
+   * MUST be pure and monotone non-decreasing in `grossCents`, so that drawing more from an
+   * account never books less taxable income. Absent → the whole `grossCents` is taxable.
    */
   taxableWithdrawalCents?(basis: WithdrawalTaxBasis, ctx: JurisdictionContext): Cents;
 
@@ -140,56 +217,85 @@ export interface Jurisdiction {
   returnTaxTreatment?(returnKind: AccountReturnKind, ctx: JurisdictionContext): ReturnTaxTreatment;
 
   /**
-   * Employee payroll tax (US: FICA) — the person's ANNUAL EMPLOYEE PAYROLL-TAX LIABILITY on
-   * their CUMULATIVE year-to-date EARNED income by category, distinct from {@link
-   * computeTaxCents}: its base is the FULL pre-deferral gross (a 401(k) deferral cuts income
-   * tax, never payroll tax) and its category set is earned income only, so a
-   * retirement-account withdrawal booked `ordinaryIncome` bears none.
+   * Federal income tax WITHHELD from one wage source's pay for one period — the paycheck-level
+   * counterpart to {@link computeTaxCents}, and a different question from it.
    *
-   * This models a RECONCILED ANNUAL LIABILITY — the total FICA the worker owes across the
-   * whole year on their combined earned income — NOT employer-by-employer paycheck
-   * withholding. In reality each employer withholds independently against ITS OWN wages, so
-   * a worker with two jobs (or a job change mid-year) can have excess Social Security
-   * withheld across employers, refunded only at tax-return reconciliation. That per-employer
-   * over-withhold-then-refund cash-flow timing is NOT modeled here: this seam always states
-   * the correct combined-across-all-sources figure, as if reconciled on day one.
+   * {@link computeTaxCents} is authoritative and annual: it prices a whole year of every kind of
+   * income and says what is OWED. This says what payroll TAKES OUT, knowing only the period in
+   * front of it. The two disagree by construction, and the engine settles the difference on the
+   * jurisdiction's filing date rather than hiding it — see {@link
+   * import("../projection/taxYearSettlement").finalizeTaxYear}.
    *
-   * The engine feeds year-to-date totals and charges the DIFFERENCE month to month, so a
-   * capped component (OASDI's wage base) binds on cumulative earnings rather than annualized
-   * monthly slices. MUST therefore be monotone non-decreasing in each category's amount, so
-   * the difference is never a credit. Absent → no payroll tax charged.
+   * CAUSAL BY CONSTRUCTION: the request carries no forecast and no other period's figures, so a
+   * raise, a cut, a missed paycheck or a job starting mid-year changes this period's withholding
+   * and cannot reach back to change an earlier one. Non-wage income never arrives here at all —
+   * a retirement withdrawal or a realized gain is priced only by the annual seam.
+   *
+   * MUST be non-negative: withholding is money taken from a paycheck, never added to it.
+   * Absent → no income tax is withheld and the whole year's liability settles on filing.
    */
-  computePayrollTaxCents?(
-    annualEarnedByCategory: Partial<Record<TaxCategory, Cents>>,
+  computeWageWithholdingCents?(
+    request: WageWithholdingRequest,
     ctx: JurisdictionContext,
   ): Cents;
 
   /**
-   * {@link computePayrollTaxCents} broken out per {@link TaxCategory} — the jurisdiction's
-   * call, mirroring {@link computeTaxByCategoryCents}. REQUIRED whenever {@link
-   * computePayrollTaxCents} is supplied (the engine asserts this at runtime).
+   * Employee payroll tax (US: FICA) WITHHELD by ONE wage source, on that source's CUMULATIVE
+   * year-to-date earned income by category. Distinct from {@link computeTaxCents}: its base is
+   * the full pre-deferral gross (a 401(k) deferral cuts income tax, never payroll tax) and its
+   * category set is earned income only, so a retirement-account withdrawal booked
+   * `ordinaryIncome` bears none.
    *
-   * Returns the share of the person-level payroll-tax charge attributed to each income
-   * source for reporting. The engine first settles the person's COMBINED annual
-   * payroll-tax liability — subject to whatever jurisdiction rules apply (e.g. the Social
-   * Security wage cap binding on their cumulative earnings) — via {@link
-   * computePayrollTaxCents}, then attributes each month's INCREMENTAL charge back to the
-   * income sources that generated it, using this breakdown as the per-category weights. A
-   * per-category breakdown is what makes that attribution possible; a jurisdiction that
-   * charges payroll tax but declines to break it down cannot be attributed correctly.
+   * PER SOURCE, NOT PER PERSON — this is real payroll withholding, and an employer applies every
+   * cap and threshold to the wages IT paid because it cannot see the person's other jobs. A
+   * person with two jobs therefore gets each capped component applied twice, which is what really
+   * happens and what {@link reconcilePayrollTaxCents} exists to square up.
    *
-   * This is attribution FOR REPORTING ONLY. It is NOT employer-by-employer paycheck
-   * withholding, and it does not model any employer-specific payroll-tax liability — there
-   * is no such thing as one job's or one employer's payroll tax here, only the person's
-   * total, re-apportioned across sources after the fact.
-   *
-   * CONTRACT: Σ of the returned map for a given cumulative input MUST equal {@link
-   * computePayrollTaxCents} for that SAME input — enforced at runtime, to the exact cent.
+   * The engine feeds year-to-date totals and charges the DIFFERENCE month to month, so a capped
+   * component binds on cumulative earnings rather than on annualized monthly slices. MUST
+   * therefore be monotone non-decreasing in each category's amount, so the difference is never a
+   * credit. Absent → no payroll tax withheld.
    */
-  computePayrollTaxByCategoryCents?(
-    annualEarnedByCategory: Partial<Record<TaxCategory, Cents>>,
+  computePayrollWithholdingCents?(
+    sourceCumulativeEarnedByCategory: Partial<Record<TaxCategory, Cents>>,
+    ctx: JurisdictionContext,
+  ): Cents;
+
+  /**
+   * {@link computePayrollWithholdingCents} broken out per {@link TaxCategory} — the
+   * jurisdiction's call, mirroring {@link computeTaxByCategoryCents}. REQUIRED whenever
+   * {@link computePayrollWithholdingCents} is supplied (the engine asserts this at runtime), so
+   * that a month's charge can be attributed back to the income it came from for reporting.
+   *
+   * CONTRACT: Σ of the returned map for a given cumulative input MUST equal
+   * {@link computePayrollWithholdingCents} for that SAME input — enforced at runtime, to the
+   * exact cent.
+   */
+  computePayrollWithholdingByCategoryCents?(
+    sourceCumulativeEarnedByCategory: Partial<Record<TaxCategory, Cents>>,
     ctx: JurisdictionContext,
   ): Partial<Record<TaxCategory, Cents>>;
+
+  /**
+   * The payroll-tax adjustment the annual FILING makes over a year of per-source withholding —
+   * signed, positive owed, negative refunded. One entry per wage source, each that source's
+   * WHOLE-YEAR earned income by category.
+   *
+   * Exists because some payroll components are withheld per employer but owed on the person's
+   * combined wages, so the two figures genuinely differ and the law genuinely squares them up on
+   * the return (US: excess Social Security as a refundable credit, Additional Medicare on Form
+   * 8959). It is NOT a place to re-derive payroll tax the withholding already got right: a
+   * jurisdiction whose components are all uncapped, and a person with a single wage source under
+   * every cap, must reconcile to exactly zero.
+   *
+   * The engine folds the result into the same settlement it charges the income-tax balance
+   * through, so it reaches the household as cash on the filing date and never as a retroactive
+   * change to a paycheck. Absent → payroll tax is never reconciled.
+   */
+  reconcilePayrollTaxCents?(
+    annualEarnedByCategoryPerSource: readonly Partial<Record<TaxCategory, Cents>>[],
+    ctx: JurisdictionContext,
+  ): Cents;
 
   /**
    * Which income categories count toward the covered-earnings {@link EarningsRecord}

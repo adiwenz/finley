@@ -1,31 +1,41 @@
 /**
- * Federal income tax's semantics, in one place. The liability is ANNUAL — the year's taxable
- * income determines it — but it is PAID on a monthly schedule: an even twelfth of the year's
- * estimate each month, with whatever the estimate missed carried to the FOLLOWING April as a
- * balance — the way a real filing settles.
+ * Federal income tax's semantics, in one place — and the shape of the two figures that never
+ * agree.
  *
- * Every payer prices tax through {@link annualFederalTax}: the provisional schedule ({@link
- * import("./taxYearProjection").projectKnownTaxYear}), the year's estimate — which is that same
- * pricing applied to a simulated year — and the year-end close ({@link
- * import("./taxYearSettlement").finalizeTaxYear}). Routing all of them through one function is
- * what makes `actualAnnualTax − taxPaidYTD` a meaningful difference rather than a comparison of
- * two unrelated tax computations.
+ * The LIABILITY is annual: the year's taxable income, all of it, determines it, and it is knowable
+ * only once the year is over. What the household actually PAYS during the year is WITHHOLDING —
+ * whatever payroll took out of each paycheck, computed from that paycheck alone. Non-wage income
+ * has nothing withheld against it at all, because no payroll system sees it.
+ *
+ * The difference is not an error to be minimized. It is the refund or the balance due, and the
+ * year's close parks it for the following April to settle
+ * ({@link import("./taxYearSettlement").finalizeTaxYear}).
+ *
+ * {@link annualFederalTax} is the single pricing chokepoint: the year's close is the only caller,
+ * so "actual liability − withheld" is a difference of two well-defined figures rather than a
+ * comparison of two unrelated tax computations.
  */
 
 import type { Cents } from "../money/money";
-import { apportionByWeight } from "../money/money";
 import type { TaxCategory } from "../money/cashFlowSeries";
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
-import {
-  addCategory,
-  attributeTaxToSources,
-  type SourceTaxable,
-  type TaxableByCategory,
-} from "./taxAttribution";
+import { addCategory, type TaxableByCategory } from "./taxAttribution";
 import { assertPersonTaxBreakdownReconciles } from "./waterfallInvariants";
 
-/** A tax year is twelve months; the estimate is spread evenly across them. */
+/** A tax year is twelve months. */
 export const MONTHS_IN_TAX_YEAR = 12;
+
+/**
+ * A compiled income series resolves ONE figure per month, so a month IS the finest paycheck this
+ * model has and there are twelve of them a year. Every jurisdiction withholding rule that
+ * annualizes a period's pay reads this, so the model's pay-period granularity is stated once here
+ * rather than assumed at each seam.
+ *
+ * Monthly is a real IRS pay frequency with its own published percentage-method column, so nothing
+ * has to be invented to use it — the alternative, synthesizing biweekly paycheck dates a job never
+ * carried, would be a fiction with worse arithmetic and no more truth in it.
+ */
+export const PAY_PERIODS_PER_YEAR = MONTHS_IN_TAX_YEAR;
 
 /** One person's federal income-tax liability on a FULL year of taxable income. */
 export interface AnnualFederalTax {
@@ -34,27 +44,12 @@ export interface AnnualFederalTax {
   readonly byCategoryCents: TaxableByCategory;
 }
 
-/**
- * The year's estimated liability for one person, priced once at the tax year's first processed
- * month off a simulated run of that year. Held for the rest of the year so every month's
- * installment comes from the SAME estimate — a later month never re-prices from year-to-date
- * income, which is what produced large early charges and negative monthly refunds for lumpy
- * earners.
- */
-export interface EstimatedTaxYear extends AnnualFederalTax {
-  /**
-   * The forecast year's taxable income per source, the weights each installment is apportioned
-   * back across for the tax chart's bands.
-   */
-  readonly sourceWeights: readonly SourceTaxable[];
-}
-
-/** One month's estimated payment, or the running total of them. */
+/** Tax paid in one month, or the running total of what a year has paid so far. */
 export interface FederalTaxPayment {
   readonly totalCents: Cents;
   /** Σ === {@link totalCents}. */
   readonly byCategoryCents: TaxableByCategory;
-  /** Σ === {@link totalCents}, keyed like {@link SourceTaxable.key}. */
+  /** Σ === {@link totalCents}, keyed by income-source key. */
   readonly bySourceCents: Record<string, Cents>;
 }
 
@@ -78,41 +73,6 @@ export function annualFederalTax(
   const byCategoryCents = jurisdiction.computeTaxByCategoryCents(annualTaxableByCategory, ctx);
   assertPersonTaxBreakdownReconciles(personId, totalCents, byCategoryCents);
   return { totalCents, byCategoryCents };
-}
-
-/**
- * The `monthIndex`-th (0-based within the tax year) of twelve even installments. Cumulative
- * rounding, so the twelve sum to `annualCents` EXACTLY — the year-end balance is then a genuine
- * "actual minus estimated" and never a rounding residue.
- */
-export function monthlyInstallmentCents(annualCents: Cents, monthIndex: number): Cents {
-  const upTo = (n: number): Cents => Math.round((annualCents * n) / MONTHS_IN_TAX_YEAR);
-  return upTo(monthIndex + 1) - upTo(monthIndex);
-}
-
-/**
- * This month's estimated payment for one person, with the category and source splits the tax
- * chart bands on. The splits apportion the month's SCALAR installment (rather than installing
- * each category separately) so they sum to it exactly, which is what
- * `assertPersonTaxBreakdownReconciles` demands. No estimate for the year → nothing is charged.
- */
-export function estimatedPaymentForMonth(
-  estimate: EstimatedTaxYear | undefined,
-  monthIndex: number,
-): FederalTaxPayment {
-  if (estimate === undefined || estimate.totalCents <= 0) return NO_FEDERAL_TAX_PAID;
-  const totalCents = monthlyInstallmentCents(estimate.totalCents, monthIndex);
-  if (totalCents === 0) return NO_FEDERAL_TAX_PAID;
-  const byCategoryCents: TaxableByCategory = {};
-  const weights = Object.entries(estimate.byCategoryCents).map(
-    ([category, cents]) => [category, cents ?? 0] as const,
-  );
-  for (const [category, cents] of apportionByWeight(totalCents, weights)) {
-    addCategory(byCategoryCents, category as TaxCategory, cents);
-  }
-  const bySourceCents: Record<string, Cents> = {};
-  attributeTaxToSources(byCategoryCents, estimate.sourceWeights, bySourceCents);
-  return { totalCents, byCategoryCents, bySourceCents };
 }
 
 /** Fold one month's payment into a person's running year-to-date total. */

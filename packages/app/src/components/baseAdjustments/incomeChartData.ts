@@ -11,15 +11,31 @@
  * Both of those are CASH FLOW, as their names say — money reaching the household. This chart is
  * never a statement of taxable income, and the two genuinely differ: a home down payment's
  * realized gain is taxed and appears in neither.
+ *
+ * A TAX REFUND is cash reaching the household too, and gets its own band here — this is where a
+ * refund belongs, not on the tax chart as a negative tax. The engine already nets a refund into
+ * take-home, spread across whatever sources bore the year's tax, so banding it also means taking
+ * it back off those sources: {@link buildIncomeChartData} moves it rather than adding it twice,
+ * and take-home is unchanged. In a month with no income at all — a retiree's April — there was
+ * nothing to net it against and the band is the only place the money appears.
  */
 
 import { apportionByWeight, type IncomeSourceCategory, type ProjectionSeries } from "@finley/engine";
+
+/**
+ * The tax refund's band. Not an engine source: the refund is a settlement, and the engine reports
+ * it as one. Its own category, because it is neither income, a benefit, nor spending savings —
+ * and because {@link simpleBandOf} must not sweep it into "Living off savings".
+ */
+export const TAX_REFUND_BAND_ID = "tax-refund";
+export const TAX_REFUND_CATEGORY = "taxRefund";
+export const TAX_REFUND_LABEL = "Tax refund";
 
 export interface IncomeSourceBand {
   readonly id: string;
   readonly label: string;
   /** Drives band colour and display order. */
-  readonly category: IncomeSourceCategory;
+  readonly category: IncomeSourceCategory | typeof TAX_REFUND_CATEGORY;
   /**
    * Which member this band pays — the label names the kind of income, not the earner, so
    * two people's benefits are otherwise indistinguishable. Absent on household sources.
@@ -139,6 +155,12 @@ export function buildIncomeChartData(series: ProjectionSeries): IncomeChartData 
     // the bands that remain, the same rule the engine applies to tax stranded on a source that
     // banded no cash at all.
     let droppedHaircutCents = 0;
+    // Money back from last April. The engine reports the settlement signed and has ALREADY let
+    // the negative half raise take-home, spread over the sources that bore the tax — so it is
+    // folded into the dropped-haircut pool below (removing it from those sources pro rata) and
+    // re-added as its own band after. Take-home is unmoved; only its attribution is honest.
+    const refundCents = Math.max(0, -(m.flows?.taxSettlementCents ?? 0));
+    droppedHaircutCents += refundCents;
     for (const s of sources) {
       if (s.cashInflowCents === 0) continue;
       if (!isHouseholdCashFlow(s.category)) {
@@ -175,6 +197,24 @@ export function buildIncomeChartData(series: ProjectionSeries): IncomeChartData 
         takeHomeCents -= share;
       }
     }
+    // After the apportionment, so the refund is not a weight in its own redistribution.
+    if (refundCents > 0) {
+      centsBySource[TAX_REFUND_BAND_ID] = (centsBySource[TAX_REFUND_BAND_ID] ?? 0) + refundCents;
+      netCentsBySource[TAX_REFUND_BAND_ID] = (netCentsBySource[TAX_REFUND_BAND_ID] ?? 0) + refundCents;
+      // Gross grows by the refund — it was never in gross to begin with, being cash from a
+      // filing rather than a paycheck. Take-home does not: the pro-rata removal above already
+      // took exactly this much off the sources the engine had netted it into.
+      totalCents += refundCents;
+      takeHomeCents += refundCents;
+      if (!seen.has(TAX_REFUND_BAND_ID)) {
+        seen.set(TAX_REFUND_BAND_ID, {
+          id: TAX_REFUND_BAND_ID,
+          label: TAX_REFUND_LABEL,
+          category: TAX_REFUND_CATEGORY,
+        });
+        order.push(TAX_REFUND_BAND_ID);
+      }
+    }
     if (totalCents === 0 && firstMonthWithNoIncome === null) firstMonthWithNoIncome = m.month;
     if (m.isInsolvent && firstInsolventMonth === null) firstInsolventMonth = m.month;
     const spendingNeedCents = (m.flows?.expensesCents ?? 0) + (m.flows?.liabilityPaymentsCents ?? 0);
@@ -203,6 +243,9 @@ const SIMPLE_LIVING_OFF_SAVINGS_ID = "living-off-savings";
  */
 function simpleBandOf(band: IncomeSourceBand): IncomeSourceBand {
   if (band.category === "wages") return band;
+  // A refund stays its own band in both views. Folded into "Living off savings" it would read as
+  // the plan eating its capital in the very month it got money back.
+  if (band.category === TAX_REFUND_CATEGORY) return band;
   if (band.category === "governmentRetirementBenefit") {
     return {
       id: band.ownerId === undefined ? SIMPLE_SOCIAL_SECURITY_ID : `${SIMPLE_SOCIAL_SECURITY_ID}:${band.ownerId}`,

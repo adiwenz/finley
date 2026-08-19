@@ -47,12 +47,12 @@ export interface PrincipalDrawdownSource {
  * Federal income tax is an ANNUAL liability paid in twelfths, so the month a dollar of tax is
  * charged is routinely not the month the income arrived. A retiree's whole RMD lands in January
  * and its tax is spread over all twelve months; from February on, the RMD band carries a share of
- * the instalment and no cash at all. The per-source haircut has nothing to subtract from, so
+ * the withholding and no cash at all. The per-source haircut has nothing to subtract from, so
  * without this the tax simply disappears from the accounting and Σ `netCashFlowCents` — the
  * cash-flow chart's whole stack — claims more spendable cash than the household has. That was
  * eleven months a year for the rest of a retired plan.
  *
- * Spreading it is not a fudge. The cash to pay April's instalment genuinely came out of April's
+ * Spreading it is not a fudge. The cash to pay April's balance genuinely came out of April's
  * benefit and April's account draws; that IS where the money was found.
  *
  * Weighted by each source's REMAINING NET, not by its gross cash. A paycheck deferred 90% into a
@@ -121,7 +121,7 @@ function applyStrandedHaircut(
  * `taxBySourceCents` also haircuts each source's `netCashFlowCents`, so it must stay
  * same-month-true — every cent in it really came out of this month's take-home. That now holds
  * for the whole income-tax charge, April's settled prior-year balance included: it is docked from
- * the month like an instalment rather than raised by selling assets outside the waterfall.
+ * the month like withholding rather than raised by selling assets outside the waterfall.
  * `reportedTaxBySourceCents` is the DISPLAY figure `flows.taxBySourceCents` returns instead
  * (defaulting to `taxBySourceCents` when absent). The two coincide today and are kept apart
  * because only one of them may ever hold tax the month did not actually withhold.
@@ -159,6 +159,16 @@ export function buildFlows(
    * band. Never merged into {@link SAVINGS_DRAWDOWN_SOURCE_ID}.
    */
   investmentPrincipalDrawdowns: readonly PrincipalDrawdownSource[] = [],
+  /**
+   * The slice of `taxCents` that settles the PRIOR tax year rather than withholding against this
+   * month's pay — SIGNED, so a refund is negative. Reporting only: it is already inside
+   * `taxCents` and inside `taxBySourceCents`, and nothing here nets it out. Stated separately
+   * because "tax this month paid" and "tax this month settled for last year" are different
+   * questions, and only the second one can come back as money.
+   */
+  taxSettlementCents: Cents = 0,
+  /** Signed per-source attribution of {@link taxSettlementCents}, summing to it. `{}` when 0. */
+  taxSettlementBySourceCents: Readonly<Record<string, Cents>> = {},
 ): Omit<ProjectionMonthFlows, "resolvedFunding"> {
   const cashFlowIncomeByCategoryCents: Record<string, Cents> = {};
   let totalIncomeCents = 0;
@@ -222,7 +232,7 @@ export function buildFlows(
   // Spending an asset bears no tax or deferral of its OWN, so its net opens at its cash — but
   // it is still cash the household has in hand, so the stranded-haircut pass below may charge
   // part of another source's tax against it. That is not a reclassification: if the month's
-  // instalment was funded out of the liquid buffer, the buffer is where the money came from.
+  // tax was funded out of the liquid buffer, the buffer is where the money came from.
   if (liquidDrawdownCents > 0) {
     sources.push({
       sourceId: SAVINGS_DRAWDOWN_SOURCE_ID,
@@ -316,6 +326,8 @@ export function buildFlows(
     // Always present: `{}` in a zero-tax month, otherwise Σ === `taxCents`.
     taxByCategoryCents,
     taxBySourceCents: reportedTaxBySourceCents,
+    taxSettlementCents,
+    taxSettlementBySourceCents,
     payrollTaxBySourceCents,
     deferralBySourceCents,
     expensesCents,

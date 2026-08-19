@@ -14,6 +14,7 @@ import {
   deriveRealGrowthPct,
   applyJobIncomeOverride,
   applyJobIncomeOverridesAt,
+  supplementalPayCentsAt,
   jobPayPath,
   monthlyIncomeCentsOf,
   orderedIncomeOverrides,
@@ -170,6 +171,77 @@ describe("applyJobIncomeOverride — the one definition of what an adjustment me
       "d",
       "b",
     ]);
+  });
+});
+
+describe("supplementalPayCentsAt — which part of a month's pay is a one-off", () => {
+  const override = (
+    id: string,
+    kind: "setTo" | "addBonus",
+    cents: number,
+    month = 3,
+  ): JobIncomeOverride => ({ id, month, kind, cents });
+  const SALARY = dollarsToCents(5_000);
+
+  it("reads nothing one-off out of an ordinary month", () => {
+    expect(supplementalPayCentsAt(SALARY, [], 3)).toBe(0);
+  });
+
+  it("reads a bonus as one-off, and the salary under it as not", () => {
+    const overrides = [override("a", "addBonus", dollarsToCents(10_000))];
+    expect(supplementalPayCentsAt(SALARY, overrides, 3)).toBe(dollarsToCents(10_000));
+    expect(applyJobIncomeOverridesAt(SALARY, overrides, 3)).toBe(dollarsToCents(15_000));
+  });
+
+  it("stacks two bonuses in one month into one one-off slice", () => {
+    const overrides = [
+      override("a", "addBonus", dollarsToCents(3_000)),
+      override("b", "addBonus", dollarsToCents(2_000)),
+    ];
+    expect(supplementalPayCentsAt(SALARY, overrides, 3)).toBe(dollarsToCents(5_000));
+  });
+
+  it("reads a missed paycheck as no pay AND no one-off", () => {
+    const overrides = [override("a", "setTo", 0)];
+    expect(supplementalPayCentsAt(SALARY, overrides, 3)).toBe(0);
+    expect(applyJobIncomeOverridesAt(SALARY, overrides, 3)).toBe(0);
+  });
+
+  it("discards a bonus a later `setTo` overwrites — 'pay me $X this month' leaves nothing one-off", () => {
+    const overrides = [
+      override("a", "addBonus", dollarsToCents(10_000)),
+      override("b", "setTo", dollarsToCents(4_000)),
+    ];
+    expect(supplementalPayCentsAt(SALARY, overrides, 3)).toBe(0);
+  });
+
+  it("keeps a bonus authored AFTER a `setTo`, which is the new baseline it adds to", () => {
+    const overrides = [
+      override("a", "setTo", dollarsToCents(4_000)),
+      override("b", "addBonus", dollarsToCents(1_000)),
+    ];
+    expect(supplementalPayCentsAt(SALARY, overrides, 3)).toBe(dollarsToCents(1_000));
+    expect(applyJobIncomeOverridesAt(SALARY, overrides, 3)).toBe(dollarsToCents(5_000));
+  });
+
+  it("takes a deduction off the one-off slice first, leaving the salary alone", () => {
+    const overrides = [
+      override("a", "addBonus", dollarsToCents(2_000)),
+      override("b", "addBonus", -dollarsToCents(1_500)),
+    ];
+    expect(supplementalPayCentsAt(SALARY, overrides, 3)).toBe(dollarsToCents(500));
+    // A deduction larger than the bonus eats into the salary, and the one-off slice floors at 0.
+    const deeper = [
+      override("a", "addBonus", dollarsToCents(2_000)),
+      override("c", "addBonus", -dollarsToCents(3_000)),
+    ];
+    expect(supplementalPayCentsAt(SALARY, deeper, 3)).toBe(0);
+    expect(applyJobIncomeOverridesAt(SALARY, deeper, 3)).toBe(dollarsToCents(4_000));
+  });
+
+  it("ignores adjustments dated to other months", () => {
+    const overrides = [override("a", "addBonus", dollarsToCents(9_000), 7)];
+    expect(supplementalPayCentsAt(SALARY, overrides, 3)).toBe(0);
   });
 });
 

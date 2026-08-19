@@ -12,6 +12,7 @@ import {
   ref,
   PRIMARY_PERSON_REF,
   type BudgetLine,
+  type JobIncomeOverrideInput,
   type ScenarioInput,
   type ProjectionState,
 } from "@finley/engine";
@@ -29,6 +30,22 @@ export interface Preset {
   readonly label: string;
   readonly description: string;
   readonly input: ScenarioInput;
+  /**
+   * One-month pay adjustments, which a {@link ScenarioInput} has no way to carry: it describes
+   * standing salary and life events, and a bonus is neither.
+   *
+   * Applied after the build through the SAME authoring call the Base + Adjustments editor makes,
+   * so the rule above still holds — a preset cannot express anything a user could not, and the
+   * adjustment's id stays the engine's to mint. Keyed by the job's INDEX in `input.jobs` for that
+   * same reason: the job has no id until the build runs.
+   */
+  readonly incomeAdjustments?: readonly PresetIncomeAdjustment[];
+}
+
+/** One {@link Preset.incomeAdjustments} entry — which authored job, and what happens to it. */
+export interface PresetIncomeAdjustment {
+  readonly jobIndex: number;
+  readonly override: JobIncomeOverrideInput;
 }
 
 const DEFAULT_CURRENT_AGE = 35;
@@ -208,6 +225,58 @@ const TAXED_IN_RETIREMENT: ScenarioInput = {
 };
 
 /**
+ * Two paychecks at once. Each employer withholds as though its own salary were the household's
+ * only income — neither can see the other — so between them they price the second job from the
+ * bottom of the brackets a second time. The W-4's own Multiple Jobs Worksheet is what closes
+ * that gap, and Finley models its economic result: an extra per-period amount carried by the
+ * HIGHER-paying job alone, which is why the tax chart's two job bands are so lopsided.
+ */
+const TWO_JOBS = teachingInput(MODEST_BUDGET, {
+  name: "Casey",
+  jobs: [salariedJob(dollarsToCents(8000)), salariedJob(dollarsToCents(3000))],
+  openingBalanceCents: dollarsToCents(6000),
+});
+
+/**
+ * A salary with a $20,000 bonus in June. Supplemental wages are withheld at their own flat rate
+ * (22%) rather than annualized, because treating a one-off payment as a permanent pay rise would
+ * over-withhold every month after it — so June spikes, July is back to normal, and any gap
+ * between that flat rate and the bonus's real marginal tax settles the following April.
+ */
+const BONUS_YEAR = teachingInput(MODEST_BUDGET, {
+  name: "Avery",
+  jobs: [salariedJob(dollarsToCents(8000))],
+  openingBalanceCents: dollarsToCents(6000),
+});
+
+/** June of the first projected year — `BONUS_YEAR`'s one adjustment. */
+const BONUS_MONTH = 5;
+
+/**
+ * Six unpaid months, then back to work — a career break, a gap between jobs, unpaid leave.
+ *
+ * The point is what payroll does with it. Withholding is sized per paycheck as though that rate
+ * of pay ran the whole year, so the first half of the year is withheld against an income the
+ * second half never delivers; the year closes far over-withheld and the following April hands the
+ * difference back. It is the cleanest refund the model produces, and the only one big enough to
+ * see: every other preset's April is a small balance DUE.
+ *
+ * Pay resumes in January because a job's span is year-granular — a mid-year stop is expressible
+ * only as a run of one-month adjustments, and stopping for good would leave the following April
+ * with no withholding of its own, which is exactly the thing a refund must be shown not to erase.
+ */
+const CAREER_BREAK = teachingInput(MODEST_BUDGET, {
+  name: "Nico",
+  jobs: [salariedJob(dollarsToCents(12_000))],
+  // Enough to carry six months of an unchanged budget without the shortfall cascade opening a
+  // credit card: a refund is hard to read on a chart that is also going insolvent underneath it.
+  openingBalanceCents: dollarsToCents(30_000),
+});
+
+/** July–December of the first projected year: the half `CAREER_BREAK` is not paid for. */
+const CAREER_BREAK_UNPAID_MONTHS = [6, 7, 8, 9, 10, 11];
+
+/**
  * The healthy default a fresh plan already opens on: literally the {@link DEFAULT_INPUT} the plan
  * defaults are built from, budget lines included. One document, so this preset reproduces
  * {@link PLAN_DEFAULTS} exactly rather than authoring a second source of truth for it.
@@ -241,6 +310,32 @@ export const PRESETS: readonly Preset[] = [
     input: STUDENT_LOAN,
   },
   {
+    id: "two-jobs",
+    label: "Two jobs",
+    description: "A second job neither employer knows about — and the W-4 correction that keeps April from becoming a bill.",
+    input: TWO_JOBS,
+  },
+  {
+    id: "career-break",
+    label: "Six months off",
+    description:
+      "Half a year unpaid, so payroll over-withholds for a year that never finished — and the following April pays it back.",
+    input: CAREER_BREAK,
+    incomeAdjustments: CAREER_BREAK_UNPAID_MONTHS.map((month) => ({
+      jobIndex: 0,
+      override: { month, kind: "setTo" as const, cents: 0 },
+    })),
+  },
+  {
+    id: "bonus",
+    label: "A bonus in June",
+    description: "A $20,000 bonus withheld at its own flat rate, without mistaking it for a raise.",
+    input: BONUS_YEAR,
+    incomeAdjustments: [
+      { jobIndex: 0, override: { month: BONUS_MONTH, kind: "addBonus", cents: dollarsToCents(20_000) } },
+    ],
+  },
+  {
     id: "taxed-in-retirement",
     label: "Taxed in retirement",
     description: "A strong 401(k) saver whose withdrawals and Social Security are both taxed after the paychecks stop.",
@@ -264,5 +359,15 @@ export function presetState(preset: Preset): ProjectionState {
   if (!built.ok) {
     throw new Error(`Preset "${preset.id}" is not a valid ScenarioInput: ${built.error.reason}`);
   }
-  return built.projection.toState();
+  const { projection } = built;
+  for (const { jobIndex, override } of preset.incomeAdjustments ?? []) {
+    const job = projection.state.scenario.plan.primary.jobs[jobIndex];
+    if (job === undefined) {
+      throw new Error(`Preset "${preset.id}" adjusts job ${jobIndex}, which it never authored`);
+    }
+    // The same gate-checked write the adjustment editor makes — a refusal here is a
+    // preset-authoring bug, and throws for the same reason the build's does.
+    projection.addJobIncomeOverride(job.id, override);
+  }
+  return projection.toState();
 }

@@ -216,7 +216,9 @@ describe("government-benefit accumulation + benefit seam", () => {
 
   it("passes the full benefit gross to the seam, which owns the inclusion % (partial taxation)", () => {
     // The engine hands over the FULL $1,000 gross; the jurisdiction applies its own 50%
-    // inclusion then 20% → tax $100 → take-home $900, not the $800 of full taxation.
+    // inclusion then 20% → $100 a month owed, $1,200 for the year, not the $2,400 of full
+    // taxation. Nothing is withheld from a benefit as it is paid — no payroll system sees one —
+    // so the whole year arrives untouched and the bill lands in the following April.
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: (byCat) =>
@@ -234,8 +236,9 @@ describe("government-benefit accumulation + benefit seam", () => {
       birthYear: 1959, // turns 67 in 2026 → claims from month 0
       benefitClaimingAge: 67,
     };
-    const series = simulateHousehold(baseInput(person), stub);
-    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(900) * 12);
+    const series = simulateHousehold(baseInput(person, { horizonMonths: 16 }), stub);
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(1_000) * 12);
+    expect(series.months[15].flows!.taxCents).toBe(dollarsToCents(100) * 12);
   });
 
   it("inflates the post-claim benefit by the COLA (CPI) rate each year", () => {
@@ -313,8 +316,8 @@ describe("government-benefit accumulation + benefit seam", () => {
   });
 
   it("a jurisdiction may tax the whole benefit (no inclusion cap)", () => {
-    // 100% inclusion at a flat 20% → tax $200 → take-home $800/mo. Inclusion is the
-    // jurisdiction's call, never an engine-side fraction.
+    // 100% inclusion at a flat 20% → $200 a month owed, $2,400 for the year, settled in the
+    // following April. Inclusion is the jurisdiction's call, never an engine-side fraction.
     const stub: Jurisdiction = {
       id: "stub",
       computeTaxCents: (byCat) => Math.round((byCat.governmentRetirementBenefit ?? 0) * 0.2),
@@ -331,8 +334,9 @@ describe("government-benefit accumulation + benefit seam", () => {
       birthYear: 1959,
       benefitClaimingAge: 67,
     };
-    const series = simulateHousehold(baseInput(person), stub);
-    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(800) * 12);
+    const series = simulateHousehold(baseInput(person, { horizonMonths: 16 }), stub);
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(1_000) * 12);
+    expect(series.months[15].flows!.taxCents).toBe(dollarsToCents(200) * 12);
   });
 
   it("benefitColaRate defaults to general inflation when unset", () => {

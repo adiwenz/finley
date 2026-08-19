@@ -408,3 +408,101 @@ describe("describeIncomeGap", () => {
     expect(describeIncomeGap(data)).toMatch(/living off savings/i);
   });
 });
+
+/**
+ * Where a refund belongs. The tax chart is a record of money paid, so a refund cannot appear
+ * there without drawing a negative band or quietly cancelling withholding that really happened.
+ * It is cash arriving, so it appears here.
+ */
+describe("buildIncomeChartData — the April refund", () => {
+  /**
+   * A filing month: income sources whose `netCashFlowCents` the engine has ALREADY raised by the
+   * refund (that is what a signed settlement does to take-home), plus the signed settlement
+   * itself. The band has to be carved out of those nets, not stacked on top of them.
+   */
+  function refundMonth(spec: {
+    readonly sources: ProjectionCashFlowIncomeSource[];
+    readonly refundCents: number;
+  }): ProjectionSeries {
+    const months = [
+      { month: 0 },
+      {
+        month: 1,
+        flows: {
+          incomeSources: spec.sources,
+          expensesCents: 0,
+          liabilityPaymentsCents: 0,
+          taxSettlementCents: -spec.refundCents,
+        },
+      },
+    ];
+    return { months } as unknown as ProjectionSeries;
+  }
+
+  it("bands the refund as its own positive inflow", () => {
+    const data = buildIncomeChartData(
+      refundMonth({
+        // $5,000 gross, $1,500 of it withheld, plus the $3,000 refund the engine already added.
+        sources: [source("job-a", dollarsToCents(5000), "wages", "Day job", dollarsToCents(6500))],
+        refundCents: dollarsToCents(3000),
+      }),
+    );
+    expect(data.sources.map((s) => ({ id: s.id, label: s.label }))).toContainEqual({
+      id: "tax-refund",
+      label: "Tax refund",
+    });
+    expect(data.rows[0]!.netCentsBySource["tax-refund"]).toBe(dollarsToCents(3000));
+  });
+
+  it("moves the refund off the sources the engine netted it into, rather than counting it twice", () => {
+    const row = buildIncomeChartData(
+      refundMonth({
+        sources: [source("job-a", dollarsToCents(5000), "wages", "Day job", dollarsToCents(6500))],
+        refundCents: dollarsToCents(3000),
+      }),
+    ).rows[0]!;
+    // The job's take-home goes back to the $3,500 the paycheck actually delivered...
+    expect(row.netCentsBySource["job-a"]).toBe(dollarsToCents(3500));
+    // ...and the household total is unchanged, because the money only moved bands.
+    expect(row.takeHomeCents).toBe(dollarsToCents(6500));
+  });
+
+  it("is the only place the money appears for a retiree with no income that month", () => {
+    const data = buildIncomeChartData(
+      refundMonth({ sources: [], refundCents: dollarsToCents(3000) }),
+    );
+    const row = data.rows[0]!;
+    expect(row.netCentsBySource).toEqual({ "tax-refund": dollarsToCents(3000) });
+    expect(row.takeHomeCents).toBe(dollarsToCents(3000));
+    // Gross too: a refund is cash from a filing, and was never in a paycheck to begin with.
+    expect(row.centsBySource["tax-refund"]).toBe(dollarsToCents(3000));
+  });
+
+  it("keeps the refund its own band in Simple view, not swept into Living off savings", () => {
+    const data = buildIncomeChartData(
+      refundMonth({
+        sources: [source("acct", dollarsToCents(2000), "savingsDrawdown", "Savings")],
+        refundCents: dollarsToCents(3000),
+      }),
+    );
+    const simple = incomeBandsForMode(data, "simple");
+    expect(simple.sources.map((s) => s.label)).toEqual(["Living off savings", "Tax refund"]);
+  });
+
+  it("bands nothing in a month whose filing produced a balance due instead", () => {
+    const months = [
+      { month: 0 },
+      {
+        month: 1,
+        flows: {
+          incomeSources: [source("job-a", dollarsToCents(5000), "wages")],
+          expensesCents: 0,
+          liabilityPaymentsCents: 0,
+          taxSettlementCents: dollarsToCents(1828.38),
+        },
+      },
+    ];
+    const data = buildIncomeChartData({ months } as unknown as ProjectionSeries);
+    expect(data.sources.map((s) => s.id)).toEqual(["job-a"]);
+  });
+});
