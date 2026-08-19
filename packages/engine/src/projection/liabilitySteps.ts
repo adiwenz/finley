@@ -9,10 +9,8 @@ import type { LiabilityPaymentRecord } from "./simulate.types";
 
 /**
  * One month's scheduled payments against a GIVEN set of beginning-of-month balances, rather than
- * the run's own. The shared rule behind both the real month ({@link computeLiabilityPayments})
- * and the year-ahead forecast ({@link forecastLiabilityPayments}), so the two cannot drift into
- * disagreeing about what a debt costs — a forecast that priced payments by its own rules would
- * predict a debt service the simulator never charges.
+ * the run's own — shared by {@link computeLiabilityPayments} so a balance passed explicitly prices
+ * exactly as the run's own would.
  *
  * A balance of 0 — paid off, or not yet originated — is absent from the result, not present at
  * zero: {@link import("./financialObligation").buildObligations} reads absence as "no obligation
@@ -43,49 +41,6 @@ function scheduledPaymentsAgainst(
  */
 export function computeLiabilityPayments(state: SimState, month: number): Map<string, Cents> {
   return scheduledPaymentsAgainst(state.liabilities, state.liabilityBalances, month);
-}
-
-/**
- * The scheduled payments for `months` consecutive months starting at `month`, one map per month,
- * index 0 being `month` itself — the debt half of a year's funding need, with each debt's payments
- * landing in the months it is actually scheduled to make them.
- *
- * This exists because the year-start tax estimate ({@link
- * import("./taxYearProjection").projectKnownTaxYear}) has to know what the coming twelve months
- * cost, and holding JANUARY's payment flat across all twelve is wrong in both directions: a loan
- * that matures in June keeps being charged for six months it does not exist, inflating the year's
- * forecast decumulation and so its estimated tax, and a loan originating in July is charged for
- * none of the six months it does exist, deflating them. Neither is a rounding error — a mortgage
- * is often the largest line in the budget.
- *
- * It is a deterministic walk of terms already on the balance sheet, NOT a second simulation: each
- * liability's own {@link SimLiability.monthlyPaymentCents} against a working balance advanced by
- * the very function the real month advances with ({@link advancedLiabilityBalanceCents}), so
- * origination, amortization, a scheduled lump-sum transfer and the final payoff-capped payment all
- * fall exactly where the run will put them. No accounts, no waterfall, no `simulateHousehold`.
- *
- * It assumes every payment is FUNDED IN FULL, which is the assumption the whole estimate rests on:
- * the alternative is knowing the year's shortfalls before forecasting the funding that causes
- * them. A household too short to pay its debts has a December true-up, not an estimate problem.
- */
-export function forecastLiabilityPayments(
-  state: SimState,
-  month: number,
-  months: number,
-): Map<string, Cents>[] {
-  const balances = new Map(state.liabilityBalances);
-  const byMonth: Map<string, Cents>[] = [];
-  for (let m = month; m < month + months; m++) {
-    const payments = scheduledPaymentsAgainst(state.liabilities, balances, m);
-    byMonth.push(payments);
-    for (const liab of state.liabilities) {
-      balances.set(
-        liab.id,
-        advancedLiabilityBalanceCents(liab, m, balances.get(liab.id) ?? 0, payments.get(liab.id) ?? 0),
-      );
-    }
-  }
-  return byMonth;
 }
 
 /**
@@ -188,9 +143,7 @@ export function advanceLiabilities(
 
 /**
  * What one liability's balance becomes after `month` — origination, lump-sum transfers, interest
- * and the payment actually funded, in that order. PURE, so the year-ahead forecast ({@link
- * forecastLiabilityPayments}) can walk a debt forward on its own working balances through the
- * exact rule the run advances by, rather than a lookalike that drifts from it.
+ * and the payment actually funded, in that order. PURE.
  */
 export function advancedLiabilityBalanceCents(
   liability: SimLiability,

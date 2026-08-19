@@ -58,11 +58,6 @@ function addDeposit(map: Map<string, Cents>, accountId: string, amount: Cents): 
 /**
  * Pre-tax deferral this source takes: its plan's fraction of gross, clamped to the person's
  * remaining annual room. Overflow past the cap is not deferred and stays taxable.
- *
- * Exported because the tax-year projection ({@link
- * import("./taxYearProjection").projectKnownTaxYear}) has to derive the same taxable base from
- * the same compiled series MONTHS before this waterfall runs on them; sharing the rule is what
- * keeps a monthly estimate from being computed off a base the actual month will never book.
  */
 export function deferralForSourceCents(
   src: IncomeSourceMonth,
@@ -76,7 +71,7 @@ export function deferralForSourceCents(
 /**
  * A source's taxable base once its deferral is out. `taxableCents` overrides the gross when
  * taxable differs from cash (a returned-basis draw books only its gain, an accrued-interest
- * booking its interest). Shared with the projection — see {@link deferralForSourceCents}.
+ * booking its interest).
  */
 export function taxableAfterDeferralCents(src: IncomeSourceMonth, deferredCents: Cents): Cents {
   return Math.max(0, (src.taxableCents ?? src.waterfallInflowCents) - deferredCents);
@@ -225,14 +220,13 @@ function applyDeferrals(
 }
 
 /**
- * Step 2 — payroll tax, plus the month's ESTIMATED federal income-tax installment. The
- * installment is a fixed figure the caller supplies ({@link
- * WaterfallInput.estimatedIncomeTaxCents}); this function never prices tax itself, because the
- * liability is annual and only the caller knows the year (see {@link
- * import("../jurisdiction/jurisdiction").Jurisdiction.computeTaxCents}'s ANNUAL contract). So
- * take-home is gross minus deferral minus payroll tax minus that installment, while
- * `taxableByPerson` rides back to the caller UNCHARGED — the year's actual liability is
- * reconciled against the installments once the year closes, not derived from this month's income.
+ * Step 2 — payroll tax, plus (in April only) the prior tax year's settled balance. That balance
+ * is a fixed figure the caller supplies ({@link WaterfallInput.priorYearTaxSettlementCents}); this
+ * function never prices tax itself, because the liability is annual and only the caller knows the
+ * year (see {@link import("../jurisdiction/jurisdiction").Jurisdiction.computeTaxCents}'s ANNUAL
+ * contract). So take-home is gross minus deferral minus payroll tax minus that settlement, while
+ * `taxableByPerson` rides back to the caller UNCHARGED — the year's actual liability is priced
+ * once, at close, from the complete taxable income the year produced, never from this month's.
  */
 function computeTakeHome(
   input: WaterfallInput,
@@ -279,9 +273,9 @@ function computeTakeHome(
         payrollTaxBySourceCents,
       );
     }
-    const estimatedIncomeTax = input.estimatedIncomeTaxCents?.(pid) ?? 0;
-    taxCents += estimatedIncomeTax;
-    takeHomeByPerson.set(pid, gross - deferral - payrollTax - estimatedIncomeTax);
+    const priorYearTaxSettlement = input.priorYearTaxSettlementCents?.(pid) ?? 0;
+    taxCents += priorYearTaxSettlement;
+    takeHomeByPerson.set(pid, gross - deferral - payrollTax - priorYearTaxSettlement);
   }
   // Every person's taxable base is present, even an all-zero one, so the caller's fold into
   // the annual accumulator never has to special-case a person with no income this month.

@@ -133,8 +133,8 @@ describe("buildSimulationReport", () => {
     // The null jurisdiction taxes nothing — the row still exists, reading 0.
     expect(buildSimulationReport(baseInput(), nullJurisdiction).months[0].taxCents).toBe(0);
 
-    // Flat 10% on the FULL year's taxable income, paid as twelve even instalments.
-    // $3,000/mo × 12 = $36,000 wages → $3,600 for the year, $300 a month.
+    // Flat 10% on the FULL year's taxable income, charged whole the following April.
+    // $3,000/mo × 12 = $36,000 wages → $3,600 for the year.
     const flatTax = {
       ...nullJurisdiction,
       computeTaxCents: (byCategory: Record<string, number>) =>
@@ -149,13 +149,15 @@ describe("buildSimulationReport", () => {
         return out;
       },
     };
-    const report = buildSimulationReport(baseInput(), flatTax as typeof nullJurisdiction);
-    // Every month charges the same twelfth — December included, so the chart has no sawtooth.
-    for (const month of report.months) expect(month.taxCents).toBe(dollarsToCents(300));
-    // The year still costs exactly $3,600, deducted from savings alongside the year's $12,000
-    // of banked surplus ($1,000/mo × 12): 10000 + 12000 − 3600 = 18400.
+    const report = buildSimulationReport(
+      baseInput({ horizonMonths: 16 }),
+      flatTax as typeof nullJurisdiction,
+    );
+    // Nothing is charged during the year the income is earned in.
+    for (const month of report.months.slice(0, 12)) expect(month.taxCents).toBe(0);
+    // April of the following year (month 15) charges the whole $3,600 at once.
+    expect(report.months[15].taxCents).toBe(dollarsToCents(3600));
     expect(report.months.reduce((s, m) => s + m.taxCents, 0)).toBe(dollarsToCents(3600));
-    expect(report.months[11].accountBalancesCents.savings).toBe(dollarsToCents(10000 + 12000 - 3600));
   });
 
   it("lists column keys for accounts and income categories", () => {
@@ -179,23 +181,26 @@ describe("buildSimulationReport", () => {
         return { wages: half, ordinaryIncome: total - half };
       },
     };
-    const report = buildSimulationReport(baseInput(), splittingTax as typeof nullJurisdiction);
+    const report = buildSimulationReport(
+      baseInput({ horizonMonths: 16 }),
+      splittingTax as typeof nullJurisdiction,
+    );
     for (const month of report.months) {
       const split = month.taxByCategoryCents;
       expect(split).toBeDefined();
       expect(Object.values(split!).reduce((s: number, c) => s + (c ?? 0), 0)).toBe(month.taxCents);
     }
-    // 10% of the full year's $36,000 wages, split across the twelve months.
+    // 10% of the full year's $36,000 wages, charged whole the following April (month 15).
     expect(report.months.reduce((s, m) => s + m.taxCents, 0)).toBe(dollarsToCents(3600));
     // The union of categories is exposed for the stacked-chart column layout.
     expect(report.columns.taxCategories).toEqual(expect.arrayContaining(["wages", "ordinaryIncome"]));
   });
 
   it("attributes income tax back to the SOURCES that produced it, by annual taxable weight", () => {
-    // Two jobs for one person, a wages-taxing jurisdiction. The liability is annual, but each
-    // month's instalment is split back to the individual income sources behind it —
-    // average-rate, by each job's share of the year's taxable wages (the same proportional
-    // policy `attributeTaxToSources` already uses for payroll tax).
+    // Two jobs for one person, a wages-taxing jurisdiction. The liability is annual and settles
+    // once, the following April — split back to the individual income sources behind it at that
+    // point, average-rate, by each job's share of the year's taxable wages (the same
+    // proportional policy `attributeTaxToSources` already uses for payroll tax).
     const mkJob = (cents: number) =>
       new SimCashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly", taxCategory: "wages" });
     const wagesTax = {
@@ -208,6 +213,7 @@ describe("buildSimulationReport", () => {
     };
     const report = buildSimulationReport(
       baseInput({
+        horizonMonths: 16,
         incomeSeries: [
           { series: mkJob(dollarsToCents(4000)), ownerId: "p1", sourceId: "job-a" },
           { series: mkJob(dollarsToCents(2000)), ownerId: "p1", sourceId: "job-b" },
@@ -215,16 +221,16 @@ describe("buildSimulationReport", () => {
       }),
       wagesTax as typeof nullJurisdiction,
     );
-    // $72,000 annual wages (2 jobs × $6,000/mo × 12) → $7,200 for the year, $600 a month, split
-    // 2:1 by each job's annual wage share ($48,000 vs. $24,000) — every month, December
-    // included, since nothing unscheduled ever arrives to reconcile.
-    for (const month of report.months) {
-      expect(month.taxCents).toBe(dollarsToCents(600));
-      expect(month.taxBySourceCents).toEqual({
-        "job-a": dollarsToCents(400),
-        "job-b": dollarsToCents(200),
-      });
-    }
+    // Nothing is charged during the year it is earned in.
+    for (const month of report.months.slice(0, 12)) expect(month.taxCents).toBe(0);
+    // $72,000 annual wages (2 jobs × $6,000/mo × 12) → $7,200, charged whole in April of the
+    // following year (month 15), split 2:1 by each job's annual wage share ($48,000 vs $24,000).
+    const april = report.months[15];
+    expect(april.taxCents).toBe(dollarsToCents(7_200));
+    expect(april.taxBySourceCents).toEqual({
+      "job-a": dollarsToCents(4_800),
+      "job-b": dollarsToCents(2_400),
+    });
     expect(report.columns.taxSources).toEqual(expect.arrayContaining(["job-a", "job-b"]));
   });
 

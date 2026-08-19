@@ -82,13 +82,6 @@ export interface LiquidationRankable {
  * The ONE account order every money-out path drains in: the liquid cash account first — it is
  * spent before anything is sold — then by `liquidationOrder` rank, ties held in the roster's own
  * order by a stable sort.
- *
- * Shared rather than re-derived, because two callers must agree on it: decumulation ({@link
- * buildWithdrawalSources}, which then drops the liquid account because the shortfall charge
- * already spent it) and the year-start funding forecast ({@link
- * import("./fundingForecast").forecastFundingDraws}). The forecast's whole value is that it
- * predicts the draws the real waterfall will take, which it cannot do from a second copy of this
- * ranking free to drift from the first.
  */
 export function orderedLiquidationAccounts<T extends LiquidationRankable>(
   accounts: readonly T[],

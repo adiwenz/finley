@@ -89,27 +89,10 @@ describe("finalizing a tax year", () => {
     }
   });
 
-  it("nets off what the year's instalments already collected, and parks nothing when they landed exactly", () => {
-    const state = stateWithClosedYear();
-    state.federalTaxPaidByPersonYear.set("p1|2026", {
-      totalCents: dollarsToCents(10_000),
-      byCategoryCents: { ordinaryIncome: dollarsToCents(10_000) },
-      bySourceCents: { pretax: dollarsToCents(10_000) },
-    });
+  it("parks nothing for a year with no taxable income", () => {
+    const state = initSimState(input);
     finalizeTaxYear(state, flat25, { year: 2026 }, 11);
     expect(state.pendingTaxSettlementsByPersonYear.size).toBe(0);
-  });
-
-  it("parks a NEGATIVE balance when the year over-collected", () => {
-    const state = stateWithClosedYear();
-    state.federalTaxPaidByPersonYear.set("p1|2026", {
-      totalCents: dollarsToCents(12_000),
-      byCategoryCents: { ordinaryIncome: dollarsToCents(12_000) },
-      bySourceCents: { pretax: dollarsToCents(12_000) },
-    });
-    finalizeTaxYear(state, flat25, { year: 2026 }, 11);
-    // A refund is the same object with the sign reversed — no separate path, and no clamp at zero.
-    expect(pendingSettlementTotalCents(state, { year: 2027 })).toBe(-dollarsToCents(2_000));
   });
 });
 

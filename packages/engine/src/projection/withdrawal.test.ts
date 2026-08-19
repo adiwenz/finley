@@ -306,19 +306,12 @@ describe("Desired-withdrawal decumulation channel", () => {
     expect(requiredWins.months[0].accountBalancesCents["cash"]).toBe(dollarsToCents(3_000));
   });
 
-  it("draws the need plus the month's tax instalment — the need alone, never a gross-up", () => {
-    // Two things this pins apart, which a flat rate makes easy to confuse.
-    //
-    // NOT a gross-up: nothing here solves "sell enough that the sale's own tax still leaves
-    // $2,000" at the moment of the draw. That recursion happens nowhere any more — settling a
-    // year's balance in the FOLLOWING April is what removed the need for it.
-    //
-    // But the draw is not the bare $2,000 either. The year-start estimate now anticipates that
-    // this household funds its living from a fully-taxable account, so it has an estimated
-    // annual liability and charges a twelfth of it every month — and the waterfall that sizes
-    // decumulation's gap has already docked that instalment from take-home, because otherwise the
-    // instalment is exactly what the month leaves uncovered. So the draw is `need + instalment`,
-    // an ADDITION of a separately-computed figure, not a multiplication of the need.
+  it("draws exactly the need — no gross-up and no in-year tax cash to add to it", () => {
+    // Nothing here solves "sell enough that the sale's own tax still leaves $2,000" at the
+    // moment of the draw — no gross-up. And there is no monthly income-tax instalment to add to
+    // the draw either: federal income tax is not withheld or estimated during the year (see
+    // `federalIncomeTax.ts`'s module doc), so the whole liability this draw causes rides
+    // `taxableIncomeByPersonYear` and settles, in full, the following April.
     const flatTax: Jurisdiction = {
       id: "flat-25",
       computeTaxCents: (byCat) => Math.round((byCat.ordinaryIncome ?? 0) * 0.25),
@@ -334,12 +327,10 @@ describe("Desired-withdrawal decumulation channel", () => {
       flatTax,
     );
     const drawn = dollarsToCents(100_000) - series.months[0].accountBalancesCents["pretax"];
-    const instalment = series.months[0].flows!.taxCents;
-    expect(instalment).toBeGreaterThan(0);
-    expect(drawn).toBe(dollarsToCents(2_000) + instalment);
+    expect(series.months[0].flows!.taxCents).toBe(0);
+    expect(drawn).toBe(dollarsToCents(2_000));
     // Nothing was withheld from the draw itself: the whole $2,000 of need still reached the
-    // expense, and the cash account — which the instalment would have had to raid had the gap
-    // ignored it — is untouched at zero rather than overdrawn.
+    // expense, and the cash account is untouched at zero rather than overdrawn.
     expect(series.months[0].accountBalancesCents["cash"]).toBe(0);
   });
 

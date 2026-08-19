@@ -302,14 +302,14 @@ describe("runWaterfall — federal income tax is never PRICED here, only charged
     const withIncome = runWaterfall(
       makeInput({
         incomeSources: [wageSource("p1", dollarsToCents(5000))],
-        estimatedIncomeTaxCents: () => instalment,
+        priorYearTaxSettlementCents: () => instalment,
       }),
     );
     expect(withIncome.taxCents).toBe(instalment);
     expect(withIncome.accountDepositsCents.get("checking")).toBe(dollarsToCents(4300));
     // The same instalment in a month with NO income at all: an annual liability is paid on its
     // own schedule, so a zero-income month still owes it and the gap falls to the cascade.
-    const noIncome = runWaterfall(makeInput({ estimatedIncomeTaxCents: () => instalment }));
+    const noIncome = runWaterfall(makeInput({ priorYearTaxSettlementCents: () => instalment }));
     expect(noIncome.taxCents).toBe(instalment);
     expect(noIncome.shortfallCents).toBe(instalment);
   });

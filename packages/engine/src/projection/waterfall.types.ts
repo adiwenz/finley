@@ -127,15 +127,15 @@ export interface WaterfallInput {
     annualEarnedByCategory: Partial<Record<TaxCategory, Cents>>,
   ) => Partial<Record<TaxCategory, Cents>>;
   /**
-   * This person's ESTIMATED federal income-tax payment for this month — an even twelfth of the
-   * year's estimated liability, already priced by the caller ({@link
-   * import("./federalIncomeTax").estimatedPaymentForMonth}). Deducted from take-home like any
-   * other withholding.
+   * The PRIOR tax year's settled balance, charged (or refunded) in the April it is due — the
+   * household's only federal-income-tax cash flow all year (see
+   * {@link import("./federalIncomeTax")}'s module doc). Deducted from take-home like any other
+   * withholding; signed, so a refund raises it.
    *
    * A FIXED figure, deliberately not a function of this month's income: income tax is annual,
    * and the waterfall sees one month. Absent → no income tax charged.
    */
-  readonly estimatedIncomeTaxCents?: (personId: string) => Cents;
+  readonly priorYearTaxSettlementCents?: (personId: string) => Cents;
   /**
    * A person's year-to-date earned gross by category BEFORE this month — the base the
    * cumulative payroll figure builds on. Absent → nothing earned yet this year. Only
@@ -161,10 +161,10 @@ export interface WaterfallInput {
 
 export interface WaterfallResult {
   /**
-   * The federal income tax charged this month, summed across persons: Σ of the ESTIMATED
-   * installments {@link WaterfallInput.estimatedIncomeTaxCents} supplied, never a figure this
-   * waterfall priced. The liability itself is annual — {@link taxableByPersonCents} is what a
-   * caller folds into the year's running accumulator, and December reconciles the two.
+   * The federal income tax charged this month, summed across persons: Σ of what {@link
+   * WaterfallInput.priorYearTaxSettlementCents} supplied, never a figure this waterfall priced.
+   * The liability itself is annual — {@link taxableByPersonCents} is what a caller folds into the
+   * year's running accumulator, and December reconciles the two.
    */
   readonly taxCents: Cents;
   /**

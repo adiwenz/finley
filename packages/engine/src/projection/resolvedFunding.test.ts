@@ -698,19 +698,17 @@ describe("resolvedFunding — per-line attribution on the flow record", () => {
     // Every slice's applied amount is its own net; no slice flattens gross into the amount.
     for (const s of slices) expect(s.amountCents).toBe(s.withdrawal!.netDeliveredCents);
 
-    // The month's liquidation funds TWO things: the obligations, and the estimated tax
-    // instalment on the decumulation itself, which the year-start estimate now anticipates. Only
-    // the first is partitioned across obligations — the tax funds none of them — so the slices
-    // sum to the balance drop NET of the tax charged. The difference is the tax, not a lost cent.
-    const grossReduction =
-      dollarsToCents(100000) - month.accountBalancesCents["pretax"] - month.flows!.taxCents;
-    expect(month.flows!.taxCents).toBeGreaterThan(0);
+    // The month's liquidation funds only the two obligations: nothing is withheld or estimated
+    // for federal income tax during the year it is earned in (see `federalIncomeTax.ts`'s module
+    // doc), so this month's `taxCents` is 0 and the whole balance drop partitions across the
+    // slices with no residue.
+    const grossReduction = dollarsToCents(100000) - month.accountBalancesCents["pretax"];
+    expect(month.flows!.taxCents).toBe(0);
     const sum = (pick: (w: NonNullable<(typeof slices)[number]["withdrawal"]>) => number) =>
       slices.reduce((t, s) => t + pick(s.withdrawal!), 0);
-    // The slices partition that liquidation exactly: gross sums to it, and tax sums to gross
-    // minus the total net delivered — no cent gained or lost in the split.
     expect(sum((w) => w.grossWithdrawnCents)).toBe(grossReduction);
-    expect(sum((w) => w.taxCents)).toBe(grossReduction - sum((w) => w.netDeliveredCents));
+    expect(sum((w) => w.netDeliveredCents)).toBe(grossReduction);
+    expect(sum((w) => w.taxCents)).toBe(0);
     expect(sum((w) => w.principalCents) + sum((w) => w.realizedGainCents)).toBe(grossReduction);
   });
 

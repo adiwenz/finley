@@ -1,9 +1,9 @@
 /**
  * The payment SCHEDULE against a real progressive schedule, end to end through the public
  * `Projection` surface. The engine's own tax tests run on flat-rate fixtures, where a year's tax
- * is linear in income and so a twelve-way split reconciles by arithmetic; only a bracketed
- * jurisdiction can show that the instalments and the year's closing balance are pricing through
- * one annual seam rather than two schedules that happen to agree.
+ * is linear in income; only a bracketed jurisdiction can show that the following April's whole
+ * charge is pricing through the one annual seam rather than a schedule that happens to agree by
+ * arithmetic.
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -117,17 +117,16 @@ describe("federal income tax — instalments and the following April's balance, 
     }
   });
 
-  it("paces twelve equal instalments and settles the unpredictable income the following April", () => {
+  it("charges nothing during the year the income is earned in, settling it whole the following April", () => {
     const result = run();
     const taxes = result.series.months.slice(0, 16).map((m) => m.flows?.taxCents ?? 0);
-    // Wages are known at the year's start, so all TWELVE months are one figure (±1¢ of cumulative
-    // rounding) — no drift as income accrues, which is what YTD annualization did, and no December
-    // true-up either. April carries the previous year's balance, and 2026 has no previous year.
-    for (const tax of taxes.slice(0, 12)) expect(Math.abs(tax - taxes[0]!)).toBeLessThanOrEqual(1);
-    // The interest is no longer unknowable: the year's estimate comes from simulating the year,
-    // and a simulated month credits and books it exactly as a real one does. So April 2027 is an
-    // ordinary month too — 2026's balance is a rounding-scale residue either way it falls, not the
-    // tax on a year of interest.
-    expect(Math.abs(taxes[15]! - taxes[14]!)).toBeLessThan(taxes[14]! / 20);
+    // Nothing is withheld or estimated for federal income tax while the year is live — no month
+    // before the settling April charges a cent, which is what removes any dependence on how
+    // wages or interest accrue through the year.
+    for (const tax of taxes.slice(0, 15)) expect(tax).toBe(0);
+    // April 2027 (month 15) charges the whole of 2026's liability at once — wages plus a full
+    // year of interest — which the annual liability formula in the sibling test above already
+    // pins to the cent.
+    expect(taxes[15]).toBeGreaterThan(0);
   });
 });
