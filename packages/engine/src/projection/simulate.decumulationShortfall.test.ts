@@ -31,9 +31,9 @@ const payrollOnly: Jurisdiction = {
   id: "payroll-only",
   computeTaxCents: () => 0,
   computeTaxByCategoryCents: () => ({}),
-  computePayrollTaxCents: (byCategory) => Math.round((byCategory.wages ?? 0) * FICA_RATE),
+  computePayrollWithholdingCents: (byCategory) => Math.round((byCategory.wages ?? 0) * FICA_RATE),
   // Required companion to the scalar seam — the waterfall refuses an unattributable charge.
-  computePayrollTaxByCategoryCents: (byCategory) => ({
+  computePayrollWithholdingByCategoryCents: (byCategory) => ({
     wages: Math.round((byCategory.wages ?? 0) * FICA_RATE),
   }),
 };

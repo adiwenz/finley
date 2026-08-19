@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { flatWageWithholding } from "../testing/mockJurisdiction";
 import {
   SimAccount,
   CAPITAL_GAINS_TAX_PROFILE,
@@ -36,6 +37,9 @@ function flatAnnual(rate: number): Jurisdiction {
   };
   return {
     id: "flat-annual",
+    // Payroll withholds at the same flat rate, so a level wage year settles to nothing and any
+    // April balance in these tests is genuinely about death and the estate, not about withholding.
+    computeWageWithholdingCents: flatWageWithholding(rate),
     computeTaxByCategoryCents: perCategory,
     computeTaxCents: (byCat) =>
       Object.values(perCategory(byCat)).reduce((s: number, v) => s + (v ?? 0), 0),
@@ -82,6 +86,23 @@ function series(monthlyDollars: number, startMonth = 0, endMonth?: number): SimO
       ...(endMonth !== undefined ? { endMonth } : {}),
     }),
     ownerId: "p1",
+  };
+}
+
+/**
+ * The same stream, tagged `wages` — what payroll actually withholds against. Income in these
+ * tests is a salary, and the whole final-tax-vs-estate arithmetic turns on what was withheld
+ * before death, so the tag is load-bearing rather than decorative.
+ */
+function wageSeries(monthlyDollars: number, startMonth = 0, endMonth?: number): SimOwnedSeries {
+  const s = series(monthlyDollars, startMonth, endMonth);
+  return {
+    ...s,
+    series: new SimCashFlowSeries(startMonth, dollarsToCents(monthlyDollars), { type: "fixed" }, {
+      baselineUnit: "monthly",
+      taxCategory: "wages",
+      ...(endMonth !== undefined ? { endMonth } : {}),
+    }),
   };
 }
 
@@ -149,6 +170,7 @@ function progressiveAnnual(): Jurisdiction {
   };
   return {
     id: "progressive-annual",
+    computeWageWithholdingCents: flatWageWithholding(0.1),
     computeTaxCents: scalar,
     computeTaxByCategoryCents: (byCat) =>
       Object.fromEntries(
@@ -291,14 +313,14 @@ describe("Estate settlement — final federal income tax", () => {
   });
 
   it("counts a final-year overpayment as an estate asset rather than a debt", () => {
-    // Dying in June leaves six months of a twelve-month estimate already paid against six months
-    // of wages — an overpayment, and the estate collects it. $120k/yr paced at $1,666.67 a month
-    // is $10,000 paid in; six months' $60k wages owe $4,000 under this schedule.
+    // Dying in June leaves six months of flat-rate withholding against six months of wages the
+    // progressive schedule taxes more lightly — an overpayment, and the estate collects it.
+    // $60k of wages withheld at 10% is $6,000 paid in; the same $60k owes $4,000 here.
     const settlement = settlementOf(
-      dies(18, [cash(50_000)], { incomeSeries: [series(10_000)] }, progressiveAnnual()),
+      dies(18, [cash(50_000)], { incomeSeries: [wageSeries(10_000)] }, progressiveAnnual()),
     );
     expect(settlement.finalTaxDueCents).toBe(0);
-    expect(settlement.finalTaxRefundCents).toBe(dollarsToCents(6_000));
+    expect(settlement.finalTaxRefundCents).toBe(dollarsToCents(2_000));
     // Probate assets are the accounts PLUS the refund, and both verdicts carry it through.
     expect(settlement.probateAssetsCents).toBe(
       settlement.estateAccountsCents + settlement.finalTaxRefundCents,
@@ -365,15 +387,15 @@ describe("Estate settlement — what the estate holds", () => {
     const settlement = settlementOf(spent);
     // Ground truth for the returned principal is the basis reduction itself; ground truth for the
     // realized gain is the `capitalGains` band, which reports the gain ALONE rather than the
-    // draw's full gross. Together they are what the brokerage actually paid out this year — funding
-    // the $48k of expenses AND the year's estimated tax instalments, which the forecast now sizes
-    // off a compounding balance rather than January's.
+    // draw's full gross. Together they are exactly what the brokerage paid out this year: the
+    // $48k of expenses and not one cent more, because nothing withholds against a brokerage sale
+    // and so no month had a tax charge for the same account to fund.
     const basisConsumedCents = dollarsToCents(100_000) - last.accountBasisCents.brokerage;
     const gainRealizedCents = sum(
       spent.months.map((m) => m.flows!.cashFlowIncomeByCategoryCents["capitalGains"] ?? 0),
     );
     const grossDrawnCents = basisConsumedCents + gainRealizedCents;
-    expect(grossDrawnCents).toBeGreaterThan(dollarsToCents(48_000));
+    expect(grossDrawnCents).toBe(dollarsToCents(48_000));
     expect(basisConsumedCents).toBeGreaterThan(0);
     expect(gainRealizedCents).toBeGreaterThan(0);
     // Everything the year owed, wherever it was charged: the ordinary rate on realized GAIN, not
@@ -431,9 +453,9 @@ describe("Estate settlement — what the estate holds", () => {
 
 describe("Estate settlement — obligations and the verdict", () => {
   it("weighs the debt balance outstanding on the day, not the payments that would have followed", () => {
-    const debtFree = settlementOf(dies(12, [cash(200_000)], { incomeSeries: [series(2_000)] }));
+    const debtFree = settlementOf(dies(12, [cash(200_000)], { incomeSeries: [wageSeries(2_000)] }));
     const indebted = dies(12, [cash(200_000)], {
-      incomeSeries: [series(2_000)],
+      incomeSeries: [wageSeries(2_000)],
       liabilities: [
         loan(60_000, -1, 0, 600),
       ],
@@ -562,7 +584,7 @@ describe("Estate settlement — the retirement solver's terminal criterion", () 
    */
   function livesComfortably(cashDollars: number, retirementDollars: number): ProjectionSeries {
     return dies(24, [cash(cashDollars), preTax(retirementDollars)], {
-      incomeSeries: [series(6_000)],
+      incomeSeries: [wageSeries(6_000)],
       expenseSeries: [series(3_000)],
       liabilities: [
         loan(150_000, -1, 0, 600),
@@ -649,7 +671,7 @@ describe("Estate settlement — the retirement solver's terminal criterion", () 
     // A loan that originates with no paired asset IS borrow-and-spend: the debt arrives, the
     // proceeds are gone, and the payments drain what was there. It can only ever cost.
     const unborrowed = dies(24, [cash(1_000)], {
-      incomeSeries: [series(6_000)],
+      incomeSeries: [wageSeries(6_000)],
       expenseSeries: [series(3_000)],
     });
     const borrowed = livesComfortably(1_000, 0);
@@ -743,6 +765,13 @@ describe("Estate settlement — the retirement solver's terminal criterion", () 
         id: "fixed-liability",
         computeTaxCents: scalar,
         computeTaxByCategoryCents: (byCat) => ({ ordinaryIncome: scalar(byCat) }),
+        // Withholds HALF the year's fixed liability from this household's single paycheck. Half
+        // is the lever these boundary tests need: it leaves the estate carrying the other half,
+        // so the terminal figure moves with the tax and can be put exactly on the line.
+        computeWageWithholdingCents: (request) =>
+          request.taxCategory === "wages" && request.regularWagesCents > 0
+            ? Math.round(annualLiabilityCents / 2)
+            : 0,
       };
     }
 
@@ -752,7 +781,7 @@ describe("Estate settlement — the retirement solver's terminal criterion", () 
         6,
         [cash(10_000)],
         {
-          incomeSeries: [series(240_000, 0, 0)],
+          incomeSeries: [wageSeries(240_000, 0, 0)],
           expenseSeries: [series(120_000, 1, 1)],
           liabilities: [loan(70_000, -1, 0, 600)],
         },
@@ -763,13 +792,18 @@ describe("Estate settlement — the retirement solver's terminal criterion", () 
     const paidInLifeCents = (run: ProjectionSeries): Cents =>
       sum(run.months.map((m) => m.flows!.taxCents));
 
-    it("halves a year's tax at a June death — six instalments paid, six left to the estate", () => {
-      // The premise. $60,000 for the year, $5,000 a month, dead after the sixth: the estate's
-      // charge is the six months the household did not live to pay, not a residue of anything.
+    it("halves a year's tax at a June death — half withheld in life, half left to the estate", () => {
+      // The premise. $60,000 for the year, half of it withheld from the household's one paycheck,
+      // dead in June: the estate's charge is the half nobody withheld, not a residue of anything.
       const run = diesOwing(dollarsToCents(60_000));
-      expect(run.months.map((m) => m.flows!.taxCents)).toEqual(
-        Array(6).fill(dollarsToCents(5_000)),
-      );
+      expect(run.months.map((m) => m.flows!.taxCents)).toEqual([
+        dollarsToCents(30_000),
+        0,
+        0,
+        0,
+        0,
+        0,
+      ]);
       expect(paidInLifeCents(run)).toBe(dollarsToCents(30_000));
       expect(settlementOf(run).finalTaxDueCents).toBe(dollarsToCents(30_000));
       expect(settlementOf(run).finalTaxRefundCents).toBe(0);
@@ -800,9 +834,9 @@ describe("Estate settlement — the retirement solver's terminal criterion", () 
     });
 
     it("charges the estate the cent, not just the year — the settlement's own term moves", () => {
-      // The cent above lands on the twelfth instalment, so it is the year that got dearer and the
-      // estate's charge that stayed put. Two cents splits one to each half, which is the assertion
-      // that actually pins `finalTaxDueCents`: nothing else in this file states it to the cent.
+      // The cent above rounds into the withheld half, so it is the paycheck that got dearer and
+      // the estate's charge that stayed put. Two cents splits one to each half, which is the
+      // assertion that pins `finalTaxDueCents`: nothing else in this file states it to the cent.
       const dearer = diesOwing(dollarsToCents(60_000) + 2);
       expect(paidInLifeCents(dearer)).toBe(dollarsToCents(30_000) + 1);
       expect(settlementOf(dearer).finalTaxDueCents).toBe(dollarsToCents(30_000) + 1);
@@ -824,7 +858,7 @@ describe("Estate settlement — the retirement solver's terminal criterion", () 
     // No estate settlement, no terminal test — a horizon nobody died at is judged on its months
     // alone, which is what every engine-level fixture relies on.
     const noDeath = stopsAtHorizon(24, [cash(1_000), preTax(400_000)], {
-      incomeSeries: [series(6_000)],
+      incomeSeries: [wageSeries(6_000)],
       expenseSeries: [series(3_000)],
     });
     expect(noDeath.estateSettlement).toBeUndefined();
@@ -851,7 +885,7 @@ describe("Estate settlement — cost", () => {
           startYear: 2026,
           persons: [{ id: "p1", name: "You" }],
           accounts: [cash(500_000), preTax(500_000)],
-          incomeSeries: [series(5_000)],
+          incomeSeries: [wageSeries(5_000)],
           expenseSeries: [series(3_000)],
         },
         counting,
@@ -867,7 +901,7 @@ describe("Estate settlement — cost", () => {
 
 describe("Estate settlement — life is unchanged", () => {
   it("still pays a smooth monthly estimate and still settles the prior year in April", () => {
-    const working = dies(36, [cash(50_000)], { incomeSeries: [series(10_000)] });
+    const working = dies(36, [cash(50_000)], { incomeSeries: [wageSeries(10_000)] });
     const taxes = working.months.map((m) => m.flows!.taxCents);
     // Twelve equal instalments a year on steady wages — no December spike, no terminal spike.
     for (let month = 0; month < 12; month++) {

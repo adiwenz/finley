@@ -5,6 +5,7 @@ import type { SimPerson } from "./simulate.types";
 import { SimAccount, CAPITAL_GAINS_TAX_PROFILE } from "../plan/simAccount";
 import { SimCashFlowSeries, dollarsToCents } from "../money/cashFlowSeries";
 import { nullJurisdiction } from "../jurisdiction/jurisdiction";
+import { flatWageWithholding } from "../testing/mockJurisdiction";
 
 function baseInput(overrides: Partial<HouseholdSimInput> = {}): HouseholdSimInput {
   const person: SimPerson = { id: "p1", name: "Alice", birthYear: 1991 };
@@ -25,6 +26,21 @@ function baseInput(overrides: Partial<HouseholdSimInput> = {}): HouseholdSimInpu
     incomeSeries: [{ series: new SimCashFlowSeries(0, dollarsToCents(3000), { type: "fixed" }, { baselineUnit: "monthly" }), ownerId: "p1" }],
     expenseSeries: [{ series: new SimCashFlowSeries(0, dollarsToCents(2000), { type: "fixed" }, { baselineUnit: "monthly" }), ownerId: "p1" }],
     ...overrides,
+  };
+}
+
+/** The same $3,000/mo income, tagged as wages so payroll withholding applies to it. */
+function wageIncome(): Partial<HouseholdSimInput> {
+  return {
+    incomeSeries: [
+      {
+        series: new SimCashFlowSeries(0, dollarsToCents(3000), { type: "fixed" }, {
+          baselineUnit: "monthly",
+          taxCategory: "wages",
+        }),
+        ownerId: "p1",
+      },
+    ],
   };
 }
 
@@ -133,10 +149,11 @@ describe("buildSimulationReport", () => {
     // The null jurisdiction taxes nothing — the row still exists, reading 0.
     expect(buildSimulationReport(baseInput(), nullJurisdiction).months[0].taxCents).toBe(0);
 
-    // Flat 10% on the FULL year's taxable income, paid as twelve even instalments.
-    // $3,000/mo × 12 = $36,000 wages → $3,600 for the year, $300 a month.
+    // Flat 10% on the FULL year's taxable income, withheld at the same 10% from every paycheck.
+    // $3,000/mo × 12 = $36,000 wages → $3,600 for the year, $300 withheld a month.
     const flatTax = {
       ...nullJurisdiction,
+      computeWageWithholdingCents: flatWageWithholding(0.1),
       computeTaxCents: (byCategory: Record<string, number>) =>
         Math.round(Object.values(byCategory).reduce((s, c) => s + (c ?? 0), 0) * 0.1),
       // Matching breakdown (the attribution contract): each category taxed 10%.
@@ -149,8 +166,8 @@ describe("buildSimulationReport", () => {
         return out;
       },
     };
-    const report = buildSimulationReport(baseInput(), flatTax as typeof nullJurisdiction);
-    // Every month charges the same twelfth — December included, so the chart has no sawtooth.
+    const report = buildSimulationReport(baseInput(wageIncome()), flatTax as typeof nullJurisdiction);
+    // Every month withholds from its own paycheck, and a level salary makes them all identical.
     for (const month of report.months) expect(month.taxCents).toBe(dollarsToCents(300));
     // The year still costs exactly $3,600, deducted from savings alongside the year's $12,000
     // of banked surplus ($1,000/mo × 12): 10000 + 12000 − 3600 = 18400.
@@ -168,9 +185,10 @@ describe("buildSimulationReport", () => {
   it("carries the jurisdiction's per-category tax breakdown, summing to taxCents", () => {
     // A jurisdiction that taxes AND splits: flat 10%, half to wages, half to ordinaryIncome.
     // The report carries the split, and its Σ must equal the scalar `taxCents` take-home
-    // already used — the invariant, on every month's instalment.
+    // already used — the invariant, on every month's withholding.
     const splittingTax = {
       ...nullJurisdiction,
+      computeWageWithholdingCents: flatWageWithholding(0.1),
       computeTaxCents: (byCategory: Record<string, number>) =>
         Math.round(Object.values(byCategory).reduce((s, c) => s + (c ?? 0), 0) * 0.1),
       computeTaxByCategoryCents: (byCategory: Record<string, number>) => {
@@ -179,27 +197,27 @@ describe("buildSimulationReport", () => {
         return { wages: half, ordinaryIncome: total - half };
       },
     };
-    const report = buildSimulationReport(baseInput(), splittingTax as typeof nullJurisdiction);
+    const report = buildSimulationReport(baseInput(wageIncome()), splittingTax as typeof nullJurisdiction);
     for (const month of report.months) {
       const split = month.taxByCategoryCents;
       expect(split).toBeDefined();
       expect(Object.values(split!).reduce((s: number, c) => s + (c ?? 0), 0)).toBe(month.taxCents);
     }
-    // 10% of the full year's $36,000 wages, split across the twelve months.
+    // 10% of the full year's $36,000 wages, withheld across the twelve months.
     expect(report.months.reduce((s, m) => s + m.taxCents, 0)).toBe(dollarsToCents(3600));
     // The union of categories is exposed for the stacked-chart column layout.
-    expect(report.columns.taxCategories).toEqual(expect.arrayContaining(["wages", "ordinaryIncome"]));
+    expect(report.columns.taxCategories).toEqual(expect.arrayContaining(["wages"]));
   });
 
   it("attributes income tax back to the SOURCES that produced it, by annual taxable weight", () => {
-    // Two jobs for one person, a wages-taxing jurisdiction. The liability is annual, but each
-    // month's instalment is split back to the individual income sources behind it —
-    // average-rate, by each job's share of the year's taxable wages (the same proportional
-    // policy `attributeTaxToSources` already uses for payroll tax).
+    // Two jobs for one person, a wages-taxing jurisdiction. Each month's WITHHOLDING is already
+    // computed per paycheck, so the source split is exact rather than apportioned: each job's
+    // line is what that job's own payroll withheld.
     const mkJob = (cents: number) =>
       new SimCashFlowSeries(0, cents, { type: "fixed" }, { baselineUnit: "monthly", taxCategory: "wages" });
     const wagesTax = {
       ...nullJurisdiction,
+      computeWageWithholdingCents: flatWageWithholding(0.1),
       computeTaxCents: (byCategory: Record<string, number>) => Math.round((byCategory.wages ?? 0) * 0.1),
       computeTaxByCategoryCents: (byCategory: Record<string, number>) => {
         const t = Math.round((byCategory.wages ?? 0) * 0.1);
@@ -269,9 +287,9 @@ describe("buildSimulationReport", () => {
       Math.round(Math.min(byCategory.wages ?? 0, dollarsToCents(12000)) * 0.1);
     const cappedFica = {
       ...nullJurisdiction,
-      computePayrollTaxCents: cappedPayroll,
+      computePayrollWithholdingCents: cappedPayroll,
       // Required companion (runtime-enforced): single earned category, so trivial.
-      computePayrollTaxByCategoryCents: (byCategory: Record<string, number>) => {
+      computePayrollWithholdingByCategoryCents: (byCategory: Record<string, number>) => {
         const charge = cappedPayroll(byCategory);
         return charge > 0 ? { wages: charge } : {};
       },
@@ -302,8 +320,8 @@ describe("buildSimulationReport", () => {
       Math.round((byCategory.wages ?? 0) * 0.0765);
     const wagesOnlyFica = {
       ...nullJurisdiction,
-      computePayrollTaxCents: wagesOnlyPayroll,
-      computePayrollTaxByCategoryCents: (byCategory: Record<string, number>) => {
+      computePayrollWithholdingCents: wagesOnlyPayroll,
+      computePayrollWithholdingByCategoryCents: (byCategory: Record<string, number>) => {
         const charge = wagesOnlyPayroll(byCategory);
         return charge > 0 ? { wages: charge } : {};
       },
@@ -333,8 +351,8 @@ describe("buildSimulationReport", () => {
         const t = incomeTax20(byCategory);
         return t > 0 ? { wages: t } : {};
       },
-      computePayrollTaxCents: payroll765,
-      computePayrollTaxByCategoryCents: (byCategory: Record<string, number>) => {
+      computePayrollWithholdingCents: payroll765,
+      computePayrollWithholdingByCategoryCents: (byCategory: Record<string, number>) => {
         const charge = payroll765(byCategory);
         return charge > 0 ? { wages: charge } : {};
       },

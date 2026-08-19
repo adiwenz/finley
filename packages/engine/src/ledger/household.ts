@@ -59,6 +59,12 @@ export interface HouseholdSeries {
    */
   readonly planDescriptor?: PlanDescriptor;
   /**
+   * The one-off (bonus) slice of the months that carry one, keyed by absolute month. Its cash is
+   * already inside the series' own monthly figure; this only says how much of that figure was a
+   * one-off, which payroll withholding must know and nothing else does. Income series only.
+   */
+  readonly supplementalByMonth?: ReadonlyMap<number, Cents>;
+  /**
    * The source line's id, keying
    * {@link import("../projection/simulate").ProjectionMonthFlows.lineMonthlyCents}. Set
    * only on budget-line expense series; absent on health and event-caused ones.

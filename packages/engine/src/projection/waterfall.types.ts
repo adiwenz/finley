@@ -1,5 +1,6 @@
 import type { Cents } from "../money/money";
 import type { TaxCategory } from "../money/cashFlowSeries";
+import type { WageWithholdingRequest } from "../jurisdiction/jurisdiction";
 import type { SourceTaxable, TaxableByCategory } from "./taxAttribution";
 import type { IncomeSourceCategory } from "./simulate.types";
 import type { SimGoal } from "../goal/goal";
@@ -17,6 +18,32 @@ export interface PlanDescriptor {
   readonly employerMatchFraction?: number;
 }
 
+/**
+ * What ONE wage source has paid a person so far this calendar year, as that source's own payroll
+ * would hold it. The unit both payroll-tax withholding and supplemental-wage banding accumulate
+ * in, because each employer applies every cap, threshold and band to its OWN wages.
+ *
+ * Used two ways with the same shape: as a running year-to-date total, and as one month's delta
+ * onto it ({@link WaterfallResult.sourceYearToDateDeltas}).
+ */
+export interface SourceYearToDate {
+  /** PRE-deferral earned gross by category — the payroll-tax base. */
+  readonly earnedByCategory: TaxableByCategory;
+  /** Supplemental (one-off) wages, for a jurisdiction that bands its supplemental rate. */
+  readonly supplementalWagesCents: Cents;
+  /** Federal income tax withheld, which a jurisdiction may condition its supplemental method on. */
+  readonly wageWithholdingCents: Cents;
+}
+
+/** One person's income-tax withholding for a month, with the splits the tax chart bands on. */
+export interface PersonWithholding {
+  readonly totalCents: Cents;
+  /** Σ === {@link totalCents} — the categories the withheld-against paycheques were paid in. */
+  readonly byCategoryCents: TaxableByCategory;
+  /** Σ === {@link totalCents}, keyed by source. */
+  readonly bySourceCents: Readonly<Record<string, Cents>>;
+}
+
 /** One income source's contribution to a single month (resolved from a series). */
 export interface IncomeSourceMonth {
   readonly ownerId: string;
@@ -26,6 +53,16 @@ export interface IncomeSourceMonth {
    * the balance (re-placing it would double-credit the account).
    */
   readonly waterfallInflowCents: Cents;
+  /**
+   * The slice of {@link waterfallInflowCents} that is a ONE-OFF payment rather than this
+   * source's recurring rate of pay — a bonus. Absent → the whole payment is recurring.
+   *
+   * It is ordinary wage income and the year's liability makes no distinction, but WITHHOLDING
+   * does: a payroll system annualizes recurring pay and must not annualize a bonus, or one
+   * month's windfall would be withheld against as though every remaining month would repeat it.
+   * Splitting it here is what lets the jurisdiction apply its supplemental method.
+   */
+  readonly supplementalCents?: Cents;
   readonly taxCategory: TaxCategory;
   /**
    * Reporting provenance: never affects allocation or tax owed, only how results are keyed
@@ -104,46 +141,65 @@ export interface WaterfallInput {
    */
   readonly remainingDeferralRoomCents: (personId: string) => number;
   /**
-   * Employee payroll tax (US: FICA) charged on a person's CUMULATIVE year-to-date earned
-   * income by category — the person's reconciled ANNUAL LIABILITY, not per-employer
-   * withholding (see {@link import("../jurisdiction/jurisdiction").Jurisdiction.computePayrollTaxCents}).
-   * Charged as the DIFFERENCE between the seam on the year-to-date total after this month's
-   * earnings and before them, so a capped component (OASDI's wage base) binds on cumulative
-   * earnings rather than annualized monthly slices — exact for a lumpy earner, unchanged for
-   * a level one. The FULL pre-deferral gross is the base: a 401(k) deferral cuts income tax
-   * but never payroll tax. Absent → no payroll tax charged. Which categories are earned is
-   * the seam's call, keeping `wages`-vs-`ordinaryIncome` policy out of the engine.
+   * Federal income tax WITHHELD from one wage source's pay this period — the jurisdiction's
+   * paycheck-level seam ({@link
+   * import("../jurisdiction/jurisdiction").Jurisdiction.computeWageWithholdingCents}).
+   *
+   * Called once per WAGE source, on that source's own pay and nothing else. That is the whole
+   * causality guarantee: withholding is a function of the paycheck in front of it, so a raise, a
+   * cut, a bonus or a missing paycheck moves this month's figure and no earlier one, and non-wage
+   * income (a withdrawal, a realized gain) never reaches this seam at all. Absent → nothing is
+   * withheld and the year's whole liability settles on filing.
    */
-  readonly computePayrollTaxCents?: (
-    annualEarnedByCategory: Partial<Record<TaxCategory, Cents>>,
+  readonly computeWageWithholdingCents?: (request: WageWithholdingRequest) => Cents;
+  /**
+   * How many pay periods the year holds — the annualization factor the withholding seam projects
+   * one period's wage across. Twelve, because a compiled income series resolves one figure per
+   * MONTH and a month is therefore the finest paycheck this model has.
+   */
+  readonly payPeriodsPerYear: number;
+  /**
+   * One wage source's year-to-date facts BEFORE this month, as its own employer would hold them:
+   * cumulative earned gross by category, supplemental wages already paid, and income tax already
+   * withheld. Absent → the source has paid nothing yet this year.
+   *
+   * PER SOURCE, not per person, because that is the boundary real payroll works at — see
+   * {@link computePayrollWithholdingCents}.
+   */
+  readonly priorSourceYearToDate?: (personId: string, sourceKey: string) => SourceYearToDate;
+  /**
+   * Employee payroll tax (US: FICA) withheld by ONE wage source, on THAT SOURCE's cumulative
+   * year-to-date earned income by category (see {@link
+   * import("../jurisdiction/jurisdiction").Jurisdiction.computePayrollWithholdingCents}).
+   * Charged as the DIFFERENCE between the seam after this month's earnings and before them, so a
+   * capped component (a wage base) binds on cumulative earnings rather than on annualized monthly
+   * slices — exact for a lumpy earner, unchanged for a level one.
+   *
+   * The FULL pre-deferral gross is the base: a 401(k) deferral cuts income tax but never payroll
+   * tax. Which categories are earned is the seam's call, keeping `wages`-vs-`ordinaryIncome`
+   * policy out of the engine. Absent → no payroll tax charged.
+   */
+  readonly computePayrollWithholdingCents?: (
+    sourceCumulativeEarnedByCategory: Partial<Record<TaxCategory, Cents>>,
   ) => Cents;
   /**
-   * {@link computePayrollTaxCents} broken out per {@link TaxCategory} — REQUIRED whenever
-   * `computePayrollTaxCents` is present (runtime-enforced), so the waterfall can attribute
-   * each incremental payroll-tax charge back to the income source that generated it, the
-   * same way {@link computeTaxByCategoryCents} backs {@link taxBySourceCents}.
+   * {@link computePayrollWithholdingCents} broken out per {@link TaxCategory} — REQUIRED
+   * whenever it is present (runtime-enforced), so the waterfall can attribute each incremental
+   * payroll-tax charge back to the income category that generated it.
    */
-  readonly computePayrollTaxByCategoryCents?: (
-    annualEarnedByCategory: Partial<Record<TaxCategory, Cents>>,
+  readonly computePayrollWithholdingByCategoryCents?: (
+    sourceCumulativeEarnedByCategory: Partial<Record<TaxCategory, Cents>>,
   ) => Partial<Record<TaxCategory, Cents>>;
   /**
-   * This person's ESTIMATED federal income-tax payment for this month — an even twelfth of the
-   * year's estimated liability, already priced by the caller ({@link
-   * import("./federalIncomeTax").estimatedPaymentForMonth}). Deducted from take-home like any
-   * other withholding.
+   * The prior tax year's settled balance falling due this month, per person — signed, positive
+   * due, negative a refund. Charged through the same channel as this month's withholding, so a
+   * balance is docked from take-home and forces decumulation exactly as withholding does, while a
+   * refund raises take-home and lands wherever an ordinary surplus lands.
    *
-   * A FIXED figure, deliberately not a function of this month's income: income tax is annual,
-   * and the waterfall sees one month. Absent → no income tax charged.
+   * A FIXED figure the caller priced from a CLOSED year; the waterfall never derives it. Absent,
+   * or in any month but the filing month → 0.
    */
-  readonly estimatedIncomeTaxCents?: (personId: string) => Cents;
-  /**
-   * A person's year-to-date earned gross by category BEFORE this month — the base the
-   * cumulative payroll figure builds on. Absent → nothing earned yet this year. Only
-   * consulted when {@link computePayrollTaxCents} is present.
-   */
-  readonly priorEarnedByPersonCents?: (
-    personId: string,
-  ) => Partial<Record<TaxCategory, Cents>>;
+  readonly settlementCashCents?: (personId: string) => Cents;
   /**
    * REMAINING annual room under ONE plan's combined deposit limit — that limit minus the
    * deferral AND match already banked into the plan this year. `Infinity` = uncapped.
@@ -161,43 +217,64 @@ export interface WaterfallInput {
 
 export interface WaterfallResult {
   /**
-   * The federal income tax charged this month, summed across persons: Σ of the ESTIMATED
-   * installments {@link WaterfallInput.estimatedIncomeTaxCents} supplied, never a figure this
-   * waterfall priced. The liability itself is annual — {@link taxableByPersonCents} is what a
-   * caller folds into the year's running accumulator, and December reconciles the two.
+   * The federal income-tax CASH this month, summed across persons: the wage withholding this
+   * waterfall computed per source, plus (in the filing month only) the prior year's settled
+   * balance the caller supplied. Signed only through that balance — a refund large enough can
+   * make the month's income tax negative, which is take-home rather than a charge.
+   *
+   * NOT the year's liability, and not an instalment of it. {@link taxableByPersonCents} is what
+   * a caller folds into the year's accumulator, and the year's close reconciles the two.
    */
   readonly taxCents: Cents;
   /**
-   * Employee payroll tax (FICA) charged this month, summed across persons — the reconciled
-   * annual liability accrued this month, not per-employer withholding. Already removed from
-   * take-home alongside income tax; 0 when no {@link WaterfallInput.computePayrollTaxCents}
-   * is supplied. Kept a SEPARATE line from {@link taxCents} because its base (pre-deferral
-   * gross) and category set (earned income only) differ, and so the income-tax attribution
-   * invariants stay untouched.
+   * The wage-withholding slice of {@link taxCents} — this month's withholding alone, excluding
+   * any settled balance. What the caller credits against the CURRENT year's liability; the
+   * settlement pays a different year's and must never be credited here.
+   */
+  readonly wageWithholdingCents: Cents;
+  /**
+   * {@link wageWithholdingCents} per income SOURCE, keyed like {@link payrollTaxBySourceCents}.
+   * EXACT, not apportioned: each figure is what that one source's own paycheck withheld, because
+   * withholding is computed per source in the first place.
+   */
+  readonly wageWithholdingBySourceCents: Readonly<Record<string, Cents>>;
+  /**
+   * The same withholding split per PERSON, with its own category and source breakdowns — what the
+   * caller credits against that person's year. Structurally a
+   * {@link import("./federalIncomeTax").FederalTaxPayment}, stated structurally so the waterfall
+   * keeps knowing nothing about the year-level accounting that consumes it. A person whose
+   * paycheques withheld nothing is absent.
+   */
+  readonly wageWithholdingByPerson: ReadonlyMap<string, PersonWithholding>;
+  /**
+   * Employee payroll tax (FICA) withheld this month, summed across persons — per SOURCE, as a
+   * real employer withholds it, so a person holding two jobs has each cap applied twice and the
+   * year's filing squares up the difference. Already removed from take-home alongside income tax;
+   * 0 when no {@link WaterfallInput.computePayrollWithholdingCents} is supplied. Kept a SEPARATE
+   * line from {@link taxCents} because its base (pre-deferral gross) and category set (earned
+   * income only) differ.
    */
   readonly payrollTaxCents: Cents;
   /**
-   * Payroll tax per income SOURCE, keyed like {@link taxBySourceCents} (`sourceId` falling
-   * back to tax category). Each category's incremental charge is apportioned by earned
-   * weight PER PERSON — mirroring {@link taxBySourceCents} — so the share of the
-   * person-level payroll-tax charge attributed to this income source is distinguishable from
-   * a partner's. `{}` when no payroll tax was charged, else Σ === `payrollTaxCents` (see
-   * {@link assertPayrollTaxAttributionReconciles}).
+   * Payroll tax per income SOURCE, keyed like {@link wageWithholdingBySourceCents} (`sourceId`
+   * falling back to tax category). Each source's incremental charge apportioned across the
+   * categories it earned in. `{}` when no payroll tax was charged, else Σ === `payrollTaxCents`
+   * (see {@link assertPayrollTaxAttributionReconciles}).
    */
   readonly payrollTaxBySourceCents: Readonly<Record<string, Cents>>;
   /**
-   * This month's pre-deferral earned gross by category, per person — the caller folds it
-   * into its year-to-date accumulator so next month's {@link
-   * WaterfallInput.priorEarnedByPersonCents} is current. A person with no income is absent.
+   * This month's year-to-date-advancing payroll facts per wage SOURCE, per person — the caller
+   * folds each into its accumulator so next month's {@link WaterfallInput.priorSourceYearToDate}
+   * is current. Keyed by person, then by source key. A source that paid nothing is absent.
    */
-  readonly earnedThisMonthByPersonCents: ReadonlyMap<string, TaxableByCategory>;
-  /** Always `{}`: the caller priced the installment, so it owns the split — see {@link taxCents}. */
+  readonly sourceYearToDateDeltas: ReadonlyMap<string, ReadonlyMap<string, SourceYearToDate>>;
+  /** Always `{}`: the caller owns the category split of the month's tax cash — see {@link taxCents}. */
   readonly taxByCategoryCents: Partial<Record<TaxCategory, Cents>>;
   /** Always `{}` — see {@link taxByCategoryCents}. */
   readonly taxBySourceCents: Readonly<Record<string, Cents>>;
   /**
    * This month's taxable income by {@link TaxCategory}, per person — POST-deferral. NOT the
-   * base of {@link taxCents}, which is an installment on the whole year's estimate: the caller
+   * base of {@link taxCents}, which is what payroll withheld: the caller
    * folds this into its year-to-date accumulator (mirroring {@link
    * earnedThisMonthByPersonCents}), so the December reconciliation reads the complete year's
    * ACTUAL total regardless of which month each dollar landed in.

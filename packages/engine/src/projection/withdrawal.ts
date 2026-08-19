@@ -42,7 +42,7 @@ export interface WithdrawalState {
  * of a shared label.
  *
  * No gross-up happens here — an ordinary mid-year decumulation's own tax is settled with the rest
- * of the year's, through the year's instalments and its closing balance (see {@link
+ * of the year's, through the year's withholding and its closing balance (see {@link
  * import("../jurisdiction/jurisdiction").Jurisdiction.computeTaxCents}'s ANNUAL contract) — so
  * the order ranks accounts by preference alone, not by gross-up cost.
  */
@@ -74,12 +74,10 @@ export interface LiquidationRankable {
  * spent before anything is sold — then by `liquidationOrder` rank, ties held in the roster's own
  * order by a stable sort.
  *
- * Shared rather than re-derived, because two callers must agree on it: decumulation ({@link
- * buildWithdrawalSources}, which then drops the liquid account because the shortfall charge
- * already spent it) and the year-start funding forecast ({@link
- * import("./fundingForecast").forecastFundingDraws}). The forecast's whole value is that it
- * predicts the draws the real waterfall will take, which it cannot do from a second copy of this
- * ranking free to drift from the first.
+ * Shared rather than re-derived, so every money-out path drains accounts in the same order:
+ * decumulation ({@link buildWithdrawalSources}, which then drops the liquid account because the
+ * shortfall charge already spent it), and an explicitly-funded draw resolving against its own
+ * named sources.
  */
 export function orderedLiquidationAccounts<T extends LiquidationRankable>(
   accounts: readonly T[],
@@ -101,7 +99,7 @@ export function orderedLiquidationAccounts<T extends LiquidationRankable>(
  * waterfall that will charge the month ({@link
  * import("./allocationStep").projectObligationShortfallCents}) rather than re-derived here from a
  * second model of take-home. This module therefore knows nothing about deferrals, payroll tax or
- * tax instalments, which is the point: the one arithmetic that decides what a household has left
+ * tax withheld, which is the point: the one arithmetic that decides what a household has left
  * lives in one place, so a deduction cannot be docked there and missed here.
  *
  * The liquid buffer is spent first, and only the remainder is sold. Each draw sells EXACTLY

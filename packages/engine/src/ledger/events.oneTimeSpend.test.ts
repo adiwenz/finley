@@ -420,29 +420,22 @@ describe("OneTimeSpendEvent — investment-funded spend is NOT grossed up for fe
     expect(gainBand?.category).toBe("capitalGains");
     expect(gainBand!.cashInflowCents).toBeGreaterThan(0);
     const drawdownBand = at.flows!.incomeSources.find((s) => s.category === "savingsDrawdown");
-    // Gain + returned principal conserves to exactly the amount spent — no gross-up inflated it.
-    // The month's own tax instalment is drawn from the same liquid brokerage and bands as savings
-    // drawdown alongside the spend's principal, so it is the one other term in the identity.
-    expect((gainBand?.cashInflowCents ?? 0) + (drawdownBand?.cashInflowCents ?? 0)).toBe(
-      SPEND + at.flows!.taxCents,
-    );
+    // Gain + returned principal conserves to exactly the amount spent — no gross-up inflated it,
+    // and nothing else was sold beside it, because the month withholds nothing against the sale.
+    expect((gainBand?.cashInflowCents ?? 0) + (drawdownBand?.cashInflowCents ?? 0)).toBe(SPEND);
 
-    // ...and paced across the whole year rather than landing in the month it was realized. The
-    // year's estimate comes from simulating the year, and a simulated June performs this very
-    // draw, so January already knows what it will cost. The spend month is no heavier than any
-    // other, which is what stops a funding draw from spiking the tax chart.
-    const instalments = series.months.slice(0, 12).map((m) => m.flows!.taxCents);
-    for (const tax of instalments) expect(Math.abs(tax - instalments[0]!)).toBeLessThanOrEqual(1);
-    expect(instalments[6]).toBe(at.flows!.taxCents);
+    // ...and nothing is charged for it until the following April. No payroll system sees a
+    // brokerage sale, so no month of the year it falls in withholds a cent against it — including
+    // the month it was realized in, and including December.
+    const duringTheYear = series.months.slice(0, 12).map((m) => m.flows!.taxCents);
+    for (const tax of duringTheYear) expect(tax).toBe(0);
 
     const april = series.months[15].flows!;
-    const naive = Math.round(gainBand!.cashInflowCents * 0.3);
-    // Exactly the naive 30% of the gain — NO gross-up. The year slightly over-collects, because
-    // the brokerage the instalments themselves are drawn from realizes gain of its own as they are
-    // paid; April 2027 gives that back. Settling in the same December used to mean selling more of
-    // the appreciated brokerage to pay the bill, whose own gain enlarged the bill, recursively.
-    expect(instalments.reduce((s, t) => s + t, 0) + april.taxCents).toBe(naive);
-    expect(april.taxCents).toBeLessThan(0);
+    // Exactly the naive 30% of the gain — NO gross-up anywhere, and no recursion: the year is
+    // closed before anything is sold to pay it, so the April draw that funds the bill is 2027
+    // income and cannot enlarge the 2026 bill it is settling.
+    expect(april.taxCents).toBe(Math.round(gainBand!.cashInflowCents * 0.3));
+    expect(april.taxCents).toBeGreaterThan(0);
   });
 });
 

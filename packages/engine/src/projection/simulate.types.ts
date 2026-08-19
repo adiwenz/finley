@@ -172,7 +172,7 @@ export interface ProjectionMonthFlows {
   readonly taxCents: Cents;
   /**
    * Employee payroll tax (US: FICA) charged this month, summed across persons — the
-   * reconciled annual liability accrued this month, not per-employer paycheck withholding. A
+   * per-employer withholding this month took, not a reconciled annual liability. A
    * SEPARATE line from {@link taxCents} — its base is pre-deferral gross and it applies to
    * earned income only — already deducted from take-home, so after-tax gross is
    * `totalIncomeCents − taxCents − payrollTaxCents`. 0 when the jurisdiction charges none.
@@ -562,6 +562,13 @@ export interface SimOwnedSeries {
    * means it enters post-deferral. Meaningful on income series only.
    */
   readonly planDescriptor?: PlanDescriptor;
+  /**
+   * For a WAGE series, the one-off slice of the months that carry one — a bonus, keyed by absolute
+   * month. Its cash is already inside the series' own monthly figure; this only says how much of
+   * that figure was a one-off, which is the one thing paycheck WITHHOLDING has to know and nothing
+   * else does. A month absent from the map paid nothing one-off, which is nearly every month.
+   */
+  readonly supplementalByMonth?: ReadonlyMap<number, Cents>;
   /**
    * The authoring id of the {@link import("../budget/budgetLine").BudgetLine} an EXPENSE series
    * was compiled from; a health or event series carries none. Keys {@link

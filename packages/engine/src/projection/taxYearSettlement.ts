@@ -4,7 +4,7 @@
  *
  * A tax year's liability is annual and becomes exactly knowable the moment December's income has
  * folded into {@link import("./runState").SimState.taxableIncomeByPersonYear}. Its BALANCE — the
- * liability less the estimated instalments already paid — is not a December cash flow. It is
+ * liability less what payroll already withheld — is not a December cash flow. It is
  * settled in April of the FOLLOWING year, the way a real filing is:
  *
  * ```
@@ -23,7 +23,7 @@
  *
  * A settlement is SIGNED: positive is tax due, negative is a refund. Both ride the same channel —
  * the month's federal income-tax charge (see {@link import("./allocationStep").allocateMonth}) —
- * so a balance due is docked from take-home and forces decumulation exactly as an instalment
+ * so a balance due is docked from take-home and forces decumulation exactly as withholding
  * does, and a refund raises take-home and lands wherever an ordinary surplus lands. Neither
  * touches a balance directly.
  *
@@ -35,7 +35,12 @@ import type { Cents } from "../money/money";
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
 import type { TaxCategory } from "../money/cashFlowSeries";
 import type { SimState } from "./runState";
-import { addCategory, attributeTaxToSources, type TaxableByCategory } from "./taxAttribution";
+import {
+  addCategory,
+  attributeTaxToSources,
+  type SourceTaxable,
+  type TaxableByCategory,
+} from "./taxAttribution";
 import {
   annualFederalTax,
   MONTHS_IN_TAX_YEAR,
@@ -64,6 +69,26 @@ export function isTaxSettlementMonth(month: number): boolean {
   return month % MONTHS_IN_TAX_YEAR === SETTLEMENT_MONTH_IN_YEAR;
 }
 
+/**
+ * The signed payroll-tax adjustment the year's filing makes, for one person — positive owed,
+ * negative refunded. Zero whenever the jurisdiction declines to reconcile, and zero for the
+ * ordinary year in which every cap the withholding applied was the right one.
+ *
+ * Each wage source's WHOLE-YEAR earnings go to the seam separately, because the whole point of
+ * the reconciliation is that withholding was computed per source and the liability is not.
+ */
+function reconcilePayrollTax(
+  state: SimState,
+  jurisdiction: Jurisdiction,
+  ctx: JurisdictionContext,
+  personYearKey: string,
+): Cents {
+  const seam = jurisdiction.reconcilePayrollTaxCents;
+  const bySource = state.sourceYearToDate.get(personYearKey);
+  if (seam === undefined || bySource === undefined || bySource.size === 0) return 0;
+  return seam([...bySource.values()].map((ytd) => ytd.earnedByCategory), ctx);
+}
+
 /** Where a completed year's balance waits for April: `${personId}|${taxYear}`. */
 function settlementKey(personId: string, taxYear: number): string {
   return `${personId}|${taxYear}`;
@@ -71,7 +96,7 @@ function settlementKey(personId: string, taxYear: number): string {
 
 /**
  * Close the tax year: price each person's ACTUAL annual taxable income, subtract the estimated
- * instalments they already paid, and park the signed difference against `ctx.year` for April of
+ * withholding they already paid, and park the signed difference against `ctx.year` for April of
  * the next year to charge or refund. A no-op in every month but the year's last.
  *
  * Mutates only {@link import("./runState").SimState.pendingTaxSettlementsByPersonYear} — no sale,
@@ -103,11 +128,18 @@ export function finalizeTaxYear(
     const actualBase = state.taxableIncomeByPersonYear.get(key) ?? {};
     const paid = state.federalTaxPaidByPersonYear.get(key) ?? NO_FEDERAL_TAX_PAID;
 
-    // The SAME annual pricing the year's estimate came from — that estimate is this very
-    // function applied to a simulated year — so `actual − paid` is a difference of two comparable
-    // figures rather than a comparison of two unrelated tax computations.
+    // What the year actually OWES, on everything that actually arrived — the authoritative
+    // figure, and the only place it is ever priced. What was WITHHELD against it is `paid`, and
+    // the two disagree by construction: payroll withheld from wages a paycheck at a time and
+    // withheld nothing at all from a withdrawal, a gain or a penalty. That disagreement IS the
+    // refund or balance due.
     const { totalCents, byCategoryCents } = annualFederalTax(jurisdiction, ctx, pid, actualBase);
-    const trueUpCents = totalCents - paid.totalCents;
+    // Plus whatever the filing squares up on payroll tax — nothing at all for the ordinary
+    // single-job year, and for a multi-employer one the excess Social Security each employer
+    // withheld independently, back as a credit. A tax-law reconciliation, not a tidying-up: FICA
+    // is otherwise settled paycheck by paycheck and never revisited.
+    const payrollReconciliationCents = reconcilePayrollTax(state, jurisdiction, ctx, key);
+    const trueUpCents = totalCents + payrollReconciliationCents - paid.totalCents;
     if (trueUpCents === 0) continue;
 
     // The year's real sources — a job, a benefit, an account draw — weighted by what each
@@ -122,7 +154,7 @@ export function finalizeTaxYear(
     );
 
     // Both breakdowns are differences against what the year already charged, so the year's twelve
-    // instalments plus this balance sum to the actual annual liability — category by category and
+    // withholding plus this balance sum to the actual annual liability — category by category and
     // source by source, not merely in total.
     const settlementByCategory: TaxableByCategory = {};
     for (const category of new Set([
@@ -144,6 +176,45 @@ export function finalizeTaxYear(
       if (cents !== 0) settlementBySource[source] = cents;
     }
 
+    // The payroll reconciliation joins both breakdowns under the categories and sources that
+    // actually BORE payroll tax, so the settlement's splits still sum to its total. It cannot be
+    // apportioned across the income-tax weights above: those include a benefit and a withdrawal,
+    // and neither pays payroll tax at all.
+    //
+    // Which sources bore it is the jurisdiction's answer, not the engine's — the same per-category
+    // breakdown the waterfall attributes each month's charge with, run over each source's WHOLE
+    // year. A source the seam charges nothing on takes none of the correction, which is what keeps
+    // an IRA draw out of a Social-Security credit. A jurisdiction that reconciles without offering
+    // a breakdown falls back to raw earnings, which is cruder but still sums to the total — the
+    // splits are reporting, and a reporting gap must not leave the balance unattributed.
+    if (payrollReconciliationCents !== 0) {
+      const weights: SourceTaxable[] = [];
+      const breakdown = jurisdiction.computePayrollWithholdingByCategoryCents;
+      for (const [sourceKey, ytd] of state.sourceYearToDate.get(key) ?? []) {
+        const borne = breakdown?.(ytd.earnedByCategory, ctx) ?? ytd.earnedByCategory;
+        for (const [category, cents] of Object.entries(borne)) {
+          if (cents) {
+            weights.push({ key: sourceKey, category: category as TaxCategory, taxableCents: cents });
+          }
+        }
+      }
+      const totalWeight = weights.reduce((sum, w) => sum + w.taxableCents, 0);
+      if (totalWeight > 0) {
+        // Cumulative rounding across the weights, so the pieces sum to the reconciliation exactly.
+        let prevCum = 0;
+        let acc = 0;
+        for (const weight of weights) {
+          acc += weight.taxableCents;
+          const cum = Math.round((payrollReconciliationCents * acc) / totalWeight);
+          const share = cum - prevCum;
+          prevCum = cum;
+          if (share === 0) continue;
+          addCategory(settlementByCategory, weight.category, share);
+          settlementBySource[weight.key] = (settlementBySource[weight.key] ?? 0) + share;
+        }
+      }
+    }
+
     state.pendingTaxSettlementsByPersonYear.set(key, {
       totalCents: trueUpCents,
       byCategoryCents: settlementByCategory,
@@ -158,7 +229,7 @@ export function finalizeTaxYear(
  * month, and empty in an April whose prior year came out exactly on estimate.
  *
  * Signed, like what it was stored as. The caller charges it through the same channel as the
- * month's estimated instalment, which is what puts it through the ordinary funding waterfall: a
+ * month's own withholding, which is what puts it through the ordinary funding waterfall: a
  * balance due enlarges the month's cash need and may be funded by a taxable withdrawal, and that
  * withdrawal is income in the CURRENT year, folded into the current year's accumulator by the
  * ordinary path. It must NOT be credited to the current year's `federalTaxPaidByPersonYear` —
@@ -205,22 +276,6 @@ export function unsettledBalancesFromEarlierYearsCents(
     // last-index split is right whether or not that stays true.
     const taxYear = Number(key.slice(key.lastIndexOf("|") + 1));
     if (taxYear !== ctx.year) total += settlement.totalCents;
-  }
-  return total;
-}
-
-/**
- * What the year-start estimate must add to the year's expected OUTFLOW: the household's whole
- * pending balance from the year just closed, which this year's April will have to fund. Read in
- * January, when December has already parked it and April has not yet consumed it.
- *
- * Signed — a refund is a negative outflow, and a household expecting one needs to decumulate that
- * much less. Read-only: consuming is {@link dueTaxYearSettlements}'s job alone.
- */
-export function pendingSettlementTotalCents(state: SimState, ctx: JurisdictionContext): Cents {
-  let total = 0;
-  for (const pid of state.personIds) {
-    total += state.pendingTaxSettlementsByPersonYear.get(settlementKey(pid, ctx.year - 1))?.totalCents ?? 0;
   }
   return total;
 }

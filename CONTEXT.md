@@ -364,6 +364,29 @@ states which base it enters, or that it enters none.
 _Avoid_: "tax-free" for any of them — it is true of all three withdrawals and hides the
 distinction that decides the drawdown order and the benefit test.
 
+**Withholding** vs **liability** vs **settlement**:
+Three different figures about the same tax year, and conflating any two of them is the mistake
+this vocabulary exists to prevent.
+**Withholding** is what payroll takes out of one paycheck, computed from that paycheck alone.
+Deliberately approximate, and causal by construction: a raise, a cut or a month with no pay
+changes it from that paycheck forward and can never revise an earlier one. Nothing outside
+payroll is withheld against — a retirement withdrawal, a realized gain and a one-off spend all
+withhold nothing.
+**Liability** is what the year actually owes, priced once at the year's close over every dollar
+of income that actually arrived, whatever month it landed in. Authoritative.
+**Settlement** is `liability − withheld`, signed: positive a balance due, negative a refund. It
+is parked when the year closes and moves as cash in the FOLLOWING April, through the ordinary
+funding waterfall like any other need.
+_Avoid_: "estimate" or "instalment" for withholding — neither the engine nor a payroll system
+estimates a year; "true-up" for the settlement, which is a filing, not a correction.
+
+**Regular** vs **supplemental** wages:
+Both are ordinary wage income and the year's liability makes no distinction between them.
+WITHHOLDING does: a payroll system annualizes regular pay and must not annualize a one-off, so a
+bonus is withheld against by its own method. A `JobIncomeOverride` of kind `addBonus` is what
+makes a month's pay partly supplemental.
+_Avoid_: treating a bonus as a pay rise, which is exactly the error the separation prevents.
+
 **GovernmentProgram**:
 A modeled income or cost change whose amount/availability is *derived* from the
 household's history or age (not entered directly) — e.g. Social Security, Medicare.

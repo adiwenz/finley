@@ -144,7 +144,7 @@ export interface ReportMonth {
   readonly taxCents: Cents;
   /**
    * Employee payroll tax (US: FICA) charged this month, summed over persons — the reconciled
-   * annual liability accrued this month, NOT per-employer paycheck withholding. A separate
+   * per-employer withholding this month took, NOT a reconciled annual liability. A separate
    * line from {@link taxCents} (earned income only, on pre-deferral gross). 0 at month 0 and
    * whenever the jurisdiction charges none.
    */
