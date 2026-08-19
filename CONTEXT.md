@@ -387,6 +387,17 @@ bonus is withheld against by its own method. A `JobIncomeOverride` of kind `addB
 makes a month's pay partly supplemental.
 _Avoid_: treating a bonus as a pay rise, which is exactly the error the separation prevents.
 
+**Multiple-jobs adjustment**:
+The extra per-period withholding a person needs *because* they hold more than one job at once.
+Each employer prices its own wages as though they were the person's only income, so between them
+they withhold from the bottom of the brackets more than once. The model corrects for that the way
+a real taxpayer would: prospectively, on the highest-paying job, sized from what the year has
+actually paid and withheld plus this period's rate of pay extended over the periods that remain.
+Re-derived from scratch every period, so a job starting, ending or changing pay moves that month
+and every later one and no earlier one.
+_Avoid_: the W-4 Step 2(c) checkbox, which only approximates two similar jobs and cannot express a
+job that started in July.
+
 **GovernmentProgram**:
 A modeled income or cost change whose amount/availability is *derived* from the
 household's history or age (not entered directly) — e.g. Social Security, Medicare.

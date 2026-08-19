@@ -65,13 +65,17 @@ export interface WithdrawalTaxBasis {
  * One wage source's payment for ONE pay period, as a payroll system would see it — the input to
  * {@link Jurisdiction.computeWageWithholdingCents}.
  *
- * Deliberately states only what an employer knows when it cuts the cheque. No year-to-date wage
- * total, no other source's pay, no forecast of the months ahead: that omission IS the causality
- * guarantee, because a withholding figure computed from these fields alone cannot depend on
- * anything that has not happened yet, and cannot be revised once the period is paid.
+ * Every field is a fact about the PAST or the PRESENT — this period's pay, what the year has
+ * already paid and withheld, how many periods are left. NOTHING here describes a month that has
+ * not happened, and that omission IS the causality guarantee: a figure computed from these fields
+ * cannot depend on the future, and cannot be revised once the period is paid. Where a real
+ * taxpayer would look ahead, the model does what the IRS's own worksheets do and extends the
+ * CURRENT period forward, which is knowledge, not foresight.
  *
- * The two cumulative fields present are the two a real employer genuinely tracks about ITSELF,
- * and each exists because a jurisdiction rule bands on it.
+ * Two scopes, and the difference matters. The per-SOURCE cumulative fields are what one employer
+ * genuinely tracks about itself, and band that employer's own rates. The per-PERSON ones are what
+ * the employee knows and their employers do not, and exist because withholding forms ask the
+ * employee to correct for exactly that gap.
  */
 export interface WageWithholdingRequest {
   /**
@@ -102,12 +106,30 @@ export interface WageWithholdingRequest {
   /** How many periods of this size the year holds — the annualization factor. */
   readonly payPeriodsPerYear: number;
   /**
-   * How many sources of this same {@link taxCategory} are paying the person this period — for a
-   * wage source, how many jobs they hold. A jurisdiction whose withholding form asks the employee
-   * to declare multiple jobs can derive that declaration from this rather than requiring it to be
-   * authored.
+   * Periods left in the tax year, THIS one included — 12 in January, 1 in December. The horizon a
+   * prospective mid-year correction has left to spread itself over.
    */
-  readonly concurrentWageSourceCount: number;
+  readonly remainingPayPeriods: number;
+  /**
+   * This period's regular wages from EVERY source of this same {@link taxCategory} paying the
+   * person, this one included, highest first. A withholding form asks the employee about their
+   * OTHER jobs precisely because independent employers each price their own wages as if they were
+   * the person's only income, and the brackets are shared.
+   */
+  readonly concurrentRegularWagesCents: readonly Cents[];
+  /**
+   * True for the ONE source carrying the person's multiple-jobs correction — the highest-paying,
+   * as the W-4's own worksheet directs. Every other source withholds its own wages untouched, so
+   * the correction is applied once rather than once per employer.
+   */
+  readonly bearsMultipleJobsAdjustment: boolean;
+  /**
+   * The person's wages of this category from ALL sources so far this year, after pre-tax
+   * deferral — including sources that have since stopped paying.
+   */
+  readonly priorPersonWagesCents: Cents;
+  /** Income tax already withheld against those wages, by all of those sources. */
+  readonly priorPersonWithholdingCents: Cents;
 }
 
 export interface ReturnTaxTreatment {

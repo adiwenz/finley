@@ -8,6 +8,7 @@ import {
   supplementalWageWithholdingCents,
   withholdingRateSchedules,
   defaultW4Configuration,
+  multipleJobsAdjustmentCents,
   SUPPLEMENTAL_WAGE_RATE,
   SUPPLEMENTAL_WAGE_EXCESS_RATE,
   SUPPLEMENTAL_WAGE_EXCESS_THRESHOLD_CENTS,
@@ -26,12 +27,16 @@ function request(over: Partial<WageWithholdingRequest> = {}): WageWithholdingReq
     priorSupplementalWagesCents: 0,
     priorRegularWithholdingCents: 0,
     payPeriodsPerYear: MONTHLY,
-    concurrentWageSourceCount: 1,
+    remainingPayPeriods: MONTHLY,
+    concurrentRegularWagesCents: [0],
+    bearsMultipleJobsAdjustment: false,
+    priorPersonWagesCents: 0,
+    priorPersonWithholdingCents: 0,
     ...over,
   };
 }
 
-const DEFAULT_W4: W4Configuration = defaultW4Configuration(request());
+const DEFAULT_W4: W4Configuration = defaultW4Configuration(request(), YEAR);
 
 /** A year of identical paycheques from one salary. */
 function withheldOnLevelSalary(annualDollars: number, w4: W4Configuration = DEFAULT_W4): number {
@@ -123,9 +128,14 @@ describe("Regular wages — the annualize-and-price method", () => {
     expect(multi * 2).toBeCloseTo(regularWageWithholdingCents(10_000_00, MONTHLY, DEFAULT_W4, YEAR), -4);
   });
 
-  it("ticks the multiple-jobs box exactly when the person is holding more than one job", () => {
-    expect(defaultW4Configuration(request({ concurrentWageSourceCount: 1 })).multipleJobsCheckbox).toBe(false);
-    expect(defaultW4Configuration(request({ concurrentWageSourceCount: 2 })).multipleJobsCheckbox).toBe(true);
+  it("never ticks the Step 2 checkbox — the multiple-jobs correction rides on line 4(c) instead", () => {
+    const twoJobs = request({
+      regularWagesCents: 5_000_00,
+      concurrentRegularWagesCents: [5_000_00, 5_000_00],
+      bearsMultipleJobsAdjustment: true,
+    });
+    expect(defaultW4Configuration(twoJobs, YEAR).multipleJobsCheckbox).toBe(false);
+    expect(defaultW4Configuration(twoJobs, YEAR).extraWithholdingPerPeriodCents).toBeGreaterThan(0);
   });
 
   it("applies each W-4 line the form's own way: credits reduce, other income raises, extra adds", () => {
@@ -151,6 +161,86 @@ describe("Regular wages — the annualize-and-price method", () => {
   it("never withholds a negative amount, however large the credit claimed", () => {
     expect(
       regularWageWithholdingCents(5_000_00, MONTHLY, { ...DEFAULT_W4, dependentCreditsCents: 99_000_00 }, YEAR),
+    ).toBe(0);
+  });
+});
+
+describe("The multiple-jobs adjustment — line 4(c) rather than the Step 2 checkbox", () => {
+  /** Two $5,000-a-month jobs, January, with the correction on the first of them. */
+  const twoJobs = (over: Partial<WageWithholdingRequest> = {}): WageWithholdingRequest =>
+    request({
+      regularWagesCents: 5_000_00,
+      concurrentRegularWagesCents: [5_000_00, 5_000_00],
+      bearsMultipleJobsAdjustment: true,
+      ...over,
+    });
+
+  it("asks for nothing at all when the person holds a single job", () => {
+    expect(
+      multipleJobsAdjustmentCents(
+        request({ regularWagesCents: 5_000_00, concurrentRegularWagesCents: [5_000_00] }),
+        YEAR,
+      ),
+    ).toBe(0);
+  });
+
+  it("asks for nothing from a job that is not the one carrying the correction", () => {
+    // Exactly one employer applies it, so the household is corrected once rather than once per
+    // job — the error that ticking the checkbox on every W-4 would make with three jobs.
+    expect(
+      multipleJobsAdjustmentCents(twoJobs({ bearsMultipleJobsAdjustment: false }), YEAR),
+    ).toBe(0);
+  });
+
+  it("closes the gap between what two employers withhold and what the combined wage owes", () => {
+    const perJob = regularWageWithholdingCents(5_000_00, MONTHLY, DEFAULT_W4, YEAR);
+    const combined = regularWageWithholdingCents(10_000_00, MONTHLY, DEFAULT_W4, YEAR);
+    expect(multipleJobsAdjustmentCents(twoJobs(), YEAR)).toBe(combined - perJob * 2);
+  });
+
+  it("generalises past two jobs, to any number of any sizes", () => {
+    const wages = [8_000_00, 2_500_00, 400_00];
+    const adjustment = multipleJobsAdjustmentCents(
+      request({
+        regularWagesCents: 8_000_00,
+        concurrentRegularWagesCents: wages,
+        bearsMultipleJobsAdjustment: true,
+      }),
+      YEAR,
+    );
+    const unadjusted = wages.reduce(
+      (sum, w) => sum + regularWageWithholdingCents(w, MONTHLY, DEFAULT_W4, YEAR),
+      0,
+    );
+    const combined = regularWageWithholdingCents(10_900_00, MONTHLY, DEFAULT_W4, YEAR);
+    expect(adjustment).toBe(combined - unadjusted);
+  });
+
+  it("sizes what is left to withhold from what the year has ACTUALLY paid and withheld", () => {
+    // Six months in, one job all along and a second one starting now: the first half withheld what
+    // one employer would, and the six periods that remain carry the whole correction for the year.
+    const midYear = twoJobs({
+      remainingPayPeriods: 6,
+      priorPersonWagesCents: 30_000_00,
+      priorPersonWithholdingCents: 3_000_00,
+    });
+    const projectedAnnualWagesCents = 30_000_00 + 10_000_00 * 6;
+    const target = regularWageWithholdingCents(projectedAnnualWagesCents, 1, DEFAULT_W4, YEAR);
+    const unadjustedRemaining =
+      regularWageWithholdingCents(5_000_00, MONTHLY, DEFAULT_W4, YEAR) * 2 * 6;
+    expect(multipleJobsAdjustmentCents(midYear, YEAR)).toBe(
+      Math.round((target - 3_000_00 - unadjustedRemaining) / 6),
+    );
+  });
+
+  it("never asks for a negative amount — payroll cannot hand back an over-withholding", () => {
+    // A year that has already withheld far more than it will owe. The correction goes to zero and
+    // stays there; the excess comes back as April's refund, which is where it belongs.
+    expect(
+      multipleJobsAdjustmentCents(
+        twoJobs({ remainingPayPeriods: 2, priorPersonWithholdingCents: 80_000_00 }),
+        YEAR,
+      ),
     ).toBe(0);
   });
 });

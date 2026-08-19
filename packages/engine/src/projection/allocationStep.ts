@@ -135,6 +135,10 @@ function planMonthAllocation(
       ? (request) => jurisdiction.computeWageWithholdingCents!(request, ctx)
       : undefined,
     payPeriodsPerYear: PAY_PERIODS_PER_YEAR,
+    // Periods left in the CALENDAR year, this one included — the horizon a mid-year correction
+    // has to spread itself over. Absolute month modulo the year is the month-of-year, because a
+    // projection always opens in January.
+    periodsRemainingInTaxYear: PAY_PERIODS_PER_YEAR - (month % PAY_PERIODS_PER_YEAR),
     // The prior year's settled balance, in the filing month only — signed, so a refund raises
     // take-home rather than lowering it. Kept apart from this month's withholding because it pays
     // a DIFFERENT year and must never be credited against this one.
@@ -156,7 +160,23 @@ function planMonthAllocation(
         earnedByCategory: {},
         supplementalWagesCents: 0,
         wageWithholdingCents: 0,
+        withholdingWagesCents: 0,
       },
+    // The same facts rolled up across the person's sources in one category — what the EMPLOYEE
+    // knows and no employer does. Every source the year has seen counts, including one that has
+    // already stopped paying, so a correction made in July still accounts for a job that ran to
+    // June. Which categories are wages stays the jurisdiction's call: the roll-up just matches on
+    // the category the caller asked about.
+    priorPersonWageYearToDate: (pid, taxCategory) => {
+      let wagesCents = 0;
+      let withholdingCents = 0;
+      for (const ytd of state.sourceYearToDate.get(`${pid}|${ctx.year}`)?.values() ?? []) {
+        if (ytd.taxCategory !== taxCategory) continue;
+        wagesCents += ytd.withholdingWagesCents;
+        withholdingCents += ytd.wageWithholdingCents;
+      }
+      return { wagesCents, withholdingCents };
+    },
     remainingDeferralRoomCents: (pid) => remainingDeferralRoomCents(state, jurisdiction, ctx, pid),
     // Age comes from the person; the accumulator is keyed by the plan.
     remainingCombinedDepositRoomCents: (pid, planKey) => {
@@ -307,6 +327,8 @@ export function allocateMonth(
         earnedByCategory,
         supplementalWagesCents: prior.supplementalWagesCents + delta.supplementalWagesCents,
         wageWithholdingCents: prior.wageWithholdingCents + delta.wageWithholdingCents,
+        withholdingWagesCents: prior.withholdingWagesCents + delta.withholdingWagesCents,
+        taxCategory: delta.taxCategory ?? prior.taxCategory,
       });
     }
   }

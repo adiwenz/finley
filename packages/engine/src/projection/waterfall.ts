@@ -23,6 +23,7 @@ import type {
   IncomeSourceMonth,
   PersonWithholding,
   SourceYearToDate,
+  PersonWageYearToDate,
   WaterfallInput,
   WaterfallResult,
 } from "./waterfall.types";
@@ -49,6 +50,7 @@ export type {
   SurplusDestination,
   PersonWithholding,
   SourceYearToDate,
+  PersonWageYearToDate,
   WaterfallInput,
   WaterfallResult,
 } from "./waterfall.types";
@@ -92,7 +94,25 @@ const NO_YEAR_TO_DATE: SourceYearToDate = {
   earnedByCategory: {},
   supplementalWagesCents: 0,
   wageWithholdingCents: 0,
+  withholdingWagesCents: 0,
 };
+
+const NO_PERSON_YEAR_TO_DATE: PersonWageYearToDate = { wagesCents: 0, withholdingCents: 0 };
+
+/**
+ * One source's pay for the month, resolved but not yet withheld against — the hand-off between
+ * {@link applyDeferrals}'s two passes.
+ */
+interface PaidSource {
+  readonly src: IncomeSourceMonth;
+  readonly sourceKey: string;
+  readonly earnedByCategory: TaxableByCategory;
+  readonly priorYtd: SourceYearToDate;
+  /** POST-deferral, recurring — the figure a multiple-jobs correction extends across the year. */
+  readonly regularTaxableCents: Cents;
+  /** POST-deferral, one-off. */
+  readonly supplementalTaxableCents: Cents;
+}
 
 /** Merge two per-category maps into a new one; used to add this month's earnings onto a year-to-date base. */
 function mergeCategories(
@@ -116,6 +136,8 @@ interface SourceOutcome {
   readonly taxCategory: TaxCategory;
   readonly supplementalWagesCents: Cents;
   readonly wageWithholdingCents: Cents;
+  /** POST-deferral wages the withholding was taken from — the income-tax base, not the payroll one. */
+  readonly withholdingWagesCents: Cents;
   readonly payrollTaxCents: Cents;
   /** {@link payrollTaxCents} split across the categories this source earned in. */
   readonly payrollTaxByCategory: TaxableByCategory;
@@ -151,16 +173,6 @@ function applyDeferrals(
   // lazily: the plan keys are only known once we walk the income sources.
   const combinedRoomRemaining = new Map<string, number>();
 
-  // How many sources of the same provenance are paying each person this period. Counted up front
-  // because a W-4-style form asks the employee about their OTHER jobs, so the answer for the first
-  // source depends on sources not yet walked.
-  const concurrentByPersonCategory = new Map<string, number>();
-  for (const src of input.incomeSources) {
-    if ((src.taxableCents ?? src.waterfallInflowCents) <= 0) continue;
-    const k = `${src.ownerId}|${src.taxCategory}`;
-    concurrentByPersonCategory.set(k, (concurrentByPersonCategory.get(k) ?? 0) + 1);
-  }
-
   const grossByPerson = new Map<string, Cents>();
   const taxableByPerson = new Map<string, TaxableByCategory>();
   // POST-deferral per-source taxable weight — the income tax's base, so the year's close can
@@ -168,6 +180,7 @@ function applyDeferrals(
   // {@link attributeTaxToSources} apportionment payroll uses monthly).
   const sourceTaxableByPerson = new Map<string, SourceTaxable[]>();
   const sourceOutcomes: SourceOutcome[] = [];
+  const paidSources: PaidSource[] = [];
   const deferralBySource = new Map<string, Cents>();
   const deferredByPerson = new Map<string, Cents>();
   const combinedDepositsByPlan = new Map<string, Cents>();
@@ -248,7 +261,6 @@ function applyDeferrals(
 
     const earnedByCategory: TaxableByCategory = {};
     addCategory(earnedByCategory, src.taxCategory, sourceEarned);
-    const priorYtd = input.priorSourceYearToDate?.(src.ownerId, sourceKey) ?? NO_YEAR_TO_DATE;
 
     // Withholding runs on the POST-deferral wage — a pre-tax deferral is not income-taxed, so it
     // is not withheld against either — and the supplemental slice is haircut by the deferral in
@@ -258,37 +270,17 @@ function applyDeferrals(
       sourceTaxable,
       Math.round((supplementalGross * sourceTaxable) / sourceEarned),
     );
-    const wageWithholdingCents =
-      input.computeWageWithholdingCents?.({
-        taxCategory: src.taxCategory,
-        regularWagesCents: sourceTaxable - supplementalTaxable,
-        supplementalWagesCents: supplementalTaxable,
-        priorSupplementalWagesCents: priorYtd.supplementalWagesCents,
-        priorRegularWithholdingCents: priorYtd.wageWithholdingCents,
-        payPeriodsPerYear: input.payPeriodsPerYear,
-        concurrentWageSourceCount:
-          concurrentByPersonCategory.get(`${src.ownerId}|${src.taxCategory}`) ?? 1,
-      }) ?? 0;
-
-    const { payrollTaxCents, payrollTaxByCategory } = payrollTaxForSource(
-      input,
-      priorYtd.earnedByCategory,
+    paidSources.push({
+      src,
+      sourceKey,
       earnedByCategory,
-    );
-
-    sourceOutcomes.push({
-      key: sourceKey,
-      ownerId: src.ownerId,
-      earnedByCategory,
-      taxCategory: src.taxCategory,
-      // Only the supplemental wages a jurisdiction would actually see on a payslip advance the
-      // year-to-date band, so the deferral haircut is carried here too.
-      supplementalWagesCents: supplementalTaxable,
-      wageWithholdingCents: Math.max(0, wageWithholdingCents),
-      payrollTaxCents,
-      payrollTaxByCategory,
+      priorYtd: input.priorSourceYearToDate?.(src.ownerId, sourceKey) ?? NO_YEAR_TO_DATE,
+      regularTaxableCents: sourceTaxable - supplementalTaxable,
+      supplementalTaxableCents: supplementalTaxable,
     });
   }
+
+  withholdPaidSources(input, paidSources, sourceOutcomes);
   return {
     grossByPerson,
     taxableByPerson,
@@ -298,6 +290,93 @@ function applyDeferrals(
     deferredByPerson,
     combinedDepositsByPlan,
   };
+}
+
+/**
+ * Pass two — price every source's withholding, now that the month's pay is settled.
+ *
+ * Separate from the deferral pass because a person's concurrent jobs are only knowable once ALL of
+ * them have been resolved, and a source's pay is only final once its deferral has been taken. The
+ * jurisdiction is told what every job of the same provenance is paying this period so it can
+ * correct for the brackets they share, and exactly one of them — the highest-paying — is flagged
+ * to carry that correction, so it is applied once for the person and not once per employer.
+ *
+ * `sourceOutcomes` is appended in the caller's original source order; grouping is a lookup, not a
+ * reordering, so reporting keys stay where the input put them.
+ */
+function withholdPaidSources(
+  input: WaterfallInput,
+  paidSources: readonly PaidSource[],
+  sourceOutcomes: SourceOutcome[],
+): void {
+  interface PersonCategoryContext {
+    readonly concurrentRegularWagesCents: readonly Cents[];
+    readonly bearerKey: string;
+    readonly personYtd: PersonWageYearToDate;
+  }
+  const grouped = new Map<string, PaidSource[]>();
+  for (const paid of paidSources) {
+    const key = `${paid.src.ownerId}|${paid.src.taxCategory}`;
+    const group = grouped.get(key);
+    if (group === undefined) grouped.set(key, [paid]);
+    else group.push(paid);
+  }
+  const contexts = new Map<string, PersonCategoryContext>();
+  for (const [key, group] of grouped) {
+    // Highest-paying first, ties broken on the source key so the bearer is stable month to month
+    // rather than flipping between two equal jobs and jittering their paycheques.
+    const ordered = [...group].sort(
+      (a, b) =>
+        b.regularTaxableCents - a.regularTaxableCents || a.sourceKey.localeCompare(b.sourceKey),
+    );
+    const first = ordered[0]!;
+    contexts.set(key, {
+      concurrentRegularWagesCents: ordered.map((p) => p.regularTaxableCents),
+      bearerKey: first.sourceKey,
+      personYtd:
+        input.priorPersonWageYearToDate?.(first.src.ownerId, first.src.taxCategory) ??
+        NO_PERSON_YEAR_TO_DATE,
+    });
+  }
+
+  for (const paid of paidSources) {
+    const { src, sourceKey, priorYtd } = paid;
+    const context = contexts.get(`${src.ownerId}|${src.taxCategory}`)!;
+    const wageWithholdingCents = Math.max(
+      0,
+      input.computeWageWithholdingCents?.({
+        taxCategory: src.taxCategory,
+        regularWagesCents: paid.regularTaxableCents,
+        supplementalWagesCents: paid.supplementalTaxableCents,
+        priorSupplementalWagesCents: priorYtd.supplementalWagesCents,
+        priorRegularWithholdingCents: priorYtd.wageWithholdingCents,
+        payPeriodsPerYear: input.payPeriodsPerYear,
+        remainingPayPeriods: input.periodsRemainingInTaxYear,
+        concurrentRegularWagesCents: context.concurrentRegularWagesCents,
+        bearsMultipleJobsAdjustment: context.bearerKey === sourceKey,
+        priorPersonWagesCents: context.personYtd.wagesCents,
+        priorPersonWithholdingCents: context.personYtd.withholdingCents,
+      }) ?? 0,
+    );
+    const { payrollTaxCents, payrollTaxByCategory } = payrollTaxForSource(
+      input,
+      priorYtd.earnedByCategory,
+      paid.earnedByCategory,
+    );
+    sourceOutcomes.push({
+      key: sourceKey,
+      ownerId: src.ownerId,
+      earnedByCategory: paid.earnedByCategory,
+      taxCategory: src.taxCategory,
+      // Only the supplemental wages a jurisdiction would actually see on a payslip advance the
+      // year-to-date band, so the deferral haircut is carried here too.
+      supplementalWagesCents: paid.supplementalTaxableCents,
+      wageWithholdingCents,
+      withholdingWagesCents: paid.regularTaxableCents + paid.supplementalTaxableCents,
+      payrollTaxCents,
+      payrollTaxByCategory,
+    });
+  }
 }
 
 /**
@@ -413,12 +492,16 @@ function computeTakeHome(
             earnedByCategory: { ...outcome.earnedByCategory },
             supplementalWagesCents: outcome.supplementalWagesCents,
             wageWithholdingCents: outcome.wageWithholdingCents,
+            withholdingWagesCents: outcome.withholdingWagesCents,
+            taxCategory: outcome.taxCategory,
           }
         : {
             earnedByCategory: mergeCategories(existing.earnedByCategory, outcome.earnedByCategory),
             supplementalWagesCents:
               existing.supplementalWagesCents + outcome.supplementalWagesCents,
             wageWithholdingCents: existing.wageWithholdingCents + outcome.wageWithholdingCents,
+            withholdingWagesCents: existing.withholdingWagesCents + outcome.withholdingWagesCents,
+            taxCategory: outcome.taxCategory,
           },
     );
   }

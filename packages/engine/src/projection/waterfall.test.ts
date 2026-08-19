@@ -21,6 +21,7 @@ function makeInput(over: Partial<WaterfallInput>): WaterfallInput {
     remainingDeferralRoomCents: () => Infinity,
     remainingCombinedDepositRoomCents: () => Infinity,
     payPeriodsPerYear: 12,
+    periodsRemainingInTaxYear: 12,
     ...over,
   };
 }
@@ -362,8 +363,8 @@ describe("runWaterfall — federal income tax is never PRICED here, only charged
     expect(r.wageWithholdingCents).toBe(dollarsToCents(500) + dollarsToCents(2200));
   });
 
-  it("tells a jurisdiction how many sources of the same kind are paying a person this period", () => {
-    const seen: number[] = [];
+  it("tells a jurisdiction what every source of the same kind is paying a person this period", () => {
+    const seen: (readonly number[])[] = [];
     runWaterfall(
       makeInput({
         incomeSources: [
@@ -371,12 +372,59 @@ describe("runWaterfall — federal income tax is never PRICED here, only charged
           { ...wageSource("p1", dollarsToCents(3000)), sourceId: "job:2" },
         ],
         computeWageWithholdingCents: (request) => {
-          seen.push(request.concurrentWageSourceCount);
+          seen.push(request.concurrentRegularWagesCents);
           return 0;
         },
       }),
     );
-    expect(seen).toEqual([2, 2]);
+    // Highest-paying first, both times — the ordering a multiple-jobs correction picks its bearer
+    // from, and identical for every source because it describes the PERSON, not the source.
+    expect(seen).toEqual([
+      [dollarsToCents(4000), dollarsToCents(3000)],
+      [dollarsToCents(4000), dollarsToCents(3000)],
+    ]);
+  });
+
+  it("flags exactly one source — the highest-paying — to carry a multiple-jobs correction", () => {
+    const bearers: string[] = [];
+    runWaterfall(
+      makeInput({
+        incomeSources: [
+          { ...wageSource("p1", dollarsToCents(3000)), sourceId: "job:small" },
+          { ...wageSource("p1", dollarsToCents(4000)), sourceId: "job:big" },
+          // A different provenance entirely: it shares no brackets with the jobs as far as the
+          // engine is concerned, so it is grouped and flagged on its own.
+          { ...wageSource("p2", dollarsToCents(9000)), sourceId: "job:partner" },
+        ],
+        computeWageWithholdingCents: (request) => {
+          if (request.bearsMultipleJobsAdjustment) bearers.push(String(request.regularWagesCents));
+          return 0;
+        },
+      }),
+    );
+    expect(bearers).toEqual([
+      String(dollarsToCents(4000)),
+      String(dollarsToCents(9000)),
+    ]);
+  });
+
+  it("rolls a person's other sources up per category, so one employer never sees another's pay", () => {
+    const asked: string[] = [];
+    runWaterfall(
+      makeInput({
+        incomeSources: [{ ...wageSource("p1", dollarsToCents(4000)), sourceId: "job:1" }],
+        priorPersonWageYearToDate: (personId, taxCategory) => {
+          asked.push(`${personId}|${taxCategory}`);
+          return { wagesCents: dollarsToCents(20_000), withholdingCents: dollarsToCents(2_000) };
+        },
+        computeWageWithholdingCents: (request) => {
+          expect(request.priorPersonWagesCents).toBe(dollarsToCents(20_000));
+          expect(request.priorPersonWithholdingCents).toBe(dollarsToCents(2_000));
+          return 0;
+        },
+      }),
+    );
+    expect(asked).toEqual(["p1|wages"]);
   });
 
   it("carries the month's taxable base back to the caller, unrelated to what it charged", () => {
@@ -1026,6 +1074,7 @@ describe("runWaterfall — employee payroll tax (FICA) seam", () => {
           earnedByCategory: { wages: dollarsToCents(5000) },
           supplementalWagesCents: 0,
           wageWithholdingCents: 0,
+          withholdingWagesCents: 0,
         }),
         ...cappedSeam,
       }),

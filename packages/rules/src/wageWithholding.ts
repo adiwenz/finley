@@ -22,6 +22,10 @@ import { federalTaxTables, type OrdinaryBracket } from "./federalTaxTables";
  *  • SUPPLEMENTAL wages (a bonus) → {@link supplementalWageWithholdingCents}. Never annualized:
  *    treating a bonus as recurring is exactly the error the flat method exists to avoid.
  *
+ * Sitting across both, {@link multipleJobsAdjustmentCents} corrects for the one thing no single
+ * employer can see — the person's OTHER concurrent jobs — prospectively, from the period the job
+ * mix changes onward.
+ *
  * NEUTRALITY: every US constant lives HERE or in {@link federalTaxTables}, never in
  * `packages/engine/src`.
  *
@@ -80,22 +84,98 @@ export interface W4Configuration {
 
 /**
  * The W-4 assumed for a person the plan has not asked about — the IRS's own default advice, read
- * off the scenario rather than off a form: nothing claimed anywhere, and the Step 2 checkbox set
- * exactly when the person is in fact holding more than one job this period, which is what the
- * form's instructions tell such an employee to do.
+ * off the scenario rather than off a form: nothing claimed anywhere, and the multiple-jobs
+ * correction the employee is told to make when their household holds more than one job at once,
+ * carried on line 4(c) by {@link multipleJobsAdjustmentCents}.
  *
- * Deriving the checkbox rather than pinning it false matters at the moment a second job starts:
- * without it each employer withholds as though its wages were the person's only income, and the
- * household under-withholds all year for no reason the model can see.
+ * NOT Step 2(c). That checkbox halves every bracket, which is only the right answer for two jobs
+ * paying roughly the same, and it has no way at all to express a job that started in July. The
+ * 4(c) route is what the form's own Multiple Jobs Worksheet and the IRS withholding estimator do
+ * instead, and it generalises to any number of jobs of any sizes. The checkbox remains an
+ * authorable {@link W4Configuration} field for whoever wants it later; the default never sets it.
  */
-export function defaultW4Configuration(request: WageWithholdingRequest): W4Configuration {
+export function defaultW4Configuration(
+  request: WageWithholdingRequest,
+  year: number,
+): W4Configuration {
   return {
-    multipleJobsCheckbox: request.concurrentWageSourceCount > 1,
+    multipleJobsCheckbox: false,
     dependentCreditsCents: 0,
     otherIncomeCents: 0,
     deductionsCents: 0,
-    extraWithholdingPerPeriodCents: 0,
+    extraWithholdingPerPeriodCents: multipleJobsAdjustmentCents(request, year),
   };
+}
+
+/** A W-4 claiming nothing at all — the baseline each employer withholds against on its own. */
+const UNADJUSTED_W4: W4Configuration = {
+  multipleJobsCheckbox: false,
+  dependentCreditsCents: 0,
+  otherIncomeCents: 0,
+  deductionsCents: 0,
+  extraWithholdingPerPeriodCents: 0,
+};
+
+/**
+ * The extra per-period withholding a person needs BECAUSE they hold more than one job at once —
+ * the economic result of the W-4 Multiple Jobs Worksheet, computed the way the IRS withholding
+ * estimator computes it rather than by reproducing the paper worksheet's lookup tables.
+ *
+ * Independent employers each price their own wages as if they were the person's only income, so
+ * every job after the first is withheld against from the bottom of the brackets a second time.
+ * The gap is measured, not approximated:
+ *
+ *  • What the year is now expected to pay — wages ALREADY paid, plus this period's combined rate
+ *    of pay repeated for every period left. Past and present only; no job's future is consulted
+ *    beyond the pay it is issuing right now.
+ *  • What that year would owe, priced ONCE on the combined wage by the same percentage-method
+ *    schedule an employer uses — i.e. what a single employer paying all of it would withhold.
+ *  • What the year will ACTUALLY withhold if nothing changes — already withheld, plus every
+ *    concurrent employer's own unadjusted figure for every remaining period.
+ *
+ * The difference, spread over the periods that remain. Because the first two terms are anchored on
+ * what has really happened, this self-corrects: a job starting in July asks the rest of the year
+ * to make up the whole under-withholding, and a job ending asks for nothing further, WITHOUT ever
+ * touching a period already paid. Recomputed from scratch each period, so a raise, a cut, a job
+ * gained or a job lost simply changes the next answer.
+ *
+ * Never negative. Payroll cannot hand money back mid-year; an over-withholding is a refund in
+ * April, which is exactly where the model already settles it.
+ */
+export function multipleJobsAdjustmentCents(
+  request: WageWithholdingRequest,
+  year: number,
+): Cents {
+  // One job needs no correction, and only one job carries it for the household.
+  if (!request.bearsMultipleJobsAdjustment) return 0;
+  const concurrentWagesCents = request.concurrentRegularWagesCents.map((w) => Math.max(0, w));
+  if (concurrentWagesCents.length < 2) return 0;
+  const remainingPeriods = Math.max(
+    1,
+    Math.min(request.remainingPayPeriods, request.payPeriodsPerYear),
+  );
+
+  const periodWagesCents = concurrentWagesCents.reduce((sum, w) => sum + w, 0);
+  const projectedAnnualWagesCents =
+    Math.max(0, request.priorPersonWagesCents) + periodWagesCents * remainingPeriods;
+
+  // One "pay period" a year long IS the annual pricing: Worksheet 1A annualizes by the period
+  // count, so a count of one prices the wage it is handed, deduction and brackets included.
+  const targetAnnualCents = regularWageWithholdingCents(
+    projectedAnnualWagesCents,
+    1,
+    UNADJUSTED_W4,
+    year,
+  );
+  const unadjustedPerPeriodCents = concurrentWagesCents.reduce(
+    (sum, wagesCents) =>
+      sum + regularWageWithholdingCents(wagesCents, request.payPeriodsPerYear, UNADJUSTED_W4, year),
+    0,
+  );
+  const projectedWithheldCents =
+    Math.max(0, request.priorPersonWithholdingCents) + unadjustedPerPeriodCents * remainingPeriods;
+
+  return Math.max(0, Math.round((targetAnnualCents - projectedWithheldCents) / remainingPeriods));
 }
 
 /**
@@ -301,7 +381,7 @@ export function supplementalWageWithholdingCents(
 export function wageWithholdingCents(
   request: WageWithholdingRequest,
   year: number,
-  w4: W4Configuration = defaultW4Configuration(request),
+  w4: W4Configuration = defaultW4Configuration(request, year),
 ): Cents {
   const regular = regularWageWithholdingCents(
     request.regularWagesCents,
@@ -329,12 +409,13 @@ export const WAGE_WITHHOLDING_ASSUMPTIONS: readonly ModelAssumption[] = [
     id: "w4AssumedDefault",
     text:
       "Because the plan does not ask you to fill in a Form W-4, one is assumed: filing single, " +
-      "claiming no dependents, no extra withholding, and no deductions beyond the standard one. " +
-      "The only box the plan ticks for you is the multiple-jobs box, and only while you actually " +
-      "hold more than one job at once — which is what the form's own instructions say to do. If " +
-      "your real W-4 differs, your paycheques will differ too, and your refund or bill in April " +
-      "moves by the same amount in the opposite direction. The total tax for the year is " +
-      "unaffected either way.",
+      "claiming no dependents, and no deductions beyond the standard one. Whenever you hold more " +
+      "than one job at once, the plan assumes you do what the form asks and top up the " +
+      "withholding on your highest-paying job to cover the tax your employers cannot see between " +
+      "them — recalculated whenever a job starts, stops or changes pay, and never applied to a " +
+      "paycheque you have already been paid. If your real W-4 differs, your paycheques will " +
+      "differ too, and your refund or bill in April moves by the same amount in the opposite " +
+      "direction. The total tax for the year is unaffected either way.",
   },
   {
     id: "supplementalFlatRate",

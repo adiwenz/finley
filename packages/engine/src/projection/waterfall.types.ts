@@ -33,6 +33,25 @@ export interface SourceYearToDate {
   readonly supplementalWagesCents: Cents;
   /** Federal income tax withheld, which a jurisdiction may condition its supplemental method on. */
   readonly wageWithholdingCents: Cents;
+  /**
+   * POST-deferral wages this source was withheld against — the income-tax base, so distinct from
+   * {@link earnedByCategory}, which a pre-tax deferral never reduces. Summed across a person's
+   * sources it is the year's wage total an employee-side correction measures against.
+   */
+  readonly withholdingWagesCents: Cents;
+  /**
+   * The category {@link withholdingWagesCents} was paid in, so a person's sources can be rolled up
+   * per category without the engine deciding which of them are wages. Absent on an empty total.
+   */
+  readonly taxCategory?: TaxCategory;
+}
+
+/** A person's whole year to date in ONE tax category, across every source that has paid them. */
+export interface PersonWageYearToDate {
+  /** POST-deferral wages, including sources that have since stopped paying. */
+  readonly wagesCents: Cents;
+  /** Income tax withheld against them, by all of those sources. */
+  readonly withholdingCents: Cents;
 }
 
 /** One person's income-tax withholding for a month, with the splits the tax chart bands on. */
@@ -145,10 +164,10 @@ export interface WaterfallInput {
    * paycheck-level seam ({@link
    * import("../jurisdiction/jurisdiction").Jurisdiction.computeWageWithholdingCents}).
    *
-   * Called once per WAGE source, on that source's own pay and nothing else. That is the whole
-   * causality guarantee: withholding is a function of the paycheck in front of it, so a raise, a
-   * cut, a bonus or a missing paycheck moves this month's figure and no earlier one, and non-wage
-   * income (a withdrawal, a realized gain) never reaches this seam at all. Absent → nothing is
+   * Called once per source, on this period's pay plus what the year has already paid and withheld.
+   * Every input is past or present, which is the whole causality guarantee: a raise, a cut, a
+   * bonus, a missing paycheck or a job starting moves this month's figure and no earlier one, and
+   * non-wage income (a withdrawal, a realized gain) is answered with zero. Absent → nothing is
    * withheld and the year's whole liability settles on filing.
    */
   readonly computeWageWithholdingCents?: (request: WageWithholdingRequest) => Cents;
@@ -159,6 +178,11 @@ export interface WaterfallInput {
    */
   readonly payPeriodsPerYear: number;
   /**
+   * Pay periods left in the tax year, THIS month included — 12 in January, 1 in December. The
+   * horizon a jurisdiction has to spread a prospective mid-year correction over.
+   */
+  readonly periodsRemainingInTaxYear: number;
+  /**
    * One wage source's year-to-date facts BEFORE this month, as its own employer would hold them:
    * cumulative earned gross by category, supplemental wages already paid, and income tax already
    * withheld. Absent → the source has paid nothing yet this year.
@@ -167,6 +191,16 @@ export interface WaterfallInput {
    * {@link computePayrollWithholdingCents}.
    */
   readonly priorSourceYearToDate?: (personId: string, sourceKey: string) => SourceYearToDate;
+  /**
+   * The same year-to-date facts rolled up ACROSS a person's sources in one category — what the
+   * EMPLOYEE knows and no single employer does. Sources that have already stopped paying are
+   * included, which is what lets a correction made in July account for a job that ran to June.
+   * Absent → the person has been paid nothing yet this year.
+   */
+  readonly priorPersonWageYearToDate?: (
+    personId: string,
+    taxCategory: TaxCategory,
+  ) => PersonWageYearToDate;
   /**
    * Employee payroll tax (US: FICA) withheld by ONE wage source, on THAT SOURCE's cumulative
    * year-to-date earned income by category (see {@link
