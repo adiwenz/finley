@@ -82,6 +82,31 @@ describe("Regular wages — the annualize-and-price method", () => {
     expect(regularWageWithholdingCents(500_00, MONTHLY, DEFAULT_W4, YEAR)).toBe(0);
   });
 
+  it("handles a paycheck of a single dollar without rounding its way below zero", () => {
+    // The far end of the same rule: annualized, $1 a month clears neither the 0% band nor the
+    // line-1g allowance, so the answer is nothing — and nothing is the floor, not a midpoint a
+    // rounding step could fall through.
+    expect(regularWageWithholdingCents(1_00, MONTHLY, DEFAULT_W4, YEAR)).toBe(0);
+    // The whole seam, not just its regular half: a dollar of salary and a dollar of bonus in one
+    // period still come to nothing, since the flat method is not open to an employer that has
+    // withheld no income tax and the aggregate method it falls back to prices this at zero too.
+    expect(
+      wageWithholdingCents(request({ regularWagesCents: 1_00, supplementalWagesCents: 1_00 }), YEAR),
+    ).toBe(0);
+    // And a $1 second job is still a second job: the correction it triggers is tiny, but it is
+    // never a negative figure handed back through payroll.
+    expect(
+      multipleJobsAdjustmentCents(
+        request({
+          regularWagesCents: 5_000_00,
+          concurrentRegularWagesCents: [5_000_00, 1_00],
+          bearsMultipleJobsAdjustment: true,
+        }),
+        YEAR,
+      ),
+    ).toBeGreaterThanOrEqual(0);
+  });
+
   it("prices a RAISE from the raised paycheck alone, leaving every earlier one untouched", () => {
     // Six months at $5,000 then six at $7,000. Each figure is priced as though it were the whole
     // year, which is exactly what makes the first six months unaffected by the raise.
