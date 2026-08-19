@@ -12,6 +12,7 @@ import {
   ref,
   PRIMARY_PERSON_REF,
   type BudgetLine,
+  type JobIncomeOverrideInput,
   type ScenarioInput,
   type ProjectionState,
 } from "@finley/engine";
@@ -29,6 +30,22 @@ export interface Preset {
   readonly label: string;
   readonly description: string;
   readonly input: ScenarioInput;
+  /**
+   * One-month pay adjustments, which a {@link ScenarioInput} has no way to carry: it describes
+   * standing salary and life events, and a bonus is neither.
+   *
+   * Applied after the build through the SAME authoring call the Base + Adjustments editor makes,
+   * so the rule above still holds — a preset cannot express anything a user could not, and the
+   * adjustment's id stays the engine's to mint. Keyed by the job's INDEX in `input.jobs` for that
+   * same reason: the job has no id until the build runs.
+   */
+  readonly incomeAdjustments?: readonly PresetIncomeAdjustment[];
+}
+
+/** One {@link Preset.incomeAdjustments} entry — which authored job, and what happens to it. */
+export interface PresetIncomeAdjustment {
+  readonly jobIndex: number;
+  readonly override: JobIncomeOverrideInput;
 }
 
 const DEFAULT_CURRENT_AGE = 35;
@@ -208,6 +225,34 @@ const TAXED_IN_RETIREMENT: ScenarioInput = {
 };
 
 /**
+ * Two paychecks at once. Each employer withholds as though its own salary were the household's
+ * only income — neither can see the other — so between them they price the second job from the
+ * bottom of the brackets a second time. The W-4's own Multiple Jobs Worksheet is what closes
+ * that gap, and Finley models its economic result: an extra per-period amount carried by the
+ * HIGHER-paying job alone, which is why the tax chart's two job bands are so lopsided.
+ */
+const TWO_JOBS = teachingInput(MODEST_BUDGET, {
+  name: "Casey",
+  jobs: [salariedJob(dollarsToCents(8000)), salariedJob(dollarsToCents(3000))],
+  openingBalanceCents: dollarsToCents(6000),
+});
+
+/**
+ * A salary with a $20,000 bonus in June. Supplemental wages are withheld at their own flat rate
+ * (22%) rather than annualized, because treating a one-off payment as a permanent pay rise would
+ * over-withhold every month after it — so June spikes, July is back to normal, and any gap
+ * between that flat rate and the bonus's real marginal tax settles the following April.
+ */
+const BONUS_YEAR = teachingInput(MODEST_BUDGET, {
+  name: "Avery",
+  jobs: [salariedJob(dollarsToCents(8000))],
+  openingBalanceCents: dollarsToCents(6000),
+});
+
+/** June of the first projected year — `BONUS_YEAR`'s one adjustment. */
+const BONUS_MONTH = 5;
+
+/**
  * The healthy default a fresh plan already opens on: literally the {@link DEFAULT_INPUT} the plan
  * defaults are built from, budget lines included. One document, so this preset reproduces
  * {@link PLAN_DEFAULTS} exactly rather than authoring a second source of truth for it.
@@ -241,6 +286,21 @@ export const PRESETS: readonly Preset[] = [
     input: STUDENT_LOAN,
   },
   {
+    id: "two-jobs",
+    label: "Two jobs",
+    description: "A second job neither employer knows about — and the W-4 correction that keeps April from becoming a bill.",
+    input: TWO_JOBS,
+  },
+  {
+    id: "bonus",
+    label: "A bonus in June",
+    description: "A $20,000 bonus withheld at its own flat rate, without mistaking it for a raise.",
+    input: BONUS_YEAR,
+    incomeAdjustments: [
+      { jobIndex: 0, override: { month: BONUS_MONTH, kind: "addBonus", cents: dollarsToCents(20_000) } },
+    ],
+  },
+  {
     id: "taxed-in-retirement",
     label: "Taxed in retirement",
     description: "A strong 401(k) saver whose withdrawals and Social Security are both taxed after the paychecks stop.",
@@ -264,5 +324,15 @@ export function presetState(preset: Preset): ProjectionState {
   if (!built.ok) {
     throw new Error(`Preset "${preset.id}" is not a valid ScenarioInput: ${built.error.reason}`);
   }
-  return built.projection.toState();
+  const { projection } = built;
+  for (const { jobIndex, override } of preset.incomeAdjustments ?? []) {
+    const job = projection.state.scenario.plan.primary.jobs[jobIndex];
+    if (job === undefined) {
+      throw new Error(`Preset "${preset.id}" adjusts job ${jobIndex}, which it never authored`);
+    }
+    // The same gate-checked write the adjustment editor makes — a refusal here is a
+    // preset-authoring bug, and throws for the same reason the build's does.
+    projection.addJobIncomeOverride(job.id, override);
+  }
+  return projection.toState();
 }

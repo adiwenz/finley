@@ -19,6 +19,8 @@ describe("presets", () => {
       "paycheck-to-paycheck",
       "living-on-credit",
       "student-loan",
+      "two-jobs",
+      "bonus",
       "taxed-in-retirement",
     ]);
     for (const preset of PRESETS) {
@@ -54,6 +56,34 @@ describe("presets", () => {
       const state = presetState(preset);
       expect(state.scenario.plan.primary.name).toBe(preset.input.name);
     }
+  });
+
+  it("lands the bonus preset's adjustment on its job, with an id the ENGINE minted", () => {
+    const preset = presetById("bonus");
+    const job = presetState(preset).scenario.plan.primary.jobs[0];
+    expect(job?.incomeOverrides).toEqual([
+      { id: expect.any(String), month: 5, kind: "addBonus", cents: 2_000_000 },
+    ]);
+    // Nothing the preset itself wrote — the adjustment goes through the same authoring call the
+    // Base + Adjustments editor makes, so the preset states only the month, kind and amount.
+    expect(preset.incomeAdjustments?.[0]?.override).not.toHaveProperty("id");
+  });
+
+  it("refuses a preset that adjusts a job it never authored", () => {
+    expect(() =>
+      presetState({
+        ...presetById("bonus"),
+        incomeAdjustments: [{ jobIndex: 3, override: { month: 0, kind: "addBonus", cents: 100 } }],
+      }),
+    ).toThrow(/never authored/);
+  });
+
+  it("gives the two-jobs preset two concurrent jobs on the one person", () => {
+    const jobs = presetState(presetById("two-jobs")).scenario.plan.primary.jobs;
+    expect(jobs).toHaveLength(2);
+    // Both owned by the same person: the multiple-jobs correction is person-scoped, and a preset
+    // that split them across a household would demonstrate the opposite of what it claims to.
+    expect(new Set(jobs.map((job) => job.ownerId)).size).toBe(1);
   });
 
   it("falls back to the default preset for an unknown id", () => {
