@@ -779,3 +779,63 @@ describe("the year and its April reconcile, whatever the year looked like", () =
     });
   }
 });
+
+/**
+ * The settlement, stated rather than inferred.
+ *
+ * Every assertion above reads April's balance by differencing neighbouring months
+ * ({@link aprilBalance}) — which works only because these fixtures hold pay level either side of
+ * it. The engine now reports the figure outright, signed, alongside the attribution that explains
+ * it. These tests hold the two in agreement, because the reporting field is what the tax chart
+ * draws and a chart that disagreed with the arithmetic here would be worse than no chart.
+ */
+describe("the reported settlement — signed, attributed, and reconciling", () => {
+  const settlementIn = (result: ProjectionResult, month: number): number =>
+    result.series.months[month]?.flows?.taxSettlementCents ?? 0;
+  const attributionIn = (result: ProjectionResult, month: number): Readonly<Record<string, number>> =>
+    result.series.months[month]?.flows?.taxSettlementBySourceCents ?? {};
+
+  it("states April's balance as the same figure differencing the neighbouring months finds", () => {
+    const result = run(steadyJob("big", 180_000), steadyJob("small", 20_000));
+    expect(settlementIn(result, 15)).toBe(aprilBalance(result));
+  });
+
+  it("reports nothing in the eleven months that settle nothing", () => {
+    const result = run(steadyJob("big", 180_000), steadyJob("small", 20_000));
+    for (const month of [12, 13, 14, 16, 17, 20, 23]) {
+      expect(settlementIn(result, month)).toBe(0);
+      expect(attributionIn(result, month)).toEqual({});
+    }
+  });
+
+  it("attributes the balance across sources, signed, summing back to it exactly", () => {
+    const result = run(steadyJob("big", 180_000), steadyJob("small", 20_000));
+    const attribution = attributionIn(result, 15);
+    const net = Object.values(attribution).reduce((s, c) => s + c, 0);
+    expect(net).toBe(settlementIn(result, 15));
+    // The multiple-jobs correction concentrates withholding on the higher-paying job, so its
+    // average-rate share settles as a CREDIT against its sibling's. A signed quantity, and the
+    // reason it must never be stacked as a chart band.
+    expect(Object.values(attribution).some((c) => c < 0)).toBe(true);
+  });
+
+  it("leaves `taxCents` minus the settlement equal to the month's own withholding", () => {
+    const result = run(steadyJob("big", 180_000), steadyJob("small", 20_000));
+    const april = result.series.months[15]!.flows!;
+    // What a paycheck withheld in April is what it withheld in March: pay is level here.
+    expect(april.taxCents - settlementIn(result, 15)).toBe(taxIn(result, 14));
+    // And the same subtraction on the per-source maps leaves nothing negative behind.
+    const settlement = attributionIn(result, 15);
+    for (const [source, cents] of Object.entries(april.taxBySourceCents)) {
+      expect(cents - (settlement[source] ?? 0)).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("signs a refund negative rather than reporting a zero or an absolute value", () => {
+    // A job that stops in June leaves the year over-withheld: the withholding was sized for a
+    // full year of pay that never arrived, so the following April hands money back.
+    const result = run(steadyJob("job", 100_000, 0, 6));
+    expect(settlementIn(result, 15)).toBeLessThan(0);
+    expect(settlementIn(result, 15)).toBe(aprilBalance(result));
+  });
+});

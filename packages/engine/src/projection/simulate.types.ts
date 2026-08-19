@@ -194,6 +194,31 @@ export interface ProjectionMonthFlows {
    */
   readonly taxBySourceCents: Readonly<Record<string, Cents>>;
   /**
+   * The part of {@link taxCents} that settles the PRIOR tax year — April's balance due, or a
+   * refund. SIGNED: positive is money paid at filing, negative is money handed back. 0 in every
+   * other month, and 0 in April when the year came out even.
+   *
+   * Already inside {@link taxCents} and inside {@link taxBySourceCents}; this is not a second
+   * charge. It is stated on its own because the two halves of `taxCents` answer different
+   * questions — what this month's pay was withheld against, and what last year's filing finally
+   * came to — and only the second can be negative. A consumer wanting "tax actually paid this
+   * month" takes the withholding plus `max(0, taxSettlementCents)`; the refund is a cash INFLOW
+   * and belongs on the income side, not as a negative band on the tax side.
+   */
+  readonly taxSettlementCents: Cents;
+  /**
+   * Per-source attribution of {@link taxSettlementCents}, keyed like {@link taxBySourceCents} and
+   * summing to it exactly. `{}` whenever nothing settled.
+   *
+   * SIGNED PER SOURCE, and individual entries go negative even when the settlement as a whole is
+   * a bill: attribution is proportional (average-rate), so a job that a multiple-jobs correction
+   * concentrated withholding on has already overpaid its average-rate share and settles as a
+   * credit against its siblings. Diagnostic — it explains a settlement, it does not measure one.
+   * Never stack these as chart bands: dropping the negative entries and drawing the positive ones
+   * shows a household paying more than it paid.
+   */
+  readonly taxSettlementBySourceCents: Readonly<Record<string, Cents>>;
+  /**
    * Keyed like {@link taxBySourceCents}; a source that deferred nothing is absent, as is
    * the whole map when none did. Already folded into {@link
    * ProjectionCashFlowIncomeSource.netCashFlowCents}; this is only for a per-source view.

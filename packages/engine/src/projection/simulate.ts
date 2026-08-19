@@ -294,6 +294,8 @@ function runMonth(
     payrollTaxBySourceCents,
     taxByCategoryCents,
     taxBySourceCents,
+    taxSettlementCents,
+    taxSettlementBySourceCents,
     deferralBySourceCents,
     contributions,
     shortfallCents: preCascadeShortfallCents,
@@ -486,6 +488,11 @@ function runMonth(
     // both — one band per account, so a brokerage sale and a retirement-account sale read as
     // separate events rather than one anonymous "investment" line.
     [...decumulationPrincipalDraws, ...fundingDraw.investmentPrincipalDraws],
+    // April's settled prior-year balance, signed, carved back out of the totals above for
+    // reporting only — the tax chart needs to tell a paycheck's withholding from a filing's
+    // bill, and a refund from either.
+    taxSettlementCents,
+    taxSettlementBySourceCents,
   );
   // The taxable base after this month's explicit draws but BEFORE decumulation, so the
   // authoring gate prices a would-be draw on top of any sibling draw at this month — and NOT

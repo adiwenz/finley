@@ -267,6 +267,16 @@ export function allocateMonth(
    * sources of the year it taxes.
    */
   taxBySourceCents: Readonly<Record<string, Cents>>;
+  /**
+   * The slice of `taxCents` (and of `taxBySourceCents`) that is the PRIOR year's settled balance
+   * rather than this month's withholding — SIGNED, so a refund is negative. 0 outside April and
+   * whenever nothing was left to settle. Reporting only: it is already inside `taxCents`, stated
+   * separately so a consumer can tell the money a paycheck withheld from the money a filing
+   * settled without re-deriving either.
+   */
+  taxSettlementCents: Cents;
+  /** Per-source attribution of {@link taxSettlementCents}, signed and summing to it. `{}` when 0. */
+  taxSettlementBySourceCents: Readonly<Record<string, Cents>>;
   deferralBySourceCents: Readonly<Record<string, Cents>>;
   contributions: readonly MonthContribution[];
   /** The pre-cascade shortfall this month posted to the liquid account (obligations + contributions). */
@@ -408,13 +418,22 @@ export function allocateMonth(
       if (cents) taxBySourceCents[source] = (taxBySourceCents[source] ?? 0) + cents;
     }
   }
+  // The settled slice, kept as its own reporting figure on the way past. Signed throughout: a
+  // refund is a negative charge here exactly as it is in `taxCents`, and clamping it anywhere in
+  // the engine would lose the only record that the filing produced money back.
+  let taxSettlementCents: Cents = 0;
+  const taxSettlementBySourceCents: Record<string, Cents> = {};
   for (const payment of priorYearSettlements.values()) {
     if (payment.totalCents === 0) continue;
+    taxSettlementCents += payment.totalCents;
     for (const [category, cents] of Object.entries(payment.byCategoryCents)) {
       if (cents) addCategory(taxByCategoryCents, category as TaxCategory, cents);
     }
     for (const [source, cents] of Object.entries(payment.bySourceCents)) {
       if (cents) taxBySourceCents[source] = (taxBySourceCents[source] ?? 0) + cents;
+      if (cents) {
+        taxSettlementBySourceCents[source] = (taxSettlementBySourceCents[source] ?? 0) + cents;
+      }
     }
   }
   assertTaxAttributionReconciles(result.taxCents, taxBySourceCents);
@@ -426,6 +445,8 @@ export function allocateMonth(
     payrollTaxBySourceCents: result.payrollTaxBySourceCents,
     taxByCategoryCents,
     taxBySourceCents,
+    taxSettlementCents,
+    taxSettlementBySourceCents,
     deferralBySourceCents: result.deferralBySourceCents,
     contributions,
     shortfallCents: result.shortfallCents,

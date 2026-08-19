@@ -159,6 +159,16 @@ export function buildFlows(
    * band. Never merged into {@link SAVINGS_DRAWDOWN_SOURCE_ID}.
    */
   investmentPrincipalDrawdowns: readonly PrincipalDrawdownSource[] = [],
+  /**
+   * The slice of `taxCents` that settles the PRIOR tax year rather than withholding against this
+   * month's pay — SIGNED, so a refund is negative. Reporting only: it is already inside
+   * `taxCents` and inside `taxBySourceCents`, and nothing here nets it out. Stated separately
+   * because "tax this month paid" and "tax this month settled for last year" are different
+   * questions, and only the second one can come back as money.
+   */
+  taxSettlementCents: Cents = 0,
+  /** Signed per-source attribution of {@link taxSettlementCents}, summing to it. `{}` when 0. */
+  taxSettlementBySourceCents: Readonly<Record<string, Cents>> = {},
 ): Omit<ProjectionMonthFlows, "resolvedFunding"> {
   const cashFlowIncomeByCategoryCents: Record<string, Cents> = {};
   let totalIncomeCents = 0;
@@ -316,6 +326,8 @@ export function buildFlows(
     // Always present: `{}` in a zero-tax month, otherwise Σ === `taxCents`.
     taxByCategoryCents,
     taxBySourceCents: reportedTaxBySourceCents,
+    taxSettlementCents,
+    taxSettlementBySourceCents,
     payrollTaxBySourceCents,
     deferralBySourceCents,
     expensesCents,
