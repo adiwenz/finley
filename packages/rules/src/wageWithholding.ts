@@ -141,6 +141,11 @@ const UNADJUSTED_W4: W4Configuration = {
  *
  * Never negative. Payroll cannot hand money back mid-year; an over-withholding is a refund in
  * April, which is exactly where the model already settles it.
+ *
+ * REGULAR wages throughout, on both sides of the measurement. A bonus is withheld for by its own
+ * flat method when it is paid and then leaves no trace here, so a June bonus cannot make July
+ * withhold a cent more; whatever the flat rate under- or over-shot is settled the following April
+ * with everything else.
  */
 export function multipleJobsAdjustmentCents(
   request: WageWithholdingRequest,

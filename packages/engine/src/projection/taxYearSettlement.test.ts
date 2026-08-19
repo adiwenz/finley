@@ -128,8 +128,8 @@ describe("finalizing a tax year — the payroll-tax reconciliation rides on the 
     state.sourceYearToDate.set(
       "p1|2026",
       new Map([
-        ["jobA", { earnedByCategory: { wages: dollarsToCents(80_000) }, supplementalWagesCents: 0, wageWithholdingCents: 0, withholdingWagesCents: 0 }],
-        ["jobB", { earnedByCategory: { wages: dollarsToCents(80_000) }, supplementalWagesCents: 0, wageWithholdingCents: 0, withholdingWagesCents: 0 }],
+        ["jobA", { earnedByCategory: { wages: dollarsToCents(80_000) }, supplementalWagesCents: 0, wageWithholdingCents: 0, regularWagesCents: 0, regularWithholdingCents: 0 }],
+        ["jobB", { earnedByCategory: { wages: dollarsToCents(80_000) }, supplementalWagesCents: 0, wageWithholdingCents: 0, regularWagesCents: 0, regularWithholdingCents: 0 }],
       ]),
     );
     return state;
@@ -178,7 +178,7 @@ describe("finalizing a tax year — the payroll-tax reconciliation rides on the 
       earnedByCategory: { ordinaryIncome: dollarsToCents(50_000) },
       supplementalWagesCents: 0,
       wageWithholdingCents: 0,
-      withholdingWagesCents: 0,
+      regularWagesCents: 0, regularWithholdingCents: 0,
     });
     finalizeTaxYear(
       state,

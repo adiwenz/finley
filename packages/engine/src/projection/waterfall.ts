@@ -19,6 +19,7 @@ import type { TaxCategory } from "../money/cashFlowSeries";
 import { addCategory, type SourceTaxable, type TaxableByCategory } from "./taxAttribution";
 import type { SimGoal } from "../goal/goal";
 import { requiredContributionCents } from "../goal/requiredContribution";
+import type { WageWithholdingRequest } from "../jurisdiction/jurisdiction";
 import type {
   IncomeSourceMonth,
   PersonWithholding,
@@ -94,7 +95,8 @@ const NO_YEAR_TO_DATE: SourceYearToDate = {
   earnedByCategory: {},
   supplementalWagesCents: 0,
   wageWithholdingCents: 0,
-  withholdingWagesCents: 0,
+  regularWagesCents: 0,
+  regularWithholdingCents: 0,
 };
 
 const NO_PERSON_YEAR_TO_DATE: PersonWageYearToDate = { wagesCents: 0, withholdingCents: 0 };
@@ -135,9 +137,12 @@ interface SourceOutcome {
   /** What the source paid, for the jurisdiction's own category-keyed rules. */
   readonly taxCategory: TaxCategory;
   readonly supplementalWagesCents: Cents;
+  /** Everything withheld from this source's pay this month — regular and supplemental together. */
   readonly wageWithholdingCents: Cents;
-  /** POST-deferral wages the withholding was taken from — the income-tax base, not the payroll one. */
-  readonly withholdingWagesCents: Cents;
+  /** POST-deferral REGULAR wages — the income-tax base, not the payroll one, and no bonus in it. */
+  readonly regularWagesCents: Cents;
+  /** The part of {@link wageWithholdingCents} those regular wages alone produced. */
+  readonly regularWithholdingCents: Cents;
   readonly payrollTaxCents: Cents;
   /** {@link payrollTaxCents} split across the categories this source earned in. */
   readonly payrollTaxByCategory: TaxableByCategory;
@@ -342,22 +347,29 @@ function withholdPaidSources(
   for (const paid of paidSources) {
     const { src, sourceKey, priorYtd } = paid;
     const context = contexts.get(`${src.ownerId}|${src.taxCategory}`)!;
-    const wageWithholdingCents = Math.max(
-      0,
-      input.computeWageWithholdingCents?.({
-        taxCategory: src.taxCategory,
-        regularWagesCents: paid.regularTaxableCents,
-        supplementalWagesCents: paid.supplementalTaxableCents,
-        priorSupplementalWagesCents: priorYtd.supplementalWagesCents,
-        priorRegularWithholdingCents: priorYtd.wageWithholdingCents,
-        payPeriodsPerYear: input.payPeriodsPerYear,
-        remainingPayPeriods: input.periodsRemainingInTaxYear,
-        concurrentRegularWagesCents: context.concurrentRegularWagesCents,
-        bearsMultipleJobsAdjustment: context.bearerKey === sourceKey,
-        priorPersonWagesCents: context.personYtd.wagesCents,
-        priorPersonWithholdingCents: context.personYtd.withholdingCents,
-      }) ?? 0,
-    );
+    const request: WageWithholdingRequest = {
+      taxCategory: src.taxCategory,
+      regularWagesCents: paid.regularTaxableCents,
+      supplementalWagesCents: paid.supplementalTaxableCents,
+      priorSupplementalWagesCents: priorYtd.supplementalWagesCents,
+      priorRegularWithholdingCents: priorYtd.regularWithholdingCents,
+      payPeriodsPerYear: input.payPeriodsPerYear,
+      remainingPayPeriods: input.periodsRemainingInTaxYear,
+      concurrentRegularWagesCents: context.concurrentRegularWagesCents,
+      bearsMultipleJobsAdjustment: context.bearerKey === sourceKey,
+      priorPersonWagesCents: context.personYtd.wagesCents,
+      priorPersonWithholdingCents: context.personYtd.withholdingCents,
+    };
+    const withhold = (r: WageWithholdingRequest): Cents =>
+      Math.max(0, input.computeWageWithholdingCents?.(r) ?? 0);
+    const wageWithholdingCents = withhold(request);
+    // What the same paycheck would have withheld with no bonus on it. That, not the total, is what
+    // the year-to-date carries forward, so the bonus cannot come back around as a bigger regular
+    // deduction in the months after it. Only asked when there IS a bonus to take back out.
+    const regularWithholdingCents =
+      paid.supplementalTaxableCents === 0
+        ? wageWithholdingCents
+        : Math.min(wageWithholdingCents, withhold({ ...request, supplementalWagesCents: 0 }));
     const { payrollTaxCents, payrollTaxByCategory } = payrollTaxForSource(
       input,
       priorYtd.earnedByCategory,
@@ -372,7 +384,8 @@ function withholdPaidSources(
       // year-to-date band, so the deferral haircut is carried here too.
       supplementalWagesCents: paid.supplementalTaxableCents,
       wageWithholdingCents,
-      withholdingWagesCents: paid.regularTaxableCents + paid.supplementalTaxableCents,
+      regularWagesCents: paid.regularTaxableCents,
+      regularWithholdingCents,
       payrollTaxCents,
       payrollTaxByCategory,
     });
@@ -492,7 +505,8 @@ function computeTakeHome(
             earnedByCategory: { ...outcome.earnedByCategory },
             supplementalWagesCents: outcome.supplementalWagesCents,
             wageWithholdingCents: outcome.wageWithholdingCents,
-            withholdingWagesCents: outcome.withholdingWagesCents,
+            regularWagesCents: outcome.regularWagesCents,
+            regularWithholdingCents: outcome.regularWithholdingCents,
             taxCategory: outcome.taxCategory,
           }
         : {
@@ -500,7 +514,9 @@ function computeTakeHome(
             supplementalWagesCents:
               existing.supplementalWagesCents + outcome.supplementalWagesCents,
             wageWithholdingCents: existing.wageWithholdingCents + outcome.wageWithholdingCents,
-            withholdingWagesCents: existing.withholdingWagesCents + outcome.withholdingWagesCents,
+            regularWagesCents: existing.regularWagesCents + outcome.regularWagesCents,
+            regularWithholdingCents:
+              existing.regularWithholdingCents + outcome.regularWithholdingCents,
             taxCategory: outcome.taxCategory,
           },
     );

@@ -310,33 +310,107 @@ describe("multiple concurrent jobs — a job mix that changes mid-year", () => {
   });
 });
 
-describe("multiple concurrent jobs — bonuses stay supplemental", () => {
-  const WITH_BONUS: JobSpec = {
+describe("multiple concurrent jobs — a bonus is withheld once and never again", () => {
+  /**
+   * A bonus is withheld for by the flat supplemental method at the moment it is paid, and then it
+   * is DONE. It never enters the regular-wage basis the multiple-jobs correction is measured from,
+   * because a one-off payment is not a rate of pay: reading one as a raise would have every
+   * remaining paycheque of the year withhold more, which is precisely the error the separate
+   * supplemental method exists to prevent. Whatever the flat 22% got wrong is a matter for the
+   * annual liability and the April that settles it.
+   */
+  const BASE = [steadyJob("a", 100_000), steadyJob("b", 50_000)] as const;
+  const BONUS_DOLLARS = 20_000;
+  const flatOn = (dollars: number): number => Math.round(dollarsToCents(dollars) * 0.22);
+
+  /** The bigger job, paying the same salary as `BASE`'s but with a bonus in each month given. */
+  const bonusIn = (...bonusMonths: readonly number[]): JobSpec => ({
     id: "a",
     monthlyDollars: () => 100_000 / 12,
-    bonusDollars: (month) => (month === 5 ? 20_000 : 0),
-  };
-
-  it("withholds a bonus at the flat supplemental rate without disturbing the regular correction", () => {
-    const result = run(WITH_BONUS, steadyJob("b", 50_000));
-    const months = monthlyTax(result, 0, 12);
-    // June is May plus 22% of the bonus and nothing else: the multiple-jobs correction is sized
-    // from the RATE of pay each job is issuing, and a one-off payment is not a rate of pay.
-    const flatOnBonus = Math.round(dollarsToCents(20_000) * 0.22);
-    expect(Math.abs(months[5]! - months[4]! - flatOnBonus)).toBeLessThanOrEqual(1);
-    expect(months.slice(0, 5)).toEqual(
-      monthlyTax(run(steadyJob("a", 100_000), steadyJob("b", 50_000)), 0, 5),
-    );
+    bonusDollars: (month) => (bonusMonths.includes(month) ? BONUS_DOLLARS : 0),
   });
 
-  it("counts the bonus as wages already paid when correcting the months after it", () => {
-    const result = run(WITH_BONUS, steadyJob("b", 50_000));
-    const months = monthlyTax(result, 0, 12);
-    // From July the bonus is part of what the year has actually paid, so the correction covers the
-    // gap between its flat 22% and this household's real marginal rate — a bill it would otherwise
-    // have carried to April. Still a correction to the REMAINING months, never to the earlier ones.
-    expect(months[6]!).toBeGreaterThan(months[4]!);
-    expect(Math.abs(sum(months) - annualLiability(result, 0))).toBeLessThan(dollarsToCents(20));
+  it("withholds a June bonus at the flat supplemental rate", () => {
+    const months = monthlyTax(run(bonusIn(5), steadyJob("b", 50_000)), 0, 12);
+    const baseline = monthlyTax(run(...BASE), 0, 12);
+    // June is its ordinary paycheque plus 22% of the bonus, and nothing else.
+    expect(Math.abs(months[5]! - baseline[5]! - flatOn(BONUS_DOLLARS))).toBeLessThanOrEqual(1);
+  });
+
+  it("leaves July through December withholding exactly what they would have without the bonus", () => {
+    const months = monthlyTax(run(bonusIn(5), steadyJob("b", 50_000)), 0, 12);
+    const baseline = monthlyTax(run(...BASE), 0, 12);
+    // THE POINT OF THIS FILE'S SECOND HALF: identical, to the cent, in both directions — the
+    // bonus neither raises the rest of the year's regular withholding nor lowers it. Only June
+    // differs at all.
+    expect(months.slice(6, 12)).toEqual(baseline.slice(6, 12));
+    expect(months.slice(0, 5)).toEqual(baseline.slice(0, 5));
+  });
+
+  it("still counts the bonus in the year's taxable income and its liability", () => {
+    const withBonus = run(bonusIn(5), steadyJob("b", 50_000));
+    const without = run(...BASE);
+    // Not withholding for it later is a payroll question; the bonus is ordinary wage income to
+    // the authoritative annual calculation, which is where it has to land.
+    expect(actualAnnualBase(withBonus, 0).wages).toBe(
+      (actualAnnualBase(without, 0).wages ?? 0) + dollarsToCents(BONUS_DOLLARS),
+    );
+    expect(annualLiability(withBonus, 0)).toBeGreaterThan(annualLiability(without, 0));
+  });
+
+  it("settles the gap between the flat 22% and the bonus's real marginal tax in April", () => {
+    const withBonus = run(bonusIn(5), steadyJob("b", 50_000));
+    const without = run(...BASE);
+    const extraLiability = annualLiability(withBonus, 0) - annualLiability(without, 0);
+    // The bonus's real tax exceeds the 22% taken from it, and the whole of that shortfall — not a
+    // cent of it withheld in the meantime — turns up in the following April's balance.
+    expect(extraLiability).toBeGreaterThan(flatOn(BONUS_DOLLARS));
+    expect(
+      Math.abs(aprilBalance(withBonus) - aprilBalance(without) - (extraLiability - flatOn(BONUS_DOLLARS))),
+    ).toBeLessThanOrEqual(1);
+    // And the year still adds up: twelve paycheques plus that balance are the annual liability.
+    const withheld = sum(monthlyTax(withBonus, 0, 12));
+    expect(
+      Math.abs(withheld + aprilBalance(withBonus) - annualLiability(withBonus, 0)),
+    ).toBeLessThanOrEqual(1);
+  });
+
+  it("keeps three bonuses out of the regular-wage basis, not just one", () => {
+    const months = monthlyTax(run(bonusIn(1, 5, 10), steadyJob("b", 50_000)), 0, 12);
+    const baseline = monthlyTax(run(...BASE), 0, 12);
+    for (const month of [1, 5, 10]) {
+      expect(Math.abs(months[month]! - baseline[month]! - flatOn(BONUS_DOLLARS))).toBeLessThanOrEqual(1);
+    }
+    // Every other month is untouched — bonuses do not accumulate into the basis, so the third one
+    // is no more contaminating than the first.
+    for (const month of [0, 2, 3, 4, 6, 7, 8, 9, 11]) {
+      expect(months[month]!, `month ${month}`).toBe(baseline[month]!);
+    }
+  });
+
+  it("still corrects for a job that starts, and for a raise, while bonuses are being paid", () => {
+    const raisedWithBonus: JobSpec = {
+      id: "a",
+      monthlyDollars: (month) => (month < 9 ? 100_000 / 12 : 150_000 / 12),
+      bonusDollars: (month) => (month === 1 ? BONUS_DOLLARS : 0),
+    };
+    const months = monthlyTax(run(raisedWithBonus, steadyJob("b", 50_000, 6)), 0, 12);
+    const baseline = monthlyTax(
+      run(
+        { id: "a", monthlyDollars: (month) => (month < 9 ? 100_000 / 12 : 150_000 / 12) },
+        steadyJob("b", 50_000, 6),
+      ),
+      0,
+      12,
+    );
+    // The bonus month aside, a bonus-laden year withholds exactly what the same year without
+    // bonuses does — while the job starting in July and the raise in October each still move the
+    // months from their own month onward.
+    expect(months.filter((_, month) => month !== 1)).toEqual(
+      baseline.filter((_, month) => month !== 1),
+    );
+    expect(months[6]!).toBeGreaterThan(months[5]!);
+    expect(months[9]!).toBeGreaterThan(months[8]!);
   });
 });
 

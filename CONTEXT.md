@@ -395,8 +395,12 @@ a real taxpayer would: prospectively, on the highest-paying job, sized from what
 actually paid and withheld plus this period's rate of pay extended over the periods that remain.
 Re-derived from scratch every period, so a job starting, ending or changing pay moves that month
 and every later one and no earlier one.
+Measured on REGULAR pay alone, on both sides: a bonus is withheld for by the flat supplemental
+method when it is paid and then leaves no trace, so a June bonus cannot make July withhold more.
+Whatever the flat rate under- or over-shot on it is settled the following April.
 _Avoid_: the W-4 Step 2(c) checkbox, which only approximates two similar jobs and cannot express a
-job that started in July.
+job that started in July; and letting supplemental wages into the basis, which reads a one-off
+payment as a raise.
 
 **GovernmentProgram**:
 A modeled income or cost change whose amount/availability is *derived* from the

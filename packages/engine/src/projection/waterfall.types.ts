@@ -31,26 +31,37 @@ export interface SourceYearToDate {
   readonly earnedByCategory: TaxableByCategory;
   /** Supplemental (one-off) wages, for a jurisdiction that bands its supplemental rate. */
   readonly supplementalWagesCents: Cents;
-  /** Federal income tax withheld, which a jurisdiction may condition its supplemental method on. */
+  /** ALL income tax withheld by this source, regular pay and bonuses alike — what it actually took. */
   readonly wageWithholdingCents: Cents;
   /**
-   * POST-deferral wages this source was withheld against — the income-tax base, so distinct from
-   * {@link earnedByCategory}, which a pre-tax deferral never reduces. Summed across a person's
-   * sources it is the year's wage total an employee-side correction measures against.
+   * POST-deferral REGULAR wages this source was withheld against — the income-tax base, so
+   * distinct from {@link earnedByCategory}, which a pre-tax deferral never reduces. Summed across
+   * a person's sources it is the wage total an employee-side correction measures against, and it
+   * excludes supplemental wages deliberately: a bonus is not a rate of pay, so letting one into
+   * this figure would read a one-off payment as a raise for the rest of the year.
    */
-  readonly withholdingWagesCents: Cents;
+  readonly regularWagesCents: Cents;
   /**
-   * The category {@link withholdingWagesCents} was paid in, so a person's sources can be rolled up
+   * The part of {@link wageWithholdingCents} taken against {@link regularWagesCents} — the pair
+   * that has to be rolled up together, since a correction measured on regular wages alone must be
+   * measured against the withholding those wages alone produced.
+   */
+  readonly regularWithholdingCents: Cents;
+  /**
+   * The category {@link regularWagesCents} was paid in, so a person's sources can be rolled up
    * per category without the engine deciding which of them are wages. Absent on an empty total.
    */
   readonly taxCategory?: TaxCategory;
 }
 
-/** A person's whole year to date in ONE tax category, across every source that has paid them. */
+/**
+ * A person's whole year to date in ONE tax category, across every source that has paid them.
+ * REGULAR pay only — see {@link SourceYearToDate.regularWagesCents} for why bonuses are left out.
+ */
 export interface PersonWageYearToDate {
-  /** POST-deferral wages, including sources that have since stopped paying. */
+  /** POST-deferral regular wages, including sources that have since stopped paying. */
   readonly wagesCents: Cents;
-  /** Income tax withheld against them, by all of those sources. */
+  /** Income tax withheld against those regular wages, by all of those sources. */
   readonly withholdingCents: Cents;
 }
 
@@ -195,6 +206,7 @@ export interface WaterfallInput {
    * The same year-to-date facts rolled up ACROSS a person's sources in one category — what the
    * EMPLOYEE knows and no single employer does. Sources that have already stopped paying are
    * included, which is what lets a correction made in July account for a job that ran to June.
+   * REGULAR pay only, so a bonus paid in June cannot move what July withholds.
    * Absent → the person has been paid nothing yet this year.
    */
   readonly priorPersonWageYearToDate?: (

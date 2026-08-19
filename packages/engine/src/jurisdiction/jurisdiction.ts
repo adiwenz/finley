@@ -124,11 +124,17 @@ export interface WageWithholdingRequest {
    */
   readonly bearsMultipleJobsAdjustment: boolean;
   /**
-   * The person's wages of this category from ALL sources so far this year, after pre-tax
+   * The person's REGULAR wages of this category from ALL sources so far this year, after pre-tax
    * deferral — including sources that have since stopped paying.
+   *
+   * Supplemental wages are excluded, and so is the withholding they produced. A bonus is not a
+   * rate of pay: counting one here would have every later paycheck withhold as though the person
+   * had been given a raise, and would quietly undo the whole point of withholding a bonus by a
+   * separate method. Whatever the flat rate got wrong about a bonus is a matter for the annual
+   * liability and the settlement that follows it, not for next month's payslip.
    */
   readonly priorPersonWagesCents: Cents;
-  /** Income tax already withheld against those wages, by all of those sources. */
+  /** Income tax already withheld against those regular wages, by all of those sources. */
   readonly priorPersonWithholdingCents: Cents;
 }
 

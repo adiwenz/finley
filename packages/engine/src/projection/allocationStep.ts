@@ -160,20 +160,23 @@ function planMonthAllocation(
         earnedByCategory: {},
         supplementalWagesCents: 0,
         wageWithholdingCents: 0,
-        withholdingWagesCents: 0,
+        regularWagesCents: 0,
+        regularWithholdingCents: 0,
       },
     // The same facts rolled up across the person's sources in one category — what the EMPLOYEE
     // knows and no employer does. Every source the year has seen counts, including one that has
     // already stopped paying, so a correction made in July still accounts for a job that ran to
     // June. Which categories are wages stays the jurisdiction's call: the roll-up just matches on
-    // the category the caller asked about.
+    // the category the caller asked about. REGULAR pay only, on both sides: a bonus is withheld
+    // by its own method when it is paid, and letting it into this basis would have the months
+    // after it withhold as though the person had been given a raise.
     priorPersonWageYearToDate: (pid, taxCategory) => {
       let wagesCents = 0;
       let withholdingCents = 0;
       for (const ytd of state.sourceYearToDate.get(`${pid}|${ctx.year}`)?.values() ?? []) {
         if (ytd.taxCategory !== taxCategory) continue;
-        wagesCents += ytd.withholdingWagesCents;
-        withholdingCents += ytd.wageWithholdingCents;
+        wagesCents += ytd.regularWagesCents;
+        withholdingCents += ytd.regularWithholdingCents;
       }
       return { wagesCents, withholdingCents };
     },
@@ -327,7 +330,8 @@ export function allocateMonth(
         earnedByCategory,
         supplementalWagesCents: prior.supplementalWagesCents + delta.supplementalWagesCents,
         wageWithholdingCents: prior.wageWithholdingCents + delta.wageWithholdingCents,
-        withholdingWagesCents: prior.withholdingWagesCents + delta.withholdingWagesCents,
+        regularWagesCents: prior.regularWagesCents + delta.regularWagesCents,
+        regularWithholdingCents: prior.regularWithholdingCents + delta.regularWithholdingCents,
         taxCategory: delta.taxCategory ?? prior.taxCategory,
       });
     }

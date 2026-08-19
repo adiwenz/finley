@@ -354,7 +354,6 @@ describe("runWaterfall — federal income tax is never PRICED here, only charged
         ],
         computeWageWithholdingCents: (request) => {
           expect(request.regularWagesCents).toBe(dollarsToCents(5000));
-          expect(request.supplementalWagesCents).toBe(dollarsToCents(10000));
           expect(request.payPeriodsPerYear).toBe(12);
           return Math.round(request.regularWagesCents * 0.1 + request.supplementalWagesCents * 0.22);
         },
@@ -425,6 +424,32 @@ describe("runWaterfall — federal income tax is never PRICED here, only charged
       }),
     );
     expect(asked).toEqual(["p1|wages"]);
+  });
+
+  it("carries only the regular half of a bonus month into the year-to-date", () => {
+    const r = runWaterfall(
+      makeInput({
+        incomeSources: [
+          {
+            ownerId: "p1",
+            waterfallInflowCents: dollarsToCents(15000),
+            supplementalCents: dollarsToCents(10000),
+            taxCategory: "wages",
+            sourceId: "job:1",
+          },
+        ],
+        computeWageWithholdingCents: (request) =>
+          Math.round(request.regularWagesCents * 0.1 + request.supplementalWagesCents * 0.22),
+      }),
+    );
+    const ytd = r.sourceYearToDateDeltas.get("p1")?.get("job:1");
+    // The month withheld $2,700 all told, but the basis a later multiple-jobs correction measures
+    // itself against carries the $5,000 of regular pay and the $500 it produced — and NOT the
+    // bonus. Otherwise next month would withhold as though the person had been given a raise.
+    expect(ytd?.wageWithholdingCents).toBe(dollarsToCents(2700));
+    expect(ytd?.regularWagesCents).toBe(dollarsToCents(5000));
+    expect(ytd?.regularWithholdingCents).toBe(dollarsToCents(500));
+    expect(ytd?.supplementalWagesCents).toBe(dollarsToCents(10000));
   });
 
   it("carries the month's taxable base back to the caller, unrelated to what it charged", () => {
@@ -1074,7 +1099,7 @@ describe("runWaterfall — employee payroll tax (FICA) seam", () => {
           earnedByCategory: { wages: dollarsToCents(5000) },
           supplementalWagesCents: 0,
           wageWithholdingCents: 0,
-          withholdingWagesCents: 0,
+          regularWagesCents: 0, regularWithholdingCents: 0,
         }),
         ...cappedSeam,
       }),
