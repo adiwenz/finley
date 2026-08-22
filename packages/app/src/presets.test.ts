@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dollarsToCents, Projection } from "@finley/engine";
-import { usJurisdiction } from "@finley/rules";
+import { payrollTaxTables, usJurisdiction } from "@finley/rules";
 import { PRESETS, presetById, presetState } from "./presets";
 import { DEFAULT_INPUT, PLAN_DEFAULTS } from "./planDefaults";
 
@@ -23,6 +23,7 @@ describe("presets", () => {
       "student-loan",
       "two-jobs",
       "career-break",
+      "three-jobs",
       "bonus",
       "taxed-in-retirement",
     ]);
@@ -87,6 +88,81 @@ describe("presets", () => {
     // Both owned by the same person: the multiple-jobs correction is person-scoped, and a preset
     // that split them across a household would demonstrate the opposite of what it claims to.
     expect(new Set(jobs.map((job) => job.ownerId)).size).toBe(1);
+  });
+
+  /**
+   * The Social Security preset, pinned end to end.
+   *
+   * Its whole claim is arithmetic no single employer can see, so the arithmetic is asserted here
+   * rather than described: three salaries each under the wage base, a household over it, and an
+   * April that hands the difference back.
+   */
+  it("gives the three-jobs preset three equal concurrent jobs on the one person", () => {
+    const jobs = presetState(presetById("three-jobs")).scenario.plan.primary.jobs;
+    expect(jobs).toHaveLength(3);
+    expect(new Set(jobs.map((job) => job.ownerId)).size).toBe(1);
+    // Equal by construction: an unequal set would raise the question of which job reached the cap.
+    expect(new Set(jobs.map((job) => job.salary?.currentSalaryCents)).size).toBe(1);
+  });
+
+  it("keeps every salary under the Social Security wage base while the household clears it", () => {
+    const jobs = presetState(presetById("three-jobs")).scenario.plan.primary.jobs;
+    const salaryCents = jobs[0]!.salary!.currentSalaryCents;
+    const wageBaseCents = payrollTaxTables(DEFAULT_INPUT.startYear).oasdiWageBaseCents;
+    // Each employer withholds OASDI on every dollar it pays, because none of them ever reaches
+    // the cap on its own — which is exactly why, between them, they overshoot.
+    expect(salaryCents).toBeLessThan(wageBaseCents);
+    expect(salaryCents * jobs.length).toBeGreaterThan(wageBaseCents);
+  });
+
+  it("turns that per-employer cap into a visible April refund", () => {
+    const series = Projection.fromState(
+      presetState(presetById("three-jobs")),
+      usJurisdiction,
+    ).run(usJurisdiction).series;
+    const april = series.months[15]!.flows!;
+    expect(april.taxSettlementCents).toBe(-459_231);
+    expect(-april.taxSettlementCents).toBeGreaterThan(dollarsToCents(3_000));
+    expect(-april.taxSettlementCents).toBeLessThan(dollarsToCents(10_000));
+  });
+
+  it("sizes that refund as the excess Social Security, net of what April also charges", () => {
+    const jobs = presetState(presetById("three-jobs")).scenario.plan.primary.jobs;
+    const { oasdiWageBaseCents, oasdiRate } = payrollTaxTables(DEFAULT_INPUT.startYear);
+    const householdWagesCents = jobs[0]!.salary!.currentSalaryCents * jobs.length;
+    const excessCreditCents = Math.round((householdWagesCents - oasdiWageBaseCents) * oasdiRate);
+    expect(excessCreditCents).toBe(530_100);
+
+    const series = Projection.fromState(
+      presetState(presetById("three-jobs")),
+      usJurisdiction,
+    ).run(usJurisdiction).series;
+    // The credit is the whole reason April is a refund at all — everything else the filing settles
+    // points the other way (the unwithheld Additional Medicare surtax, and income tax on savings
+    // interest), so the money back is strictly smaller than the credit that caused it.
+    expect(-series.months[15]!.flows!.taxSettlementCents).toBeLessThan(excessCreditCents);
+  });
+
+  it("keeps April a refund for the whole of the first twenty years", () => {
+    const series = Projection.fromState(
+      presetState(presetById("three-jobs")),
+      usJurisdiction,
+    ).run(usJurisdiction).series;
+    const settlements = Array.from({ length: 20 }, (_, year) => {
+      const month = 15 + year * 12;
+      return [month, series.months[month]!.flows!.taxSettlementCents] as const;
+    });
+    // It does eventually become a balance due — the surtax threshold is unindexed and the
+    // portfolio's untaxed-at-source interest grows — but not while the preset is being read.
+    expect(settlements.filter(([, cents]) => cents >= 0)).toEqual([]);
+  });
+
+  it("stays solvent through the working years, so the refund is not read against a collapse", () => {
+    const result = Projection.fromState(
+      presetState(presetById("three-jobs")),
+      usJurisdiction,
+    ).run(usJurisdiction);
+    expect(result.series.months.slice(0, 360).some((m) => m.isInsolvent)).toBe(false);
   });
 
   /**

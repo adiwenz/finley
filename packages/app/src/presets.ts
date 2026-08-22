@@ -238,6 +238,60 @@ const TWO_JOBS = teachingInput(MODEST_BUDGET, {
 });
 
 /**
+ * A high earner's budget, kept beside its only user. Three salaries clear the Social Security
+ * wage base only if they are large, and a large income parked against a small budget piles up
+ * taxable interest that swamps the very settlement {@link THREE_JOBS} exists to show. So the
+ * spend is sized to the income.
+ */
+const HIGH_EARNER_BUDGET = [
+  expenseLine("Housing", "needs", 4_200),
+  expenseLine("Childcare", "needs", 2_200),
+  expenseLine("Groceries", "needs", 1_300),
+  expenseLine("Transportation", "needs", 950),
+  expenseLine("Dining & fun", "wants", 1_800),
+  expenseLine("Travel", "wants", 1_400),
+  expenseLine("Subscriptions", "wants", 350),
+];
+
+/**
+ * Three paychecks at once, and the ONE thing the W-4 cannot fix.
+ *
+ * Income tax it does fix. The Multiple Jobs Worksheet sizes an extra per-period amount onto one
+ * job, and between them the three withhold what a single employer paying all of it would —
+ * {@link TWO_JOBS} is the two-job version of that same story.
+ *
+ * Social Security is different, because its wage base is per EMPLOYER and no employer can see the
+ * others. Each of these jobs pays well under the base, so each withholds OASDI on every dollar it
+ * pays; together they are far above it. The excess is withheld by three payrolls that are each
+ * behaving correctly, and nothing can hand it back during the year — it is a refundable credit on
+ * the RETURN, so it comes back the following April.
+ *
+ * That makes this the model's other refund, and a different one from {@link CAREER_BREAK}: that
+ * year over-withholds income tax against income the year never delivers, while this one withholds
+ * income tax about right and over-withholds payroll tax by construction. April nets it against
+ * the two corrections pointing the other way — the Additional Medicare surtax no single employer
+ * crossed the threshold to withhold, and income tax on savings interest nothing withholds against.
+ *
+ * The refund SHRINKS across the career and eventually turns into a balance due, which is the
+ * honest shape rather than a flaw: the surtax threshold is not indexed while wages climb through
+ * it, and the taxable interest on an accumulating portfolio grows every year with nothing
+ * withholding against it. One job defers to a 401(k) to keep that second effect from arriving in
+ * the first decade — the deferral leaves the payroll-tax story untouched, because a 401(k)
+ * contribution is exempt from income tax and not from FICA.
+ *
+ * Three EQUAL salaries, so no reader has to work out which job the cap was reached on.
+ */
+const THREE_JOBS = teachingInput(HIGH_EARNER_BUDGET, {
+  name: "Robin",
+  jobs: [
+    { ...salariedJob(dollarsToCents(7500)), deferral: { deferralFraction: 0.1 } },
+    salariedJob(dollarsToCents(7500)),
+    salariedJob(dollarsToCents(7500)),
+  ],
+  openingBalanceCents: dollarsToCents(10_000),
+});
+
+/**
  * A salary with a $20,000 bonus in June. Supplemental wages are withheld at their own flat rate
  * (22%) rather than annualized, because treating a one-off payment as a permanent pay rise would
  * over-withhold every month after it — so June spikes, July is back to normal, and any gap
@@ -325,6 +379,13 @@ export const PRESETS: readonly Preset[] = [
       jobIndex: 0,
       override: { month, kind: "setTo" as const, cents: 0 },
     })),
+  },
+  {
+    id: "three-jobs",
+    label: "Three paychecks",
+    description:
+      "Three employers, each withholding Social Security to its own cap — and the April refund that gives the excess back.",
+    input: THREE_JOBS,
   },
   {
     id: "bonus",
