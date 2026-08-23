@@ -39,6 +39,7 @@ function mkHousehold(memberCount = 1): Household {
       endMonth: null,
     })),
     children: [],
+    eventAccounts: [],
     series: [],
     liabilities: [],
     properties: [],
@@ -65,6 +66,7 @@ function mkSeries(openingCentsById: Readonly<Record<string, number>>): Projectio
     propertyValuesCents: {},
     isInsolvent: false,
     uncoveredCents: 0,
+    netWorthByPersonCents: {},
   };
   return {
     opening: month,

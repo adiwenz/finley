@@ -1002,6 +1002,8 @@ describe("Person-aware decumulation — fund each person's share from accounts a
       liquidAccountId: null,
       remainingDeferralRoomCents: () => Infinity,
       remainingCombinedDepositRoomCents: () => Infinity,
+      payPeriodsPerYear: 12,
+      periodsRemainingInTaxYear: 12,
       // p1 has 3x p2's assets — a 3:1 split of the $3,000 obligation.
       eligibleAssetsCentsByPerson: (pid) =>
         pid === "p1" ? dollarsToCents(30_000) : dollarsToCents(10_000),

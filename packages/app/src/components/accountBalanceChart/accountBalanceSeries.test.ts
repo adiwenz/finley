@@ -19,6 +19,7 @@ function mkMonth(m: MonthSpec, month: number) {
     propertyValuesCents: {},
     isInsolvent: m.isInsolvent ?? false,
     uncoveredCents: m.isInsolvent ? 1 : 0,
+    netWorthByPersonCents: {},
   };
 }
 
