@@ -274,6 +274,11 @@ export interface CashFlowChartModelOptions {
   readonly mode?: CashFlowMode;
   /** Names benefit bands by earner when two are on the chart; otherwise a band keeps its label. */
   readonly personNames?: ReadonlyMap<string, string>;
+  /**
+   * Draw only this person's bands. Honoured on the inflow view alone — see {@link
+   * cashFlowBandsForView} for why cash leaving cannot be cut the same way.
+   */
+  readonly ownerId?: string;
   /** The household's age at month 0, which turns the insolvency month into an age. */
   readonly currentAge?: number;
 }
@@ -324,8 +329,8 @@ export function buildCashFlowChartModel(
   data: CashFlowChartData,
   options: CashFlowChartModelOptions,
 ): CashFlowChartModel {
-  const { view, mode = "simple", personNames = new Map<string, string>(), currentAge = 0 } = options;
-  const folded = cashFlowBandsForView(data, view, mode, personNames);
+  const { view, mode = "simple", personNames = new Map<string, string>(), currentAge = 0, ownerId } = options;
+  const folded = cashFlowBandsForView(data, view, mode, personNames, ownerId);
   const colors = colorsForBands(folded.bands);
   const bands: CashFlowChartBand[] = folded.bands.map((b) => ({
     id: b.id,
@@ -369,8 +374,11 @@ export function buildCashFlowChartModel(
     spendingNeedKey: SPENDING_NEED_KEY,
     netKey: NET_KEY,
     // Only the inflow view: on the outflow view the spending IS the bands, and on the net view
-    // spending has already been subtracted, so the reference worth drawing is zero.
-    showsSpendingNeed: view === "inflows",
+    // spending has already been subtracted, so the reference worth drawing is zero. Dropped in
+    // a person's cut too — the line is the WHOLE household's spending need, and drawing it over
+    // one earner's income asks "does Alex alone cover everything?", which is not the question
+    // the toggle was reached for and reads as a shortfall in a household that has none.
+    showsSpendingNeed: view === "inflows" && ownerId === undefined,
     lastX,
     brokeMonth,
     brokeAgeLabel: brokeMonth === null ? null : formatAgeAtMonth(currentAge, brokeMonth),

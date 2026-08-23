@@ -17,6 +17,8 @@ function seriesOf(
     sources?: ProjectionCashFlowIncomeSource[];
     obligations?: { id: string; label: string; category: string; amountCents: number }[];
     taxCents?: number;
+    /** The household's spending need — a flow total of its own, not a sum over `obligations`. */
+    expensesCents?: number;
   }[]
 ): ProjectionSeries {
   const months = [
@@ -29,7 +31,7 @@ function seriesOf(
         taxCents: m.taxCents ?? 0,
         payrollTaxCents: 0,
         taxSettlementCents: 0,
-        expensesCents: 0,
+        expensesCents: m.expensesCents ?? 0,
         liabilityPaymentsCents: 0,
       },
     })),
@@ -229,5 +231,112 @@ describe("CashFlowTooltipContent — the hover readout", () => {
   it("draws nothing when nothing is hovered", () => {
     const { container } = render(<CashFlowTooltipContent {...props([])} active={false} />);
     expect(container.firstChild).toBeNull();
+  });
+});
+
+/**
+ * The Combined / per-person toggle on the inflow view. Cash ARRIVING carries the owner the
+ * engine attributed it to, so "whose income is this?" is answerable. Cash LEAVING does not:
+ * every budget line compiles under the primary person whoever it is really for, so cutting the
+ * outflow stack by person would draw the primary paying for the whole household. The toggle is
+ * therefore offered on "Coming in" alone rather than shown everywhere and quietly lying on two
+ * of the three views.
+ */
+describe("CashFlowChart — whose cash flow", () => {
+  const owned = (
+    sourceId: string,
+    cents: number,
+    category: ProjectionCashFlowIncomeSource["category"],
+    ownerId: string,
+  ): ProjectionCashFlowIncomeSource => ({ ...source(sourceId, cents, category), ownerId }) as ProjectionCashFlowIncomeSource;
+
+  const ALEX_PAY = dollarsToCents(6_000);
+  const BLAKE_PAY = dollarsToCents(2_400);
+
+  const twoEarners = buildCashFlowChartData(
+    seriesOf({
+      sources: [
+        owned("Software Engineer", ALEX_PAY, "wages", "p1"),
+        owned("Teacher", BLAKE_PAY, "wages", "p2"),
+      ],
+      obligations: [{ id: "rent", label: "Rent", category: "needs", amountCents: dollarsToCents(3_000) }],
+      expensesCents: dollarsToCents(3_000),
+    }),
+  );
+
+  const couple = new Map([
+    ["p1", "Alex"],
+    ["p2", "Blake"],
+  ]);
+
+  const renderTwoEarners = (personNames: ReadonlyMap<string, string> = couple) =>
+    render(
+      <CashFlowChart
+        data={twoEarners}
+        currentAge={40}
+        selectedMonth={0}
+        personNames={personNames}
+        onSelectMonth={() => {}}
+      />,
+    );
+
+  const drawnBands = (): string[] =>
+    JSON.parse(screen.getByTestId("income-bands").textContent ?? "[]") as string[];
+  const cut = (name: string) => screen.getByRole("button", { name });
+  const view = (label: string) => screen.getByRole("radio", { name: label });
+
+  it("opens combined, with both earners' income stacked", () => {
+    renderTwoEarners();
+    expect(drawnBands()).toEqual(["Software Engineer", "Teacher"]);
+    expect(cut("Combined").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("cuts the stack to one earner's own income", () => {
+    renderTwoEarners();
+    fireEvent.click(cut("Blake"));
+    expect(drawnBands()).toEqual(["Teacher"]);
+    expect(screen.getByTestId("income-first-row").textContent).toBe(
+      JSON.stringify({ Teacher: BLAKE_PAY }),
+    );
+  });
+
+  it("offers no cut on the views that cannot honour one", () => {
+    // Going out and Net are household figures end to end; a control that changed nothing on
+    // them would read as though the household spent nothing on the partner's behalf.
+    renderTwoEarners();
+    expect(screen.getByRole("group", { name: "Whose cash flow" })).toBeTruthy();
+
+    fireEvent.click(view("Going out"));
+    expect(screen.queryByRole("group", { name: "Whose cash flow" })).toBeNull();
+
+    fireEvent.click(view("Net"));
+    expect(screen.queryByRole("group", { name: "Whose cash flow" })).toBeNull();
+  });
+
+  it("returns to the whole household when the reader leaves the inflow view and comes back", () => {
+    // The cut is dropped rather than remembered while it cannot apply, so "Going out" is never
+    // silently showing a stale person's name.
+    renderTwoEarners();
+    fireEvent.click(cut("Blake"));
+    expect(drawnBands()).toEqual(["Teacher"]);
+
+    fireEvent.click(view("Going out"));
+    expect(drawnBands()).toEqual(["Needs"]);
+  });
+
+  it("offers no cut at all to a household of one", () => {
+    const solo = buildCashFlowChartData(
+      seriesOf({ sources: [owned("Software Engineer", ALEX_PAY, "wages", "p1")] }),
+    );
+    render(
+      <CashFlowChart
+        data={solo}
+        currentAge={40}
+        selectedMonth={0}
+        personNames={new Map([["p1", "Alex"]])}
+        onSelectMonth={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("group", { name: "Whose cash flow" })).toBeNull();
   });
 });

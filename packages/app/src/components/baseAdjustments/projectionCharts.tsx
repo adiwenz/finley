@@ -64,7 +64,12 @@ export const ProjectionCharts = memo(function ProjectionCharts({
       />
 
       <h4 className={styles.groupHeading}>Monthly tax paid</h4>
-      <TaxChart data={taxData} selectedMonth={selectedMonth} onSelectMonth={onSelectMonth} />
+      <TaxChart
+        data={taxData}
+        selectedMonth={selectedMonth}
+        onSelectMonth={onSelectMonth}
+        personNames={personNames}
+      />
     </div>
   );
 });

@@ -5,9 +5,9 @@
  * lacks, so the readout is driven directly with the payload Recharts would hand it.
  */
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { dollarsToCents } from "@finley/engine";
-import { TaxTooltipContent } from "./taxChart";
+import { TaxChart, TaxTooltipContent } from "./taxChart";
 import type { TaxMonthRow } from "./taxesByMonth";
 
 afterEach(cleanup);
@@ -171,5 +171,132 @@ describe("TaxTooltipContent — a filing month's readout", () => {
     );
     expect(screen.queryByTestId("settlement-attribution")).toBeNull();
     expect(screen.queryByText("Tax refund")).toBeNull();
+  });
+});
+
+/**
+ * The Combined / per-person toggle. Tax is attributed per SOURCE, and most sources carry the
+ * owner the engine assigned them, so a two-earner household can be asked whose tax it is
+ * looking at. Three bands cannot be: the April settlement belongs to no source at all, the
+ * shared liquid-buffer drawdown is household money, and a source the engine keyed by bare tax
+ * category has nobody to name. Those stay in the combined view and in nobody's cut — a person's
+ * total must never include tax that was not attributed to them.
+ */
+describe("TaxChart — whose tax", () => {
+  const ALEX_TAX = dollarsToCents(900);
+  const BLAKE_TAX = dollarsToCents(600);
+  const SETTLEMENT = dollarsToCents(200);
+
+  const bands = [
+    { id: "job-a", label: "Software engineer", category: "wages", kind: "incomeTax" as const, ownerId: "p1" },
+    { id: "job-b", label: "Teacher", category: "wages", kind: "incomeTax" as const, ownerId: "p2" },
+    // No owner: last year's bill arriving, which belongs to no income source.
+    { id: "tax-settlement", label: "Tax settlement", category: "tax-settlement", kind: "settlement" as const },
+  ];
+
+  const row = (month: number, centsBySource: Record<string, number>) => ({
+    month,
+    taxCents: Object.values(centsBySource).reduce((a, b) => a + b, 0),
+    centsBySource,
+    settlementCents: centsBySource["tax-settlement"] ?? 0,
+    settlementPaidCents: centsBySource["tax-settlement"] ?? 0,
+    refundCents: 0,
+    settlementBySourceCents: {},
+  });
+
+  const data = {
+    rows: [
+      row(0, { "job-a": ALEX_TAX, "job-b": BLAKE_TAX }),
+      row(1, { "job-a": ALEX_TAX, "job-b": BLAKE_TAX, "tax-settlement": SETTLEMENT }),
+    ],
+    sources: bands,
+    hasSourceBreakdown: true,
+    sourceLabels: {},
+    totalCents: ALEX_TAX * 2 + BLAKE_TAX * 2 + SETTLEMENT,
+    peakMonthlyCents: ALEX_TAX + BLAKE_TAX + SETTLEMENT,
+    peakMonth: 1,
+    hasAnyTax: true,
+    owners: ["p1", "p2"],
+  };
+
+  const couple = new Map([
+    ["p1", "Alex"],
+    ["p2", "Blake"],
+  ]);
+
+  const renderChart = (personNames?: ReadonlyMap<string, string>) =>
+    render(
+      <TaxChart data={data} selectedMonth={0} onSelectMonth={() => {}} personNames={personNames} />,
+    );
+
+  const drawnBands = (): string[] =>
+    JSON.parse(screen.getByTestId("tax-bands").textContent ?? "[]") as string[];
+  const cut = (name: string) => screen.getByRole("button", { name });
+
+  it("opens combined, showing every band including the ones nobody owns", () => {
+    renderChart(couple);
+    expect(drawnBands()).toEqual(["Software engineer", "Teacher", "Tax settlement"]);
+    expect(cut("Combined").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("cuts to one person's bands, leaving the other's and the household's out", () => {
+    renderChart(couple);
+    fireEvent.click(cut("Blake"));
+    expect(drawnBands()).toEqual(["Teacher"]);
+  });
+
+  it("totals a person's own tax, not their share of the household's", () => {
+    renderChart(couple);
+    // Combined is everything, settlement included.
+    expect(screen.getByTestId("tax-summary").textContent).toMatch(/\$3,200 in tax over the plan/);
+
+    // Blake's is Blake's two months of withholding — $1,200 — and NOT a slice of $3,200. The
+    // settlement is the reason a proportional share would be wrong: it is real tax the household
+    // paid that belongs to neither person's cut.
+    fireEvent.click(cut("Blake"));
+    expect(screen.getByTestId("tax-summary").textContent).toMatch(/Blake's \$1,200 in tax over the plan/);
+  });
+
+  it("gives a person their own peak month, not the household's", () => {
+    renderChart(couple);
+    // The household peaks in month 1, when the settlement lands on top of both withholdings.
+    expect(screen.getByTestId("tax-summary").textContent).toMatch(/peaking around \$1,700\/mo/);
+
+    // Alex pays the same every month, so their peak is their own flat figure — a household peak
+    // driven by the other partner or by a settlement is not theirs.
+    fireEvent.click(cut("Alex"));
+    expect(screen.getByTestId("tax-summary").textContent).toMatch(/peaking around \$900\/mo/);
+  });
+
+  it("offers no cut at all to a household of one", () => {
+    // Nobody to compare against, so the control is noise.
+    renderChart(new Map([["p1", "Alex"]]));
+    expect(screen.queryByRole("group", { name: "Whose tax" })).toBeNull();
+    expect(drawnBands()).toEqual(["Software engineer", "Teacher", "Tax settlement"]);
+  });
+
+  it("names an owner on the combined view when two bands would otherwise read alike", () => {
+    // The engine labels a benefit the same for whoever claims it, so two claimants are one
+    // legend entry repeated. Under a person's own button the name is already stated, so it is
+    // added on the combined view only.
+    const benefit = (owner: string) => ({
+      id: `benefit:${owner}`,
+      label: "Government benefit",
+      category: "governmentRetirementBenefit",
+      kind: "incomeTax" as const,
+      ownerId: owner,
+    });
+    const benefits = {
+      ...data,
+      sources: [benefit("p1"), benefit("p2")],
+      rows: [row(0, { "benefit:p1": dollarsToCents(100), "benefit:p2": dollarsToCents(80) })],
+    };
+    render(
+      <TaxChart data={benefits} selectedMonth={0} onSelectMonth={() => {}} personNames={couple} />,
+    );
+    expect(drawnBands()).toEqual(["Government benefit · Alex", "Government benefit · Blake"]);
+
+    fireEvent.click(cut("Blake"));
+    expect(drawnBands()).toEqual(["Government benefit"]);
   });
 });

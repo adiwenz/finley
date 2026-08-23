@@ -227,3 +227,66 @@ describe("buildCashFlowChartModel — the nonvisual table", () => {
     ]);
   });
 });
+
+/**
+ * Cutting the model down to one person. The inflow side carries the engine's own attribution,
+ * so the cut is a filter over real ownership rather than an apportionment the model invents.
+ */
+describe("buildCashFlowChartModel — one person's cut", () => {
+  const ALEX_PAY = dollarsToCents(6_000);
+  const BLAKE_PAY = dollarsToCents(2_400);
+  const RENT = dollarsToCents(3_000);
+
+  const twoEarners = buildCashFlowChartData(
+    seriesOf({
+      sources: [
+        source("Software Engineer", ALEX_PAY, "wages", { ownerId: "p1" }),
+        source("Teacher", BLAKE_PAY, "wages", { ownerId: "p2" }),
+      ],
+      obligations: [{ id: "rent", label: "Rent", category: "needs", amountCents: RENT }],
+      expensesCents: RENT,
+    }),
+  );
+
+  it("stacks one earner's income and totals only theirs", () => {
+    const model = buildCashFlowChartModel(twoEarners, {
+      view: "inflows",
+      mode: "advanced",
+      ownerId: "p2",
+    });
+    expect(model.bands.map((b) => b.label)).toEqual(["Teacher"]);
+    expect(model.rows[0]!["Teacher"]).toBe(BLAKE_PAY);
+    expect(model.rows[0]!["Software Engineer"]).toBeUndefined();
+  });
+
+  it("stops drawing the household's spending-need line", () => {
+    // The dashed line is the WHOLE household's need. Over Blake's $2,400 alone it asks "does
+    // Blake cover the rent by themselves?" — a shortfall in a household that has none, and not
+    // the question the cut was reached for. The figure stays honest on the row; it is the
+    // COMPARISON that stops being drawn.
+    const combined = buildCashFlowChartModel(twoEarners, { view: "inflows" });
+    expect(combined.showsSpendingNeed).toBe(true);
+    expect(combined.rows[0]![SPENDING_NEED_KEY]).toBe(RENT);
+
+    const blake = buildCashFlowChartModel(twoEarners, { view: "inflows", ownerId: "p2" });
+    expect(blake.showsSpendingNeed).toBe(false);
+  });
+
+  it("leaves the outflow and net views whole, because neither is attributable", () => {
+    // Every budget line compiles under the primary person whoever it is really for, so honouring
+    // a cut here would draw the primary paying for the household and the partner paying nothing.
+    // The model ignores the request rather than answering it wrongly.
+    const out = buildCashFlowChartModel(twoEarners, { view: "outflows", ownerId: "p2" });
+    expect(out.bands.map((b) => b.label)).toEqual(
+      buildCashFlowChartModel(twoEarners, { view: "outflows" }).bands.map((b) => b.label),
+    );
+
+    const net = buildCashFlowChartModel(twoEarners, { view: "net", ownerId: "p2" });
+    expect(net.rows[0]![NET_KEY]).toBe(ALEX_PAY + BLAKE_PAY - RENT);
+  });
+
+  it("keeps the combined view unchanged when no cut is asked for", () => {
+    const model = buildCashFlowChartModel(twoEarners, { view: "inflows", mode: "advanced" });
+    expect(model.bands.map((b) => b.label)).toEqual(["Software Engineer", "Teacher"]);
+  });
+});

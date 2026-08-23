@@ -55,6 +55,14 @@ export interface TaxSourceBand {
   readonly category: string;
   /** Income tax or FICA — a source with both charges draws two adjacent bands. */
   readonly kind: TaxBandKind;
+  /**
+   * Whose income bore this tax, when the engine attributed the source to a person. Absent on
+   * the three household-level bands: the April settlement (which belongs to no source at all),
+   * the shared liquid-buffer drawdown, and any source the engine keyed by bare tax category.
+   * Those are real tax the household paid, so they belong to the combined view and to no
+   * person's cut — charging one partner with them would overstate what they owe.
+   */
+  readonly ownerId?: string;
 }
 
 export interface TaxMonthRow {
@@ -109,6 +117,11 @@ export interface TaxChartData {
   readonly peakMonth: number;
   /** False for a null jurisdiction, or an all-exempt plan. */
   readonly hasAnyTax: boolean;
+  /**
+   * Distinct owners across the DRAWN bands, in stacking order. The chart offers a per-person
+   * cut only for owners it can also name, so a household-only id here is not a toggle option.
+   */
+  readonly owners: readonly string[];
 }
 
 /**
@@ -190,7 +203,7 @@ function bandForTaxOnlyKey(id: string, kind: TaxBandKind): TaxSourceBand {
  * to distinguish from; and a label that already carries the name, since a partner's ACCOUNT label
  * is minted with it ("Blake — Retirement account draw") while the primary's never is.
  */
-function ownerQualified(
+export function ownerQualified(
   label: string,
   ownerId: string | undefined,
   personNames: ReadonlyMap<string, string>,
@@ -292,6 +305,7 @@ export function buildTaxChartData(
           label: kind === "payrollTax" ? `${known.label} — FICA` : known.label,
           category: known.category,
           kind,
+          ...(known.ownerId !== undefined ? { ownerId: known.ownerId } : {}),
         };
       }
       return bandForTaxOnlyKey(sourceId, kind);
@@ -310,7 +324,46 @@ export function buildTaxChartData(
     peakMonthlyCents,
     peakMonth,
     hasAnyTax: totalCents > 0,
+    // Drawn bands only, so an owner whose every band was dropped for carrying nothing is not
+    // offered a cut that would render empty.
+    owners: [...new Set(sources.map((s) => s.ownerId).filter((id): id is string => id !== undefined))],
   };
+}
+
+/**
+ * The four figures {@link describeTaxes} reads. {@link TaxChartData} satisfies this structurally
+ * with the household's whole burden; {@link taxTotalsForBands} re-derives it for one person's cut.
+ */
+export interface TaxTotals {
+  readonly totalCents: number;
+  readonly peakMonthlyCents: number;
+  readonly peakMonth: number;
+  readonly hasAnyTax: boolean;
+}
+
+/**
+ * Totals over a SUBSET of the bands — what one person's cut of the chart actually paid. Summed
+ * from the rows rather than scaled off the household figure, because a person's peak month is
+ * their own: a household peak driven by the other partner's April settlement is not theirs.
+ */
+export function taxTotalsForBands(
+  rows: readonly TaxMonthRow[],
+  bands: readonly TaxSourceBand[],
+): TaxTotals {
+  const ids = bands.map((b) => b.id);
+  let totalCents = 0;
+  let peakMonthlyCents = 0;
+  let peakMonth = 0;
+  for (const r of rows) {
+    let monthCents = 0;
+    for (const id of ids) monthCents += r.centsBySource[id] ?? 0;
+    totalCents += monthCents;
+    if (monthCents > peakMonthlyCents) {
+      peakMonthlyCents = monthCents;
+      peakMonth = r.month;
+    }
+  }
+  return { totalCents, peakMonthlyCents, peakMonth, hasAnyTax: totalCents > 0 };
 }
 
 /** Whole dollars, grouped — the chart axis uses `formatDollars` instead. */
@@ -319,7 +372,7 @@ function dollars(cents: number): string {
 }
 
 /** One-line summary for the a11y label / status line. `null` when the plan pays no tax. */
-export function describeTaxes(data: TaxChartData): string | null {
+export function describeTaxes(data: TaxTotals): string | null {
   if (!data.hasAnyTax) return null;
   return (
     `${dollars(data.totalCents)} in tax over the plan, peaking around ` +

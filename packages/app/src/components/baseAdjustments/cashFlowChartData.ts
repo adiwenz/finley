@@ -435,12 +435,20 @@ export interface CashFlowViewData {
  * Fold the data for one view. `net` stacks nothing — it carries no bands at all, and the chart
  * draws {@link CashFlowViewRow.netCents} as a single signed series. `advanced` keeps every band;
  * `simple` collapses via {@link simpleInflowBandOf} / {@link simpleOutflowBandOf}.
+ *
+ * `ownerId` cuts the stack down to one person's bands. It is honoured on the INFLOW view only,
+ * and deliberately: cash arriving is attributed to whoever receives it, but cash leaving is not
+ * attributable at all today — every budget line compiles under the primary person whoever it is
+ * really for (see {@link CashFlowBand.ownerId}), so a per-person outflow stack would draw the
+ * primary paying for the whole household and the partner paying almost nothing. `netCents` is
+ * the difference of two household totals and inherits the same limit.
  */
 export function cashFlowBandsForView(
   data: CashFlowChartData,
   view: CashFlowView,
   mode: CashFlowMode = "simple",
   personNames: ReadonlyMap<string, string> = new Map(),
+  ownerId?: string,
 ): CashFlowViewData {
   if (view === "net") {
     return {
@@ -456,7 +464,11 @@ export function cashFlowBandsForView(
   }
 
   const inflows = view === "inflows";
-  const sourceBands = inflows ? data.inflowBands : data.outflowBands;
+  const all = inflows ? data.inflowBands : data.outflowBands;
+  // Cut before collapsing: Simple folds two people's benefits onto one band, so filtering
+  // afterwards would have nothing left to filter by.
+  const sourceBands =
+    inflows && ownerId !== undefined ? all.filter((b) => b.ownerId === ownerId) : all;
   const order = inflows ? INFLOW_CATEGORY_ORDER : OUTFLOW_CATEGORY_ORDER;
   const centsOf = (r: CashFlowMonthRow) => (inflows ? r.inflowCentsByBand : r.outflowCentsByBand);
 

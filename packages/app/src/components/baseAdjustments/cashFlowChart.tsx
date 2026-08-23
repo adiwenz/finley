@@ -58,6 +58,9 @@ const VIEW_CHOICES: readonly (readonly [CashFlowView, string])[] = [
   ["net", "Net"],
 ];
 
+/** Every owner cut, plus the combined household the chart opens on. */
+const COMBINED = "__combined__";
+
 /**
  * Off-screen but in the accessibility tree — the standard clip-rect idiom, not `display:none`
  * (which would drop it from a screen reader too). Carries the nonvisual data table Recharts'
@@ -133,11 +136,37 @@ export function CashFlowChart({
 }: CashFlowChartProps) {
   const [mode, setMode] = useState<CashFlowMode>("simple");
   const [view, setView] = useState<CashFlowView>("inflows");
+  const [owner, setOwner] = useState<string>(COMBINED);
+
+  // Only earners we can NAME, and only those actually drawing a band. Offered on the inflow
+  // view alone: cash leaving is not attributed to a person today, so there is nothing to cut
+  // "Going out" or "Net" by, and a toggle that silently did nothing would be worse than absent.
+  const owners = useMemo(
+    () => [
+      ...new Set(
+        data.inflowBands
+          .map((b) => b.ownerId)
+          .filter((id): id is string => id !== undefined && personNames.get(id) !== undefined),
+      ),
+    ],
+    [data.inflowBands, personNames],
+  );
+  const ownerOptions = view === "inflows" && owners.length > 1 ? [COMBINED, ...owners] : [];
+  const activeOwner = ownerOptions.includes(owner) ? owner : COMBINED;
+  const whose = activeOwner === COMBINED ? "" : `${personNames.get(activeOwner) ?? activeOwner}'s `;
+
   // None of this depends on `selectedMonth`, so scrubbing the selection — a frequent re-render
   // — doesn't recompute the band collapse or remap every month row.
   const model = useMemo(
-    () => buildCashFlowChartModel(data, { view, mode, personNames, currentAge }),
-    [data, view, mode, personNames, currentAge],
+    () =>
+      buildCashFlowChartModel(data, {
+        view,
+        mode,
+        personNames,
+        currentAge,
+        ...(activeOwner === COMBINED ? {} : { ownerId: activeOwner }),
+      }),
+    [data, view, mode, personNames, currentAge, activeOwner],
   );
 
   return (
@@ -149,6 +178,21 @@ export function CashFlowChart({
           {model.gapSummary ?? "Cash flow continues across the whole horizon."}
         </p>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 14 }}>
+          {ownerOptions.length > 1 && (
+            <div className="seg" role="group" aria-label="Whose cash flow">
+              {ownerOptions.map((o) => (
+                <button
+                  key={o}
+                  type="button"
+                  className="seg-btn"
+                  aria-pressed={o === activeOwner}
+                  onClick={() => setOwner(o)}
+                >
+                  {o === COMBINED ? "Combined" : (personNames.get(o) ?? o)}
+                </button>
+              ))}
+            </div>
+          )}
           {/* Three views of one month, not three charts: the same axis, marker and click
               gesture, so toggling never moves the reader. */}
           <fieldset
@@ -261,7 +305,7 @@ export function CashFlowChart({
         {model.rows[1]?.[model.spendingNeedKey] ?? 0}
       </output>
 
-      <div role="img" aria-label={model.accessibleSummary}>
+      <div role="img" aria-label={`${whose}${model.accessibleSummary}`}>
       <ResponsiveContainer width="100%" height={200}>
         <ComposedChart
           data={model.rows as Record<string, number>[]}

@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import {
   Area,
   CartesianGrid,
@@ -17,6 +17,8 @@ import { formatDollars, monthLabel, yearOf } from "../../format";
 import { TODAY_X, axisPointLabel, axisYearTickLabel, fromAxisX, toAxisX, yearTickXs } from "../monthAxis";
 import {
   describeTaxes,
+  ownerQualified,
+  taxTotalsForBands,
   type TaxMonthRow,
   type TaxSourceBand,
   type TaxChartData,
@@ -181,21 +183,68 @@ export function TaxTooltipContent(props: TooltipContentProps<ValueType, NameType
   );
 }
 
+/** Every owner cut, plus the combined household the chart opens on. */
+const COMBINED = "__combined__";
+
+/**
+ * The bands one person bore. A band with no owner — the April settlement, the shared buffer
+ * drawdown, a source the engine keyed by bare category — belongs to the combined view only,
+ * so a person's cut never charges them with tax that was not attributed to them.
+ */
+function bandsForOwner(bands: readonly TaxSourceBand[], owner: string): TaxSourceBand[] {
+  return owner === COMBINED ? [...bands] : bands.filter((b) => b.ownerId === owner);
+}
+
 export interface TaxChartProps {
   readonly data: TaxChartData;
   /** The month the editor is pointed at — marked with a vertical rule. */
   readonly selectedMonth: number;
   /** Called with the clicked month, so the panel can move the editor there. */
   readonly onSelectMonth: (month: number) => void;
+  /**
+   * Names the owner toggle reads, and the names the combined view qualifies bands with. A
+   * person absent from it is not offered a cut of their own.
+   */
+  readonly personNames?: ReadonlyMap<string, string>;
 }
 
-export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) {
-  const summary = describeTaxes(data);
+export function TaxChart({ data, selectedMonth, onSelectMonth, personNames }: TaxChartProps) {
+  const names = personNames ?? new Map<string, string>();
+  // Only people we can NAME: an owner the household cannot name is a bookkeeping owner rather
+  // than a person to compare.
+  const owners = data.owners.filter((id) => names.get(id) !== undefined);
+  const ownerOptions = owners.length > 1 ? [COMBINED, ...owners] : [];
+  const [owner, setOwner] = useState<string>(COMBINED);
+  const activeOwner = ownerOptions.includes(owner) ? owner : COMBINED;
+
+  // Bands the active cut draws. A name is added ONLY where it settles an ambiguity: on the
+  // combined view, to labels two bands share — the engine names a benefit the same for whoever
+  // claims it, so two claimants read as one legend entry repeated. A label that already stands
+  // alone ("Software engineer", "Teacher") is left as authored; qualifying every owned band
+  // would put a name on every row and disambiguate nothing. Under a person's own button the
+  // name is stated once by the button, so nothing is qualified at all.
+  const visibleBands = useMemo(() => {
+    const cut = bandsForOwner(data.sources, activeOwner);
+    if (activeOwner !== COMBINED) return cut;
+    const seen = new Map<string, number>();
+    for (const b of cut) seen.set(b.label, (seen.get(b.label) ?? 0) + 1);
+    return cut.map((b) =>
+      (seen.get(b.label) ?? 0) > 1 ? { ...b, label: ownerQualified(b.label, b.ownerId, names) } : b,
+    );
+  }, [data.sources, activeOwner, names]);
+
+  // The household's whole burden, or just this person's — summed over the bands actually drawn.
+  const totals = useMemo(
+    () => (activeOwner === COMBINED ? data : taxTotalsForBands(data.rows, visibleBands)),
+    [data, activeOwner, visibleBands],
+  );
+  const whose = activeOwner === COMBINED ? "" : `${names.get(activeOwner) ?? activeOwner}'s `;
+  const summary = describeTaxes(totals);
   // Stacked whenever the plan pays tax (attribution is always reported); a zero-tax plan
   // has no sources, so the row carries the lone `taxCents`.
-  const stacked = data.hasSourceBreakdown && data.sources.length > 0;
-  // Geometry depends only on `data`, stable while scrubbing — memoized so moving
-  // `selectedMonth` doesn't rebuild the colour map or remap every row.
+  const stacked = data.hasSourceBreakdown && visibleBands.length > 0;
+  // Coloured off the FULL band list, not the visible cut, so a band keeps its colour when the
+  // reader toggles between combined and their own.
   const colors = useMemo(() => colorsForBands(data.sources), [data.sources]);
   // On the shared months-from-now axis; a flow chart, so the today slot stays empty (no tax is
   // paid at "now") and the bands start at end-of-month-0, aligned with the charts above.
@@ -211,10 +260,10 @@ export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) 
         const x = toAxisX(r.month);
         if (!stacked) return { month: x, taxCents: r.taxCents };
         const zeroed: Record<string, number> = {};
-        for (const band of data.sources) zeroed[band.id] = r.centsBySource[band.id] ?? 0;
+        for (const band of visibleBands) zeroed[band.id] = r.centsBySource[band.id] ?? 0;
         return { month: x, ...zeroed };
       }),
-    [data.rows, data.sources, stacked],
+    [data.rows, visibleBands, stacked],
   );
   // Keyed by AXIS x, because that is the only month identity Recharts hands the tooltip back.
   const rowsByAxisX = useMemo(
@@ -228,20 +277,41 @@ export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) 
       role="img"
       aria-label={
         summary
-          ? `Monthly tax paid. ${summary}`
-          : "Monthly tax paid — this plan pays no income tax over the horizon."
+          ? `Monthly tax paid. ${whose}${summary}`
+          : `Monthly tax paid — ${whose === "" ? "this plan pays" : `${whose}income pays`} no income tax over the horizon.`
       }
     >
-      <p className="hint" data-testid="tax-summary">
-        {summary ?? "No income tax is paid over the horizon."}
-      </p>
+      <div className="row-between">
+        <p className="hint" data-testid="tax-summary">
+          {summary
+            ? `${whose}${summary}`
+            : whose === ""
+              ? "No income tax is paid over the horizon."
+              : `${whose}income pays no tax over the horizon.`}
+        </p>
+        {ownerOptions.length > 1 && (
+          <div className="seg" role="group" aria-label="Whose tax">
+            {ownerOptions.map((o) => (
+              <button
+                key={o}
+                type="button"
+                className="seg-btn"
+                aria-pressed={o === activeOwner}
+                onClick={() => setOwner(o)}
+              >
+                {o === COMBINED ? "Combined" : (names.get(o) ?? o)}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       {/* Hidden data mirror for tests / screen readers: the first row's tax (total plus
           any per-source split) and the stacked band labels. */}
       <output data-testid="tax-first-row" hidden>
         {JSON.stringify(data.rows[0] ?? {})}
       </output>
       <output data-testid="tax-bands" hidden>
-        {JSON.stringify(data.sources.map((s) => s.label))}
+        {JSON.stringify(visibleBands.map((s) => s.label))}
       </output>
 
       <ResponsiveContainer width="100%" height={180}>
@@ -285,7 +355,7 @@ export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) 
           {stacked && <Legend wrapperStyle={{ fontSize: 12 }} />}
           <ReferenceLine x={toAxisX(selectedMonth)} stroke={MARKER} strokeWidth={2} />
           {stacked ? (
-            data.sources.map((band) => (
+            visibleBands.map((band) => (
               <Area
                 key={band.id}
                 type="monotone"
