@@ -83,6 +83,38 @@ interface MonthContribution {
  * expense series today, plus a liability owned by nobody on the roster) is shared; only a
  * liability whose owner IS a household member is personal.
  */
+/**
+ * The account a person's own surplus lands in: theirs, of the same KIND as the household's
+ * chosen destination.
+ *
+ * Kind is matched on the destination account's own shape — whether it takes the waterfall's
+ * deposits (`liquid`) and how a withdrawal from it is taxed — rather than on an id convention,
+ * so it keeps working for accounts this module never names. The household's choice is a kind
+ * ("savings" or "brokerage"), resolved to the primary's concrete id at the plan boundary; this
+ * resolves the same kind for everyone else.
+ *
+ * Null when the person holds no account of that kind, which the waterfall reads as "leave this
+ * share to the household destination" rather than as an error.
+ */
+function surplusAccountIdFor(state: SimState, personId: string): string | null {
+  const destId =
+    state.surplusDestination.kind === "swept"
+      ? state.surplusDestination.accountId
+      : (state.liquidAccount?.id ?? null);
+  if (destId === null) return null;
+  const dest = state.accounts.find((a) => a.id === destId);
+  if (dest === undefined) return null;
+  if (dest.ownerId === personId) return destId;
+  const own = state.accounts.find(
+    (a) =>
+      a.ownerId === personId &&
+      a.liquid === dest.liquid &&
+      a.taxProfile.withdrawalCategory === dest.taxProfile.withdrawalCategory &&
+      a.taxProfile.forcedDistributionEligible === dest.taxProfile.forcedDistributionEligible,
+  );
+  return own?.id ?? null;
+}
+
 function splitAutomaticObligations(
   obligations: readonly FinancialObligation[],
   personIds: readonly string[],
@@ -160,6 +192,7 @@ function planMonthAllocation(
     goalFundMonthlyRate: (id) => accountsById.get(id)?.getMonthlyRateAt(month) ?? 0,
     accountBalanceCents: (id) => state.assetBalances.get(id) ?? 0,
     liquidAccountId: state.liquidAccount?.id ?? null,
+    surplusAccountIdForPerson: (pid) => surplusAccountIdFor(state, pid),
     // Income-tax withholding, computed by the waterfall per WAGE SOURCE from that source's own
     // pay. The waterfall never prices a year; this seam prices one paycheck.
     computeWageWithholdingCents: jurisdiction.computeWageWithholdingCents

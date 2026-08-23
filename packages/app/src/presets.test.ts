@@ -348,13 +348,14 @@ describe("partner presets", () => {
     expect(blake(proportional, 120)).toBeGreaterThan(blake(proportional, 1));
     expect(blake(even, 120)).toBeLessThan(blake(even, 1));
 
-    // The household spends the same either way — only WHO paid moved. Pinned within a dollar,
-    // because the two schemes round their per-person shares differently.
+    // The household spends the same either way — only WHO paid moved, so the totals stay within
+    // a fraction of a percent of each other after a decade. Not identical: surplus banks to
+    // whoever earned it, so the split decides which accounts hold the money, and accounts of
+    // different kinds earn different returns.
     const householdAt = (months: typeof proportional, m: number) =>
       months[m]!.netWorthNominalCents ?? 0;
-    expect(Math.abs(householdAt(proportional, 120) - householdAt(even, 120))).toBeLessThan(
-      dollarsToCents(100),
-    );
+    const gap = Math.abs(householdAt(proportional, 120) - householdAt(even, 120));
+    expect(gap / householdAt(proportional, 120)).toBeLessThan(0.01);
   });
 
   it("is identical between the two split presets apart from the lever itself", () => {

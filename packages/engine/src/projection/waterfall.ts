@@ -842,11 +842,27 @@ function fundGoalsAndContributions(
   // Surplus destination: the exact leftover after every pace (conservation).
   const surplusCents = totalDiscretionary - goalDepositsTotal;
   if (surplusCents > 0) {
-    const destId =
+    const householdDestId =
       input.surplusDestination.kind === "swept"
         ? input.surplusDestination.accountId
         : input.liquidAccountId;
-    if (destId !== null) addDeposit(deposits, destId, surplusCents);
+    // Split by whose take-home the surplus came from, then land each share in that person's own
+    // account of the same kind. Weighted by each person's leftover BEFORE goals: goals draw from
+    // the shared pool, so charging their cost to one person's share would move money between
+    // partners for a household decision. `proportionalSplit` sums to `surplusCents` exactly, so
+    // conservation holds however the shares round.
+    const shares = proportionalSplit(surplusCents, input.personIds, (pid) => leftoverByPerson.get(pid) ?? 0);
+    let unrouted: Cents = 0;
+    for (const [pid, share] of shares) {
+      if (share <= 0) continue;
+      const own = input.surplusAccountIdForPerson?.(pid) ?? null;
+      if (own === null) unrouted += share;
+      else addDeposit(deposits, own, share);
+    }
+    // Nobody's own account to land in — a person who holds none, or a household with no
+    // per-person seam at all (every plan before it existed). The household destination keeps it.
+    if (unrouted > 0 && householdDestId !== null) addDeposit(deposits, householdDestId, unrouted);
+    // No destination anywhere: the cash idles exactly as it did before, unbanked.
   }
   return contributionShortfall;
 }

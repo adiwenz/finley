@@ -193,6 +193,17 @@ export interface WaterfallInput {
    * Absent → no personal obligations, byte-identical to before this seam existed.
    */
   readonly personalObligationCentsByPerson?: (personId: string) => Cents;
+  /**
+   * Where THIS person's surplus lands — their own account of whatever kind {@link
+   * surplusDestination} names, or null when they hold none.
+   *
+   * Surplus is the leftover of each person's own take-home, so pooling it into one account made
+   * a household's savings accrue entirely to whoever happened to own the designated one: two
+   * partners on identical pay ended a decade with $832k and $11k. Absent, or null for a person,
+   * falls back to the single household destination — which is what a one-person household has,
+   * and what every plan authored before this seam existed meant.
+   */
+  readonly surplusAccountIdForPerson?: (personId: string) => string | null;
   /** The default liquid account — the `idle` surplus destination. Null if none. */
   readonly liquidAccountId: string | null;
   /**

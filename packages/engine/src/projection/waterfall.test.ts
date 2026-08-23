@@ -1220,3 +1220,55 @@ describe("runWaterfall — employee payroll tax (FICA) seam", () => {
     expect(r.payrollTaxCents).toBeGreaterThan(0);
   });
 });
+
+/**
+ * Surplus is the leftover of each person's OWN take-home, so it banks into their own account.
+ * Pooling it into the single household destination made a household's savings accrue entirely to
+ * whoever owned that account: two partners on identical pay ended a decade $832k and $11k apart,
+ * which is the ownership-blindness the household funding model exists to remove, running in the
+ * opposite direction.
+ */
+describe("runWaterfall — surplus banks to whoever earned it", () => {
+  const twoEarners = (over: Partial<WaterfallInput> = {}) =>
+    runWaterfall(
+      makeInput({
+        personIds: ["hi", "lo"],
+        incomeSources: [wageSource("hi", dollarsToCents(6000)), wageSource("lo", dollarsToCents(2000))],
+        sharedObligationCents: 0,
+        liquidAccountId: "hi-savings",
+        ...over,
+      }),
+    );
+
+  it("splits the surplus by each person's own leftover, into each person's own account", () => {
+    const r = twoEarners({
+      surplusAccountIdForPerson: (pid) => `${pid}-savings`,
+    });
+    // $6,000 and $2,000 of take-home, nothing charged against either: 3:1, to their own accounts.
+    expect(r.accountDepositsCents.get("hi-savings")).toBe(dollarsToCents(6000));
+    expect(r.accountDepositsCents.get("lo-savings")).toBe(dollarsToCents(2000));
+  });
+
+  it("conserves the total however the split rounds", () => {
+    const r = twoEarners({ surplusAccountIdForPerson: (pid) => `${pid}-savings` });
+    const banked = [...r.accountDepositsCents.values()].reduce((sum, cents) => sum + cents, 0);
+    expect(banked).toBe(dollarsToCents(8000));
+  });
+
+  it("sends a person's share to the household destination when they hold no account of their own", () => {
+    // The lower earner has nowhere of their own; their share must still be banked, not dropped.
+    const r = twoEarners({
+      liquidAccountId: "household-fallback",
+      surplusAccountIdForPerson: (pid) => (pid === "hi" ? "hi-savings" : null),
+    });
+    expect(r.accountDepositsCents.get("hi-savings")).toBe(dollarsToCents(6000));
+    expect(r.accountDepositsCents.get("household-fallback")).toBe(dollarsToCents(2000));
+  });
+
+  it("pools into the one destination when no per-person seam is given", () => {
+    // Every plan authored before this seam existed, and every one-person household.
+    const r = twoEarners();
+    expect(r.accountDepositsCents.get("hi-savings")).toBe(dollarsToCents(8000));
+  });
+});
+
