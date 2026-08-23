@@ -42,6 +42,21 @@ export interface ProjectionContext {
 
 /** The primary (and, in this slice, only) household member. */
 export const PRIMARY_PERSON_ID = "p1";
+
+/**
+ * The household itself as an owner — a debt both partners carry rather than one of them. Not a
+ * person: it is deliberately absent from `personsById`, so it never earns income, never holds a
+ * take-home, and never appears in a per-person cut of net worth.
+ *
+ * An obligation owned by it routes to the SHARED bucket in {@link
+ * import("../projection/allocationStep").splitAutomaticObligations}, which already sends every
+ * obligation whose owner is not a roster member there — so a household debt is split between
+ * partners by the household's own contribution scheme, which is exactly what "ours" means.
+ *
+ * The engine's synthetic last-resort card has always been owned this way; this names the
+ * convention so authoring can use it too.
+ */
+export const HOUSEHOLD_OWNER_ID = "household";
 export const SAVINGS_ID = "savings";
 // RETIREMENT_ID — the account this module mints for a job's 401(k) deferral to fund — lives
 // in `ids` so `job` can name the same default without importing this module (which would
@@ -255,6 +270,8 @@ export interface PlanAccountDescriptor {
   readonly id: string;
   readonly label: string;
   readonly kind: PlanAccountKind;
+  /** Whose account it is — what lets a surface cut a household's holdings by person. */
+  readonly ownerId: string;
 }
 
 /**
@@ -264,15 +281,48 @@ export interface PlanAccountDescriptor {
  * sim-construction path and account ids are never hardcoded in the app.
  */
 export function planAccountDescriptors(budget: Plan): PlanAccountDescriptor[] {
+  // Every plan-level account is the primary's — `buildPlanAccounts` mints them that way, and a
+  // partner's ride on the ledger instead (see `eventAccountDescriptors`).
   const descriptors: PlanAccountDescriptor[] = [
-    { id: SAVINGS_ID, label: SAVINGS_LABEL, kind: "cash" },
-    { id: RETIREMENT_ID, label: RETIREMENT_LABEL, kind: "retirement" },
-    { id: BROKERAGE_ID, label: BROKERAGE_LABEL, kind: "brokerage" },
+    { id: SAVINGS_ID, label: SAVINGS_LABEL, kind: "cash", ownerId: PRIMARY_PERSON_ID },
+    { id: RETIREMENT_ID, label: RETIREMENT_LABEL, kind: "retirement", ownerId: PRIMARY_PERSON_ID },
+    { id: BROKERAGE_ID, label: BROKERAGE_LABEL, kind: "brokerage", ownerId: PRIMARY_PERSON_ID },
   ];
   for (const goal of budget.goals) {
-    descriptors.push({ id: goalFundAccountId(goal), label: goal.name, kind: "goal" });
+    descriptors.push({
+      id: goalFundAccountId(goal),
+      label: goal.name,
+      kind: "goal",
+      ownerId: PRIMARY_PERSON_ID,
+    });
   }
   return descriptors;
+}
+
+/**
+ * Presentation metadata for the accounts an EVENT minted — today, a partner's three standing
+ * ones. The companion to {@link planAccountDescriptors}, which can only see the plan and so only
+ * ever describes the primary's; a surface that shows one list without the other labels a
+ * partner's band off a humanized id ("Savings") beside the primary's real label ("Cash savings").
+ *
+ * The kind is read back off the id rather than the tax profile: {@link partnerAccountId} is what
+ * assigns it, so this stays correct if a kind's tax treatment is ever retuned.
+ */
+export function eventAccountDescriptors(
+  eventAccounts: readonly PlanAccount[],
+): PlanAccountDescriptor[] {
+  const kindOf = (id: string): PlanAccountKind => {
+    const head = id.split("-")[0];
+    return head === "savings" ? "cash" : head === "retirement" ? "retirement" : "brokerage";
+  };
+  return eventAccounts.map((a) => ({
+    id: a.account.id,
+    ownerId: a.sim.ownerId,
+    // The label rides on the compiled side, which is what the simulator and every reporting
+    // surface already read; `account` carries only the authored holding.
+    label: a.sim.label ?? a.account.id,
+    kind: kindOf(a.account.id),
+  }));
 }
 
 /** The plan's goals as engine `SimGoal`s. Array order is priority (index 0 first). */

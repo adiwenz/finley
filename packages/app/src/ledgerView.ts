@@ -6,6 +6,7 @@
  */
 
 import type { Cents, FundingLookup, Ledger, LifeEvent, ProjectionSeries, SnapshotSeries } from "@finley/engine";
+import { HOUSEHOLD_OWNER_ID } from "@finley/engine";
 import { formatDollars } from "./format";
 
 export interface EventSummary {
@@ -27,7 +28,19 @@ const KIND_NOUN: Record<string, string> = {
   creditCard: "credit card",
 };
 
-export function summarizeEvent(e: LifeEvent): EventSummary {
+/**
+ * Whose holding an event's detail names, when the household has more than one candidate. Omitted
+ * — a one-person household, or a caller with no roster — leaves the detail unattributed, which is
+ * what it has always read.
+ */
+function ownerSuffix(ownerId: string, personNames?: ReadonlyMap<string, string>): string {
+  if (personNames === undefined || personNames.size < 2) return "";
+  if (ownerId === HOUSEHOLD_OWNER_ID) return " · both of you";
+  const name = personNames.get(ownerId);
+  return name === undefined ? "" : ` · ${name}'s`;
+}
+
+export function summarizeEvent(e: LifeEvent, personNames?: ReadonlyMap<string, string>): EventSummary {
   switch (e.type) {
     case "RelationshipEvent":
       return { label: "Partnered", detail: `${e.person.name} joins the household` };
@@ -63,7 +76,10 @@ export function summarizeEvent(e: LifeEvent): EventSummary {
     case "LoanEvent":
       return {
         label: "Took out a loan",
-        detail: `${KIND_NOUN[e.kind] ?? e.kind}, ${formatDollars(e.openingBalanceCents)}`,
+        detail: `${KIND_NOUN[e.kind] ?? e.kind}, ${formatDollars(e.openingBalanceCents)}${ownerSuffix(
+          e.ownerId,
+          personNames,
+        )}`,
       };
     case "DebtPayoffEvent":
       return { label: "Paid down debt", detail: formatDollars(e.amountCents) };
@@ -130,7 +146,11 @@ function eventOutcomes(series: OutcomeSource | undefined): Map<string, MarkerOut
  * `series` to fold in per-event outcomes — the blocking purchase and every purchase stranded after
  * it; omit it (the snapshot panel's use) and every marker reads `executed`.
  */
-export function timelineMarkers(ledger: Ledger, series?: OutcomeSource): TimelineMarker[] {
+export function timelineMarkers(
+  ledger: Ledger,
+  series?: OutcomeSource,
+  personNames?: ReadonlyMap<string, string>,
+): TimelineMarker[] {
   const outcomes = eventOutcomes(series);
   return [...ledger.events]
     .sort((a, b) => a.month - b.month || a.sequenceNumber - b.sequenceNumber)
@@ -139,7 +159,7 @@ export function timelineMarkers(ledger: Ledger, series?: OutcomeSource): Timelin
       month: e.month,
       type: e.type,
       outcome: outcomes.get(e.id) ?? "executed",
-      ...summarizeEvent(e),
+      ...summarizeEvent(e, personNames),
     }));
 }
 

@@ -25,9 +25,9 @@ import { BudgetEditor } from "./budgetEditor";
 afterEach(cleanup);
 
 const ACCOUNTS: readonly PlanAccountDescriptor[] = [
-  { id: "savings", label: "Cash savings", kind: "cash" },
-  { id: "retirement", label: "Retirement", kind: "retirement" },
-  { id: "brokerage", label: "Brokerage", kind: "brokerage" },
+  { id: "savings", label: "Cash savings", kind: "cash", ownerId: "p1" },
+  { id: "retirement", label: "Retirement", kind: "retirement", ownerId: "p1" },
+  { id: "brokerage", label: "Brokerage", kind: "brokerage", ownerId: "p1" },
 ];
 
 /** A one-member household whose three standing accounts belong to the primary. */

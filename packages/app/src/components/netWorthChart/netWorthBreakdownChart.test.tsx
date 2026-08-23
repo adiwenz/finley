@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { ProjectionSeries } from "@finley/engine";
+import { SYNTHETIC_CARD_ID, type ProjectionSeries } from "@finley/engine";
 import { NetWorthBreakdownChart, tooltipTotals } from "./netWorthBreakdownChart";
 import { buildNetWorthBreakdown, type BreakdownMeta, type BreakdownBand } from "./netWorthBreakdown";
 
@@ -134,3 +134,78 @@ describe("tooltipTotals", () => {
     expect(totals.hasLiabilities).toBe(false);
   });
 });
+
+/**
+ * The owner cut. A household with two earners can ask whose balance sheet it is looking at —
+ * the whole reason accounts carry an owner rather than being pooled.
+ */
+describe("NetWorthBreakdownChart — whose net worth", () => {
+  const twoOwners = () =>
+    buildNetWorthBreakdown(
+      series([
+        { accounts: { savings: 10_000, "savings-p2": 4_000 }, liabilities: { "loan-1": 2_000 } },
+        { accounts: { savings: 12_000, "savings-p2": 5_000 }, liabilities: { "loan-1": 1_500 } },
+      ]),
+      {
+        accounts: [
+          { id: "savings", label: "Cash savings", ownerId: "p1" },
+          { id: "savings-p2", label: "Blake — Cash savings", ownerId: "p2" },
+        ],
+        liabilityLabels: { "loan-1": "Auto loan" },
+        ownerById: { "loan-1": "p2" },
+      },
+    );
+
+  const names = new Map([
+    ["p1", "Alex"],
+    ["p2", "Blake"],
+  ]);
+
+  it("reports both owners once each holds a drawn band", () => {
+    expect(twoOwners().owners).toEqual(["p1", "p2"]);
+  });
+
+  it("offers no owner toggle for a household of one", () => {
+    const html = renderToStaticMarkup(
+      <NetWorthBreakdownChart data={twoOwners()} personNames={new Map([["p1", "Alex"]])} />,
+    );
+    // p2 cannot be named, so there is nobody to compare against and no cut to offer.
+    expect(html).not.toContain("Whose net worth");
+  });
+
+  it("offers Combined plus one cut per named person", () => {
+    const html = renderToStaticMarkup(<NetWorthBreakdownChart data={twoOwners()} personNames={names} />);
+    expect(html).toContain("Whose net worth");
+    expect(html).toContain("Combined");
+    expect(html).toContain("Alex");
+    expect(html).toContain("Blake");
+  });
+
+  it("shows every band in the combined view, and one person's alone in theirs", () => {
+    const data = twoOwners();
+    // Combined is the default, so the bands mirror hold both people's accounts.
+    const combined = renderToStaticMarkup(<NetWorthBreakdownChart data={data} personNames={names} />);
+    expect(combined).toContain("Cash savings");
+    expect(combined).toContain("Blake \u2014 Cash savings");
+  });
+
+  it("keeps an unattributed band out of every person's cut", () => {
+    // The engine's synthetic last-resort card is owned by the household, not by a person; a cut
+    // that charged it to Alex or Blake would show debt neither of them owes.
+    const data = buildNetWorthBreakdown(
+      series([
+        { accounts: { savings: 10_000, "savings-p2": 4_000 }, liabilities: { [SYNTHETIC_CARD_ID]: 900 } },
+      ]),
+      {
+        accounts: [
+          { id: "savings", label: "Cash savings", ownerId: "p1" },
+          { id: "savings-p2", label: "Blake — Cash savings", ownerId: "p2" },
+        ],
+        liabilityLabels: { [SYNTHETIC_CARD_ID]: "Credit card" },
+      },
+    );
+    expect(data.owners).toEqual(["p1", "p2"]);
+    expect(data.bands.find((b) => b.id === SYNTHETIC_CARD_ID)?.ownerId).toBeUndefined();
+  });
+});
+

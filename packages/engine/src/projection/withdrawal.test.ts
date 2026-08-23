@@ -16,6 +16,7 @@ import {
 import type { Cents } from "../money/money";
 import type { SimGoal, GoalDisposal } from "../goal/goal";
 import { AmortizingLoan, SYNTHETIC_CARD_ID } from "../liability/liability";
+import { HOUSEHOLD_OWNER_ID } from "../compile/projectionBase";
 import {
   simulateHousehold,
   type HouseholdSimInput,
@@ -1285,6 +1286,79 @@ describe("Person-aware decumulation — fund each person's share from accounts a
     // The debt is p2's before and after p1's money touched it. Paying is not assuming.
     expect(loan.ownerId).toBe("p2");
     expect(month1.liabilityBalancesCents["p2-auto"]).toBe(dollarsToCents(11_000));
+  });
+});
+
+/**
+ * A debt owned by the HOUSEHOLD rather than by either partner. It routes to the shared pool, so
+ * both partners fund it — the contrast that gives {@link HOUSEHOLD_OWNER_ID} its meaning against
+ * the owner-first cascade a personal debt walks.
+ */
+describe("A household-owned debt is funded by both partners, not owner-first", () => {
+  const wage = (ownerId: string, monthlyDollars: number): SimOwnedSeries => ({
+    series: new SimCashFlowSeries(0, dollarsToCents(monthlyDollars), { type: "fixed" }, {
+      baselineUnit: "monthly",
+      taxCategory: "wages",
+    }),
+    ownerId,
+  });
+
+  const brokerage = (id: string, ownerId: string, dollars: number): SimAccount =>
+    new SimAccount({
+      id,
+      ownerId,
+      liquid: false,
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
+      openingBalanceCents: dollarsToCents(dollars),
+      initialAnnualRate: 0,
+    });
+
+  /** Identical partners but for the loan's owner, so the split is the only thing that can differ. */
+  const run = (loanOwnerId: string) =>
+    simulateHousehold(
+      {
+        horizonMonths: 2,
+        annualInflationRate: 0,
+        startYear: 2026,
+        persons: [
+          { id: "p1", name: "Alice" },
+          { id: "p2", name: "Bob" },
+        ],
+        accounts: [
+          brokerage("p1-brokerage", "p1", 50_000),
+          brokerage("p2-brokerage", "p2", 50_000),
+        ],
+        // No income at all, so every cent of the payment must come out of accounts and the
+        // split is visible in the balances rather than absorbed by a paycheck.
+        incomeSeries: [wage("p1", 0), wage("p2", 0)],
+        expenseSeries: [],
+        liabilities: [
+          new AmortizingLoan({
+            id: "the-car",
+            ownerId: loanOwnerId,
+            kind: "auto",
+            openingBalanceCents: dollarsToCents(12_000),
+            apr: 0,
+            termMonths: 12,
+          }),
+        ],
+      },
+      nullJurisdiction,
+    );
+
+  it("draws on both partners' accounts when the household owns the debt", () => {
+    const month1 = run(HOUSEHOLD_OWNER_ID).months[1]!;
+    // Equal assets, no income: the shared split falls evenly, so each pays half the $1,000.
+    expect(month1.accountBalancesCents["p1-brokerage"]).toBe(dollarsToCents(50_000 - 500));
+    expect(month1.accountBalancesCents["p2-brokerage"]).toBe(dollarsToCents(50_000 - 500));
+  });
+
+  it("draws on the owner's account alone when one partner owns the same debt", () => {
+    const month1 = run("p2").months[1]!;
+    // The identical loan, owned by p2: owner-first sends the whole payment to p2's account and
+    // leaves p1 untouched, which is exactly what the household owner is an alternative to.
+    expect(month1.accountBalancesCents["p2-brokerage"]).toBe(dollarsToCents(50_000 - 1_000));
+    expect(month1.accountBalancesCents["p1-brokerage"]).toBe(dollarsToCents(50_000));
   });
 });
 

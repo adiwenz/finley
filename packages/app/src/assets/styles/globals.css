@@ -424,6 +424,13 @@ select,
 
 /* Segmented control — a row of mutually-exclusive view toggles (e.g. the net-worth
    breakdown's Accounts / Assets / Net worth). The pressed segment fills solid. */
+/* Two segmented controls side by side — whose net worth, and how much of it. */
+.row-between-controls {
+  display: inline-flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
 .seg {
   display: inline-flex;
   border: 1px solid var(--color-border-input);

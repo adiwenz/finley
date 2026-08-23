@@ -60,7 +60,7 @@ export function EditEventForm({
       case "ChildEvent":
         return <ChildForm {...formProps} edit={{ event, onRevise }} />;
       case "LoanEvent":
-        return <LoanForm {...formProps} edit={{ event, onRevise }} />;
+        return <LoanForm {...formProps} result={result} edit={{ event, onRevise }} />;
       case "HomePurchaseEvent":
         return (
           <HomePurchaseForm {...formProps} result={result} funding={funding} edit={{ event, onRevise }} />

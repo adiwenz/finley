@@ -1,6 +1,7 @@
 /** Shared controls and props for the per-event authoring forms. */
 
 import type { LifeEvent, Projection } from "@finley/engine";
+import { HOUSEHOLD_OWNER_ID } from "@finley/engine";
 import { monthLabel } from "../../format";
 
 /** Props every event form receives from {@link AddEventForm}. */
@@ -86,3 +87,40 @@ export function MonthSelect({
     </label>
   );
 }
+
+/**
+ * Who a debt or holding belongs to. Offers every household member present at `month`, plus the
+ * household itself — a debt both partners carry rather than one of them, which the waterfall
+ * splits by the household's own contribution scheme instead of charging to one person's pay.
+ *
+ * Hidden entirely for a one-person household: with a single member and no partner to distinguish
+ * them from, "whose is it" is not a question worth asking, and the answer is the primary either
+ * way. Mirrors the Jobs panel's owner select, which hides itself on the same rule.
+ */
+export function OwnerPicker({
+  label = "Whose is it?",
+  people,
+  value,
+  onChange,
+}: {
+  label?: string;
+  people: readonly { readonly id: string; readonly name: string }[];
+  value: string;
+  onChange: (ownerId: string) => void;
+}) {
+  if (people.length < 2) return null;
+  return (
+    <label className="field">
+      <span className="field-label">{label}</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        {people.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+        <option value={HOUSEHOLD_OWNER_ID}>Both of us (household)</option>
+      </select>
+    </label>
+  );
+}
+

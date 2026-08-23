@@ -6,6 +6,9 @@ import type { LedgerBaseConfig } from "./ledgerBase";
 import { dollarsToCents } from "../money/cashFlowSeries";
 import { nullJurisdiction } from "../jurisdiction/jurisdiction";
 import { makeLiquidAccount, baseConfig, add } from "./events.testSupport";
+import { addEvent } from "./addEvent";
+import { HOUSEHOLD_OWNER_ID } from "../compile/projectionBase";
+
 
 // LoanEvent + DebtPayoffEvent
 
@@ -98,3 +101,42 @@ describe("LoanEvent + DebtPayoffEvent", () => {
     );
   });
 });
+
+/**
+ * A debt the household carries jointly, rather than one partner's own. `HOUSEHOLD_OWNER_ID` is
+ * deliberately not on the roster — it earns nothing and holds no take-home — so it has to be
+ * admitted by the owner gate explicitly, and it routes to the SHARED obligation bucket, where
+ * the household's contribution scheme splits it between partners.
+ */
+describe("LoanEvent — owned by the household rather than by a person", () => {
+  const cfg: LedgerBaseConfig = {
+    ...baseConfig,
+    initialAccounts: [makeLiquidAccount("checking", dollarsToCents(60_000))],
+  };
+  const householdLoan = {
+    id: "loan1",
+    type: "LoanEvent" as const,
+    month: 0,
+    liabilityId: "shared-car",
+    ownerId: HOUSEHOLD_OWNER_ID,
+    kind: "auto" as const,
+    openingBalanceCents: dollarsToCents(12_000),
+    apr: 0,
+    termMonths: 12,
+  };
+
+  it("authors and simulates, though the household is on nobody's person roster", () => {
+    const series = replayLedger(add(emptyLedger, householdLoan), cfg, nullJurisdiction);
+    // Paid down like any other debt — being nobody's in particular does not make it unpayable.
+    expect(series.months[1]!.liabilityBalancesCents["shared-car"]).toBe(dollarsToCents(11_000));
+  });
+
+  it("still refuses an owner that is neither a member nor the household", () => {
+    const result = addEvent(emptyLedger, cfg, { ...householdLoan, ownerId: "nobody" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.conflict).toContain(`owner "nobody" not found`);
+  });
+
+});
+

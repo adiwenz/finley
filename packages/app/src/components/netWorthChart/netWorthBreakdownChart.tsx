@@ -79,6 +79,18 @@ function bandsForMode(bands: readonly BreakdownBand[], mode: Mode): BreakdownBan
   return [...bands]; // networth: everything, liabilities signed negative below
 }
 
+/** Every owner cut, plus the combined household the chart opens on. */
+const COMBINED = "__combined__";
+
+/**
+ * The bands one person holds. An unattributed band — the engine's synthetic last-resort card is
+ * owned by the household rather than by either partner — belongs to the combined view only, so
+ * a person's cut never charges them with debt that is not theirs.
+ */
+function bandsForOwner(bands: readonly BreakdownBand[], owner: string): BreakdownBand[] {
+  return owner === COMBINED ? [...bands] : bands.filter((b) => b.ownerId === owner);
+}
+
 /** One entry Recharts hands a tooltip: a band's id and its (possibly signed) value. */
 interface TooltipEntry {
   readonly dataKey?: unknown;
@@ -188,7 +200,14 @@ function BreakdownTooltip({
   );
 }
 
-export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }) {
+export function NetWorthBreakdownChart({
+  data,
+  personNames,
+}: {
+  data: NetWorthBreakdownData;
+  /** Names the owner toggle reads. A person absent from it is not offered a cut of their own. */
+  personNames?: ReadonlyMap<string, string>;
+}) {
   // Only offer a view that shows something the previous one doesn't: Assets adds property,
   // Net worth adds debt (or property, when there's no debt but the total still differs).
   const modes: Mode[] = ["accounts"];
@@ -198,8 +217,16 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
   const [mode, setMode] = useState<Mode>("accounts");
   const activeMode = modes.includes(mode) ? mode : "accounts";
 
+  // Only people we can NAME are offered: an owner the household cannot name is the synthetic
+  // card's "household", which is a bookkeeping owner rather than a person to compare.
+  const owners = data.owners.filter((id) => personNames?.get(id) !== undefined);
+  const ownerOptions = owners.length > 1 ? [COMBINED, ...owners] : [];
+  const [owner, setOwner] = useState<string>(COMBINED);
+  const activeOwner = ownerOptions.includes(owner) ? owner : COMBINED;
+
   const colors = useMemo(() => colorsForBands(data.bands), [data.bands]);
-  const visibleBands = bandsForMode(data.bands, activeMode);
+  // Owner first, then view: the cut decides WHOSE balance sheet, the view decides how much of it.
+  const visibleBands = bandsForMode(bandsForOwner(data.bands, activeOwner), activeMode);
 
   const hatchId = useHatchId("nwb");
 
@@ -225,12 +252,13 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
   // The axis spans the whole plan, matching the total chart above — see `./chartSpan`. The rows
   // stop earlier than this whenever the projection did (blocked, or insolvent).
   const lastX = data.xMax;
-  const accountCount = data.bands.filter((b) => b.kind === "account").length;
+  const accountCount = visibleBands.filter((b) => b.kind === "account").length;
   const peak = data.peakNetWorthCents;
+  const whose = activeOwner === COMBINED ? "" : `${personNames?.get(activeOwner) ?? activeOwner}'s `;
   const summary =
     peak === null
       ? "No balances to break down yet."
-      : `Peaks around ${dollars(peak)} net worth, across ${accountCount} account${
+      : `${whose}Peaks around ${dollars(peak)} net worth, across ${accountCount} account${
           accountCount === 1 ? "" : "s"
         }${data.hasProperties ? ", property" : ""}${data.hasLiabilities ? ", and debt" : ""}.`;
 
@@ -238,21 +266,38 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
     <div role="img" aria-label={`Net-worth breakdown over time. ${summary}`}>
       <div className="row-between">
         <h3>Net worth breakdown</h3>
-        {modes.length > 1 && (
-          <div className="seg" role="group" aria-label="Breakdown view">
-            {modes.map((m) => (
-              <button
-                key={m}
-                type="button"
-                className="seg-btn"
-                aria-pressed={m === activeMode}
-                onClick={() => setMode(m)}
-              >
-                {MODE_LABELS[m]}
-              </button>
-            ))}
-          </div>
-        )}
+        <div className="row-between-controls">
+          {ownerOptions.length > 1 && (
+            <div className="seg" role="group" aria-label="Whose net worth">
+              {ownerOptions.map((o) => (
+                <button
+                  key={o}
+                  type="button"
+                  className="seg-btn"
+                  aria-pressed={o === activeOwner}
+                  onClick={() => setOwner(o)}
+                >
+                  {o === COMBINED ? "Combined" : (personNames?.get(o) ?? o)}
+                </button>
+              ))}
+            </div>
+          )}
+          {modes.length > 1 && (
+            <div className="seg" role="group" aria-label="Breakdown view">
+              {modes.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  className="seg-btn"
+                  aria-pressed={m === activeMode}
+                  onClick={() => setMode(m)}
+                >
+                  {MODE_LABELS[m]}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
       <p className="hint" data-testid="breakdown-summary">
         {summary}
@@ -265,7 +310,7 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
         {JSON.stringify(rows[0] ?? {})}
       </output>
 
-      {data.bands.length === 0 ? null : (
+      {visibleBands.length === 0 ? null : (
         <ResponsiveContainer width="100%" height={220}>
           <ComposedChart data={rows} margin={{ top: 12, right: 16, bottom: 8, left: 16 }}>
             <defs>

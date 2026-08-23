@@ -120,7 +120,7 @@ export function AddEventForm({
         </select>
       </label>
 
-      {kind === "LoanEvent" && <LoanForm {...formProps} />}
+      {kind === "LoanEvent" && <LoanForm {...formProps} result={result} />}
       {kind === "HomePurchaseEvent" && (
         <HomePurchaseForm {...formProps} result={result} funding={funding} />
       )}

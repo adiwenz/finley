@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Ledger, SnapshotSeries } from "@finley/engine";
+import { HOUSEHOLD_OWNER_ID, type Ledger, type SnapshotSeries } from "@finley/engine";
 import {
   blockedWarning,
   seriesLabel,
@@ -227,3 +227,49 @@ describe("seriesLabel", () => {
     expect(seriesLabel(series({ role: "base", seriesType: "income" }))).toBe("Income");
   });
 });
+
+/**
+ * Whose debt a timeline row names. Two partners can each carry an auto loan, and a row that
+ * says only "auto loan, $60,000" leaves the reader unable to tell which of them owes it.
+ */
+describe("summarizeEvent — a loan names its owner once the household has more than one", () => {
+  const loan = (ownerId: string) =>
+    ({
+      id: "loan-1",
+      type: "LoanEvent" as const,
+      month: 0,
+      sequenceNumber: 1,
+      liabilityId: "liab-1",
+      ownerId,
+      kind: "auto" as const,
+      openingBalanceCents: 6_000_000,
+      apr: 0.07,
+      termMonths: 48,
+    }) as unknown as Parameters<typeof summarizeEvent>[0];
+
+  const couple = new Map([
+    ["p1", "Alex"],
+    ["p2", "Blake"],
+  ]);
+
+  it("attributes the loan to the partner who owes it", () => {
+    expect(summarizeEvent(loan("p2"), couple).detail).toBe("auto loan, $60,000 · Blake's");
+  });
+
+  it("names a household debt as both partners', not as one person's", () => {
+    expect(summarizeEvent(loan(HOUSEHOLD_OWNER_ID), couple).detail).toBe(
+      "auto loan, $60,000 · both of you",
+    );
+  });
+
+  it("leaves a one-person household's row exactly as it read before", () => {
+    // Nobody to distinguish the owner from, so the attribution is noise rather than information.
+    expect(summarizeEvent(loan("p1"), new Map([["p1", "Alex"]])).detail).toBe("auto loan, $60,000");
+    expect(summarizeEvent(loan("p1")).detail).toBe("auto loan, $60,000");
+  });
+
+  it("says nothing about an owner it cannot name", () => {
+    expect(summarizeEvent(loan("ghost"), couple).detail).toBe("auto loan, $60,000");
+  });
+});
+

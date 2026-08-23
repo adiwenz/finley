@@ -3,6 +3,7 @@
  * the result, and `ProjectionResult` reads over one run.
  */
 import { describe, it, expect } from "vitest";
+import { PRIMARY_PERSON_ID } from "../compile/projectionBase";
 import { Projection } from "../index";
 import { samplePlan, salariedJob, spendLine, stateOf, SAMPLE_START_YEAR } from "../testing/samplePlan";
 import { nullJurisdiction } from "../jurisdiction/jurisdiction";
@@ -144,7 +145,9 @@ describe("Projection reads — over authored state", () => {
       .accountDescriptors()
       .filter((d) => !before.some((b) => b.id === d.id));
     const goal = p.plan.goals.find((g) => g.id === goalId)!;
-    expect(added).toEqual([{ id: goalFundAccountId(goal), label: "Car", kind: "goal" }]);
+    expect(added).toEqual([
+      { id: goalFundAccountId(goal), label: "Car", kind: "goal", ownerId: PRIMARY_PERSON_ID },
+    ]);
   });
 
   it("names the events a goal's fund account pays for, and nothing else", () => {

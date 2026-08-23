@@ -5,6 +5,8 @@
  * under `usJurisdiction`.
  */
 import { describe, it, expect } from "vitest";
+import { PRIMARY_PERSON_ID } from "./projectionBase";
+import type { PersonId } from "../job/job";
 import { emptyLedger } from "../ledger/ledger";
 import { replayLedger } from "../projection/buildHouseholdInput";
 import { dollarsToCents } from "../money/cashFlowSeries";
@@ -20,6 +22,8 @@ import {
   createProjectionBase,
   buildPlanAccounts,
   planAccountDescriptors,
+  eventAccountDescriptors,
+  buildPartnerAccounts,
   goalFundAccountId,
   type ProjectionContext,
 } from "./projectionBase";
@@ -592,7 +596,56 @@ describe("planAccountDescriptors — presentation metadata that agrees with buil
     expect(standing.map((d) => d.kind)).toEqual(["cash", "retirement", "brokerage"]);
     for (const goal of plan.goals) {
       const band = descriptors.find((d) => d.id === goalFundAccountId(goal));
-      expect(band).toEqual({ id: goalFundAccountId(goal), label: goal.name, kind: "goal" });
+      expect(band).toEqual({
+        id: goalFundAccountId(goal),
+        label: goal.name,
+        kind: "goal",
+        // Plan-level accounts are the primary's; a partner's ride on the ledger instead.
+        ownerId: PRIMARY_PERSON_ID,
+      });
     }
+  });
+});
+
+describe("eventAccountDescriptors — the partner accounts the plan cannot see", () => {
+  const partnerAccounts = () =>
+    Object.values(
+      buildPartnerAccounts("p2" as PersonId, "Blake", {
+        savingsBalanceCents: 1_000_000,
+        savingsReturnPct: 1,
+        retirementBalanceCents: 2_000_000,
+        retirementReturnPct: 7,
+        brokerageBalanceCents: 3_000_000,
+        brokerageReturnPct: 7,
+      }),
+    );
+
+  it("carries the owner's name into every label, so no band is described by its id", () => {
+    const descriptors = eventAccountDescriptors(partnerAccounts());
+    expect(descriptors.map((d) => d.label)).toEqual([
+      "Blake — Cash savings",
+      "Blake — Retirement account",
+      "Blake — Brokerage",
+    ]);
+    // Without these the breakdown chart humanizes the id, drawing "Savings" beside the
+    // primary's "Cash savings" — two indistinguishable cash bands, one of them unattributed.
+    for (const d of descriptors) expect(d.label).not.toBe(d.id);
+  });
+
+  it("agrees with buildPartnerAccounts on id and label, as the plan-side pair does", () => {
+    const accounts = partnerAccounts();
+    const descriptors = eventAccountDescriptors(accounts);
+    expect(descriptors.map((d) => d.id)).toEqual(accounts.map((a) => a.sim.id));
+    for (const d of descriptors) {
+      expect(d.label).toBe(accounts.find((a) => a.sim.id === d.id)?.sim.label);
+    }
+  });
+
+  it("groups each account under the same presentation kind as the primary's counterpart", () => {
+    expect(eventAccountDescriptors(partnerAccounts()).map((d) => d.kind)).toEqual([
+      "cash",
+      "retirement",
+      "brokerage",
+    ]);
   });
 });

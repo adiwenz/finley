@@ -8,6 +8,7 @@
  */
 
 import type { ValidationResult } from "./ledger";
+import { HOUSEHOLD_OWNER_ID } from "../compile/projectionBase";
 import type {
   ChildEvent,
   DebtPayoffEvent,
@@ -82,9 +83,13 @@ function holdingMonthFault(month: number): string | null {
     : null;
 }
 
-/** Owner must be a known household member (present at some point). */
+/**
+ * Owner must be a known household member (present at some point), or the household itself —
+ * {@link HOUSEHOLD_OWNER_ID} is not on the roster by design, so it has to be admitted explicitly
+ * rather than falling through the roster check as an unknown id would.
+ */
 function ownerExists(state: InterpretState, ownerId: string): boolean {
-  return state.personsById.has(asPersonId(ownerId));
+  return ownerId === HOUSEHOLD_OWNER_ID || state.personsById.has(asPersonId(ownerId));
 }
 
 /** Whole dollars for a conflict message — conflicts are read by a person, not the engine. */

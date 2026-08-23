@@ -1,6 +1,12 @@
 import { StrictMode, useCallback, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Projection, liabilityKindLabel, planHorizonMonths, SYNTHETIC_CARD_ID } from "@finley/engine";
+import {
+  Projection,
+  liabilityKindLabel,
+  planHorizonMonths,
+  SYNTHETIC_CARD_ID,
+  eventAccountDescriptors,
+} from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { NetWorthChart } from "./components/netWorthChart/netWorthChart";
 import { NetWorthBreakdownChart } from "./components/netWorthChart/netWorthBreakdownChart";
@@ -103,7 +109,10 @@ export function App() {
   );
   // Markers carry per-event outcomes off the AUTHORED run, not the retirement preview: the timeline
   // is an authoring surface, so a blocked/not-reached indicator must reflect the plan as written.
-  const markers = useMemo(() => timelineMarkers(ledger, series), [ledger, series]);
+  const markers = useMemo(
+    () => timelineMarkers(ledger, series, personNames),
+    [ledger, series, personNames],
+  );
   // The blocked-projection soft warning, off the AUTHORED run for the same reason the markers are:
   // it names the plan as written, never the retirement preview. `null` until something stops, so
   // its mere presence IS the condition holding — persistence and clearing fall out of the render.
@@ -157,12 +166,30 @@ export function App() {
     const liabilityLabels: Record<string, string> = {
       [SYNTHETIC_CARD_ID]: liabilityKindLabel("creditCard"),
     };
+    // Owners for the non-account bands. The synthetic card is deliberately absent: it belongs to
+    // the household rather than to a person, so it stays out of every per-person cut.
+    const ownerById: Record<string, string> = {};
     for (const liability of household.liabilities) {
-      liabilityLabels[liability.id] = liabilityKindLabel(liability.kind);
+      const owner = personNames.get(liability.ownerId);
+      // Two partners can each carry an "Auto loan"; the owner's name is what tells the bands apart.
+      liabilityLabels[liability.id] =
+        owner === undefined || personNames.size < 2
+          ? liabilityKindLabel(liability.kind)
+          : `${owner} — ${liabilityKindLabel(liability.kind)}`;
+      ownerById[liability.id] = liability.ownerId;
+    }
+    for (const property of household.properties) {
+      ownerById[property.id] = property.ownerId;
     }
     return buildNetWorthBreakdown(
       chartSeries,
-      { accounts: projection.accountDescriptors(), liabilityLabels },
+      // Both account lists. `accountDescriptors()` is derived from the PLAN, which holds only
+      // the primary's accounts, so a partner's band would otherwise be labelled off its id.
+      {
+        accounts: [...projection.accountDescriptors(), ...eventAccountDescriptors(household.eventAccounts)],
+        liabilityLabels,
+        ownerById,
+      },
       // The plan's own span, so this chart ends at the same year as the total above it.
       horizonMonths,
     );
@@ -329,7 +356,7 @@ export function App() {
       </div>
 
       <div className="card">
-        <NetWorthBreakdownChart data={breakdown} />
+        <NetWorthBreakdownChart data={breakdown} personNames={personNames} />
       </div>
     </>
   );

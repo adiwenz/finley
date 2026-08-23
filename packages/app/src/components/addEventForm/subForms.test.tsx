@@ -48,6 +48,9 @@ const withPartner = {
   ],
 } as unknown as ProjectionResult;
 
+/** A household of one — the owner picker hides itself here, as the Jobs panel's does. */
+const soloResult = { membersAt: () => [{ id: "p1", name: "You" }] } as unknown as ProjectionResult;
+
 const spin = (name: RegExp | string) =>
   screen.getByRole("spinbutton", { name }) as HTMLInputElement;
 
@@ -67,7 +70,8 @@ const fundingStub = {
 
 describe("LoanForm — kind gates the term", () => {
   it("drops the term field for a revolving credit card, and restores the typed term when switched back", () => {
-    render(<LoanForm defaultMonth={0} horizonMonths={660} onAdd={vi.fn()} />);
+    render(<LoanForm result={soloResult}
+        defaultMonth={0} horizonMonths={660} onAdd={vi.fn()} />);
 
     // Type a term that differs from the default so a reset would be visible.
     enterNumber(spin(/Term/i), "7");
@@ -87,7 +91,8 @@ describe("LoanForm — kind gates the term", () => {
 
   it("takes out a credit card with a credit limit and no term; an amortizing loan with a term", () => {
     const { p, onAdd } = stubProjection();
-    render(<LoanForm defaultMonth={0} horizonMonths={660} onAdd={onAdd} />);
+    render(<LoanForm result={soloResult}
+        defaultMonth={0} horizonMonths={660} onAdd={onAdd} />);
 
     enterNumber(spin(/Amount/i), "10000");
     enterNumber(spin(/Term/i), "6");
@@ -224,7 +229,8 @@ describe("sub-forms — editing an existing event", () => {
 
   it("LoanForm edits an amortizing loan, submitting a term revision with the kind fixed", () => {
     const { p, onRevise } = stubProjection();
-    render(<LoanForm defaultMonth={0} horizonMonths={660} onAdd={vi.fn()} edit={{ event: STUDENT_LOAN, onRevise }} />);
+    render(<LoanForm result={soloResult}
+        defaultMonth={0} horizonMonths={660} onAdd={vi.fn()} edit={{ event: STUDENT_LOAN, onRevise }} />);
 
     // Kind is fixed on a revision, so the type picker is gone.
     expect(screen.queryByRole("combobox", { name: /Type/i })).toBeNull();
@@ -245,7 +251,8 @@ describe("sub-forms — editing an existing event", () => {
 
   it("LoanForm edits a mortgage's rate and term through its own marker (a kind the picker never offers)", () => {
     const { p, onRevise } = stubProjection();
-    render(<LoanForm defaultMonth={0} horizonMonths={660} onAdd={vi.fn()} edit={{ event: MORTGAGE, onRevise }} />);
+    render(<LoanForm result={soloResult}
+        defaultMonth={0} horizonMonths={660} onAdd={vi.fn()} edit={{ event: MORTGAGE, onRevise }} />);
 
     expect(Number(spin(/Term/i).value)).toBe(30);
     enterNumber(spin(/APR/i), "5.5");
@@ -405,7 +412,8 @@ describe("sub-forms — editing something already true on day one", () => {
 
   it("LoanForm states a carried loan's date and names its figures as today's", () => {
     const { p, onRevise } = stubProjection();
-    render(<LoanForm defaultMonth={0} horizonMonths={660} onAdd={vi.fn()} edit={{ event: CARRIED_LOAN, onRevise }} />);
+    render(<LoanForm result={soloResult}
+        defaultMonth={0} horizonMonths={660} onAdd={vi.fn()} edit={{ event: CARRIED_LOAN, onRevise }} />);
 
     // The now marker is the only month a holding may open at, so there is nothing to pick.
     expect(screen.queryByRole("combobox", { name: /When/i })).toBeNull();

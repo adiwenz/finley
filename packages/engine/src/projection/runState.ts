@@ -1,4 +1,5 @@
 import type { Cents } from "../money/money";
+import { HOUSEHOLD_OWNER_ID } from "../compile/projectionBase";
 import type { SimAccount } from "../plan/simAccount";
 import { seedEarnings, type EarningsAccumulator } from "../job/earningsRecord";
 import {
@@ -194,7 +195,7 @@ export function initSimState(input: HouseholdSimInput): SimState {
     ? null
     : new RevolvingCard({
         id: SYNTHETIC_CARD_ID,
-        ownerId: "household",
+        ownerId: HOUSEHOLD_OWNER_ID,
         openingBalanceCents: 0,
         apr: SYNTHETIC_CREDIT_CARD_APR,
         creditLimitCents: SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,

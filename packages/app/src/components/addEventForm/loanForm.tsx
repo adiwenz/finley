@@ -2,6 +2,8 @@
 
 import { useRef, useState } from "react";
 import {
+  HOUSEHOLD_OWNER_ID,
+  type ProjectionResult,
   dollarsToCents,
   isPreExisting,
   liabilityKindLabel,
@@ -10,7 +12,14 @@ import {
   type OriginableLoanKind,
 } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
-import { HoldingWhen, MonthSelect, type EditProps, type EventOf, type FormProps } from "./formControls";
+import {
+  HoldingWhen,
+  MonthSelect,
+  OwnerPicker,
+  type EditProps,
+  type EventOf,
+  type FormProps,
+} from "./formControls";
 
 const DEFAULT_TERM_YEARS = 5;
 
@@ -22,7 +31,13 @@ const DEFAULT_TERM_YEARS = 5;
  * `studentLoan`, but *editing* reaches a mortgage or auto loan minted elsewhere (a home
  * purchase's financing), whose rate and term are revised through this same form.
  */
-type LoanCommon = { readonly month: number; readonly amount: number; readonly apr: number };
+type LoanCommon = {
+  readonly month: number;
+  readonly amount: number;
+  readonly apr: number;
+  /** Whose debt it is. Fixed once authored — an owner is identity, not data a revision restates. */
+  readonly ownerId: string;
+};
 type LoanDraft =
   | (LoanCommon & { readonly kind: "creditCard" })
   | (LoanCommon & {
@@ -32,10 +47,21 @@ type LoanDraft =
 
 /** Seed a draft from the loan being edited, in the dollar/percent/year units the fields speak. */
 function draftFromEvent(event: EventOf<"LoanEvent">): LoanDraft {
-  const common = { month: event.month, amount: event.openingBalanceCents / 100, apr: event.apr * 100 };
+  const common = {
+    month: event.month,
+    amount: event.openingBalanceCents / 100,
+    apr: event.apr * 100,
+    ownerId: event.ownerId,
+  };
   return event.kind === "creditCard"
     ? { ...common, kind: "creditCard" }
     : { ...common, kind: event.kind, termYears: event.termMonths / 12 };
+}
+
+/** How an owner reads once chosen — a member's name, or the household itself. */
+function ownerLabel(ownerId: string, people: readonly { id: string; name: string }[]): string {
+  if (ownerId === HOUSEHOLD_OWNER_ID) return "Both of us (household)";
+  return people.find((p) => p.id === ownerId)?.name ?? ownerId;
 }
 
 export function LoanForm({
@@ -43,11 +69,19 @@ export function LoanForm({
   horizonMonths,
   onAdd,
   edit,
-}: FormProps & { edit?: EditProps<EventOf<"LoanEvent">> }) {
+  result,
+}: FormProps & { edit?: EditProps<EventOf<"LoanEvent">>; result: ProjectionResult }) {
   const [draft, setDraft] = useState<LoanDraft>(() =>
     edit
       ? draftFromEvent(edit.event)
-      : { month: defaultMonth, kind: "studentLoan", amount: 2000, apr: 6, termYears: DEFAULT_TERM_YEARS },
+      : {
+          month: defaultMonth,
+          kind: "studentLoan",
+          amount: 2000,
+          apr: 6,
+          termYears: DEFAULT_TERM_YEARS,
+          ownerId: PRIMARY_PERSON_ID,
+        },
   );
 
   // Switching to a credit card drops the term arm; switching back restores the last term
@@ -71,7 +105,7 @@ export function LoanForm({
   function setKind(kind: OriginableLoanKind) {
     setDraft((d) => {
       if (d.kind === kind) return d;
-      const common: LoanCommon = { month: d.month, amount: d.amount, apr: d.apr };
+      const common: LoanCommon = { month: d.month, amount: d.amount, apr: d.apr, ownerId: d.ownerId };
       return kind === "creditCard"
         ? { ...common, kind }
         : { ...common, kind, termYears: lastTermYears.current };
@@ -82,6 +116,14 @@ export function LoanForm({
     lastTermYears.current = termYears;
     setDraft((d) => (d.kind === "creditCard" ? d : { ...d, termYears }));
   };
+
+  // Everyone in the household at the loan's month, plus the household itself via the picker.
+  // Derived during render so it tracks the month field without a reset effect.
+  const people = result.membersAt(draft.month);
+  const ownerId =
+    draft.ownerId === HOUSEHOLD_OWNER_ID || people.some((p) => p.id === draft.ownerId)
+      ? draft.ownerId
+      : PRIMARY_PERSON_ID;
 
   function submit() {
     // A revision keeps the loan's `kind` (and its id/owner) fixed, so it names only the
@@ -101,7 +143,7 @@ export function LoanForm({
     }
     const common = {
       month: draft.month,
-      ownerId: PRIMARY_PERSON_ID,
+      ownerId: ownerId as typeof PRIMARY_PERSON_ID,
       openingBalanceCents: dollarsToCents(draft.amount),
       apr: draft.apr / 100,
     } as const;
@@ -123,6 +165,18 @@ export function LoanForm({
         <HoldingWhen />
       ) : (
         <MonthSelect value={draft.month} horizonMonths={horizonMonths} onChange={(month) => patch({ month })} />
+      )}
+      {/* Owner is fixed on a revision, as `kind` is: whose debt it is is identity, not data the
+          engine's revision seam restates. An edit names it read-only instead. */}
+      {edit ? (
+        people.length > 1 && (
+          <div className="field">
+            <span className="field-label">Whose is it?</span>
+            <span>{ownerLabel(ownerId, people)}</span>
+          </div>
+        )
+      ) : (
+        <OwnerPicker people={people} value={ownerId} onChange={(o) => patch({ ownerId: o })} />
       )}
       {/* Kind is fixed on a revision — a card and a term loan are different instruments — so an
           edit names it read-only rather than offering the picker. */}
