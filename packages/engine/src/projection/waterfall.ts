@@ -625,13 +625,22 @@ function chargePersonalObligations(
  * their take-home. Only positive take-home contributes; an uncovered share becomes a
  * household shortfall, never silently absorbed by the other partner.
  *
- * While the household has ANY positive take-home, the split is proportional to it (§ Household
- * funding, step 1). Only when nobody has positive take-home does it fall back to each person's
- * {@link WaterfallInput.eligibleAssetsCentsByPerson} (step 2) — the same {@link proportionalSplit}
- * cumulative-rounding technique, just weighted by assets instead of income. No seam (or nobody
- * with assets either) leaves the obligation entirely unattributed to a person — still counted in
- * `shortfallCents`, just not in {@link obligationShortfallByPersonCents}, which decumulation reads
- * only as a PREFERENCE for whose accounts to try first, never as the total it must cover.
+ * While the household has ANY positive take-home, the REAL share (`shareByPerson`) is
+ * proportional to it (§ Household funding, step 1). Only when nobody has positive take-home does
+ * that real split fall back to each person's {@link WaterfallInput.eligibleAssetsCentsByPerson}.
+ *
+ * The SHORTFALL attribution (`obligationShortfallByPersonCents`) is a separate question with its
+ * own weight, always: whatever still needs to come out of accounts is proportional to each
+ * person's eligible ACCOUNT BALANCES (§ Household funding, step 2), never to income and never
+ * 50/50 — even when income was positive and funded the real split above. Otherwise an
+ * income-proportional household with lopsided assets (one partner cash-rich, the other
+ * cash-poor) would still attribute an asset-funded shortfall by income shares, driving the
+ * cash-poor partner's accounts down first purely because their paycheck happened to be similar
+ * in size. The same {@link proportionalSplit}-style cumulative-rounding technique, just weighted
+ * by assets unconditionally. No seam (or nobody with assets either) leaves the obligation
+ * entirely unattributed to a person — still counted in `shortfallCents`, just not in
+ * {@link obligationShortfallByPersonCents}, which decumulation reads only as a PREFERENCE for
+ * whose accounts to try first, never as the total it must cover.
  *
  * A NEGATIVE take-home is a real cash need: deductions (`deferralCents + taxCents`)
  * exceeded the cash that reached the waterfall (`waterfallInflowCents`) — usually tax on
@@ -660,13 +669,14 @@ function splitSharedObligation(
     unfundedDeductionsCents += Math.max(0, -rawTakeHomeCents);
   }
 
-  // Income while any exists, otherwise each person's eligible assets — shared by the real
-  // split below and the shortfall-attribution split further down, so the two can never weight
-  // people differently from each other.
+  // The REAL share's weight: income while any exists, otherwise each person's eligible assets.
   const weightOf =
     totalPositive > 0
       ? (pid: string) => positiveTakeHome.get(pid) ?? 0
       : (pid: string) => input.eligibleAssetsCentsByPerson?.(pid) ?? 0;
+  // The SHORTFALL attribution's weight — deliberately NOT `weightOf`: an asset-funded shortfall
+  // is always proportional to eligible account balances, whether or not income was positive.
+  const assetWeightOf = (pid: string) => input.eligibleAssetsCentsByPerson?.(pid) ?? 0;
 
   const shareByPerson = new Map<string, Cents>();
   if (input.sharedObligationCents <= 0) {
@@ -713,14 +723,14 @@ function splitSharedObligation(
   // that promise). Never overshoots `shortfallCents` — at most `personIds.length − 1` cents go
   // unattributed, folded into the scalar total same as any other unattributed shortfall.
   const totalShortfallWeight = input.personIds.reduce(
-    (sum, pid) => sum + Math.max(0, weightOf(pid)),
+    (sum, pid) => sum + Math.max(0, assetWeightOf(pid)),
     0,
   );
   const obligationShortfallByPersonCents = new Map<string, Cents>(
     input.personIds.map((pid) => [
       pid,
       totalShortfallWeight > 0
-        ? Math.floor((shortfallCents * Math.max(0, weightOf(pid))) / totalShortfallWeight)
+        ? Math.floor((shortfallCents * Math.max(0, assetWeightOf(pid))) / totalShortfallWeight)
         : 0,
     ]),
   );

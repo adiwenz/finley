@@ -314,6 +314,7 @@ function runMonth(
     obligations,
     month,
     priorYearSettlements,
+    withdrawal.liquidDrawdownByAccountCents,
   );
   // Snapshot every cascade card's balance before the cascade runs, so the REAL amount it borrows
   // onto credit (see below) is measured off actual liability movement rather than inferred from
@@ -397,7 +398,7 @@ function runMonth(
   );
   // Returned basis within this month's decumulation draws, one entry per account — not income, so
   // it bands below with the other investment-principal draws rather than as capital-gains/ordinary
-  // income. `decumulationDraws` never includes the liquid account (see `buildWithdrawalSources`),
+  // income. `decumulationDraws` never includes a liquid account (see `buildWithdrawalSources`),
   // so every entry here is genuinely an investment.
   const decumulationPrincipalDraws: PrincipalDrawdownSource[] = withdrawal.decumulationDraws
     .filter((d) => d.principalCents > 0)

@@ -303,6 +303,17 @@ export function allocateMonth(
   obligations: readonly FinancialObligation[],
   month: number,
   priorYearSettlements: PriorYearSettlements,
+  /**
+   * {@link import("./withdrawal").WithdrawalPlan.liquidDrawdownByAccountCents} — the OWNER-AWARE
+   * prediction of which liquid accounts absorb this month's residual, in what proportion.
+   * `result.shortfallCents` below is charged across exactly these accounts in that same
+   * proportion (cumulative-rounded to land on the real total to the cent), rather than dumped
+   * onto one arbitrarily-first liquid account regardless of whose it is. Absent, or every
+   * predicted share 0 (no liquid account exists, or decumulation was never run — e.g. the
+   * pre-decumulation sizing pass, which never charges anything), falls back to {@link
+   * SimState.liquidAccount} — the household's single designated buffer, if it has one at all.
+   */
+  liquidDrawdownByAccountCents?: ReadonlyMap<string, Cents>,
 ): {
   taxCents: Cents;
   payrollTaxCents: Cents;
@@ -354,9 +365,28 @@ export function allocateMonth(
     }
   }
 
-  if (result.shortfallCents > 0 && state.liquidAccount !== null) {
-    const id = state.liquidAccount.id;
-    state.assetBalances.set(id, (state.assetBalances.get(id) ?? 0) - result.shortfallCents);
+  if (result.shortfallCents > 0) {
+    const predicted = [...(liquidDrawdownByAccountCents ?? [])].filter(([, cents]) => cents > 0);
+    const totalPredicted = predicted.reduce((sum, [, cents]) => sum + cents, 0);
+    if (totalPredicted > 0) {
+      // Cumulative-rounded to the real total, same technique as `proportionalSplit` (waterfall.ts):
+      // every account's share is a whole-cent slice of `result.shortfallCents`, and the shares
+      // sum to it exactly regardless of any rounding-sized gap between the prediction and the
+      // real waterfall's own figure.
+      let prevCum = 0;
+      let acc = 0;
+      for (const [id, cents] of predicted) {
+        acc += cents;
+        const cum = Math.round((result.shortfallCents * acc) / totalPredicted);
+        const share = cum - prevCum;
+        prevCum = cum;
+        if (share === 0) continue;
+        state.assetBalances.set(id, (state.assetBalances.get(id) ?? 0) - share);
+      }
+    } else if (state.liquidAccount !== null) {
+      const id = state.liquidAccount.id;
+      state.assetBalances.set(id, (state.assetBalances.get(id) ?? 0) - result.shortfallCents);
+    }
   }
 
   for (const [pid, amount] of result.deferredByPersonCents) {
