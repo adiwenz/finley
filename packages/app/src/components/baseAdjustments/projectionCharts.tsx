@@ -9,16 +9,16 @@
  */
 
 import { memo } from "react";
-import { IncomeChart } from "./incomeChart";
+import { CashFlowChart } from "./cashFlowChart";
 import { PerLineBudgetChart } from "./perLineBudgetChart";
 import { TaxChart } from "./taxChart";
-import type { IncomeChartData } from "./incomeChartData";
+import type { CashFlowChartData } from "./cashFlowChartData";
 import type { PerLineBudgetData } from "./perLineBudget";
 import type { TaxChartData } from "./taxesByMonth";
 import styles from "./baseAdjustments.module.css";
 
 export interface ProjectionChartsProps {
-  readonly incomeData: IncomeChartData;
+  readonly incomeData: CashFlowChartData;
   readonly spendingData: PerLineBudgetData;
   readonly taxData: TaxChartData;
   /** The household's age at month 0 — turns the income graph's broke marker into an age. */
@@ -47,8 +47,8 @@ export const ProjectionCharts = memo(function ProjectionCharts({
       <h3>Cash flow &amp; spending over time</h3>
       <p className="hint">Click either graph to edit at any point in time.</p>
 
-      <h4 className={styles.groupHeading}>Monthly cash flows vs. spending</h4>
-      <IncomeChart
+      <h4 className={styles.groupHeading}>Monthly cash flow</h4>
+      <CashFlowChart
         data={incomeData}
         currentAge={currentAge}
         selectedMonth={selectedMonth}

@@ -185,6 +185,7 @@ export type {
   RmdContext,
   HealthCostContext,
   WithdrawalTaxBasis,
+  WageWithholdingRequest,
   ReturnTaxTreatment,
 } from "./jurisdiction/jurisdiction";
 export type { TaxCategory } from "./money/cashFlowSeries";

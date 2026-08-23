@@ -15,7 +15,6 @@ import {
   finalizeTaxYear,
   isTaxSettlementMonth,
   isTaxYearCloseMonth,
-  pendingSettlementTotalCents,
 } from "./taxYearSettlement";
 
 const flat25: Jurisdiction = {
@@ -45,6 +44,15 @@ const input: HouseholdSimInput = {
   incomeSeries: [],
   expenseSeries: [],
 };
+
+/** Every balance parked against `taxYear`, summed and signed — positive due, negative refunded. */
+function parkedTotalCents(state: SimState, taxYear: number): number {
+  let total = 0;
+  for (const [key, settlement] of state.pendingTaxSettlementsByPersonYear) {
+    if (key.endsWith(`|${taxYear}`)) total += settlement.totalCents;
+  }
+  return total;
+}
 
 /** A state whose 2026 is over: $40k of taxable income and nothing withheld against it. */
 function stateWithClosedYear(): SimState {
@@ -78,7 +86,7 @@ describe("finalizing a tax year", () => {
     // removed the December cliff and the recursive gross-up that a same-month settlement needed.
     expect([...state.assetBalances]).toEqual([...before]);
     // Nothing was withheld all year, so the whole 25% of $40k is left to settle.
-    expect(pendingSettlementTotalCents(state, { year: 2027 })).toBe(dollarsToCents(10_000));
+    expect(parkedTotalCents(state, 2026)).toBe(dollarsToCents(10_000));
   });
 
   it("does nothing in any month but the year's last", () => {
@@ -89,7 +97,7 @@ describe("finalizing a tax year", () => {
     }
   });
 
-  it("nets off what the year's instalments already collected, and parks nothing when they landed exactly", () => {
+  it("nets off what the year's withholding already collected, and parks nothing when it landed exactly", () => {
     const state = stateWithClosedYear();
     state.federalTaxPaidByPersonYear.set("p1|2026", {
       totalCents: dollarsToCents(10_000),
@@ -100,7 +108,7 @@ describe("finalizing a tax year", () => {
     expect(state.pendingTaxSettlementsByPersonYear.size).toBe(0);
   });
 
-  it("parks a NEGATIVE balance when the year over-collected", () => {
+  it("parks a NEGATIVE balance when the year over-withheld", () => {
     const state = stateWithClosedYear();
     state.federalTaxPaidByPersonYear.set("p1|2026", {
       totalCents: dollarsToCents(12_000),
@@ -109,7 +117,91 @@ describe("finalizing a tax year", () => {
     });
     finalizeTaxYear(state, flat25, { year: 2026 }, 11);
     // A refund is the same object with the sign reversed — no separate path, and no clamp at zero.
-    expect(pendingSettlementTotalCents(state, { year: 2027 })).toBe(-dollarsToCents(2_000));
+    expect(parkedTotalCents(state, 2026)).toBe(-dollarsToCents(2_000));
+  });
+});
+
+describe("finalizing a tax year — the payroll-tax reconciliation rides on the same balance", () => {
+  /** A year in which two employers each withheld against their own wages, above one combined cap. */
+  function stateWithTwoEmployers(): SimState {
+    const state = stateWithClosedYear();
+    state.sourceYearToDate.set(
+      "p1|2026",
+      new Map([
+        ["jobA", { earnedByCategory: { wages: dollarsToCents(80_000) }, supplementalWagesCents: 0, wageWithholdingCents: 0, regularWagesCents: 0, regularWithholdingCents: 0 }],
+        ["jobB", { earnedByCategory: { wages: dollarsToCents(80_000) }, supplementalWagesCents: 0, wageWithholdingCents: 0, regularWagesCents: 0, regularWithholdingCents: 0 }],
+      ]),
+    );
+    return state;
+  }
+
+  it("folds a jurisdiction's payroll reconciliation into the balance, signed", () => {
+    // A credit of $2,000 for payroll withheld above one combined cap, against $10,000 of income
+    // tax still owed — one April movement, not two.
+    const withCredit: Jurisdiction = {
+      ...flat25,
+      reconcilePayrollTaxCents: () => -dollarsToCents(2_000),
+    };
+    const state = stateWithTwoEmployers();
+    finalizeTaxYear(state, withCredit, { year: 2026 }, 11);
+    expect(parkedTotalCents(state, 2026)).toBe(dollarsToCents(8_000));
+  });
+
+  it("keeps the balance's category and source splits summing to it, reconciliation included", () => {
+    // With a breakdown seam, so the correction bands under what actually bore payroll tax rather
+    // than under raw earnings — the jurisdiction's call, not the engine's.
+    const withCredit: Jurisdiction = {
+      ...flat25,
+      reconcilePayrollTaxCents: () => -dollarsToCents(2_000),
+      computePayrollWithholdingByCategoryCents: (byCat) =>
+        byCat.wages ? { wages: Math.round(byCat.wages * 0.05) } : {},
+    };
+    const state = stateWithTwoEmployers();
+    finalizeTaxYear(state, withCredit, { year: 2026 }, 11);
+    const settlement = state.pendingTaxSettlementsByPersonYear.get("p1|2026")!;
+    const sum = (values: Iterable<number | undefined>) =>
+      [...values].reduce((total: number, v) => total + (v ?? 0), 0);
+    expect(sum(Object.values(settlement.byCategoryCents))).toBe(settlement.totalCents);
+    expect(sum(Object.values(settlement.bySourceCents))).toBe(settlement.totalCents);
+    // The credit bands under the jobs that earned the wages it corrects, evenly here because
+    // both employers paid the same.
+    expect(settlement.bySourceCents.jobA).toBe(-dollarsToCents(1_000));
+    expect(settlement.bySourceCents.jobB).toBe(-dollarsToCents(1_000));
+  });
+
+  it("leaves a non-wage source out of the correction entirely", () => {
+    // An IRA draw is in the same year-to-date map as the two jobs, because which categories a cap
+    // binds on is the jurisdiction's decision and the engine cannot filter ahead of it. The
+    // jurisdiction's own breakdown is what keeps the draw out of a payroll credit.
+    const state = stateWithTwoEmployers();
+    state.sourceYearToDate.get("p1|2026")!.set("ira", {
+      earnedByCategory: { ordinaryIncome: dollarsToCents(50_000) },
+      supplementalWagesCents: 0,
+      wageWithholdingCents: 0,
+      regularWagesCents: 0, regularWithholdingCents: 0,
+    });
+    finalizeTaxYear(
+      state,
+      {
+        ...flat25,
+        reconcilePayrollTaxCents: () => -dollarsToCents(2_000),
+        computePayrollWithholdingByCategoryCents: (byCat) =>
+          byCat.wages ? { wages: Math.round(byCat.wages * 0.05) } : {},
+      },
+      { year: 2026 },
+      11,
+    );
+    const settlement = state.pendingTaxSettlementsByPersonYear.get("p1|2026")!;
+    expect(settlement.bySourceCents.jobA).toBe(-dollarsToCents(1_000));
+    expect(settlement.bySourceCents.jobB).toBe(-dollarsToCents(1_000));
+    // The draw carries only its own income tax, none of the payroll credit.
+    expect(settlement.bySourceCents.ira ?? 0).toBeGreaterThanOrEqual(0);
+  });
+
+  it("moves nothing when the jurisdiction has nothing to reconcile", () => {
+    const state = stateWithTwoEmployers();
+    finalizeTaxYear(state, { ...flat25, reconcilePayrollTaxCents: () => 0 }, { year: 2026 }, 11);
+    expect(parkedTotalCents(state, 2026)).toBe(dollarsToCents(10_000));
   });
 });
 

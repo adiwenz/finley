@@ -95,6 +95,8 @@ export function buildRmdSources(
       // though both are `ordinaryIncome`.
       sourceId: `rmd:${person.id}`,
       label: "Required distribution",
+      // Forced, but still the household's own money leaving its own account.
+      fromAccountWithdrawal: true,
     });
   }
 

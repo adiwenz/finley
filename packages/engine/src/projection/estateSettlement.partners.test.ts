@@ -15,6 +15,7 @@
  * and only the second death reaches the estate.
  */
 import { describe, it, expect } from "vitest";
+import { flatWageWithholding } from "../testing/mockJurisdiction";
 import {
   SimAccount,
   CAPITAL_GAINS_TAX_PROFILE,
@@ -38,9 +39,14 @@ import { planOutcome } from "../retirement/retirementSolver";
 
 const RATE = 0.25;
 
-/** Flat 25%, scalar and breakdown rounded identically so the two reconcile. */
+/**
+ * Flat 25%, scalar and breakdown rounded identically so the two reconcile — and payroll withholds
+ * the same 25% from every paycheck, so a full year of wages settles to nothing and any balance
+ * reaching an estate here is genuinely about the death that truncated the year.
+ */
 const flat25: Jurisdiction = {
   id: "flat-25",
+  computeWageWithholdingCents: flatWageWithholding(RATE),
   computeTaxCents: (byCat) => Math.round(((byCat.wages ?? 0) + (byCat.ordinaryIncome ?? 0)) * RATE),
   computeTaxByCategoryCents: (byCat) => {
     const out: Partial<Record<string, Cents>> = {};
@@ -73,6 +79,22 @@ function wages(ownerId: string, monthlyDollars: number, endMonth?: number): SimO
     }),
     ownerId,
     sourceId: `job:${ownerId}`,
+  };
+}
+
+/**
+ * A person-owned pension-style stream — `ordinaryIncome`, so payroll withholds nothing against it
+ * and its whole tax reaches the year's balance. What lets a test observe a balance at all in a
+ * household whose wages are withheld exactly.
+ */
+function pension(ownerId: string, monthlyDollars: number): SimOwnedSeries {
+  return {
+    series: new SimCashFlowSeries(0, dollarsToCents(monthlyDollars), { type: "fixed" }, {
+      baselineUnit: "monthly",
+      taxCategory: "ordinaryIncome",
+    }),
+    ownerId,
+    sourceId: `pension:${ownerId}`,
   };
 }
 
@@ -109,6 +131,7 @@ function couple(
   persons: SimPerson[],
   accounts: SimAccount[],
   overrides: Partial<HouseholdSimInput> = {},
+  jurisdiction: Jurisdiction = flat25,
 ): ProjectionSeries {
   return simulateHousehold(
     {
@@ -122,7 +145,7 @@ function couple(
       expenseSeries: [],
       ...overrides,
     },
-    flat25,
+    jurisdiction,
   );
 }
 
@@ -183,28 +206,30 @@ describe("Estate settlement — a household of two", () => {
     // as taxable as Alex's eleven, and an estate that walked only the surviving member would
     // under-charge by Sam's whole share.
     //
-    // No liquid account and no spending: nothing is drawn, so the year's only income is wages and
-    // the estate's tax is exactly a quarter of them.
+    // No liquid account and no spending: nothing is drawn, so the year's only income is a pension
+    // each — `ordinaryIncome`, which payroll never withholds against, so the whole of the final
+    // year's tax is left for the estate to carry and is therefore observable. Wages would settle
+    // to nothing against their own withholding and leave no balance to attribute.
     const series = couple(
       23,
       [person("p1", 23), person("p2", 19)],
       [account("cash", "p1", 0, true)],
-      { incomeSeries: [wages("p1", 1_000), wages("p2", 1_000)] },
+      { incomeSeries: [pension("p1", 1_000), pension("p2", 1_000)] },
     );
     const settlement = settlementOf(series);
     // Year 1 is months 12–22: Alex is paid all eleven, Sam months 12–18, seven of them.
     const finalYearLiabilityCents = Math.round(
       (dollarsToCents(11_000) + dollarsToCents(7_000)) * RATE,
     );
-    const instalmentsPaidCents = series.months
-      .slice(12)
-      .reduce((total, m) => total + m.flows!.taxCents, 0);
-    // The year's whole liability, over both of them, is instalments plus the estate's balance —
-    // nothing of Sam's seven months goes uncharged just because Sam died in July.
-    expect(instalmentsPaidCents + settlement.finalTaxDueCents).toBe(finalYearLiabilityCents);
-    // And what is left over is exactly the twelfth instalment the run had no December to pay: the
-    // estimate saw both members' years, Sam's death included, and priced eleven of the twelve.
-    expect(settlement.finalTaxDueCents).toBe(Math.round(finalYearLiabilityCents / 12));
+    // Nothing was withheld from either pension all year, so the estate carries the whole of it —
+    // over BOTH members. An estate walking only the survivor would leave Sam's seven months out,
+    // and come to $2,750 instead.
+    expect(settlement.finalTaxDueCents).toBe(finalYearLiabilityCents);
+    // Year 0 had an April of its own and settled there, over both members' twelve months each —
+    // so only the year the household did not outlive reaches the estate.
+    expect(series.months[15]!.flows!.taxCents).toBe(
+      Math.round(dollarsToCents(24_000) * RATE),
+    );
     // The estate is worse off by exactly that unpaid balance.
     expect(settlement.terminalEconomicNetWorthCents).toBe(
       settlement.totalAssetsCents - settlement.finalTaxDueCents,

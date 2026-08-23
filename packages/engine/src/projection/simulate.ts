@@ -14,7 +14,7 @@ import {
   type ProjectionSeries,
 } from "./simulate.types";
 import type { FinancialObligation, ObligationId } from "./financialObligation";
-import { cloneSimState, initSimState, type SimState } from "./runState";
+import { initSimState, type SimState } from "./runState";
 import { snapshotMonth } from "./monthSnapshot";
 import {
   computeLiabilityPayments,
@@ -34,24 +34,11 @@ import {
   buildInterestAccrualSources,
   allocateMonth,
   projectObligationShortfallCents,
-  remainingDeferralRoomCents,
   unwindUnfundedContributions,
 } from "./allocationStep";
-import {
-  dueTaxYearSettlements,
-  finalizeTaxYear,
-  pendingSettlementTotalCents,
-} from "./taxYearSettlement";
-import { projectKnownTaxYear } from "./taxYearProjection";
+import { dueTaxYearSettlements, finalizeTaxYear } from "./taxYearSettlement";
 import { settleEstate, type EstateSettlement } from "./estateSettlement";
-import type { IncomeSourceMonth } from "./waterfall";
-import {
-  annualFederalTax,
-  estimatedPaymentForMonth,
-  MONTHS_IN_TAX_YEAR,
-  type EstimatedTaxYear,
-  type FederalTaxPayment,
-} from "./federalIncomeTax";
+
 
 // Re-exported so importers (and the engine barrel in index.ts) keep resolving the
 // simulator's public types through ./simulate. `SimPerson` is OMITTED: it is an
@@ -116,164 +103,37 @@ function classifyObligationOutcomes(
   return outcomes;
 }
 
-/**
- * Which of the two passes is running a month.
- *
- *  - `authoritative` — the run the caller gets back. Reports, and prices each tax year.
- *  - `forecast` — a throwaway twelve months on a cloned state, run to LEARN the year's taxable
- *    income before the authoritative pass commits to instalments for it.
- *
- * The distinction is deliberately NOT "which economic steps happen": every one of them happens in
- * both, because the whole value of the forecast pass is that a lumpy event, a mid-year loan payoff
- * or an exhausted account needs no separate model to be seen — the simulator itself sees it. Only
- * REPORTING is skipped, and only because a discarded state's snapshots and flow bands are read by
- * nobody. A forecast month that skipped an economic step would forecast a household that does not
- * exist.
- */
-type RunMode = "authoritative" | "forecast";
-
 /** What one month needs beyond {@link SimState} — fixed for the whole pass. */
 interface RunContext {
   readonly input: HouseholdSimInput;
   readonly jurisdiction: Jurisdiction;
   readonly startYear: number;
-  readonly mode: RunMode;
 }
 
-/** What a processed month reports back to the pass that ran it. */
+/** What a processed month reports back to the run. */
 interface MonthOutcome {
   readonly isInsolvent: boolean;
   readonly uncoveredCents: Cents;
   /** Explicit draws this month actually resolved — accumulated into the run's running set. */
   readonly resolvedObligationIds: readonly ObligationId[];
-  /** The blocking draw, if this month had one. Terminal for whichever pass is running. */
+  /** The blocking draw, if this month had one. Terminal for the run. */
   readonly block: FundingBlock | undefined;
   /** Every event whose artifacts the block suppressed, blocking event first. */
   readonly omittedSourceEventIds: ReadonlySet<string>;
-  /** Absent in `forecast` mode, where nothing is reported and so nothing is built. */
-  readonly snapshot: ProjectionMonth | undefined;
+  readonly snapshot: ProjectionMonth;
 }
 
 /**
- * Price the tax year opening at `month` by SIMULATING it, then hold the result as the year's
- * estimate so its twelve instalments pace the authoritative pass.
- *
- * Two passes, in order:
- *
- *  1. T₀, the cheap estimate ({@link projectKnownTaxYear}): scheduled income, this year's event
- *     draws, and a lightweight forecast of the year's decumulation, with the tax/funding
- *     circularity solved over it as a small fixed point. Never used as the year's schedule.
- *  2. T₁ — twelve months run on `opening`, a clone taken before this month touched anything, under
- *     T₀'s instalments. Its December total IS the estimate.
- *
- * The DIVISION OF LABOUR is the point. T₀ answers one question well: roughly how much taxable
- * withdrawal will this year take, once the tax on those withdrawals is itself funded by more of
- * them? That is the only part the forecast pass cannot bootstrap — it has to charge something each
- * month, and its answer is only as good as what it charged. Everything else T₀ is rough about
- * — an event in March, an account depleting in August, a loan maturing in June, contributions,
- * basis, a one-time transfer — the forecast pass gets exactly right by simply performing it.
- *
- * So T₀ seeds and the simulation corrects, which is why a decumulation-aware seed matters so much:
- * seeded with scheduled income alone, a retired household's forecast pass draws nothing for tax and
- * the year under-collects by the whole circular slice — five-figure Aprils, the sawtooth the annual
- * cycle exists to remove. Seeded with T₀ it lands within a rounding residue.
- *
- * ONE Newton step, not a fixed point over the simulation. What is left is second-order: T₀ is
- * approximate, so T₁'s draws differ slightly from the ones it priced. December closes on ACTUAL
- * income ({@link finalizeTaxYear}) and the following April charges the difference.
- */
-function priceTaxYear(
-  state: SimState,
-  opening: SimState,
-  run: RunContext,
-  month: number,
-  ctx: JurisdictionContext,
-  openingMonthSources: readonly IncomeSourceMonth[],
-): void {
-  const key = (personId: string): string => `${personId}|${ctx.year}`;
-
-  const provisional = projectKnownTaxYear({
-    state,
-    jurisdiction: run.jurisdiction,
-    ctx,
-    month,
-    startYear: run.startYear,
-    incomeSeries: run.input.incomeSeries,
-    expenseSeries: run.input.expenseSeries,
-    // The balance last December parked, which THIS year's April must fund — known now, because the
-    // year it belongs to is already closed. Signed: an expected refund lowers the year's funding
-    // need rather than raising it.
-    priorYearSettlementCents: pendingSettlementTotalCents(state, ctx),
-    benefitColaRate: run.input.benefitColaRate ?? run.input.annualInflationRate,
-    openingMonthSources,
-    remainingDeferralRoomCents: (pid) =>
-      remainingDeferralRoomCents(state, run.jurisdiction, ctx, pid),
-  });
-  const writeProvisional = (into: SimState): void => {
-    for (const pid of state.personIds) {
-      const estimate = provisional.get(pid);
-      if (estimate === undefined) into.estimatedFederalTaxByPersonYear.delete(key(pid));
-      else into.estimatedFederalTaxByPersonYear.set(key(pid), estimate);
-    }
-  };
-  writeProvisional(opening);
-
-  // The full tax year regardless of `horizonMonths`: the estimate paces TWELVE instalments, so a
-  // run stopping in August still owes each of its months a twelfth of a whole year's liability.
-  // Sizing the estimate off the months that happen to remain would under-charge every one of them.
-  const forecastRun: RunContext = { ...run, mode: "forecast" };
-  for (let m = month; m < month + MONTHS_IN_TAX_YEAR; m++) {
-    // `priorInsolvency` is reporting-only (it nulls a snapshot's net worth) and the forecast pass
-    // takes no snapshots, so it has nothing to carry.
-    const outcome = runMonth(opening, forecastRun, m, false);
-    // A blocked forecast is a TRUNCATED year, not a cheap one: its remaining months were never
-    // simulated, so pricing what it did accumulate would read a household whose March purchase
-    // stranded it as owing a quarter of the wages it will still earn. The provisional schedule
-    // knows the whole year's scheduled income and stands instead.
-    if (outcome.block !== undefined) {
-      writeProvisional(state);
-      return;
-    }
-  }
-
-  for (const pid of state.personIds) {
-    const k = key(pid);
-    // The year's ACTUAL taxable income on the clone — every draw, gain, benefit and accrual the
-    // twelve months really produced, in whatever months they fell.
-    const { totalCents, byCategoryCents } = annualFederalTax(
-      run.jurisdiction,
-      ctx,
-      pid,
-      opening.taxableIncomeByPersonYear.get(k) ?? {},
-    );
-    if (totalCents <= 0) {
-      state.estimatedFederalTaxByPersonYear.delete(k);
-      continue;
-    }
-    const estimate: EstimatedTaxYear = {
-      totalCents,
-      byCategoryCents,
-      // The clone's own per-source totals, keyed exactly as the authoritative pass will key the
-      // same sources — so each instalment bands under the account or job it anticipates.
-      sourceWeights: [...(opening.taxableBySourceByPersonYear.get(k)?.values() ?? [])],
-    };
-    state.estimatedFederalTaxByPersonYear.set(k, estimate);
-  }
-}
-
-/**
- * One month of the fixed pipeline, run against whichever state the pass owns:
- *   3–6. allocation waterfall: per-source pre-tax deferrals, payroll tax and the month's
- *        estimated income-tax instalment, take-home pools, shared/personal goals, surplus —
- *        plus the deficit charge that feeds the cascade    → allocateMonth
+ * One month of the fixed pipeline:
+ *   3–6. allocation waterfall: per-source pre-tax deferrals, the two payroll withholdings, and
+ *        (in April) the prior year's settled balance, take-home pools, shared/personal goals,
+ *        surplus — plus the deficit charge that feeds the cascade → allocateMonth
  *     7. shortfall cascade                                 → applyShortfallCascade
  *  8–9. Asset one-time transfers, then compounding        → applyAssetTransfers / compoundAssets
  *   10. Liability transfers, interest, payments           → advanceLiabilities
  *  10b. Property appreciation                             → advanceProperties
  *   11. Snapshot                                          → snapshotMonth
  *
- * Every step above runs in BOTH modes. Step 11 and the flow bands beside it run only in
- * `authoritative` mode: they compute nothing the next month reads.
  */
 function runMonth(
   state: SimState,
@@ -282,19 +142,12 @@ function runMonth(
   priorInsolvency: boolean,
 ): MonthOutcome {
   const { input, jurisdiction, startYear } = run;
-  const reporting = run.mode === "authoritative";
   // Calendar year for this month's flows. Month 0 is now processed like any other, so
   // `months[0..11]` accrue a full 12 covered-earnings months in year 0 — a $5k/mo salary
   // contributes the whole $60k, closing the graph-vs-panel benefit gap. A mid-year start
   // (fewer than 12 real months left in this calendar year) is still unmodelled.
   const year = startYear + Math.floor(month / 12);
   const ctx: JurisdictionContext = { year };
-
-  // The state the year's estimate will forecast from, captured before this month writes anything.
-  // Cloning AFTER `accumulateEarnings` below would hand the forecast pass a state in which this
-  // month's covered wages are already folded in, and its own first month would fold them again.
-  const yearOpening =
-    reporting && month % MONTHS_IN_TAX_YEAR === 0 ? cloneSimState(state) : null;
 
   // **The active-window gate**, applied once here and read by everything below it: an income
   // series pays this household only while its owner is a member of it and alive. The compiled
@@ -329,29 +182,12 @@ function runMonth(
     ...buildRmdSources(state, jurisdiction, month, startYear),
   ];
 
-  // Price the tax year ONCE, at its first processed month, by running it — and only on the
-  // authoritative pass, which is what stops a forecast year from spawning a forecast year.
-  if (yearOpening !== null) {
-    priceTaxYear(state, yearOpening, run, month, ctx, nonWithdrawalSources);
-  }
   // The prior tax year's remaining balance, due this month if this is April — and CONSUMED
   // here, so it is charged exactly once. Signed: a positive balance joins the month's tax
   // charge, a refund nets against it and can turn the month's tax negative, which the waterfall
-  // reads as extra take-home.
+  // reads as extra take-home. Nothing else about income tax is decided here: this month's own
+  // withholding is computed inside the waterfall, per paycheck, from that paycheck alone.
   const priorYearSettlements = dueTaxYearSettlements(state, ctx, month);
-  // This month's even twelfth of the estimate, per person — charged below as an ordinary
-  // deduction in the allocation waterfall, so a steady household pays a smooth monthly tax
-  // rather than one year-end drop.
-  const estimatedTaxPayments = new Map<string, FederalTaxPayment>();
-  for (const pid of state.personIds) {
-    estimatedTaxPayments.set(
-      pid,
-      estimatedPaymentForMonth(
-        state.estimatedFederalTaxByPersonYear.get(`${pid}|${year}`),
-        month % MONTHS_IN_TAX_YEAR,
-      ),
-    );
-  }
 
   // Step 4: this month's scheduled debt payments, on beginning-of-month balances.
   const payments = computeLiabilityPayments(state, month);
@@ -408,11 +244,9 @@ function runMonth(
   // what an appended candidate can draw from an account decumulation later drains.
   const accountBalancesAfterFundingCents: Record<string, Cents> = {};
   const accountBasisAfterFundingCents: Record<string, Cents> = {};
-  if (reporting) {
-    for (const acc of state.accounts) {
-      accountBalancesAfterFundingCents[acc.id] = state.assetBalances.get(acc.id) ?? 0;
-      accountBasisAfterFundingCents[acc.id] = state.basisByAccount.get(acc.id) ?? 0;
-    }
+  for (const acc of state.accounts) {
+    accountBalancesAfterFundingCents[acc.id] = state.assetBalances.get(acc.id) ?? 0;
+    accountBasisAfterFundingCents[acc.id] = state.basisByAccount.get(acc.id) ?? 0;
   }
 
   // The explicit draws' realized gain is net-neutral cash-wise (no gross-up sold it) but
@@ -436,7 +270,6 @@ function runMonth(
     jurisdiction,
     automaticFundingCents,
     month,
-    estimatedTaxPayments,
     priorYearSettlements,
   );
   // Decumulation then operates on the balances the explicit draws left behind: liquidate
@@ -461,6 +294,8 @@ function runMonth(
     payrollTaxBySourceCents,
     taxByCategoryCents,
     taxBySourceCents,
+    taxSettlementCents,
+    taxSettlementBySourceCents,
     deferralBySourceCents,
     contributions,
     shortfallCents: preCascadeShortfallCents,
@@ -472,7 +307,6 @@ function runMonth(
     jurisdiction,
     automaticFundingCents,
     month,
-    estimatedTaxPayments,
     priorYearSettlements,
   );
   // Snapshot every cascade card's balance before the cascade runs, so the REAL amount it borrows
@@ -480,10 +314,9 @@ function runMonth(
   // the sizing pass. The two passes agree on the household's take-home now, but they run over
   // different income — decumulation's own draws are in the second — so a rounding-sized residual
   // the liquid buffer quietly absorbs must not be reported as a card that was never touched.
-  // Reporting-only, hence taken only when there is a report to build.
-  const cascadeCardBalancesBeforeCents = reporting
-    ? new Map(state.cascadeCards.map((card) => [card.id, state.liabilityBalances.get(card.id) ?? 0]))
-    : null;
+  const cascadeCardBalancesBeforeCents = new Map(
+    state.cascadeCards.map((card) => [card.id, state.liabilityBalances.get(card.id) ?? 0]),
+  );
   // Nothing — savings or credit — could absorb this: the terminal flag. A tax balance settled
   // this month is inside it, having been charged as ordinary tax cash above; the year's close
   // below moves no money and so can add nothing here.
@@ -494,19 +327,16 @@ function runMonth(
   // with the rest of the reporting: `advanceLiabilities` charges every card its interest and
   // payment further down, and a difference taken after that reads the month's amortization as
   // borrowing.
-  const borrowedOntoCreditCents =
-    cascadeCardBalancesBeforeCents === null
-      ? 0
-      : state.cascadeCards.reduce(
-          (total, card) =>
-            total +
-            Math.max(
-              0,
-              (state.liabilityBalances.get(card.id) ?? 0) -
-                (cascadeCardBalancesBeforeCents.get(card.id) ?? 0),
-            ),
-          0,
-        );
+  const borrowedOntoCreditCents = state.cascadeCards.reduce(
+    (total, card) =>
+      total +
+      Math.max(
+        0,
+        (state.liabilityBalances.get(card.id) ?? 0) -
+          (cascadeCardBalancesBeforeCents.get(card.id) ?? 0),
+      ),
+    0,
+  );
   // A committed contribution deposits in full and borrows the rest; if that borrowing
   // couldn't be funded (this uncovered slice), unwind the phantom deposit.
   unwindUnfundedContributions(state, contributions, uncoveredCents);
@@ -528,7 +358,7 @@ function runMonth(
   // month's own income has folded into `state.taxableIncomeByPersonYear` (see `allocateMonth`,
   // above), so the base this prices is the year's complete ACTUAL taxable income regardless of
   // which month each dollar landed in. All it does is park the remaining balance (liability
-  // less the instalments already collected, signed) against this year, for the NEXT year's
+  // less what payroll withheld, signed) against this year, for the NEXT year's
   // April to charge or refund through the ordinary waterfall. Nothing is sold, nothing is
   // borrowed, no balance moves — which is what removed the December net-worth sawtooth, and
   // with it the recursive gross-up that a same-month settlement needed to solve.
@@ -546,8 +376,6 @@ function runMonth(
     block: fundingDraw.block,
     omittedSourceEventIds: omittedEventIds,
   };
-  if (cascadeCardBalancesBeforeCents === null) return { ...outcome, snapshot: undefined };
-
   // Per-line funding attribution — a partition of the SAME funded total, in the order the
   // cascade consumed its sources: income cash, liquid drawdown, decumulation, then credit. The
   // real, sized movements (each account liquidated, cards actually borrowed against) are
@@ -643,8 +471,8 @@ function runMonth(
     // Undefined when the jurisdiction declines a breakdown; the app then draws one band.
     taxByCategoryCents,
     // SAME-MONTH per-source haircut on `netCashFlowCents`: every cent of tax this month
-    // charged — the instalment, plus April's settled prior-year balance — since all of it
-    // really did come out of this month's take-home.
+    // charged — the paycheck withholding, plus April's settled prior-year balance — since all
+    // of it really did come out of this month's take-home.
     taxBySourceCents,
     deferralBySourceCents,
     // Employee payroll tax (FICA) — its own line, already removed from take-home.
@@ -660,6 +488,11 @@ function runMonth(
     // both — one band per account, so a brokerage sale and a retirement-account sale read as
     // separate events rather than one anonymous "investment" line.
     [...decumulationPrincipalDraws, ...fundingDraw.investmentPrincipalDraws],
+    // April's settled prior-year balance, signed, carved back out of the totals above for
+    // reporting only — the tax chart needs to tell a paycheck's withholding from a filing's
+    // bill, and a refund from either.
+    taxSettlementCents,
+    taxSettlementBySourceCents,
   );
   // The taxable base after this month's explicit draws but BEFORE decumulation, so the
   // authoring gate prices a would-be draw on top of any sibling draw at this month — and NOT
@@ -696,13 +529,20 @@ function runMonth(
  * Household simulator. Each month runs the fixed pipeline in {@link runMonth}; this function owns
  * the horizon, the terminal conditions (insolvency, a blocked draw, death) and the reported series.
  *
- * Federal income tax is priced ONCE per calendar year and paid on a schedule this function
- * owns: twelve even estimated instalments through the waterfall, then — after the year's actual
- * taxable income is complete at December — a single remaining balance carried to the FOLLOWING
- * April, where it is charged (or refunded) through that month's ordinary waterfall. A closed year
- * is never reopened. The estimate itself comes from SIMULATING the year first, on a discarded
- * clone ({@link priceTaxYear}), which is why nothing here has to anticipate a lumpy event, a loan
- * that matures in June or an account that runs dry in March.
+ * Federal income tax arrives in two entirely separate ways, and keeping them separate is what
+ * makes the projection CAUSAL — an event in month M never moves a cash flow before M.
+ *
+ *  1. WITHHOLDING, month by month, inside the waterfall: each wage source's paycheck is withheld
+ *     against on its own terms, knowing nothing but that paycheck. Nothing is withheld from a
+ *     withdrawal, a realized gain or a penalty, because no payroll system sees them. Nothing here
+ *     anticipates anything.
+ *  2. The BALANCE, once a year: December prices the year's ACTUAL income and parks
+ *     `liability − withheld` for the FOLLOWING April, where it is charged (or refunded) through
+ *     that month's ordinary waterfall. A closed year is never reopened.
+ *
+ * So an October withdrawal changes October onward and April; it cannot reach January. The cost is
+ * that a household living on withdrawals withholds nothing all year and settles in one April
+ * payment — which is what really happens to anyone not filing quarterly estimates.
  *
  * Where the run ends because the household DIED, the April that would have settled the last year
  * never comes; that balance is weighed against estate assets instead, once, after the loop
@@ -716,7 +556,7 @@ export function simulateHousehold(
 ): ProjectionSeries {
   const startYear = input.startYear ?? DEFAULT_START_YEAR;
   const state = initSimState(input);
-  const run: RunContext = { input, jurisdiction, startYear, mode: "authoritative" };
+  const run: RunContext = { input, jurisdiction, startYear };
   // "Now", before any flow: the net-worth chart's first point and the baseline every
   // processed month builds on. Captured before the loop mutates state; carries no flows.
   const opening = snapshotMonth(state, {
@@ -752,7 +592,7 @@ export function simulateHousehold(
     const outcome = runMonth(state, run, month, priorInsolvency);
     for (const id of outcome.resolvedObligationIds) resolvedObligationIds.add(id);
     // `authoritative` mode always reports; the non-null assertion is the mode contract.
-    months.push(outcome.snapshot!);
+    months.push(outcome.snapshot);
     if (outcome.isInsolvent) priorInsolvency = true;
 
     // Truncate at the first blocked month: it ran to completion (income, tax, cascade, compounding

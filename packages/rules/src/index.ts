@@ -19,7 +19,12 @@ import {
 } from "./federalTax";
 import { taxableWithdrawalCents, returnTaxTreatment } from "./investmentTax";
 import { RMD_ASSUMPTIONS } from "./rmd";
-import { payrollTaxCents, PAYROLL_TAX_ASSUMPTIONS } from "./payrollTax";
+import {
+  payrollWithholdingCents,
+  payrollTaxReconciliationCents,
+  PAYROLL_TAX_ASSUMPTIONS,
+} from "./payrollTax";
+import { wageWithholdingCents, WAGE_WITHHOLDING_ASSUMPTIONS } from "./wageWithholding";
 
 export {
   governmentBenefitBaseMonthlyCents,
@@ -57,8 +62,9 @@ export {
 export { taxableWithdrawalCents, returnTaxTreatment } from "./investmentTax";
 export {
   payrollTaxTables,
-  payrollTaxParts,
-  payrollTaxCents,
+  payrollWithholdingParts,
+  payrollWithholdingCents,
+  payrollTaxReconciliationCents,
   PAYROLL_TAX_BASE_YEAR,
   PAYROLL_TAX_ASSUMPTIONS,
   OASDI_RATE,
@@ -68,6 +74,20 @@ export {
   type PayrollTaxTables,
   type PayrollTaxParts,
 } from "./payrollTax";
+export {
+  wageWithholdingCents,
+  regularWageWithholdingCents,
+  supplementalWageWithholdingCents,
+  withholdingRateSchedules,
+  defaultW4Configuration,
+  SUPPLEMENTAL_WAGE_RATE,
+  SUPPLEMENTAL_WAGE_EXCESS_RATE,
+  SUPPLEMENTAL_WAGE_EXCESS_THRESHOLD_CENTS,
+  WAGE_WITHHOLDING_ASSUMPTIONS,
+  type W4Configuration,
+  type WithholdingBracket,
+  type WithholdingRateSchedules,
+} from "./wageWithholding";
 
 /**
  * @finley/rules — jurisdiction implementations of the engine's interface.
@@ -86,26 +106,37 @@ export {
 
 export const usJurisdiction: Jurisdiction = {
   id: "US-2026",
-  // ANNUAL in, ANNUAL out — the engine calls this on a whole year of taxable income, never a
-  // monthly slice: on the year's scheduled income to pace its estimated payments, and on its
-  // actual income to reconcile them in December.
+  // ANNUAL in, ANNUAL out, and AUTHORITATIVE: the engine calls this once, at the year's close, on
+  // the income that actually arrived. What payroll withheld against it during the year is a
+  // separate and deliberately cruder figure; the difference is the refund or balance due.
   computeTaxCents: (annualByCategory, ctx) => federalAnnualTaxCents(annualByCategory, ctx.year),
   computeTaxByCategoryCents: (annualByCategory, ctx) =>
     federalAnnualTaxByCategoryCents(annualByCategory, ctx.year),
+  // Paycheck-level income-tax withholding, Publication 15-T. WAGES ONLY: a pension draw, an RMD
+  // or a realized gain reaches the engine through this seam like anything else and is answered
+  // with zero, because no payroll system withholds against them — their tax lands in April.
+  computeWageWithholdingCents: (request, ctx) =>
+    request.taxCategory === "wages" ? wageWithholdingCents(request, ctx.year) : 0,
   // Employee FICA on EARNED income only: `wages`, never the `ordinaryIncome` a retirement
-  // withdrawal books, so a 401(k)/IRA draw is never payroll-taxed. The engine feeds the
-  // year-to-date total and charges the difference, so the wage-base cap binds cumulatively.
-  // This is the worker's reconciled ANNUAL liability across every wage source combined, not
-  // per-employer withholding (see payrollTax.ts).
-  computePayrollTaxCents: (earnedByCategory, ctx) =>
-    payrollTaxCents(earnedByCategory.wages ?? 0, ctx.year),
+  // withdrawal books, so a 401(k)/IRA draw is never payroll-taxed. Fed one WAGE SOURCE's
+  // year-to-date total, because that is the boundary a real employer withholds at — the wage base
+  // and the Additional Medicare threshold apply to the wages this job paid and no others.
+  computePayrollWithholdingCents: (earnedByCategory, ctx) =>
+    payrollWithholdingCents(earnedByCategory.wages ?? 0, ctx.year),
   // Single earned category (`wages`), so the breakdown is trivial — but still required so
-  // the waterfall can attribute FICA back to the job(s) that generated it.
-  computePayrollTaxByCategoryCents: (earnedByCategory, ctx) => {
-    const wages = earnedByCategory.wages ?? 0;
-    const charge = payrollTaxCents(wages, ctx.year);
+  // the waterfall can attribute FICA back to the job that generated it.
+  computePayrollWithholdingByCategoryCents: (earnedByCategory, ctx) => {
+    const charge = payrollWithholdingCents(earnedByCategory.wages ?? 0, ctx.year);
     return charge > 0 ? { wages: charge } : {};
   },
+  // What the return squares up over a year of per-employer withholding: excess Social Security
+  // back as a credit, Additional Medicare owed on combined wages. Exactly zero for the ordinary
+  // single-job year, which is what keeps this from moving cash it has no business moving.
+  reconcilePayrollTaxCents: (annualEarnedPerSource, ctx) =>
+    payrollTaxReconciliationCents(
+      annualEarnedPerSource.map((earned) => earned.wages ?? 0),
+      ctx.year,
+    ),
   taxableWithdrawalCents: (basis) => taxableWithdrawalCents(basis),
   returnTaxTreatment: (returnKind) => returnTaxTreatment(returnKind),
   publicHealthCoverageAge: MEDICARE_ELIGIBILITY_AGE,
@@ -122,5 +153,6 @@ export const usJurisdiction: Jurisdiction = {
     ...CONTRIBUTION_LIMIT_ASSUMPTIONS,
     ...RMD_ASSUMPTIONS,
     ...PAYROLL_TAX_ASSUMPTIONS,
+    ...WAGE_WITHHOLDING_ASSUMPTIONS,
   ],
 };

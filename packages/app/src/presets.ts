@@ -12,6 +12,7 @@ import {
   ref,
   PRIMARY_PERSON_REF,
   type BudgetLine,
+  type JobIncomeOverrideInput,
   type ScenarioInput,
   type ProjectionState,
 } from "@finley/engine";
@@ -29,6 +30,22 @@ export interface Preset {
   readonly label: string;
   readonly description: string;
   readonly input: ScenarioInput;
+  /**
+   * One-month pay adjustments, which a {@link ScenarioInput} has no way to carry: it describes
+   * standing salary and life events, and a bonus is neither.
+   *
+   * Applied after the build through the SAME authoring call the Base + Adjustments editor makes,
+   * so the rule above still holds — a preset cannot express anything a user could not, and the
+   * adjustment's id stays the engine's to mint. Keyed by the job's INDEX in `input.jobs` for that
+   * same reason: the job has no id until the build runs.
+   */
+  readonly incomeAdjustments?: readonly PresetIncomeAdjustment[];
+}
+
+/** One {@link Preset.incomeAdjustments} entry — which authored job, and what happens to it. */
+export interface PresetIncomeAdjustment {
+  readonly jobIndex: number;
+  readonly override: JobIncomeOverrideInput;
 }
 
 const DEFAULT_CURRENT_AGE = 35;
@@ -208,6 +225,137 @@ const TAXED_IN_RETIREMENT: ScenarioInput = {
 };
 
 /**
+ * {@link TAXED_IN_RETIREMENT} with ONE field changed, and it is the field that matters.
+ *
+ * The same person, the same salary, the same budget, the same retirement — saving after tax
+ * instead of into a 401(k). Nothing this household withdraws in retirement is taxable income,
+ * where every dollar the other one withdraws is.
+ *
+ * Read as a pair, they answer two questions the charts otherwise confuse. What retirement
+ * withdrawals COST: this one pays essentially no tax in retirement while its twin pays a few
+ * hundred a month on the same spending. And what a surplus/shortfall line MEANS: an account
+ * drawn to cover a gap is not income, so both households show the same shape of shortfall —
+ * `cashFlowSurplus.test.ts` runs the pair end to end and holds them to that.
+ *
+ * It also lands the third lesson honestly, without tuning for it: this household arrives at
+ * retirement with LESS. A deferral comes off the top of the paycheck, where post-tax saving
+ * competes with an already-full budget, so dropping it costs more than the tax it saves — and
+ * the money runs out sooner, not later.
+ */
+const CASH_IN_RETIREMENT: ScenarioInput = {
+  ...TAXED_IN_RETIREMENT,
+  name: "Rowan",
+  // The one difference: no `deferral`, so the same job funds a taxable balance instead.
+  jobs: [salariedJob(dollarsToCents(8000))],
+};
+
+/**
+ * Two paychecks at once. Each employer withholds as though its own salary were the household's
+ * only income — neither can see the other — so between them they price the second job from the
+ * bottom of the brackets a second time. The W-4's own Multiple Jobs Worksheet is what closes
+ * that gap, and Finley models its economic result: an extra per-period amount carried by the
+ * HIGHER-paying job alone, which is why the tax chart's two job bands are so lopsided.
+ */
+const TWO_JOBS = teachingInput(MODEST_BUDGET, {
+  name: "Casey",
+  jobs: [salariedJob(dollarsToCents(8000)), salariedJob(dollarsToCents(3000))],
+  openingBalanceCents: dollarsToCents(6000),
+});
+
+/**
+ * A high earner's budget, kept beside its only user. Three salaries clear the Social Security
+ * wage base only if they are large, and a large income parked against a small budget piles up
+ * taxable interest that swamps the very settlement {@link THREE_JOBS} exists to show. So the
+ * spend is sized to the income.
+ */
+const HIGH_EARNER_BUDGET = [
+  expenseLine("Housing", "needs", 4_200),
+  expenseLine("Childcare", "needs", 2_200),
+  expenseLine("Groceries", "needs", 1_300),
+  expenseLine("Transportation", "needs", 950),
+  expenseLine("Dining & fun", "wants", 1_800),
+  expenseLine("Travel", "wants", 1_400),
+  expenseLine("Subscriptions", "wants", 350),
+];
+
+/**
+ * Three paychecks at once, and the ONE thing the W-4 cannot fix.
+ *
+ * Income tax it does fix. The Multiple Jobs Worksheet sizes an extra per-period amount onto one
+ * job, and between them the three withhold what a single employer paying all of it would —
+ * {@link TWO_JOBS} is the two-job version of that same story.
+ *
+ * Social Security is different, because its wage base is per EMPLOYER and no employer can see the
+ * others. Each of these jobs pays well under the base, so each withholds OASDI on every dollar it
+ * pays; together they are far above it. The excess is withheld by three payrolls that are each
+ * behaving correctly, and nothing can hand it back during the year — it is a refundable credit on
+ * the RETURN, so it comes back the following April.
+ *
+ * That makes this the model's other refund, and a different one from {@link CAREER_BREAK}: that
+ * year over-withholds income tax against income the year never delivers, while this one withholds
+ * income tax about right and over-withholds payroll tax by construction. April nets it against
+ * the two corrections pointing the other way — the Additional Medicare surtax no single employer
+ * crossed the threshold to withhold, and income tax on savings interest nothing withholds against.
+ *
+ * The refund SHRINKS across the career and eventually turns into a balance due, which is the
+ * honest shape rather than a flaw: the surtax threshold is not indexed while wages climb through
+ * it, and the taxable interest on an accumulating portfolio grows every year with nothing
+ * withholding against it. One job defers to a 401(k) to keep that second effect from arriving in
+ * the first decade — the deferral leaves the payroll-tax story untouched, because a 401(k)
+ * contribution is exempt from income tax and not from FICA.
+ *
+ * Three EQUAL salaries, so no reader has to work out which job the cap was reached on.
+ */
+const THREE_JOBS = teachingInput(HIGH_EARNER_BUDGET, {
+  name: "Robin",
+  jobs: [
+    { ...salariedJob(dollarsToCents(7500)), deferral: { deferralFraction: 0.1 } },
+    salariedJob(dollarsToCents(7500)),
+    salariedJob(dollarsToCents(7500)),
+  ],
+  openingBalanceCents: dollarsToCents(10_000),
+});
+
+/**
+ * A salary with a $20,000 bonus in June. Supplemental wages are withheld at their own flat rate
+ * (22%) rather than annualized, because treating a one-off payment as a permanent pay rise would
+ * over-withhold every month after it — so June spikes, July is back to normal, and any gap
+ * between that flat rate and the bonus's real marginal tax settles the following April.
+ */
+const BONUS_YEAR = teachingInput(MODEST_BUDGET, {
+  name: "Avery",
+  jobs: [salariedJob(dollarsToCents(8000))],
+  openingBalanceCents: dollarsToCents(6000),
+});
+
+/** June of the first projected year — `BONUS_YEAR`'s one adjustment. */
+const BONUS_MONTH = 5;
+
+/**
+ * Six unpaid months, then back to work — a career break, a gap between jobs, unpaid leave.
+ *
+ * The point is what payroll does with it. Withholding is sized per paycheck as though that rate
+ * of pay ran the whole year, so the first half of the year is withheld against an income the
+ * second half never delivers; the year closes far over-withheld and the following April hands the
+ * difference back. It is the cleanest refund the model produces, and the only one big enough to
+ * see: every other preset's April is a small balance DUE.
+ *
+ * Pay resumes in January because a job's span is year-granular — a mid-year stop is expressible
+ * only as a run of one-month adjustments, and stopping for good would leave the following April
+ * with no withholding of its own, which is exactly the thing a refund must be shown not to erase.
+ */
+const CAREER_BREAK = teachingInput(MODEST_BUDGET, {
+  name: "Nico",
+  jobs: [salariedJob(dollarsToCents(12_000))],
+  // Enough to carry six months of an unchanged budget without the shortfall cascade opening a
+  // credit card: a refund is hard to read on a chart that is also going insolvent underneath it.
+  openingBalanceCents: dollarsToCents(30_000),
+});
+
+/** July–December of the first projected year: the half `CAREER_BREAK` is not paid for. */
+const CAREER_BREAK_UNPAID_MONTHS = [6, 7, 8, 9, 10, 11];
+
+/**
  * The healthy default a fresh plan already opens on: literally the {@link DEFAULT_INPUT} the plan
  * defaults are built from, budget lines included. One document, so this preset reproduces
  * {@link PLAN_DEFAULTS} exactly rather than authoring a second source of truth for it.
@@ -241,10 +389,50 @@ export const PRESETS: readonly Preset[] = [
     input: STUDENT_LOAN,
   },
   {
+    id: "two-jobs",
+    label: "Two jobs",
+    description: "A second job neither employer knows about — and the W-4 correction that keeps April from becoming a bill.",
+    input: TWO_JOBS,
+  },
+  {
+    id: "career-break",
+    label: "Six months off",
+    description:
+      "Half a year unpaid, so payroll over-withholds for a year that never finished — and the following April pays it back.",
+    input: CAREER_BREAK,
+    incomeAdjustments: CAREER_BREAK_UNPAID_MONTHS.map((month) => ({
+      jobIndex: 0,
+      override: { month, kind: "setTo" as const, cents: 0 },
+    })),
+  },
+  {
+    id: "three-jobs",
+    label: "Three paychecks",
+    description:
+      "Three employers, each withholding Social Security to its own cap — and the April refund that gives the excess back.",
+    input: THREE_JOBS,
+  },
+  {
+    id: "bonus",
+    label: "A bonus in June",
+    description: "A $20,000 bonus withheld at its own flat rate, without mistaking it for a raise.",
+    input: BONUS_YEAR,
+    incomeAdjustments: [
+      { jobIndex: 0, override: { month: BONUS_MONTH, kind: "addBonus", cents: dollarsToCents(20_000) } },
+    ],
+  },
+  {
     id: "taxed-in-retirement",
     label: "Taxed in retirement",
     description: "A strong 401(k) saver whose withdrawals and Social Security are both taxed after the paychecks stop.",
     input: TAXED_IN_RETIREMENT,
+  },
+  {
+    id: "cash-in-retirement",
+    label: "…vs. retiring on cash",
+    description:
+      "The same household as Taxed in retirement, saving after tax instead of into a 401(k) — nothing it withdraws is taxed, and it has less to withdraw.",
+    input: CASH_IN_RETIREMENT,
   },
 ];
 
@@ -264,5 +452,15 @@ export function presetState(preset: Preset): ProjectionState {
   if (!built.ok) {
     throw new Error(`Preset "${preset.id}" is not a valid ScenarioInput: ${built.error.reason}`);
   }
-  return built.projection.toState();
+  const { projection } = built;
+  for (const { jobIndex, override } of preset.incomeAdjustments ?? []) {
+    const job = projection.state.scenario.plan.primary.jobs[jobIndex];
+    if (job === undefined) {
+      throw new Error(`Preset "${preset.id}" adjusts job ${jobIndex}, which it never authored`);
+    }
+    // The same gate-checked write the adjustment editor makes — a refusal here is a
+    // preset-authoring bug, and throws for the same reason the build's does.
+    projection.addJobIncomeOverride(job.id, override);
+  }
+  return projection.toState();
 }

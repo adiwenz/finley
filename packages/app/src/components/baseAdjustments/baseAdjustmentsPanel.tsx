@@ -47,7 +47,7 @@ import {
   type EditScope,
   type MonthEditRoute,
 } from "./monthEdit";
-import { buildIncomeChartData } from "./incomeChartData";
+import { buildCashFlowChartData } from "./cashFlowChartData";
 import { buildPerLineBudgetData } from "./perLineBudget";
 import { buildTaxChartData } from "./taxesByMonth";
 import { ProjectionCharts } from "./projectionCharts";
@@ -116,7 +116,7 @@ export function BaseAdjustmentsPanel({
   const [lastRoute, setLastRoute] = useState<{ route: MonthEditRoute; label: string } | null>(null);
 
   const spendingChartData = useMemo(() => buildPerLineBudgetData(series), [series]);
-  const incomeChartData = useMemo(() => buildIncomeChartData(series), [series]);
+  const incomeChartData = useMemo(() => buildCashFlowChartData(series), [series]);
   const taxChartData = useMemo(() => buildTaxChartData(series), [series]);
   /**
    * Wages + government benefit, not the full taxable rollup (`totalIncomeCents`): savings

@@ -116,6 +116,30 @@ p.sub {
   margin-bottom: var(--space-3);
 }
 
+/* The tax explanation: a disclosure whose contents are themselves disclosures, so the summary
+   rules above have to reach h3 and h4 as well as h2. Nested one level in and set slightly
+   quieter, so the outline reads as a hierarchy rather than as eight equal headings. */
+.collapsible > summary > h3,
+.collapsible > summary > h4 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.tax-explainer-topic {
+  border-top: 1px solid var(--color-border);
+  padding: var(--space-2) 0;
+}
+
+.tax-explainer-topic > summary > h4 {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.tax-explainer > p {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
 /* Incidental text */
 .disclaimer {
   margin-top: var(--space-4);

@@ -94,6 +94,9 @@ function ownedSeries(os: SimOwnedSeries, id: SeriesId, seriesType: "income" | "e
     label: os.label,
     planDescriptor: os.planDescriptor,
     ...(os.sourceId !== undefined ? { sourceId: os.sourceId } : {}),
+    ...(os.supplementalByMonth !== undefined
+      ? { supplementalByMonth: os.supplementalByMonth }
+      : {}),
     ...(os.lineId !== undefined ? { lineId: os.lineId } : {}),
     ...(os.obligationSource !== undefined ? { obligationSource: os.obligationSource } : {}),
   };

@@ -144,7 +144,7 @@ export interface ReportMonth {
   readonly taxCents: Cents;
   /**
    * Employee payroll tax (US: FICA) charged this month, summed over persons — the reconciled
-   * annual liability accrued this month, NOT per-employer paycheck withholding. A separate
+   * per-employer withholding this month took, NOT a reconciled annual liability. A separate
    * line from {@link taxCents} (earned income only, on pre-deferral gross). 0 at month 0 and
    * whenever the jurisdiction charges none.
    */
@@ -156,6 +156,13 @@ export interface ReportMonth {
    * `wages`. Same presence rule and Σ invariant as {@link taxByCategoryCents}.
    */
   readonly taxBySourceCents?: Readonly<Record<string, Cents>>;
+  /**
+   * The prior-year settlement slice of {@link taxCents} — signed, so a refund is negative.
+   * Already inside `taxCents` and `taxBySourceCents`; see {@link ProjectionMonthFlows.taxSettlementCents}.
+   */
+  readonly taxSettlementCents?: Cents;
+  /** Signed per-source attribution of {@link taxSettlementCents}. Diagnostic — never a chart band. */
+  readonly taxSettlementBySourceCents?: Readonly<Record<string, Cents>>;
   /** This month's pre-tax deferral by income source; absent when none deferred. */
   readonly deferralBySourceCents?: Readonly<Record<string, Cents>>;
   /**
@@ -342,6 +349,8 @@ export function summarizeSimulation(
       payrollTaxCents: flows?.payrollTaxCents ?? 0,
       taxByCategoryCents: flows?.taxByCategoryCents,
       taxBySourceCents: flows?.taxBySourceCents,
+      taxSettlementCents: flows?.taxSettlementCents,
+      taxSettlementBySourceCents: flows?.taxSettlementBySourceCents,
       deferralBySourceCents: flows?.deferralBySourceCents,
       payrollTaxBySourceCents: flows?.payrollTaxBySourceCents,
       expensesCents: flows?.expensesCents ?? 0,

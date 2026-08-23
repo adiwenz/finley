@@ -151,6 +151,40 @@ export function applyJobIncomeOverridesAt(
 }
 
 /**
+ * The slice of `month`'s pay that is a ONE-OFF payment rather than the job's standing rate — a
+ * bonus. Zero for nearly every month, and for every job that has never been given one.
+ *
+ * Read alongside {@link applyJobIncomeOverridesAt}, which answers what the month pays in total,
+ * and folded in the same {@link orderedIncomeOverrides} order so the two can never disagree about
+ * a month carrying several adjustments. The split exists because withholding treats the two
+ * halves differently: a payroll system annualizes standing pay and must not annualize a bonus.
+ *
+ * Two rules follow from what each adjustment MEANS:
+ *
+ *  - A `setTo` restates the whole month's pay, so it discards any bonus authored before it —
+ *    "pay me $X this month" leaves nothing one-off behind.
+ *  - A deduction (a negative `addBonus`) comes off the one-off slice first, and only then off
+ *    standing pay: cancelling a bonus should leave the salary alone.
+ */
+export function supplementalPayCentsAt(
+  basePayCents: Cents,
+  overrides: readonly JobIncomeOverride[],
+  month: number,
+): Cents {
+  let payCents = basePayCents;
+  let supplementalCents = 0;
+  for (const override of orderedIncomeOverrides(overrides).filter((o) => o.month === month)) {
+    const nextPayCents = applyJobIncomeOverride(payCents, override);
+    supplementalCents =
+      override.kind === "setTo"
+        ? 0
+        : Math.min(nextPayCents, Math.max(0, supplementalCents + nextPayCents - payCents));
+    payCents = nextPayCents;
+  }
+  return supplementalCents;
+}
+
+/**
  * A raise or a cut. Where a {@link JobIncomeOverride} perturbs one month, a pay change opens a
  * new salary segment: in force from `month`, then growing at the job's own real-plus-CPI rate.
  * A value edit, so it rides ONE continuous job instead of splitting it in two.

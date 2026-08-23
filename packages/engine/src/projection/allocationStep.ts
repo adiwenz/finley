@@ -8,6 +8,7 @@ import { assertTaxAttributionReconciles } from "./waterfallInvariants";
 import {
   addFederalTaxPayment,
   NO_FEDERAL_TAX_PAID,
+  PAY_PERIODS_PER_YEAR,
   type FederalTaxPayment,
 } from "./federalIncomeTax";
 import type { SimState } from "./runState";
@@ -21,9 +22,11 @@ export function buildIncomeSources(
   for (const s of incomeSeries) {
     const waterfallInflowCents = s.series.getMonthlyCents(month);
     if (waterfallInflowCents === 0 && s.planDescriptor === undefined) continue;
+    const supplementalCents = s.supplementalByMonth?.get(month) ?? 0;
     sources.push({
       ownerId: s.ownerId,
       waterfallInflowCents,
+      ...(supplementalCents > 0 ? { supplementalCents } : {}),
       taxCategory: s.series.taxCategory ?? "ordinaryIncome",
       planDescriptor: s.planDescriptor,
       // One source per income series, so two jobs read apart rather than collapsing into
@@ -38,8 +41,7 @@ export function buildIncomeSources(
 /**
  * A person's remaining pre-tax deferral room for `ctx.year` — the jurisdiction's (possibly
  * age-banded) limit less what they have already deferred. `Infinity` when the jurisdiction caps
- * nothing. Shared with the tax-year projection, which has to take the same deferrals out of
- * scheduled wages to estimate the year's taxable income.
+ * nothing.
  */
 export function remainingDeferralRoomCents(
   state: SimState,
@@ -59,7 +61,7 @@ export function remainingDeferralRoomCents(
 
 /**
  * The PRIOR tax year's balance, per person, in the April it settles — signed, positive due.
- * Charged as cash alongside this month's instalment (so it is docked from take-home and, if
+ * Charged as cash alongside this month's withholding (so it is docked from take-home and, if
  * income cannot cover it, funded by the same decumulation any other need is), but deliberately
  * kept OUT of `federalTaxPaidByPersonYear`: that accumulator records what has been paid toward
  * the CURRENT year, and crediting a prior year's balance to it would make this December
@@ -89,7 +91,6 @@ function planMonthAllocation(
   jurisdiction: Jurisdiction,
   sharedObligationCents: Cents,
   month: number,
-  estimatedTaxPayments: ReadonlyMap<string, FederalTaxPayment>,
   priorYearSettlements: PriorYearSettlements,
 ): { input: WaterfallInput; contributions: readonly MonthContribution[] } {
   // Per plan, but banded on the individual's age — the jurisdiction may raise the limit with
@@ -128,25 +129,57 @@ function planMonthAllocation(
     goalFundMonthlyRate: (id) => accountsById.get(id)?.getMonthlyRateAt(month) ?? 0,
     accountBalanceCents: (id) => state.assetBalances.get(id) ?? 0,
     liquidAccountId: state.liquidAccount?.id ?? null,
-    // The month's federal income-tax CASH: an even twelfth of this year's estimated liability,
-    // plus (in April only) the balance left over from the year just closed. Fixed for the month:
-    // the waterfall must never re-derive income tax from the income in front of it. Signed, so an
-    // April refund raises take-home rather than lowering it.
-    estimatedIncomeTaxCents: (pid) =>
-      (estimatedTaxPayments.get(pid)?.totalCents ?? 0) +
-      (priorYearSettlements.get(pid)?.totalCents ?? 0),
+    // Income-tax withholding, computed by the waterfall per WAGE SOURCE from that source's own
+    // pay. The waterfall never prices a year; this seam prices one paycheck.
+    computeWageWithholdingCents: jurisdiction.computeWageWithholdingCents
+      ? (request) => jurisdiction.computeWageWithholdingCents!(request, ctx)
+      : undefined,
+    payPeriodsPerYear: PAY_PERIODS_PER_YEAR,
+    // Periods left in the CALENDAR year, this one included — the horizon a mid-year correction
+    // has to spread itself over. Absolute month modulo the year is the month-of-year, because a
+    // projection always opens in January.
+    periodsRemainingInTaxYear: PAY_PERIODS_PER_YEAR - (month % PAY_PERIODS_PER_YEAR),
+    // The prior year's settled balance, in the filing month only — signed, so a refund raises
+    // take-home rather than lowering it. Kept apart from this month's withholding because it pays
+    // a DIFFERENT year and must never be credited against this one.
+    settlementCashCents: (pid) => priorYearSettlements.get(pid)?.totalCents ?? 0,
     // Absent seam → no payroll tax; the waterfall then leaves take-home untouched.
-    computePayrollTaxCents: jurisdiction.computePayrollTaxCents
-      ? (earnedByCategory) => jurisdiction.computePayrollTaxCents!(earnedByCategory, ctx)
+    computePayrollWithholdingCents: jurisdiction.computePayrollWithholdingCents
+      ? (earnedByCategory) => jurisdiction.computePayrollWithholdingCents!(earnedByCategory, ctx)
       : undefined,
     // Required companion whenever the scalar seam is present (runtime-enforced in the
     // waterfall), so a job's FICA line can be attributed back to it.
-    computePayrollTaxByCategoryCents: jurisdiction.computePayrollTaxByCategoryCents
-      ? (earnedByCategory) => jurisdiction.computePayrollTaxByCategoryCents!(earnedByCategory, ctx)
+    computePayrollWithholdingByCategoryCents: jurisdiction.computePayrollWithholdingByCategoryCents
+      ? (earnedByCategory) =>
+          jurisdiction.computePayrollWithholdingByCategoryCents!(earnedByCategory, ctx)
       : undefined,
-    // Year-to-date earned gross BEFORE this month, so the seam's cumulative figure — and its
-    // wage-base cap — build on the running total, not a single month.
-    priorEarnedByPersonCents: (pid) => state.earnedByPersonYear.get(`${pid}|${ctx.year}`) ?? {},
+    // One wage source's year-to-date facts BEFORE this month, held per source because that is
+    // where every cap and band a real employer applies actually binds.
+    priorSourceYearToDate: (pid, sourceKey) =>
+      state.sourceYearToDate.get(`${pid}|${ctx.year}`)?.get(sourceKey) ?? {
+        earnedByCategory: {},
+        supplementalWagesCents: 0,
+        wageWithholdingCents: 0,
+        regularWagesCents: 0,
+        regularWithholdingCents: 0,
+      },
+    // The same facts rolled up across the person's sources in one category — what the EMPLOYEE
+    // knows and no employer does. Every source the year has seen counts, including one that has
+    // already stopped paying, so a correction made in July still accounts for a job that ran to
+    // June. Which categories are wages stays the jurisdiction's call: the roll-up just matches on
+    // the category the caller asked about. REGULAR pay only, on both sides: a bonus is withheld
+    // by its own method when it is paid, and letting it into this basis would have the months
+    // after it withhold as though the person had been given a raise.
+    priorPersonWageYearToDate: (pid, taxCategory) => {
+      let wagesCents = 0;
+      let withholdingCents = 0;
+      for (const ytd of state.sourceYearToDate.get(`${pid}|${ctx.year}`)?.values() ?? []) {
+        if (ytd.taxCategory !== taxCategory) continue;
+        wagesCents += ytd.regularWagesCents;
+        withholdingCents += ytd.regularWithholdingCents;
+      }
+      return { wagesCents, withholdingCents };
+    },
     remainingDeferralRoomCents: (pid) => remainingDeferralRoomCents(state, jurisdiction, ctx, pid),
     // Age comes from the person; the accumulator is keyed by the plan.
     remainingCombinedDepositRoomCents: (pid, planKey) => {
@@ -165,8 +198,8 @@ function planMonthAllocation(
  *
  * The same waterfall the month is really allocated by ({@link runWaterfall}), run on the same
  * inputs, over the income the household has WITHOUT decumulation. So the gap it reports is net of
- * every deduction that will actually be taken — pre-tax deferrals, payroll tax, this year's
- * income-tax instalment and April's settled balance alike — because it is the same subtraction,
+ * every deduction that will actually be taken — pre-tax deferrals, payroll tax, this month's
+ * income-tax withholding and April's settled balance alike — because it is the same subtraction,
  * not a second model of it. Anything the waterfall later learns to dock is netted here the day it
  * is added, with nothing to keep in step.
  *
@@ -186,7 +219,6 @@ export function projectObligationShortfallCents(
   jurisdiction: Jurisdiction,
   sharedObligationCents: Cents,
   month: number,
-  estimatedTaxPayments: ReadonlyMap<string, FederalTaxPayment>,
   priorYearSettlements: PriorYearSettlements,
 ): Cents {
   const { input } = planMonthAllocation(
@@ -196,7 +228,6 @@ export function projectObligationShortfallCents(
     jurisdiction,
     sharedObligationCents,
     month,
-    estimatedTaxPayments,
     priorYearSettlements,
   );
   return runWaterfall(input).obligationShortfallCents;
@@ -223,7 +254,6 @@ export function allocateMonth(
   jurisdiction: Jurisdiction,
   sharedObligationCents: Cents,
   month: number,
-  estimatedTaxPayments: ReadonlyMap<string, FederalTaxPayment>,
   priorYearSettlements: PriorYearSettlements,
 ): {
   taxCents: Cents;
@@ -237,6 +267,16 @@ export function allocateMonth(
    * sources of the year it taxes.
    */
   taxBySourceCents: Readonly<Record<string, Cents>>;
+  /**
+   * The slice of `taxCents` (and of `taxBySourceCents`) that is the PRIOR year's settled balance
+   * rather than this month's withholding — SIGNED, so a refund is negative. 0 outside April and
+   * whenever nothing was left to settle. Reporting only: it is already inside `taxCents`, stated
+   * separately so a consumer can tell the money a paycheck withheld from the money a filing
+   * settled without re-deriving either.
+   */
+  taxSettlementCents: Cents;
+  /** Per-source attribution of {@link taxSettlementCents}, signed and summing to it. `{}` when 0. */
+  taxSettlementBySourceCents: Readonly<Record<string, Cents>>;
   deferralBySourceCents: Readonly<Record<string, Cents>>;
   contributions: readonly MonthContribution[];
   /** The pre-cascade shortfall this month posted to the liquid account (obligations + contributions). */
@@ -251,7 +291,6 @@ export function allocateMonth(
     jurisdiction,
     sharedObligationCents,
     month,
-    estimatedTaxPayments,
     priorYearSettlements,
   );
   const accountsById = new Map(state.accounts.map((a) => [a.id, a]));
@@ -277,17 +316,34 @@ export function allocateMonth(
     state.deferredByPersonYear.set(key, (state.deferredByPersonYear.get(key) ?? 0) + amount);
   }
 
-  // Fold this month's earned gross into the year-to-date accumulator so next month's payroll
-  // base — and the OASDI cap it settles against — is current.
-  for (const [pid, earned] of result.earnedThisMonthByPersonCents) {
+  // Fold this month's per-source payroll facts into the year-to-date accumulator, so next month's
+  // wage base, surtax threshold and supplemental band all bind on the running total of the source
+  // that paid them.
+  for (const [pid, deltasBySource] of result.sourceYearToDateDeltas) {
     const key = `${pid}|${ctx.year}`;
-    const running = state.earnedByPersonYear.get(key);
+    let running = state.sourceYearToDate.get(key);
     if (running === undefined) {
-      state.earnedByPersonYear.set(key, { ...earned });
-    } else {
-      for (const [category, cents] of Object.entries(earned)) {
-        if (cents) running[category as TaxCategory] = (running[category as TaxCategory] ?? 0) + cents;
+      running = new Map();
+      state.sourceYearToDate.set(key, running);
+    }
+    for (const [sourceKey, delta] of deltasBySource) {
+      const prior = running.get(sourceKey);
+      if (prior === undefined) {
+        running.set(sourceKey, { ...delta, earnedByCategory: { ...delta.earnedByCategory } });
+        continue;
       }
+      const earnedByCategory = { ...prior.earnedByCategory };
+      for (const [category, cents] of Object.entries(delta.earnedByCategory)) {
+        if (cents) addCategory(earnedByCategory, category as TaxCategory, cents);
+      }
+      running.set(sourceKey, {
+        earnedByCategory,
+        supplementalWagesCents: prior.supplementalWagesCents + delta.supplementalWagesCents,
+        wageWithholdingCents: prior.wageWithholdingCents + delta.wageWithholdingCents,
+        regularWagesCents: prior.regularWagesCents + delta.regularWagesCents,
+        regularWithholdingCents: prior.regularWithholdingCents + delta.regularWithholdingCents,
+        taxCategory: delta.taxCategory ?? prior.taxCategory,
+      });
     }
   }
 
@@ -300,7 +356,7 @@ export function allocateMonth(
   }
 
   // Fold this month's taxable income into the year-to-date accumulator. What the month CHARGED
-  // is an installment on the year's estimate, unrelated to this figure; December reads the
+  // is what payroll withheld, unrelated to this figure; December reads the
   // complete total once, so the month a dollar landed in never changes the annual liability.
   for (const [pid, taxable] of result.taxableByPersonCents) {
     const key = `${pid}|${ctx.year}`;
@@ -331,33 +387,52 @@ export function allocateMonth(
     }
   }
 
-  // Record what was paid TOWARD THIS YEAR, so the year's close reconciles against the real
-  // running total rather than re-deriving "twelve installments" and missing a year that started
-  // mid-estimate. Only the instalment counts: a prior year's balance settled this month pays a
-  // liability this year's close knows nothing about.
+  // Credit what was WITHHELD TOWARD THIS YEAR, so the year's close reconciles the liability
+  // against a real running total. Only the withholding counts: a prior year's balance settled this
+  // month pays a liability this year's close knows nothing about, and crediting it here would make
+  // this December undercharge by exactly that amount.
   const taxByCategoryCents: TaxableByCategory = {};
   const taxBySourceCents: Record<string, Cents> = {};
-  for (const [pid, payment] of estimatedTaxPayments) {
-    if (payment.totalCents === 0) continue;
+  for (const [pid, withheld] of result.wageWithholdingByPerson) {
+    if (withheld.totalCents === 0) continue;
     const key = `${pid}|${ctx.year}`;
     state.federalTaxPaidByPersonYear.set(
       key,
-      addFederalTaxPayment(state.federalTaxPaidByPersonYear.get(key) ?? NO_FEDERAL_TAX_PAID, payment),
+      addFederalTaxPayment(state.federalTaxPaidByPersonYear.get(key) ?? NO_FEDERAL_TAX_PAID, {
+        totalCents: withheld.totalCents,
+        byCategoryCents: withheld.byCategoryCents,
+        bySourceCents: { ...withheld.bySourceCents },
+      }),
     );
   }
-  // The breakdowns, in contrast, describe the CASH this month charged — instalment and prior-year
+  // The breakdowns, in contrast, describe the CASH this month charged — withholding and prior-year
   // balance alike — because that is what `taxCents` is and what the per-source haircut has to
   // reconcile against. A settled balance bands under the sources that produced the income it
   // taxes, which are last year's; a source no longer paying this month is stranded and spread
   // across the month's real ones downstream ({@link import("./reportFlows").buildFlows}).
-  for (const payments of [estimatedTaxPayments, priorYearSettlements]) {
-    for (const [, payment] of payments) {
-      if (payment.totalCents === 0) continue;
-      for (const [category, cents] of Object.entries(payment.byCategoryCents)) {
-        if (cents) addCategory(taxByCategoryCents, category as TaxCategory, cents);
-      }
-      for (const [source, cents] of Object.entries(payment.bySourceCents)) {
-        if (cents) taxBySourceCents[source] = (taxBySourceCents[source] ?? 0) + cents;
+  for (const withheld of result.wageWithholdingByPerson.values()) {
+    for (const [category, cents] of Object.entries(withheld.byCategoryCents)) {
+      if (cents) addCategory(taxByCategoryCents, category as TaxCategory, cents);
+    }
+    for (const [source, cents] of Object.entries(withheld.bySourceCents)) {
+      if (cents) taxBySourceCents[source] = (taxBySourceCents[source] ?? 0) + cents;
+    }
+  }
+  // The settled slice, kept as its own reporting figure on the way past. Signed throughout: a
+  // refund is a negative charge here exactly as it is in `taxCents`, and clamping it anywhere in
+  // the engine would lose the only record that the filing produced money back.
+  let taxSettlementCents: Cents = 0;
+  const taxSettlementBySourceCents: Record<string, Cents> = {};
+  for (const payment of priorYearSettlements.values()) {
+    if (payment.totalCents === 0) continue;
+    taxSettlementCents += payment.totalCents;
+    for (const [category, cents] of Object.entries(payment.byCategoryCents)) {
+      if (cents) addCategory(taxByCategoryCents, category as TaxCategory, cents);
+    }
+    for (const [source, cents] of Object.entries(payment.bySourceCents)) {
+      if (cents) taxBySourceCents[source] = (taxBySourceCents[source] ?? 0) + cents;
+      if (cents) {
+        taxSettlementBySourceCents[source] = (taxSettlementBySourceCents[source] ?? 0) + cents;
       }
     }
   }
@@ -370,6 +445,8 @@ export function allocateMonth(
     payrollTaxBySourceCents: result.payrollTaxBySourceCents,
     taxByCategoryCents,
     taxBySourceCents,
+    taxSettlementCents,
+    taxSettlementBySourceCents,
     deferralBySourceCents: result.deferralBySourceCents,
     contributions,
     shortfallCents: result.shortfallCents,

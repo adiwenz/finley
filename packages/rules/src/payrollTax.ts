@@ -1,18 +1,24 @@
 import type { Cents, ModelAssumption } from "@finley/engine";
 
 /**
- * US federal PAYROLL tax, SINGLE FILER — the FICA rate-and-threshold tables plus the pure
- * annual computation. This is the `rules`-side data behind an engine payroll seam that
- * charges tax on EARNED income (wages / self-employment), distinct from the income-tax seam
- * in {@link federalTax}.
+ * US federal PAYROLL tax (FICA), SINGLE FILER — the rate-and-threshold tables, the
+ * per-employer PAYCHECK WITHHOLDING computation, and the annual RECONCILIATION the return
+ * performs over it. This is the `rules`-side data behind the engine's payroll seams, which
+ * charge tax on EARNED income (wages / self-employment), distinct from the income-tax seam in
+ * {@link federalTax}.
  *
- * Three components, employee side only (the plan models the worker's own reconciled annual
- * payroll-tax liability, not employer-by-employer paycheck withholding — see the multi-job
- * note below):
- *   • OASDI (Social Security) — 6.2% up to an annual per-person taxable maximum; nothing above.
+ * Three components, employee side only (the employer's matching half is never charged to the
+ * worker, so it is never added here):
+ *   • OASDI (Social Security) — 6.2% up to an annual taxable maximum; nothing above.
  *   • Medicare — 1.45% on ALL earned income, no cap.
- *   • Additional Medicare — 0.9% surtax on earned income over a fixed statutory threshold;
- *     employee-only, with no employer match.
+ *   • Additional Medicare — 0.9% surtax past a fixed statutory threshold; employee-only.
+ *
+ * WITHHOLDING IS PER EMPLOYER, AND THAT IS NOT THE SAME AS WHAT IS OWED. Real payroll applies
+ * the wage base and the surtax threshold to the wages IT paid, knowing nothing about the
+ * worker's other jobs, which is what {@link payrollWithholdingParts} models. The two components
+ * whose annual truth is a COMBINED figure are then squared up on the return
+ * ({@link payrollTaxReconciliationCents}) — a real filing step, not a modelling convenience,
+ * and the reason a job change or a second job produces an April adjustment here.
  *
  * NEUTRALITY: every US constant lives HERE, never in `packages/engine/src`.
  *
@@ -51,6 +57,10 @@ const AWI_ANNUAL_INDEXING_RATE = 0.035;
  * base — NEVER indexed. Held flat across every year, mirroring the Social-Security
  * benefit-inclusion thresholds in {@link federalTaxTables}. As earned income grows, more of
  * it crosses this frozen line over time.
+ *
+ * ONE threshold, TWO meanings, which is why {@link payrollTaxReconciliationCents} exists: an
+ * employer applies it to the wages it alone paid (and is in fact forbidden to consider any
+ * other), while the worker owes the surtax on their COMBINED wages above the same figure.
  */
 export const ADDITIONAL_MEDICARE_THRESHOLD_CENTS: Cents = 200_000_00;
 
@@ -107,35 +117,39 @@ export interface PayrollTaxParts {
 }
 
 /**
- * Employee-side payroll-tax LIABILITY on a person's COMBINED annual earned income for `year`
- * — the reconciled amount the worker owes across the whole year, NOT a per-employer paycheck
- * withholding simulation.
+ * Employee-side FICA WITHHELD from wages paid by ONE employer, given that employer's cumulative
+ * year-to-date wages for the person. Every real payroll system computes exactly this, and it is
+ * the only figure a paycheck can carry: an employer knows its own wages and nothing else.
  *
- * Multi-job choice: the argument is the person's total earned income across ALL jobs, so the
- * wage base and surtax threshold each apply ONCE to the combined figure. This models the true
- * single annual cap the worker owes on their return (as if reconciled from day one), not the
- * per-employer over-withhold-then-refund cash-flow a worker with two jobs (or a job change
- * mid-year) actually experiences: in reality each employer withholds independently up to the
- * wage base against ITS OWN wages, so a multi-employer worker can have EXCESS Social Security
- * withheld across employers, refunded only when they file their tax return. That per-employer
- * over-withholding and its later refund are NOT modeled — this function always states the
- * combined, already-reconciled figure. Simpler and more accurate for long-range planning, at
- * the cost of the intra-year timing of a multi-employer refund.
+ * The engine feeds the cumulative total and charges the DIFFERENCE month to month, so each
+ * capped or banded component binds on the running total rather than on an annualized monthly
+ * slice — a level earner is unaffected either way, a lumpy one would be mis-capped every month.
+ * Monotone non-decreasing in `employerCumulativeWagesCents`, so that difference is never a credit.
  *
- * Annual, per person, per calendar year: OASDI stops once cumulative earnings reach the wage
- * base, so a mid-year seam must ACCUMULATE rather than annualize each month's slice (a level
- * earner is unaffected, a lumpy one would be mis-capped every month). Accumulation is the
- * engine's job; this function states the correct WHOLE-YEAR answer the accumulator settles to.
+ * WHERE THIS DIFFERS FROM WHAT IS OWED, and why the difference is correct rather than a bug:
  *
- * Negative earnings are clamped to zero at the boundary: there is no such thing as negative
- * payroll tax, so malformed input yields no charge rather than a credit against other tax.
+ *  • OASDI stops at the wage base for THIS employer. A person with two jobs, or one who changes
+ *    jobs mid-year, therefore has the base applied twice and can have more Social Security
+ *    withheld than they owe. That is what really happens; the excess comes back as a credit on
+ *    the return ({@link payrollTaxReconciliationCents}), not as a smaller paycheck deduction.
+ *  • Additional Medicare is withheld on THIS employer's wages past the threshold. An employer is
+ *    required to ignore the employee's other wages, so a two-job worker over the threshold in
+ *    total but under it at each job has none withheld — and squares up on Form 8959 instead.
+ *  • Medicare itself is uncapped and so never needs reconciling: it is the same 1.45% whether
+ *    read per employer or combined.
+ *
+ * Negative wages are clamped to zero at the boundary: there is no such thing as negative payroll
+ * tax, so malformed input yields no charge rather than a credit against other tax.
  */
-export function payrollTaxParts(annualEarnedCents: Cents, year: number): PayrollTaxParts {
+export function payrollWithholdingParts(
+  employerCumulativeWagesCents: Cents,
+  year: number,
+): PayrollTaxParts {
   const t = payrollTaxTables(year);
-  const earnedCents = Math.max(0, annualEarnedCents);
-  const oasdiCents = Math.round(Math.min(earnedCents, t.oasdiWageBaseCents) * t.oasdiRate);
-  const medicareCents = Math.round(earnedCents * t.medicareRate);
-  const surtaxBase = Math.max(0, earnedCents - t.additionalMedicareThresholdCents);
+  const wagesCents = Math.max(0, employerCumulativeWagesCents);
+  const oasdiCents = Math.round(Math.min(wagesCents, t.oasdiWageBaseCents) * t.oasdiRate);
+  const medicareCents = Math.round(wagesCents * t.medicareRate);
+  const surtaxBase = Math.max(0, wagesCents - t.additionalMedicareThresholdCents);
   const additionalMedicareCents = Math.round(surtaxBase * t.additionalMedicareRate);
   return {
     oasdiCents,
@@ -145,9 +159,66 @@ export function payrollTaxParts(annualEarnedCents: Cents, year: number): Payroll
   };
 }
 
-/** Scalar total behind {@link payrollTaxParts} — the whole-year employee payroll tax. */
-export function payrollTaxCents(annualEarnedCents: Cents, year: number): Cents {
-  return payrollTaxParts(annualEarnedCents, year).totalCents;
+/** Scalar total behind {@link payrollWithholdingParts} — one employer's cumulative FICA withheld. */
+export function payrollWithholdingCents(employerCumulativeWagesCents: Cents, year: number): Cents {
+  return payrollWithholdingParts(employerCumulativeWagesCents, year).totalCents;
+}
+
+/**
+ * The FICA adjustment the RETURN makes over a year of per-employer withholding — signed, positive
+ * owed, negative refunded. `wagesByEmployerCents` is each employer's whole-year wages for one
+ * person; the order does not matter and a single-employer year always reconciles to exactly zero.
+ *
+ * Only the two components whose annual truth is a COMBINED figure appear here, and each is a real
+ * line on a real return rather than a tidying-up of the model:
+ *
+ *  • EXCESS SOCIAL SECURITY (Schedule 3) — withholding applied the wage base once per employer, so
+ *    a person with two jobs can be over the single combined cap. Whatever was withheld above
+ *    `wageBase × 6.2%` is a refundable credit. Never a debit: an employer that under-withheld
+ *    OASDI owes it itself, and the employee is not billed for it on their return.
+ *  • ADDITIONAL MEDICARE (Form 8959) — the 0.9% surtax is owed on combined wages past the
+ *    threshold but was withheld on each employer's wages past it separately. The difference goes
+ *    either way: a two-job worker over the line only in aggregate owes the whole surtax in April,
+ *    and a single-job worker who also crossed it gets nothing back because there is nothing to
+ *    correct.
+ *
+ * Ordinary Medicare is deliberately absent — uncapped and unbanded, it needs no reconciliation,
+ * and putting it through one would move cash between months for no reason in the tax law.
+ */
+export function payrollTaxReconciliationCents(
+  wagesByEmployerCents: readonly Cents[],
+  year: number,
+): Cents {
+  const t = payrollTaxTables(year);
+  const wages = wagesByEmployerCents.map((w) => Math.max(0, w));
+
+  const oasdiWithheldCents = wages.reduce(
+    (sum, w) => sum + Math.round(Math.min(w, t.oasdiWageBaseCents) * t.oasdiRate),
+    0,
+  );
+  const oasdiOwedCents = Math.round(
+    Math.min(
+      wages.reduce((sum, w) => sum + w, 0),
+      t.oasdiWageBaseCents,
+    ) * t.oasdiRate,
+  );
+  const excessOasdiCreditCents = Math.max(0, oasdiWithheldCents - oasdiOwedCents);
+
+  const combinedWagesCents = wages.reduce((sum, w) => sum + w, 0);
+  const surtaxOwedCents = Math.round(
+    Math.max(0, combinedWagesCents - t.additionalMedicareThresholdCents) *
+      t.additionalMedicareRate,
+  );
+  const surtaxWithheldCents = wages.reduce(
+    (sum, w) =>
+      sum +
+      Math.round(
+        Math.max(0, w - t.additionalMedicareThresholdCents) * t.additionalMedicareRate,
+      ),
+    0,
+  );
+
+  return surtaxOwedCents - surtaxWithheldCents - excessOasdiCreditCents;
 }
 
 /**
@@ -159,15 +230,15 @@ export function payrollTaxCents(annualEarnedCents: Cents, year: number): Cents {
  */
 export const PAYROLL_TAX_ASSUMPTIONS: readonly ModelAssumption[] = [
   {
-    id: "payrollTaxAnnualLiabilityNotWithholding",
+    id: "payrollTaxPerEmployerWithholding",
     text:
-      "Payroll tax (FICA) is modeled as the reconciled amount owed for the year on your " +
-      "combined earned income, not as each employer's separate paycheck withholding. If you " +
-      "hold more than one job (or switch jobs) in the same year, each real employer withholds " +
-      "Social Security independently up to the wage cap, which can withhold more Social " +
-      "Security than is actually owed — the excess is refunded only when you file your tax " +
-      "return. That per-employer over-withholding and its refund are not modeled; the figures " +
-      "shown always reflect the already-reconciled annual total.",
+      "Social Security and Medicare (FICA) are taken out of each paycheck the way a real " +
+      "employer takes them: each job applies the Social Security wage cap and the Additional " +
+      "Medicare threshold to the wages that job alone paid, because an employer is not allowed " +
+      "to look at your other jobs. If you hold two jobs, or change jobs mid-year, that can " +
+      "withhold more Social Security than you actually owe — the excess comes back as a credit " +
+      "when you file, in April of the following year, exactly as it does in real life. The " +
+      "0.9% Additional Medicare Tax is squared up the same way, and can go either direction.",
   },
   {
     id: "oasdiWageBaseWageIndexed",

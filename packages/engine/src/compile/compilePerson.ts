@@ -37,6 +37,7 @@ import {
   applyJobIncomeOverride,
   effectivePayChanges,
   orderedIncomeOverrides,
+  supplementalPayCentsAt,
   type Job,
   type JobPayChange,
   type JobIncomeOverride,
@@ -125,9 +126,11 @@ function applyPayChanges(
  * series as `thisMonthOnly` overrides, within the inclusive `[loMonth, hiMonth]` span. So they
  * are taxed as wages and run through the job's deferral like regular pay.
  *
- * What an adjustment *means* is {@link applyJobIncomeOverride}'s to say and the order they
- * apply in is {@link orderedIncomeOverrides}'; this only decides where the result is written and
- * which months are in range. Every authoring surface reads the same two functions, so what the
+ * What an adjustment *means* is {@link applyJobIncomeOverride}'s to say, the order they apply in
+ * is {@link orderedIncomeOverrides}', and which part of the result is a ONE-OFF payment is
+ * {@link supplementalPayCentsAt}'s; this only decides where the results are written and which
+ * months are in range. The one-off slice is returned rather than written into the series because
+ * it is not pay — it is a fact ABOUT the pay, which only withholding reads. Every authoring surface reads the same two functions, so what the
  * chart draws for a month cannot disagree with what the projection pays for it.
  *
  * **Stacking needs no special case.** Each adjustment reads the month's *current* value as its
@@ -140,12 +143,32 @@ function applyIncomeOverrides(
   overrides: readonly JobIncomeOverride[],
   loMonth: number,
   hiMonth: number,
-): void {
-  for (const ov of orderedIncomeOverrides(overrides)) {
-    if (ov.month < loMonth || ov.month > hiMonth) continue;
-    const pay = applyJobIncomeOverride(series.getMonthlyCents(ov.month), ov);
-    series.addOverride(ov.month, pay, "thisMonthOnly");
+): Map<number, Cents> {
+  const inRange = orderedIncomeOverrides(overrides).filter(
+    (o) => o.month >= loMonth && o.month <= hiMonth,
+  );
+  // The standing salary of every month an adjustment touches, read BEFORE any of them is written
+  // — the base both the pay and the one-off slice compose against. A `thisMonthOnly` override
+  // never moves another month, so one read per month is enough.
+  const standingPayByMonth = new Map<number, Cents>();
+  for (const ov of inRange) {
+    if (!standingPayByMonth.has(ov.month)) {
+      standingPayByMonth.set(ov.month, series.getMonthlyCents(ov.month));
+    }
   }
+  for (const ov of inRange) {
+    series.addOverride(
+      ov.month,
+      applyJobIncomeOverride(series.getMonthlyCents(ov.month), ov),
+      "thisMonthOnly",
+    );
+  }
+  const supplementalByMonth = new Map<number, Cents>();
+  for (const [month, standingPayCents] of standingPayByMonth) {
+    const cents = supplementalPayCentsAt(standingPayCents, inRange, month);
+    if (cents > 0) supplementalByMonth.set(month, cents);
+  }
+  return supplementalByMonth;
 }
 
 /**
@@ -351,7 +374,12 @@ function compileJobIncome(
   // one landing before the join never reaches this household. Bounded to the paid window, and
   // the clip below would exclude it regardless. Overrides tax as wages and run through the
   // 401(k) deferral like regular pay.
-  applyIncomeOverrides(series, job.incomeOverrides ?? [], paidStart, paidEndExclusive - 1);
+  const supplementalByMonth = applyIncomeOverrides(
+    series,
+    job.incomeOverrides ?? [],
+    paidStart,
+    paidEndExclusive - 1,
+  );
 
   // LAST, once the path is complete: everything above reads the month's standing pay to
   // compose against, and those reads must see the real salary rather than a clipped zero.
@@ -365,6 +393,9 @@ function compileJobIncome(
     // Stable per-source key: two jobs read apart on the income graph, and one ending is
     // legible as that job.
     sourceId: `job:${job.id}`,
+    // The one-off slice of each adjusted month, so payroll withholding can price a bonus by the
+    // supplemental method instead of annualizing it into a permanent pay rise.
+    supplementalByMonth,
     planDescriptor: job.deferral
       ? {
           deferralFraction: job.deferral.deferralFraction,

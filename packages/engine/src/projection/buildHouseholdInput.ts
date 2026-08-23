@@ -39,12 +39,17 @@ export function buildHouseholdSimInput(
   for (const s of household.series) {
     if (s.seriesType === "income") {
       // Keep the plan descriptor so plan-bearing income defers pre-tax in the waterfall;
-      // expenses never carry one.
+      // expenses never carry one. Keep the one-off (bonus) slice for the same reason: without
+      // it the waterfall sees a month's whole pay as the job's standing rate, and payroll
+      // annualizes a bonus into a pay rise.
       incomeSeries.push({
         series: s.series,
         ownerId: s.ownerId,
         label: s.label,
         ...(s.sourceId !== undefined ? { sourceId: s.sourceId } : {}),
+        ...(s.supplementalByMonth !== undefined
+          ? { supplementalByMonth: s.supplementalByMonth }
+          : {}),
         planDescriptor: s.planDescriptor,
       });
     } else {

@@ -7,14 +7,7 @@ import {
   SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
 } from "../liability/liability";
 import { dollarsToCents } from "../money/cashFlowSeries";
-import type { Cents } from "../money/money";
 import { nullJurisdiction } from "../jurisdiction/jurisdiction";
-import { initSimState, type SimState } from "./runState";
-import {
-  advanceLiabilities,
-  computeLiabilityPayments,
-  forecastLiabilityPayments,
-} from "./liabilitySteps";
 import {
   makePerson,
   makeInvestmentAccount,
@@ -568,93 +561,5 @@ describe("simulateHousehold — liabilities & shortfall cascade", () => {
       expect(series.months[12].liabilityBalancesCents["car"]).toBe(0);
       expect(series.months[13].liabilityPaymentRecords["car"]).toBeUndefined();
     });
-  });
-});
-
-/**
- * The year-ahead debt schedule the tax estimate is sized against. A debt's payments belong to the
- * months it actually makes them: holding January's figure flat charged a matured loan for months
- * it no longer existed and an unoriginated one for none of the months it did.
- */
-describe("forecastLiabilityPayments — the months a debt is actually paid in", () => {
-  const stateWith = (liabilities: (AmortizingLoan | RevolvingCard)[]): SimState =>
-    initSimState({
-      horizonMonths: 24,
-      annualInflationRate: 0,
-      persons: [makePerson()],
-      accounts: [makeInvestmentAccount(dollarsToCents(500_000), 0)],
-      incomeSeries: [],
-      expenseSeries: [],
-      liabilities,
-    });
-
-  /** A $45,000 interest-free loan paid off in six $7,500 instalments. */
-  const sixMonthLoan = (startMonth: number): AmortizingLoan =>
-    new AmortizingLoan({
-      id: "loan",
-      ownerId: "p1",
-      kind: "studentLoan",
-      openingBalanceCents: dollarsToCents(45_000),
-      startMonth,
-      apr: 0,
-      termMonths: 6,
-    });
-
-  /** What each forecast month charges for `id`, absent → 0. */
-  const chargesFor = (byMonth: readonly ReadonlyMap<string, Cents>[], id: string): Cents[] =>
-    byMonth.map((m) => m.get(id) ?? 0);
-
-  it("stops charging a loan the month after its final payment", () => {
-    const forecast = forecastLiabilityPayments(stateWith([sixMonthLoan(0)]), 0, 12);
-    // Originates in month 0, so the first payment falls in month 1 and the last in month 6 —
-    // and months 7 through 11 are free of it, rather than carrying January's payment to December.
-    expect(chargesFor(forecast, "loan")).toEqual([
-      0, ...Array(6).fill(dollarsToCents(7_500)), 0, 0, 0, 0, 0,
-    ]);
-  });
-
-  it("charges a loan that originates mid-year from the month it starts paying, not before", () => {
-    const forecast = forecastLiabilityPayments(stateWith([sixMonthLoan(5)]), 0, 12);
-    expect(chargesFor(forecast, "loan")).toEqual([
-      0, 0, 0, 0, 0, 0, ...Array(6).fill(dollarsToCents(7_500)),
-    ]);
-  });
-
-  it("charges a loan spanning the whole year in all twelve months", () => {
-    const loan = new AmortizingLoan({
-      id: "mortgage",
-      ownerId: "p1",
-      kind: "mortgage",
-      openingBalanceCents: dollarsToCents(300_000),
-      apr: 0.06,
-      termMonths: 360,
-    });
-    const charges = chargesFor(forecastLiabilityPayments(stateWith([loan]), 0, 12), "mortgage");
-    expect(charges[0]).toBe(0); // origination month: the balance appears, nothing is paid
-    for (let m = 1; m < 12; m++) expect(charges[m]).toBe(charges[1]);
-    expect(charges[1]).toBeGreaterThan(dollarsToCents(1_500));
-  });
-
-  it("matches, month for month, what a fully-funded run actually charges", () => {
-    // Not a lookalike of the run's own `computeLiabilityPayments` — the same function against the
-    // same advance rule, which is what stops the estimate and the months it estimates from
-    // disagreeing about what a debt costs.
-    const forecast = forecastLiabilityPayments(stateWith([sixMonthLoan(0)]), 0, 12);
-    const walked = stateWith([sixMonthLoan(0)]);
-    for (let m = 0; m < 12; m++) {
-      const actual = computeLiabilityPayments(walked, m);
-      expect(forecast[m]).toEqual(actual);
-      advanceLiabilities(walked, m, actual);
-    }
-  });
-
-  it("follows a scheduled lump-sum payoff, dropping the payments it retires", () => {
-    const loan = sixMonthLoan(0);
-    // The whole balance settled in month 3, before that month's interest — the payments for
-    // months 4 through 6 are simply not made, and the forecast must not fund them.
-    loan.addTransfer({ month: 3, amountCents: -dollarsToCents(45_000) });
-    expect(chargesFor(forecastLiabilityPayments(stateWith([loan]), 0, 12), "loan")).toEqual([
-      0, dollarsToCents(7_500), dollarsToCents(7_500), dollarsToCents(7_500), 0, 0, 0, 0, 0, 0, 0, 0,
-    ]);
   });
 });
