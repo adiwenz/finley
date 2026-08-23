@@ -19,10 +19,12 @@ This was built across three commits:
   each person's own accounts first, with cross-partner coverage only when one person's own
   resources are exhausted.
 - **Part C** (this commit) — the deferred final sentence of the issue: "Person-specific
-  obligations should remain assigned entirely to that person." A partner's own liability
-  payment (a car loan, a personal credit card) is now charged against their own take-home and
-  their own accounts, never the other partner's, and never smoothed into the proportional
-  shared split.
+  obligations should remain **assigned** entirely to that person." A partner's own liability
+  payment (a car loan, a personal credit card) is now charged owner-first — their own take-home,
+  then their own accounts — and never smoothed into the proportional shared split. Assignment is
+  not funding: once the owner's own income and accounts are both exhausted, the other active
+  partner's accounts still backstop the remainder (the issue's own household-funding step 4),
+  and the debt remains the owner's throughout. The only tier reserved to the owner is income.
 
 ## RGR Verification Details
 
@@ -33,12 +35,12 @@ implementation change:
 1. `financialObligation.test.ts` — `buildObligations` carries a liability's `ownerId` onto
    its obligation (RED: `ownerId` didn't exist on `FinancialObligation`); an expense-series
    obligation's `ownerId` stays absent.
-2. `waterfall.test.ts` — a personal obligation exceeding its owner's take-home becomes that
-   person's shortfall alone, never drawn from the other partner's leftover (RED:
+2. `waterfall.test.ts` — a personal obligation exceeding its owner's take-home is attributed to
+   that person, never drawn from the other partner's leftover INCOME (RED:
    `personalObligationCentsByPerson` didn't exist on `WaterfallInput`).
 3. `withdrawal.test.ts` — end-to-end via `simulateHousehold`: a partner's own loan payment
-   draws only their own brokerage (RED: the whole payment was still being split
-   proportionally as a shared cost, drawing $0 from the owner's account).
+   draws only their own brokerage while that brokerage can cover it (RED: the whole payment was
+   still being split proportionally as a shared cost, drawing $0 from the owner's account).
 4. Diagnosing why (3) still failed after wiring the obligation split surfaced a second,
    independent bug in `buildWithdrawalSources`'s existing per-person decumulation preference
    (built in Part B): it silently skipped its own person-aware liquidation pass whenever

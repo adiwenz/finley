@@ -528,8 +528,8 @@ describe("runWaterfall — shared obligations (step 3)", () => {
   });
 });
 
-describe("runWaterfall — personal obligations charged to their owner alone", () => {
-  it("a personal obligation exceeding its owner's own take-home is that person's shortfall alone, never drawn from the other partner's leftover", () => {
+describe("runWaterfall — personal obligations charged to their owner's own take-home", () => {
+  it("a personal obligation exceeding its owner's take-home is attributed to that person, never drawn from the other partner's leftover income", () => {
     const r = runWaterfall(
       makeInput({
         personIds: ["hi", "lo"],
@@ -539,7 +539,9 @@ describe("runWaterfall — personal obligations charged to their owner alone", (
       }),
     );
     // hi's own $500 take-home is entirely consumed by their $2000 personal obligation; the
-    // $1500 gap is a shortfall attributed to hi alone, not smoothed over by lo's $5000.
+    // $1500 gap is attributed to hi, not smoothed over by lo's $5000 of leftover INCOME. Where
+    // that $1500 is ultimately drawn from is decumulation's call, and lo's accounts are a valid
+    // last resort there — this seam governs income only.
     expect(r.shortfallCents).toBe(dollarsToCents(1500));
     expect(r.obligationShortfallByPersonCents.get("hi")).toBe(dollarsToCents(1500));
     expect(r.obligationShortfallByPersonCents.get("lo") ?? 0).toBe(0);

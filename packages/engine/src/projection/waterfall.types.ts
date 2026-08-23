@@ -186,9 +186,11 @@ export interface WaterfallInput {
    * owner of — charged against their own take-home BEFORE the shared split runs (§ Household
    * funding, "person-specific obligations should remain assigned entirely to that person").
    * Floored at that person's own positive take-home: it never pushes them into the household's
-   * shared negative-take-home pool, and what it cannot cover becomes THEIR shortfall alone in
-   * {@link WaterfallResult.obligationShortfallByPersonCents}, never the other partner's to
-   * absorb. Absent → no personal obligations, byte-identical to before this seam existed.
+   * shared negative-take-home pool, and what it cannot cover becomes THEIR shortfall in {@link
+   * WaterfallResult.obligationShortfallByPersonCents}, which decumulation reads as "try this
+   * person's own accounts first". Only the other partner's INCOME is out of reach; their
+   * accounts remain a last-resort backstop once the owner's own income and accounts are spent.
+   * Absent → no personal obligations, byte-identical to before this seam existed.
    */
   readonly personalObligationCentsByPerson?: (personId: string) => Cents;
   /** The default liquid account — the `idle` surplus destination. Null if none. */

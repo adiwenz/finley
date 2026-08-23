@@ -585,12 +585,18 @@ function proportionalSplit(
  * Step 2.5 — charge each person's OWN obligations against their OWN take-home, before the
  * shared split (step 3) ever sees the remainder. Unlike a shared obligation's shortfall (which
  * the other partner's discretionary leftover may cover, step 3's whole point), a personal
- * obligation's shortfall is deliberately NEVER handed to the other person here: `covered` is
- * floored at this person's own POSITIVE take-home, so a personal charge can never push an
- * already-non-negative take-home below 0 (it can only shrink what step 3 later sees as this
- * person's contribution to the shared pool). Whatever the person's own take-home can't cover is
- * returned as their shortfall alone — decumulation reads it as a preference to try their own
- * accounts first (see {@link import("./allocationStep").projectObligationShortfallCents}).
+ * obligation is never charged against the other person's TAKE-HOME: `covered` is floored at this
+ * person's own POSITIVE take-home, so a personal charge can never push an already-non-negative
+ * take-home below 0 (it can only shrink what step 3 later sees as this person's contribution to
+ * the shared pool). Whatever the person's own take-home can't cover is returned as their
+ * shortfall — decumulation reads it as a preference to try their own ACCOUNTS first (see {@link
+ * import("./allocationStep").projectObligationShortfallCents}).
+ *
+ * A preference, not a wall. Income is the only tier reserved to the owner; once their own income
+ * and their own accounts are both exhausted, decumulation's pooled pass funds the remainder from
+ * whoever in the household still has assets (see {@link
+ * import("./withdrawal").buildWithdrawalSources}). Ownership of the debt never moves with that
+ * money — what stays "assigned entirely to that person" is the obligation, not the cash.
  *
  * A pre-existing NEGATIVE take-home (deductions exceeding cash, unrelated to this obligation)
  * passes through untouched — `covered` is 0 whenever `th <= 0`, so that figure still reaches

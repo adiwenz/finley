@@ -1126,10 +1126,11 @@ describe("Person-aware decumulation — fund each person's share from accounts a
     expect(p2Drawn / (p1Drawn + p2Drawn)).toBeCloseTo(0.75, 1);
   });
 
-  it("end to end: a partner's own loan payment draws only their own brokerage, never the other partner's (#160)", () => {
-    // p2's income can't cover their own $1,000 loan payment; p1 earns plenty and has no
-    // obligation of their own. The gap is p2's alone — it must draw p2's brokerage, never p1's,
-    // even though p1's income and assets could easily absorb it.
+  it("end to end: a partner's own loan payment draws only their own brokerage while it can cover it (#160)", () => {
+    // p2's income can't cover their own $1,000 loan payment, but p2's own brokerage can; p1
+    // earns plenty and has no obligation of their own. The owner's own accounts are exhausted
+    // before anyone else's are touched, so p1 is untouched here — not because p1's assets are
+    // out of bounds (see the backstop test below), but because p2 never needed them.
     const wage = (ownerId: string, monthlyDollars: number): SimOwnedSeries => ({
       series: new SimCashFlowSeries(0, dollarsToCents(monthlyDollars), { type: "fixed" }, {
         baselineUnit: "monthly",
@@ -1219,6 +1220,71 @@ describe("Person-aware decumulation — fund each person's share from accounts a
     expect(month1.accountBalancesCents["p2-brokerage"]).toBe(0);
     // p1's brokerage covers the rest, as the backstop.
     expect(month1.accountBalancesCents["p1-brokerage"]).toBeLessThan(dollarsToCents(100_000));
+  });
+
+  it("pins the whole owner-first cascade for a personal debt: own income, then own accounts, then the partner's", () => {
+    // The three funding tiers in one scenario, every balance pinned rather than merely
+    // "solvent": p2 owes $1,000/mo, earns $300, and holds $500. Their income covers $300 and
+    // their own account the next $500 — exhausted, not merely preferred — leaving exactly $200
+    // for p1, the other active partner, to backstop from THEIR account. Ownership does not move
+    // with the money: the debt stays p2's, which is what the issue's "assigned entirely to that
+    // person" governs.
+    const wage = (ownerId: string, monthlyDollars: number): SimOwnedSeries => ({
+      series: new SimCashFlowSeries(0, dollarsToCents(monthlyDollars), { type: "fixed" }, {
+        baselineUnit: "monthly",
+        taxCategory: "wages",
+      }),
+      ownerId,
+    });
+    const p1: SimPerson = { id: "p1", name: "Alice" };
+    const p2: SimPerson = { id: "p2", name: "Bob" };
+    // 0% APR, $12k over 12 months → a flat $1,000 payment, first due at month 1.
+    const loan = new AmortizingLoan({
+      id: "p2-auto",
+      ownerId: "p2",
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(12_000),
+      apr: 0,
+      termMonths: 12,
+    });
+    const series = simulateHousehold(
+      {
+        horizonMonths: 2,
+        annualInflationRate: 0,
+        startYear: 2026,
+        persons: [p1, p2],
+        accounts: [
+          ownedAccount("p1-brokerage", "p1", 50_000),
+          ownedAccount("p2-brokerage", "p2", 500),
+        ],
+        incomeSeries: [wage("p1", 4_000), wage("p2", 300)],
+        expenseSeries: [],
+        liabilities: [loan],
+      },
+      nullJurisdiction,
+    );
+
+    // Opening balances, so the deltas below are read against a pinned start, not an assumed one.
+    const month0 = series.months[0]!;
+    expect(month0.accountBalancesCents["p1-brokerage"]).toBe(dollarsToCents(50_000));
+    expect(month0.accountBalancesCents["p2-brokerage"]).toBe(dollarsToCents(500));
+
+    const month1 = series.months[1]!;
+    // The household could pay, so it did — p2 alone never could have.
+    expect(month1.isInsolvent).toBe(false);
+    // Tier 2: p2's own account funds their share until it is EMPTY. Pinned at 0, so this cannot
+    // pass on a merely-proportional draw that happened to leave something behind.
+    expect(month1.accountBalancesCents["p2-brokerage"]).toBe(0);
+    // Tier 3: exactly the $200 p2's own income and account could not reach — no more, so p1 is a
+    // backstop for the true remainder rather than a co-payer of the whole obligation.
+    expect(month1.accountBalancesCents["p1-brokerage"]).toBe(dollarsToCents(50_000 - 200));
+    // Owner-first ordering is never bought with an overdraft.
+    for (const balance of Object.values(month1.accountBalancesCents)) {
+      expect(balance).toBeGreaterThanOrEqual(0);
+    }
+    // The debt is p2's before and after p1's money touched it. Paying is not assuming.
+    expect(loan.ownerId).toBe("p2");
+    expect(month1.liabilityBalancesCents["p2-auto"]).toBe(dollarsToCents(11_000));
   });
 });
 
