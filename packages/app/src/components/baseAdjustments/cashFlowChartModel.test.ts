@@ -20,6 +20,8 @@ interface MonthSpec {
   readonly taxSettlementCents?: number;
   readonly expensesCents?: number;
   readonly isInsolvent?: boolean;
+  /** The waterfall's signed per-person net, which the net view's per-person cut reads. */
+  readonly netCashFlowByPersonCents?: Record<string, number>;
 }
 
 function seriesOf(...perMonth: MonthSpec[]): ProjectionSeries {
@@ -36,6 +38,8 @@ function seriesOf(...perMonth: MonthSpec[]): ProjectionSeries {
         taxSettlementCents: m.taxSettlementCents ?? 0,
         expensesCents: m.expensesCents ?? 0,
         liabilityPaymentsCents: 0,
+        netCashFlowByPersonCents: m.netCashFlowByPersonCents ?? {},
+        deferredByPersonCents: {},
       },
     })),
   ];
@@ -245,6 +249,8 @@ describe("buildCashFlowChartModel — one person's cut", () => {
       ],
       obligations: [{ id: "rent", label: "Rent", category: "needs", amountCents: RENT }],
       expensesCents: RENT,
+      // The waterfall's own proportional split of the rent: $2,142.86 to Alex, $857.14 to Blake.
+      netCashFlowByPersonCents: { p1: ALEX_PAY - 214_286, p2: BLAKE_PAY - 85_714 },
     }),
   );
 
@@ -272,7 +278,7 @@ describe("buildCashFlowChartModel — one person's cut", () => {
     expect(blake.showsSpendingNeed).toBe(false);
   });
 
-  it("leaves the outflow and net views whole, because neither is attributable", () => {
+  it("leaves the outflow view whole, because spending is not attributable", () => {
     // Every budget line compiles under the primary person whoever it is really for, so honouring
     // a cut here would draw the primary paying for the household and the partner paying nothing.
     // The model ignores the request rather than answering it wrongly.
@@ -280,9 +286,31 @@ describe("buildCashFlowChartModel — one person's cut", () => {
     expect(out.bands.map((b) => b.label)).toEqual(
       buildCashFlowChartModel(twoEarners, { view: "outflows" }).bands.map((b) => b.label),
     );
+  });
 
+  it("draws one person's net from the engine's own figure", () => {
+    // Blake's $2,400 less their $857.14 share of the rent. Not Blake's income minus the WHOLE
+    // rent, and not a half of the household's net: the share is the one the waterfall funded.
     const net = buildCashFlowChartModel(twoEarners, { view: "net", ownerId: "p2" });
-    expect(net.rows[0]![NET_KEY]).toBe(ALEX_PAY + BLAKE_PAY - RENT);
+    expect(net.rows[0]![NET_KEY]).toBe(BLAKE_PAY - 85_714);
+  });
+
+  it("sums the two people's net back to the household's, to the cent", () => {
+    // The reconciliation the toggle rests on. The per-person figure is POST-deferral while the
+    // household line counts a deferral as money kept, so the data layer adds it back — without
+    // that, two partners' lines would quietly fall short of the line above them.
+    const alex = buildCashFlowChartModel(twoEarners, { view: "net", ownerId: "p1" });
+    const blake = buildCashFlowChartModel(twoEarners, { view: "net", ownerId: "p2" });
+    const combined = buildCashFlowChartModel(twoEarners, { view: "net" });
+    expect(alex.rows[0]![NET_KEY]! + blake.rows[0]![NET_KEY]!).toBe(combined.rows[0]![NET_KEY]);
+    expect(combined.rows[0]![NET_KEY]).toBe(ALEX_PAY + BLAKE_PAY - RENT);
+  });
+
+  it("draws zero for a person the engine reported nothing for", () => {
+    // Never the household's line under one person's name — which is what an absent key would
+    // fall back to if the cut were a filter over bands instead of a lookup.
+    const net = buildCashFlowChartModel(twoEarners, { view: "net", ownerId: "nobody" });
+    expect(net.rows[0]![NET_KEY]).toBe(0);
   });
 
   it("keeps the combined view unchanged when no cut is asked for", () => {

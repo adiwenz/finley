@@ -609,21 +609,30 @@ function chargePersonalObligations(
   takeHomeByPerson: Map<string, Cents>;
   shortfallByPerson: Map<string, Cents>;
   shortfallCents: Cents;
+  /** What each person was CHARGED, covered or not — the reporting figure, unlike `covered`. */
+  chargedByPerson: Map<string, Cents>;
 } {
   const personalOf = input.personalObligationCentsByPerson;
   const adjustedTakeHomeByPerson = new Map<string, Cents>();
   const shortfallByPerson = new Map<string, Cents>();
+  const chargedByPerson = new Map<string, Cents>();
   let shortfallCents: Cents = 0;
   for (const pid of input.personIds) {
     const th = takeHomeByPerson.get(pid) ?? 0;
     const personal = Math.max(0, personalOf?.(pid) ?? 0);
     const covered = Math.min(personal, Math.max(0, th));
     adjustedTakeHomeByPerson.set(pid, th - covered);
+    chargedByPerson.set(pid, personal);
     const shortfall = personal - covered;
     shortfallByPerson.set(pid, shortfall);
     shortfallCents += shortfall;
   }
-  return { takeHomeByPerson: adjustedTakeHomeByPerson, shortfallByPerson, shortfallCents };
+  return {
+    takeHomeByPerson: adjustedTakeHomeByPerson,
+    shortfallByPerson,
+    shortfallCents,
+    chargedByPerson,
+  };
 }
 
 /**
@@ -664,6 +673,8 @@ function splitSharedObligation(
   totalDiscretionary: Cents;
   shortfallCents: Cents;
   obligationShortfallByPersonCents: Map<string, Cents>;
+  /** Each person's share of the shared obligation, whether their income covered it or not. */
+  shareByPerson: Map<string, Cents>;
 } {
   const positiveTakeHome = new Map<string, Cents>();
   let totalPositive: Cents = 0;
@@ -741,7 +752,13 @@ function splitSharedObligation(
     ]),
   );
 
-  return { leftoverByPerson, totalDiscretionary, shortfallCents, obligationShortfallByPersonCents };
+  return {
+    leftoverByPerson,
+    totalDiscretionary,
+    shortfallCents,
+    obligationShortfallByPersonCents,
+    shareByPerson,
+  };
 }
 
 /**
@@ -896,7 +913,25 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     totalDiscretionary,
     shortfallCents: sharedShortfallCents,
     obligationShortfallByPersonCents: sharedObligationShortfallByPersonCents,
+    shareByPerson,
   } = splitSharedObligation(input, personalCharge.takeHomeByPerson);
+
+  // The SIGNED companion to `leftoverByPerson`, built from the same three quantities but with
+  // none of the flooring the allocation itself needs. `leftoverByPerson` is what a person has
+  // available to SPEND, so it stops at zero — nobody funds a goal out of a deficit. That makes
+  // it the wrong figure to report as net cash flow: a retired household spending $8,900/mo more
+  // than it receives would show both partners flat at $0 and only the household line underwater,
+  // reading as though nobody were losing money. Here the full charge is subtracted from the raw
+  // take-home whether income covered it or not, so a month that overspends says so per person
+  // and the two people's figures still sum to the household's.
+  const netCashFlowByPersonCents = new Map<string, Cents>(
+    input.personIds.map((pid) => [
+      pid,
+      (takeHomeByPerson.get(pid) ?? 0) -
+        (personalCharge.chargedByPerson.get(pid) ?? 0) -
+        (shareByPerson.get(pid) ?? 0),
+    ]),
+  );
   const contributionShortfall = fundGoalsAndContributions(
     input,
     leftoverByPerson,
@@ -942,5 +977,7 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     shortfallCents: obligationShortfallCents + contributionShortfall,
     obligationShortfallCents,
     obligationShortfallByPersonCents,
+    leftoverByPersonCents: leftoverByPerson,
+    netCashFlowByPersonCents,
   };
 }

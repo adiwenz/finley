@@ -169,7 +169,15 @@ export function buildFlows(
   taxSettlementCents: Cents = 0,
   /** Signed per-source attribution of {@link taxSettlementCents}, summing to it. `{}` when 0. */
   taxSettlementBySourceCents: Readonly<Record<string, Cents>> = {},
-): Omit<ProjectionMonthFlows, "resolvedFunding"> {
+): Omit<
+  ProjectionMonthFlows,
+  // Attached by the simulator from the waterfall's own result — this builder assembles BANDS,
+  // and neither of these is one.
+  | "resolvedFunding"
+  | "leftoverByPersonCents"
+  | "deferredByPersonCents"
+  | "netCashFlowByPersonCents"
+> {
   const cashFlowIncomeByCategoryCents: Record<string, Cents> = {};
   let totalIncomeCents = 0;
   // Bands on `cashInflowCents`, the realized cash paid: for accrued interest that is the

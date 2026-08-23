@@ -138,20 +138,19 @@ export function CashFlowChart({
   const [view, setView] = useState<CashFlowView>("inflows");
   const [owner, setOwner] = useState<string>(COMBINED);
 
-  // Only earners we can NAME, and only those actually drawing a band. Offered on the inflow
-  // view alone: cash leaving is not attributed to a person today, so there is nothing to cut
-  // "Going out" or "Net" by, and a toggle that silently did nothing would be worse than absent.
-  const owners = useMemo(
-    () => [
-      ...new Set(
-        data.inflowBands
-          .map((b) => b.ownerId)
-          .filter((id): id is string => id !== undefined && personNames.get(id) !== undefined),
-      ),
-    ],
-    [data.inflowBands, personNames],
-  );
-  const ownerOptions = view === "inflows" && owners.length > 1 ? [COMBINED, ...owners] : [];
+  // Only people we can NAME. "Coming in" offers whoever draws an inflow band; "Net" offers
+  // whoever the engine reported a figure for, which is the whole roster — a person who earned
+  // nothing this month still had a net position worth drawing. "Going out" offers nobody: cash
+  // leaving is not attributed to a person today, and a toggle that silently did nothing would
+  // be worse than absent.
+  const owners = useMemo(() => {
+    const ids =
+      view === "net"
+        ? data.netOwners
+        : data.inflowBands.map((b) => b.ownerId).filter((id): id is string => id !== undefined);
+    return [...new Set(ids.filter((id) => personNames.get(id) !== undefined))];
+  }, [view, data.netOwners, data.inflowBands, personNames]);
+  const ownerOptions = view !== "outflows" && owners.length > 1 ? [COMBINED, ...owners] : [];
   const activeOwner = ownerOptions.includes(owner) ? owner : COMBINED;
   const whose = activeOwner === COMBINED ? "" : `${personNames.get(activeOwner) ?? activeOwner}'s `;
 

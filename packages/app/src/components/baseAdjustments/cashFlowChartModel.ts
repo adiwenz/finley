@@ -275,7 +275,7 @@ export interface CashFlowChartModelOptions {
   /** Names benefit bands by earner when two are on the chart; otherwise a band keeps its label. */
   readonly personNames?: ReadonlyMap<string, string>;
   /**
-   * Draw only this person's bands. Honoured on the inflow view alone — see {@link
+   * Draw only this person's figures. Honoured on the inflow and net views — see {@link
    * cashFlowBandsForView} for why cash leaving cannot be cut the same way.
    */
   readonly ownerId?: string;

@@ -375,6 +375,12 @@ export function allocateMonth(
   shortfallCents: Cents;
   /** The obligation-only slice of `shortfallCents` — see {@link WaterfallResult.obligationShortfallCents}. */
   obligationShortfallCents: Cents;
+  /** See {@link WaterfallResult.leftoverByPersonCents}. */
+  leftoverByPersonCents: Readonly<Record<string, Cents>>;
+  /** Each person's pre-tax deferral — what {@link leftoverByPersonCents} has already put away. */
+  deferredByPersonCents: Readonly<Record<string, Cents>>;
+  /** See {@link WaterfallResult.netCashFlowByPersonCents}. */
+  netCashFlowByPersonCents: Readonly<Record<string, Cents>>;
 } {
   const { input, contributions } = planMonthAllocation(
     state,
@@ -562,6 +568,9 @@ export function allocateMonth(
     contributions,
     shortfallCents: result.shortfallCents,
     obligationShortfallCents: result.obligationShortfallCents,
+    leftoverByPersonCents: Object.fromEntries(result.leftoverByPersonCents),
+    deferredByPersonCents: Object.fromEntries(result.deferredByPersonCents),
+    netCashFlowByPersonCents: Object.fromEntries(result.netCashFlowByPersonCents),
   };
 }
 

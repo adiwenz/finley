@@ -169,6 +169,26 @@ export interface ProjectionMonthFlows {
    */
   readonly wagesByOwner: Readonly<Record<string, MonthlyWages>>;
   /**
+   * Per-person net cash flow — what each member had left after their own obligations and their
+   * share of the household's, before goals, contributions and the surplus sweep. See {@link
+   * import("./waterfall.types").WaterfallResult.leftoverByPersonCents} for what the split does
+   * and does not claim: it is how the household FUNDS its spending, not who authored it.
+   *
+   * POST-deferral. {@link deferredByPersonCents} is what a consumer adds back to reconcile with
+   * the household's `totalIncomeCents − taxCents − expenses` figure, which counts a pre-tax
+   * deferral as money the month kept.
+   */
+  readonly leftoverByPersonCents: Readonly<Record<string, Cents>>;
+  /** Each person's pre-tax deferral this month — the bridge described above. */
+  readonly deferredByPersonCents: Readonly<Record<string, Cents>>;
+  /**
+   * Per-person net cash flow, SIGNED — see {@link
+   * import("./waterfall.types").WaterfallResult.netCashFlowByPersonCents}. This is the figure to
+   * DRAW; {@link leftoverByPersonCents} is the figure the allocation spends, and it floors at
+   * zero, so a household living beyond its income shows every member flat at $0 there.
+   */
+  readonly netCashFlowByPersonCents: Readonly<Record<string, Cents>>;
+  /**
    * Σ `cashFlowIncomeByCategoryCents` — realized taxable income: includes savings interest,
    * excludes the savings drawdown.
    */

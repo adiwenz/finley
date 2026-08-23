@@ -306,6 +306,9 @@ function runMonth(
     contributions,
     shortfallCents: preCascadeShortfallCents,
     obligationShortfallCents: preCascadeObligationShortfallCents,
+    leftoverByPersonCents,
+    deferredByPersonCents,
+    netCashFlowByPersonCents,
   } = allocateMonth(
     state,
     allocationSources,
@@ -508,6 +511,12 @@ function runMonth(
   // explicit draws in resolution, so this base is its marginal context.
   const flows = {
     ...bands,
+    // Straight off the waterfall, not re-derived from the bands: the per-person split of the
+    // month's obligations is the waterfall's own, and re-deriving it here would be a second
+    // implementation of a rule the engine already applied.
+    leftoverByPersonCents,
+    deferredByPersonCents,
+    netCashFlowByPersonCents,
     resolvedFunding,
     taxableByOwnerAfterFundingCents: toTaxableRecord(fundingDraw.taxableByOwnerAfter),
     accountBalancesAfterFundingCents,

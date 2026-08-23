@@ -19,6 +19,8 @@ function seriesOf(
     taxCents?: number;
     /** The household's spending need — a flow total of its own, not a sum over `obligations`. */
     expensesCents?: number;
+    /** The waterfall's signed per-person net, which the net view's per-person cut reads. */
+    netCashFlowByPersonCents?: Record<string, number>;
   }[]
 ): ProjectionSeries {
   const months = [
@@ -33,6 +35,8 @@ function seriesOf(
         taxSettlementCents: 0,
         expensesCents: m.expensesCents ?? 0,
         liabilityPaymentsCents: 0,
+        netCashFlowByPersonCents: m.netCashFlowByPersonCents ?? {},
+        deferredByPersonCents: {},
       },
     })),
   ];
@@ -261,6 +265,11 @@ describe("CashFlowChart — whose cash flow", () => {
       ],
       obligations: [{ id: "rent", label: "Rent", category: "needs", amountCents: dollarsToCents(3_000) }],
       expensesCents: dollarsToCents(3_000),
+      // Proportional to pay: Alex carries $2,142.86 of the $3,000 rent, Blake $857.14.
+      netCashFlowByPersonCents: {
+        p1: ALEX_PAY - 214_286,
+        p2: BLAKE_PAY - 85_714,
+      },
     }),
   );
 
@@ -300,9 +309,10 @@ describe("CashFlowChart — whose cash flow", () => {
     );
   });
 
-  it("offers no cut on the views that cannot honour one", () => {
-    // Going out and Net are household figures end to end; a control that changed nothing on
-    // them would read as though the household spent nothing on the partner's behalf.
+  it("offers no cut on the one view that cannot honour it", () => {
+    // Going out is a household figure end to end — no budget line has an author — so a control
+    // that changed nothing there would read as though the household spent nothing on the
+    // partner's behalf. Coming in and Net both have real per-person answers.
     renderTwoEarners();
     expect(screen.getByRole("group", { name: "Whose cash flow" })).toBeTruthy();
 
@@ -310,7 +320,7 @@ describe("CashFlowChart — whose cash flow", () => {
     expect(screen.queryByRole("group", { name: "Whose cash flow" })).toBeNull();
 
     fireEvent.click(view("Net"));
-    expect(screen.queryByRole("group", { name: "Whose cash flow" })).toBeNull();
+    expect(screen.getByRole("group", { name: "Whose cash flow" })).toBeTruthy();
   });
 
   it("returns to the whole household when the reader leaves the inflow view and comes back", () => {
@@ -338,5 +348,74 @@ describe("CashFlowChart — whose cash flow", () => {
       />,
     );
     expect(screen.queryByRole("group", { name: "Whose cash flow" })).toBeNull();
+  });
+});
+
+/**
+ * The Net view's per-person cut. This one is not a filter over bands — the net view has none —
+ * but a lookup of the figure the engine reported for that person, so the cases below pin that
+ * the chart reads it rather than deriving a share of its own.
+ */
+describe("CashFlowChart — whose net", () => {
+  const ALEX_PAY = dollarsToCents(6_000);
+  const BLAKE_PAY = dollarsToCents(2_400);
+  const RENT = dollarsToCents(3_000);
+
+  const owned = (
+    sourceId: string,
+    cents: number,
+    ownerId: string,
+  ): ProjectionCashFlowIncomeSource =>
+    ({ ...source(sourceId, cents, "wages"), ownerId }) as ProjectionCashFlowIncomeSource;
+
+  const data = buildCashFlowChartData(
+    seriesOf({
+      sources: [owned("Software Engineer", ALEX_PAY, "p1"), owned("Teacher", BLAKE_PAY, "p2")],
+      obligations: [{ id: "rent", label: "Rent", category: "needs", amountCents: RENT }],
+      expensesCents: RENT,
+      netCashFlowByPersonCents: { p1: ALEX_PAY - 214_286, p2: BLAKE_PAY - 85_714 },
+    }),
+  );
+
+  const couple = new Map([
+    ["p1", "Alex"],
+    ["p2", "Blake"],
+  ]);
+
+  const renderChart = () =>
+    render(
+      <CashFlowChart
+        data={data}
+        currentAge={40}
+        selectedMonth={0}
+        personNames={couple}
+        onSelectMonth={() => {}}
+      />,
+    );
+
+  const netFigure = () => Number(screen.getByTestId("income-first-net").textContent);
+  const cut = (name: string) => screen.getByRole("button", { name });
+  const view = (label: string) => screen.getByRole("radio", { name: label });
+
+  it("draws the household's net until a person is chosen", () => {
+    renderChart();
+    fireEvent.click(view("Net"));
+    expect(netFigure()).toBe(ALEX_PAY + BLAKE_PAY - RENT);
+  });
+
+  it("draws one person's own net, share of the rent and all", () => {
+    renderChart();
+    fireEvent.click(view("Net"));
+    fireEvent.click(cut("Blake"));
+    // Blake's $2,400 less their $857.14 proportional share — not $2,400 less the whole rent.
+    expect(netFigure()).toBe(BLAKE_PAY - 85_714);
+  });
+
+  it("carries the chosen person across a view change, since both views can honour it", () => {
+    renderChart();
+    fireEvent.click(cut("Blake"));
+    fireEvent.click(view("Net"));
+    expect(cut("Blake").getAttribute("aria-pressed")).toBe("true");
+    expect(netFigure()).toBe(BLAKE_PAY - 85_714);
   });
 });

@@ -417,4 +417,31 @@ export interface WaterfallResult {
    * still fully counted in the scalar, just not owed to any one person.
    */
   readonly obligationShortfallByPersonCents: ReadonlyMap<string, Cents>;
+  /**
+   * What each person had left once their own income had paid their personal obligations and
+   * their share of the shared ones — the per-person counterpart of `totalDiscretionary`, and
+   * the money goals, contributions and the surplus are then funded out of.
+   *
+   * This is per-person NET CASH FLOW as the household actually funds it: the shared-obligation
+   * share is `sharedScheme`'s split (proportional to take-home, or even), not an attribution of
+   * who authored which budget line — no budget line HAS an author today. Σ over this map is ≥
+   * `totalDiscretionary`, since a negative-take-home deficit the pool absorbs is charged to the
+   * household total and to nobody's own figure.
+   *
+   * POST-deferral, so it is not the cash-flow chart's `netCents` on its own: that figure counts
+   * a pre-tax deferral as money the month kept. `deferredByPersonCents` is the bridge.
+   */
+  readonly leftoverByPersonCents: ReadonlyMap<string, Cents>;
+  /**
+   * Per-person net cash flow, SIGNED — the same three quantities as {@link
+   * leftoverByPersonCents} with none of the flooring: raw take-home, less the person's whole
+   * personal charge, less their whole share of the shared obligation, whether income covered
+   * either or not.
+   *
+   * Report this, allocate with the other. A household spending more than it receives has a
+   * genuinely negative month, and `leftoverByPersonCents` cannot say so — it stops at zero
+   * because nobody funds a goal out of a deficit. Σ over this map is the household's own net,
+   * which is what lets a chart show a person's line and the household's line together.
+   */
+  readonly netCashFlowByPersonCents: ReadonlyMap<string, Cents>;
 }

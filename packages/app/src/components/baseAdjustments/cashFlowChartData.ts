@@ -103,6 +103,18 @@ export interface CashFlowMonthRow {
    */
   readonly netCents: number;
   /**
+   * {@link netCents} per person — the engine's own `netCashFlowByPersonCents` with each person's
+   * pre-tax deferral added back, since this chart counts a deferral as money the month kept.
+   * Σ over this map is {@link netCents} exactly whenever the household covered its obligations,
+   * so a reader toggling between Combined and a person is never shown money that appears or
+   * vanishes.
+   *
+   * The split is how the household FUNDS its spending — `sharedScheme`'s share of the shared
+   * obligations — not who authored which budget line, because no budget line has an author.
+   * Empty for a projection run before the engine reported it.
+   */
+  readonly netCentsByPerson: Readonly<Record<string, number>>;
+  /**
    * Obligations the income must cover: expenses + scheduled liability payments (the waterfall's
    * `sharedObligationCents`). 0 only on a flow-free snapshot. This is the outflow total LESS
    * tax, and it stays a field of its own because the inflow view plots it as the "is it enough"
@@ -121,6 +133,8 @@ export interface CashFlowChartData {
   readonly firstSavingsDrawdownMonth: number | null;
   /** First `ProjectionMonth.isInsolvent` month. */
   readonly firstInsolventMonth: number | null;
+  /** Everyone the engine reported a net figure for, in first-appearance order. */
+  readonly netOwners: readonly string[];
 }
 
 /**
@@ -224,6 +238,7 @@ export function buildCashFlowChartData(series: ProjectionSeries): CashFlowChartD
   let firstMonthWithNoIncome: number | null = null;
   let firstSavingsDrawdownMonth: number | null = null;
   let firstInsolventMonth: number | null = null;
+  const netOwners: string[] = [];
 
   for (const m of series.months) {
     const flows = m.flows;
@@ -306,6 +321,22 @@ export function buildCashFlowChartData(series: ProjectionSeries): CashFlowChartD
     }
     if (m.isInsolvent && firstInsolventMonth === null) firstInsolventMonth = m.month;
 
+    // Per-person net: the engine's SIGNED figure, plus what the month put away for them pre-tax.
+    // The deferral has to come back because the inflow side above is GROSS — it bands
+    // `cashInflowCents` — so a month that deferred $500 reads as $500 kept on the household
+    // line, and a person's line has to agree or the parts stop summing to the whole.
+    //
+    // `netCashFlowByPersonCents`, never `leftoverByPersonCents`: the latter floors at zero, so a
+    // retired household spending $8,900/mo more than it receives would draw both partners flat
+    // at $0 under a household line deep underwater.
+    const netByPerson = flows.netCashFlowByPersonCents ?? {};
+    const deferredByPerson = flows.deferredByPersonCents ?? {};
+    const netCentsByPerson: Record<string, number> = {};
+    for (const pid of new Set([...Object.keys(netByPerson), ...Object.keys(deferredByPerson)])) {
+      netCentsByPerson[pid] = (netByPerson[pid] ?? 0) + (deferredByPerson[pid] ?? 0);
+      if (!netOwners.includes(pid)) netOwners.push(pid);
+    }
+
     rows.push({
       month: m.month,
       inflowCentsByBand,
@@ -313,6 +344,7 @@ export function buildCashFlowChartData(series: ProjectionSeries): CashFlowChartD
       inflowTotalCents,
       outflowTotalCents,
       netCents: inflowTotalCents - outflowTotalCents,
+      netCentsByPerson,
       spendingNeedCents: (flows.expensesCents ?? 0) + (flows.liabilityPaymentsCents ?? 0),
     });
   }
@@ -346,6 +378,7 @@ export function buildCashFlowChartData(series: ProjectionSeries): CashFlowChartD
     firstMonthWithNoIncome,
     firstSavingsDrawdownMonth,
     firstInsolventMonth,
+    netOwners,
   };
 }
 
@@ -436,12 +469,12 @@ export interface CashFlowViewData {
  * draws {@link CashFlowViewRow.netCents} as a single signed series. `advanced` keeps every band;
  * `simple` collapses via {@link simpleInflowBandOf} / {@link simpleOutflowBandOf}.
  *
- * `ownerId` cuts the stack down to one person's bands. It is honoured on the INFLOW view only,
- * and deliberately: cash arriving is attributed to whoever receives it, but cash leaving is not
- * attributable at all today — every budget line compiles under the primary person whoever it is
- * really for (see {@link CashFlowBand.ownerId}), so a per-person outflow stack would draw the
- * primary paying for the whole household and the partner paying almost nothing. `netCents` is
- * the difference of two household totals and inherits the same limit.
+ * `ownerId` cuts the chart down to one person, on the INFLOW and NET views. Cash arriving is
+ * attributed to whoever receives it, and the engine reports what each person had left once
+ * their share of the household's obligations was paid. Cash LEAVING is still not attributable:
+ * every budget line compiles under the primary person whoever it is really for (see {@link
+ * CashFlowBand.ownerId}), so a per-person outflow stack would draw the primary paying for the
+ * whole household and the partner paying almost nothing. The OUTFLOW view therefore ignores it.
  */
 export function cashFlowBandsForView(
   data: CashFlowChartData,
@@ -453,13 +486,18 @@ export function cashFlowBandsForView(
   if (view === "net") {
     return {
       bands: [],
-      rows: data.rows.map((r) => ({
-        month: r.month,
-        centsByBand: {},
-        totalCents: r.netCents,
-        netCents: r.netCents,
-        spendingNeedCents: r.spendingNeedCents,
-      })),
+      rows: data.rows.map((r) => {
+        // A person with no reported figure draws 0 rather than the household's line, which
+        // would silently show them the whole household's net under their own name.
+        const net = ownerId === undefined ? r.netCents : (r.netCentsByPerson[ownerId] ?? 0);
+        return {
+          month: r.month,
+          centsByBand: {},
+          totalCents: net,
+          netCents: net,
+          spendingNeedCents: r.spendingNeedCents,
+        };
+      }),
     };
   }
 

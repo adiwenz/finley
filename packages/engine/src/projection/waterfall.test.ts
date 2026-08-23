@@ -1272,3 +1272,100 @@ describe("runWaterfall — surplus banks to whoever earned it", () => {
   });
 });
 
+
+/**
+ * `leftoverByPersonCents` — the per-person counterpart of `totalDiscretionary`, now reported
+ * rather than computed and dropped. The figure has to be honest about what it splits: the
+ * shared-obligation share is the household's FUNDING scheme, since no budget line has an
+ * author, and the cases below pin both halves of that — the split it does make, and the
+ * household-level residue it deliberately leaves out of everyone's figure.
+ */
+describe("runWaterfall — what each person had left", () => {
+  const twoEarners = (over: Partial<WaterfallInput> = {}) =>
+    runWaterfall(
+      makeInput({
+        personIds: ["hi", "lo"],
+        incomeSources: [wageSource("hi", dollarsToCents(6000)), wageSource("lo", dollarsToCents(2000))],
+        sharedObligationCents: 0,
+        liquidAccountId: "hi-savings",
+        ...over,
+      }),
+    );
+
+  it("reports what is left after each person's own share of the household's spending", () => {
+    // $4,000 of shared spending, split proportional to take-home: 3:1, so $3,000 and $1,000.
+    const r = twoEarners({ sharedObligationCents: dollarsToCents(4000), sharedScheme: "proportional" });
+    expect(r.leftoverByPersonCents.get("hi")).toBe(dollarsToCents(6000 - 3000));
+    expect(r.leftoverByPersonCents.get("lo")).toBe(dollarsToCents(2000 - 1000));
+  });
+
+  it("follows the household's funding scheme rather than re-deciding it", () => {
+    // Even split of the same $4,000: $2,000 each, which takes the whole of the lower earner's
+    // income and leaves the higher earner more than the proportional scheme did.
+    const r = twoEarners({ sharedObligationCents: dollarsToCents(4000), sharedScheme: "even" });
+    expect(r.leftoverByPersonCents.get("hi")).toBe(dollarsToCents(6000 - 2000));
+    expect(r.leftoverByPersonCents.get("lo")).toBe(0);
+  });
+
+  it("floors at zero rather than reporting one person as owing the other", () => {
+    // An even split of $8,000 charges the lower earner $4,000 against $2,000 of income. The
+    // uncovered $2,000 is a household shortfall, not a negative balance carried by a person:
+    // the money has to come from somewhere, and "somewhere" is the cascade, not their pocket.
+    const r = twoEarners({ sharedObligationCents: dollarsToCents(8000), sharedScheme: "even" });
+    expect(r.leftoverByPersonCents.get("lo")).toBe(0);
+    expect(r.obligationShortfallCents).toBe(dollarsToCents(2000));
+  });
+
+  it("sums to the household's discretionary cash when every share was covered", () => {
+    // The reconciliation a per-person chart needs: the parts are the whole, so a reader
+    // toggling between Combined and a person is never shown money that appears or vanishes.
+    const r = twoEarners({ sharedObligationCents: dollarsToCents(4000) });
+    const parts = [...r.leftoverByPersonCents.values()].reduce((sum, cents) => sum + cents, 0);
+    expect(parts).toBe(dollarsToCents(8000 - 4000));
+  });
+
+  it("says a person's month was negative, where the spendable figure floors at zero", () => {
+    // The pair that matters for reporting. Nobody funds a goal out of a deficit, so `leftover`
+    // stops at zero — but a household spending more than it receives HAS a negative month, and
+    // showing every member flat at $0 under a household line deep underwater reads as though
+    // nobody were losing money. An even split of $8,000 charges the lower earner $4,000 against
+    // $2,000 of income: $0 to spend, and −$2,000 of net cash flow.
+    const r = twoEarners({ sharedObligationCents: dollarsToCents(8000), sharedScheme: "even" });
+    expect(r.leftoverByPersonCents.get("lo")).toBe(0);
+    expect(r.netCashFlowByPersonCents.get("lo")).toBe(-dollarsToCents(2000));
+    expect(r.netCashFlowByPersonCents.get("hi")).toBe(dollarsToCents(6000 - 4000));
+  });
+
+  it("sums the signed figures to the household's own net, deficit and all", () => {
+    // What lets a chart draw a person's line and the household's line together. The floored
+    // figure cannot do this: it loses the deficit entirely.
+    const r = twoEarners({ sharedObligationCents: dollarsToCents(8000), sharedScheme: "even" });
+    const parts = [...r.netCashFlowByPersonCents.values()].reduce((sum, cents) => sum + cents, 0);
+    expect(parts).toBe(dollarsToCents(8000 - 8000));
+  });
+
+  it("charges a personal obligation to its owner even when their income could not cover it", () => {
+    // Reporting, not allocation: the cash really is found elsewhere (that is the fallback the
+    // cascade exists for), but the obligation was still theirs and their month was still short.
+    const r = twoEarners({
+      personalObligationCentsByPerson: (pid) => (pid === "lo" ? dollarsToCents(3000) : 0),
+    });
+    expect(r.netCashFlowByPersonCents.get("lo")).toBe(-dollarsToCents(1000));
+    expect(r.netCashFlowByPersonCents.get("hi")).toBe(dollarsToCents(6000));
+  });
+
+  it("gives every person an entry, including one who earned nothing", () => {
+    // A consumer reads the map directly rather than branching on absence — and a person with
+    // no income this month genuinely had $0 left, which is a fact worth drawing.
+    const r = runWaterfall(
+      makeInput({
+        personIds: ["hi", "lo"],
+        incomeSources: [wageSource("hi", dollarsToCents(6000))],
+        sharedObligationCents: 0,
+        liquidAccountId: "hi-savings",
+      }),
+    );
+    expect(r.leftoverByPersonCents.get("lo")).toBe(0);
+    expect(r.leftoverByPersonCents.get("hi")).toBe(dollarsToCents(6000));
+  });
+});

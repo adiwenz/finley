@@ -8,7 +8,14 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { dollarsToCents, type ProjectionCashFlowIncomeSource, type ProjectionSeries } from "@finley/engine";
+import {
+  Projection,
+  dollarsToCents,
+  type ProjectionCashFlowIncomeSource,
+  type ProjectionSeries,
+} from "@finley/engine";
+import { usJurisdiction } from "@finley/rules";
+import { presetById, presetState } from "../../presets";
 import {
   TAX_INCOME_BAND_ID,
   TAX_PAYROLL_BAND_ID,
@@ -464,5 +471,43 @@ describe("describeCashFlowGap", () => {
 
   it("says nothing at all when income covers spending throughout", () => {
     expect(describeCashFlowGap(buildCashFlowChartData(seriesOf({ sources: [JOB] })))).toBeNull();
+  });
+});
+
+/**
+ * The per-person net figure, end to end against the real engine rather than a hand-built series.
+ * The toggle it feeds rests on one promise — the two partners' lines add up to the household
+ * line above them — and that promise spans the waterfall, the flows record and this data layer,
+ * so only a real projection can hold it.
+ */
+describe("buildCashFlowChartData — per-person net, against a real projection", () => {
+  const series = Projection.fromState(
+    presetState(presetById("partner-proportional")),
+    usJurisdiction,
+  ).run(usJurisdiction).series;
+  const data = buildCashFlowChartData(series);
+
+  it("reports a figure for both partners", () => {
+    expect(data.netOwners).toHaveLength(2);
+  });
+
+  it("sums both partners' net to the household's, to the cent, in every month", () => {
+    // Not a spot check: the deferral bridge and the shared-obligation split both move month to
+    // month, and a discrepancy that only opens in year 12 is exactly the kind a spot check
+    // misses. Every flowed month, or the toggle is showing money that appears or vanishes.
+    const off = data.rows.filter((r) => {
+      const parts = Object.values(r.netCentsByPerson).reduce((sum, cents) => sum + cents, 0);
+      return parts !== r.netCents;
+    });
+    expect(off).toEqual([]);
+  });
+
+  it("gives the partners genuinely different figures, not one household number twice", () => {
+    // The preset is two unequal paychecks against one shared budget. If the split were ever
+    // reduced to halves — or to the household total repeated — this is what would catch it.
+    const first = data.rows[0]!;
+    const [a, b] = Object.values(first.netCentsByPerson);
+    expect(a).not.toBe(b);
+    expect(a).not.toBe(first.netCents);
   });
 });
