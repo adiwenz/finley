@@ -34,6 +34,7 @@ import type { Job, JobDeferral } from "../job/job";
 import type { BudgetLine, TaxTreatment } from "../budget/budgetLine";
 import type { LiabilityKind } from "../liability/liability";
 import type { OriginableLoanKind } from "../authoring/liabilities";
+import type { PartnerAccountsInput } from "../authoring/relationships";
 import type { GrowthMode } from "../money/cashFlowSeries";
 // Type-only, and cyclic: `Projection` imports these authoring types, so a value import back
 // would close the loop. `FromInputResult` names the class only in a field, which a type import
@@ -156,6 +157,12 @@ export interface MarryEntry extends EventEntryCommon {
    */
   readonly lifeExpectancy: number;
   readonly jobs?: readonly PartnerJobEntry[];
+  /**
+   * The partner's own opening balances — see {@link
+   * import("../authoring/relationships").PartnerAccountsInput}. Omitted → a partner arriving with
+   * no money of their own, which is what every scenario written before this field existed meant.
+   */
+  readonly accounts?: PartnerAccountsInput;
 }
 
 /** A child joining the household — see {@link import("../authoring/relationships").HaveChildInput}. */
@@ -186,6 +193,12 @@ export interface StartPartneredEntry extends Omit<EventEntryCommon, "month"> {
    */
   readonly lifeExpectancy: number;
   readonly jobs?: readonly PartnerJobEntry[];
+  /**
+   * The partner's own opening balances — see {@link
+   * import("../authoring/relationships").PartnerAccountsInput}. Omitted → a partner arriving with
+   * no money of their own, which is what every scenario written before this field existed meant.
+   */
+  readonly accounts?: PartnerAccountsInput;
 }
 
 /**

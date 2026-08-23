@@ -1,7 +1,7 @@
 /** A partner already in the household when the plan starts — a `startPartnered` anchor. */
 
 import { useState } from "react";
-import { MAX_AGE, MAX_LIVED_AGE, minLifeExpectancyFor } from "@finley/engine";
+import { MAX_AGE, MAX_LIVED_AGE, minLifeExpectancyFor, dollarsToCents } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
 import type { StartingPositionFormProps } from "./startingPositionFormControls";
 
@@ -17,6 +17,12 @@ export function ExistingPartnerForm({ onAdd, onDone }: StartingPositionFormProps
   const [age, setAge] = useState(40);
   const [lifeExpectancy, setLifeExpectancy] = useState(PARTNER_DEFAULT_LIFE_EXPECTANCY);
   const [partneredForYears, setPartneredForYears] = useState(5);
+  // Their own money, kept apart from the primary's opening balances. Zeroes are the honest
+  // default: a partner with nothing stated brings nothing, which is what this form meant before
+  // it could say otherwise.
+  const [savings, setSavings] = useState(0);
+  const [retirement, setRetirement] = useState(0);
+  const [brokerage, setBrokerage] = useState(0);
 
   function submit() {
     // The anchor lands at its true past month, driven by how long the household has been
@@ -28,6 +34,11 @@ export function ExistingPartnerForm({ onAdd, onDone }: StartingPositionFormProps
         name: name || "Partner",
         birthYear,
         lifeExpectancy,
+        accounts: {
+          savingsBalanceCents: dollarsToCents(savings),
+          retirementBalanceCents: dollarsToCents(retirement),
+          brokerageBalanceCents: dollarsToCents(brokerage),
+        },
       }),
     );
     onDone();
@@ -65,7 +76,22 @@ export function ExistingPartnerForm({ onAdd, onDone }: StartingPositionFormProps
         min={0}
         max={70}
       />
-      <p className="hint">No account effect — records the household as it already is.</p>
+      {/* Return rates are deliberately absent: a partner's accounts grow at the household's own
+          plan rates, which is one market assumption rather than a second set to keep in step. */}
+      <NumInput label="Their cash savings" value={savings} onChange={setSavings} prefix="$" step={1_000} min={0} />
+      <NumInput
+        label="Their retirement account"
+        value={retirement}
+        onChange={setRetirement}
+        prefix="$"
+        step={1_000}
+        min={0}
+      />
+      <NumInput label="Their brokerage" value={brokerage} onChange={setBrokerage} prefix="$" step={1_000} min={0} />
+      <p className="hint">
+        Their accounts join the household's net worth and can fund household spending while you are
+        together, and leave with them at separation.
+      </p>
       <button className="btn primary" onClick={submit}>
         Add
       </button>

@@ -224,6 +224,11 @@ describe("RelationshipForm — editing an existing partner", () => {
       // way to edit an expectancy, since nothing defaults one.
       lifeExpectancy: 85,
       benefitClaimingAge: 68,
+      accountBalances: {
+        savingsBalanceCents: 0,
+        retirementBalanceCents: 0,
+        brokerageBalanceCents: 0,
+      },
     });
   });
 

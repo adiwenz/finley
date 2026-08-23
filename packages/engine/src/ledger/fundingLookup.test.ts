@@ -193,3 +193,64 @@ describe("fundingLookup — credit sources", () => {
     expect(series.months[MONTH].liabilityBalancesCents[CARD_ID]).toBe(AMOUNT - OPENING_CASH);
   });
 });
+
+/**
+ * A partner's accounts are minted by their `RelationshipEvent` into `household.eventAccounts`,
+ * not `base.initialAccounts`. `buildHouseholdSimInput` merges the two lists, so the simulator has
+ * always been able to spend them; this seam once read the base alone and so could not even offer
+ * them. Gate and sim must see one household, or the picker hides money the projection will spend.
+ */
+describe("fundingLookup — a partner's own accounts", () => {
+  const partnered = (brokerageDollars: number): Ledger =>
+    addWithBase(
+      emptyLedger,
+      baseWithAccounts([liquidAcct("savings", 100_000, 0, "Cash savings")]),
+      {
+        id: "partner1",
+        type: "RelationshipEvent",
+        month: PRE_NOW_MONTH,
+        person: personLit("p2", "Bob"),
+        accounts: {
+          savingsBalanceCents: 0,
+          savingsReturnPct: 0,
+          retirementBalanceCents: 0,
+          retirementReturnPct: 0,
+          brokerageBalanceCents: brokerageDollars * 100,
+          brokerageReturnPct: 0,
+        },
+      } as NewLifeEvent,
+    );
+
+  const base = baseWithAccounts([liquidAcct("savings", 100_000, 0, "Cash savings")]);
+
+  it("offers the partner's brokerage for a one-time spend, named for its owner", () => {
+    const pool = fundingLookup(partnered(200_000), base, nullJurisdiction).sourcesAt(3, "expense");
+    const partnerBrokerage = pool.find((s) => s.balanceCents === 20_000_000);
+    expect(partnerBrokerage).toBeDefined();
+    // Two accounts could both be "Brokerage"; the partner's carries their name, so the picker
+    // shows a row the user can tell apart without an owner column.
+    expect(partnerBrokerage!.label).toContain("Bob");
+    // The primary's account is still there — the merge adds, it does not replace.
+    expect(pool.some((s) => s.label === "Cash savings")).toBe(true);
+  });
+
+  it("offers the partner's accounts for a down payment too", () => {
+    const pool = fundingLookup(partnered(200_000), base, nullJurisdiction).sourcesAt(
+      3,
+      "asset-acquisition",
+    );
+    expect(pool.some((s) => s.label.includes("Bob"))).toBe(true);
+  });
+
+  it("prices a draw against the partner's account instead of reporting it unavailable", () => {
+    // Not merely un-offered before this: an id the pool did not know priced at zero, so naming
+    // one by hand still failed the gate. The availability seam must reach the same accounts.
+    const lookup = fundingLookup(partnered(200_000), base, nullJurisdiction);
+    const partnerId = lookup
+      .sourcesAt(3, "expense")
+      .find((s) => s.label.includes("Bob") && s.balanceCents > 0)!.id;
+    const availability = lookup.availabilityAt("expense", [partnerId], 5_000_000, 3);
+    expect(availability.shortfallCents).toBe(0);
+    expect(availability.availableCents).toBe(5_000_000);
+  });
+});

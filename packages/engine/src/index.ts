@@ -85,6 +85,7 @@ export {
 // The declarative, id-free authoring input `fromInput` consumes, and the result it answers with —
 // how seed data and presets describe a whole scenario without naming an id.
 export type { ScenarioInput, FromInputResult } from "./input/scenarioInput";
+export type { PartnerJobEntry } from "./input/scenarioInput";
 export type {
   Job,
   JobDeferral,

@@ -10,6 +10,7 @@
 import type { GrowthMode } from "../money/cashFlowSeries";
 import type { Jurisdiction } from "../jurisdiction/jurisdiction";
 import type { Cents } from "../money/money";
+import { ZERO_PARTNER_ACCOUNTS } from "../ledger/eventTypes";
 import type { EmbeddedMortgage, LifeEvent, NewLifeEvent } from "../ledger/eventTypes";
 import type { ProjectionState } from "./state";
 import { dropEvent, replaceEvent } from "./eventWrite";
@@ -56,6 +57,17 @@ export type TransactionRevision =
        */
       readonly lifeExpectancy?: number;
       readonly benefitClaimingAge?: number;
+      /**
+       * The partner's opening balances. BALANCES ONLY: the return rates already on the event were
+       * resolved from the plan when it was authored, and ride through untouched, so a correction
+       * here cannot silently re-point their accounts at a rate the household never chose. Each
+       * field omitted means "leave that balance alone".
+       */
+      readonly accountBalances?: {
+        readonly savingsBalanceCents?: Cents;
+        readonly retirementBalanceCents?: Cents;
+        readonly brokerageBalanceCents?: Cents;
+      };
     }
   | {
       readonly type: "haveChild";
@@ -191,6 +203,14 @@ function revisedEvent(state: ProjectionState, current: LifeEvent, revision: Tran
             lifeExpectancy: r.lifeExpectancy ?? person.lifeExpectancy,
             benefitClaimingAge: r.benefitClaimingAge ?? person.benefitClaimingAge,
           },
+          ...(r.accountBalances === undefined
+            ? {}
+            : {
+                accounts: {
+                  ...(current.accounts ?? ZERO_PARTNER_ACCOUNTS),
+                  ...r.accountBalances,
+                },
+              }),
         } as NewLifeEvent,
       };
     }

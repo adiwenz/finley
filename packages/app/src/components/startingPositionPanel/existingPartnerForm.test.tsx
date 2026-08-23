@@ -40,6 +40,13 @@ describe("ExistingPartnerForm", () => {
       // The field's own default, not a value inherited from the primary: the engine requires a
       // partner's own expectancy, so the form shows one the user can see and change.
       lifeExpectancy: 90,
+      // Stated, not omitted: a partner who brings nothing brings exactly zero, and the balance
+      // fields default to it rather than leaving the engine to assume it.
+      accounts: {
+        savingsBalanceCents: 0,
+        retirementBalanceCents: 0,
+        brokerageBalanceCents: 0,
+      },
     });
     expect(onDone).toHaveBeenCalledTimes(1);
   });
@@ -98,6 +105,26 @@ describe("ExistingPartnerForm", () => {
     fireEvent.click(btn(/^Add$/));
     expect(startPartnered).toHaveBeenCalledWith(
       expect.objectContaining({ name: "Jordan" }),
+    );
+  });
+
+  it("carries the partner's own opening balances into startPartnered", () => {
+    const { startPartnered } = renderForm();
+    enterNumber(spin(/Their cash savings/i), "12000");
+    enterNumber(spin(/Their retirement account/i), "85000");
+    enterNumber(spin(/Their brokerage/i), "40000");
+    fireEvent.click(btn(/^Add$/));
+
+    // Dollars in the form, cents to the engine — and their own accounts, never folded into the
+    // primary's opening balance.
+    expect(startPartnered).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accounts: {
+          savingsBalanceCents: 1_200_000,
+          retirementBalanceCents: 8_500_000,
+          brokerageBalanceCents: 4_000_000,
+        },
+      }),
     );
   });
 });

@@ -424,16 +424,18 @@ describe("HomePurchaseEvent — §4.5 gate counts selected liquid goal funds", (
     expect(avail.sources.map((s) => s.label)).toContain("Emergency fund");
   });
 
-  it("still excludes an illiquid goal fund even when it is selected", () => {
-    // The illiquid fund contributes 0: only $30k of the selected $70k counts.
+  it("counts a selected goal fund that is not a waterfall deposit target", () => {
+    // `liquid: false` means "not somewhere the monthly surplus is swept", not "unspendable":
+    // the fund counts toward the down payment, so $30k savings + $40k fund covers the $60k.
+    // Reported available caps at what the purchase needs, never the whole $70k selected.
     const base = baseWithGoalFund(3_000_000, {
       label: "Retirement top-up",
       cents: 4_000_000,
       liquid: false,
     });
     const avail = affordabilityOf(emptyLedger, base, purchase({ month: 1, downPaymentSourceIds: BOTH_SOURCES }));
-    expect(avail.availableCents).toBe(3_000_000);
-    expect(avail.shortfallCents).toBe(DOWN - 3_000_000);
+    expect(avail.availableCents).toBe(DOWN);
+    expect(avail.shortfallCents).toBe(0);
   });
 
   it("falls back to the account id when a counted bucket has an empty label", () => {
@@ -1315,11 +1317,12 @@ describe("fundingLookup — the source pool", () => {
     ]);
   });
 
-  it("omits accounts that could never fund a draw, empty or not", () => {
-    // Membership is "liquid", not "has money": the illiquid fund is absent, the empty liquid
-    // account present.
+  it("keeps an empty account in the pool — membership is eligibility, not having money", () => {
+    // Both belong: the emptied savings account stays offered (greyed on balance, not filtered),
+    // and a retirement fund is a down payment's to spend like any other holding of their own.
     const b = baseWithAccounts([liquidAcct("savings", 0), goalFund("retirement", "401(k)", 5_000_000, false)]);
     expect(fundingLookup(emptyLedger, b, nullJurisdiction).sourcesAt(6).map((s) => s.id)).toEqual([
+      "retirement",
       "savings",
     ]);
   });

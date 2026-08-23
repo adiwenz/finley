@@ -13,6 +13,7 @@ import {
   PRIMARY_PERSON_REF,
   type BudgetLine,
   type JobIncomeOverrideInput,
+  type PartnerJobEntry,
   type ScenarioInput,
   type ProjectionState,
 } from "@finley/engine";
@@ -362,6 +363,143 @@ const CAREER_BREAK_UNPAID_MONTHS = [6, 7, 8, 9, 10, 11];
  */
 const DEFAULT_SCENARIO: ScenarioInput = DEFAULT_INPUT;
 
+/**
+ * The partner presets share one household shape: two earners, one budget, and the partner's own
+ * money held in their own accounts. Each preset then varies exactly one thing — who owes a debt,
+ * how the shared bill is split, or whether the couple stays together — so the pair-wise
+ * comparisons the app offers are genuinely one-variable comparisons.
+ *
+ * The partner is anchored with `startPartnered`, not `marry`: these are households as they
+ * already are, so a reader lands on the two-earner projection rather than watching it begin.
+ */
+const PARTNER_TOGETHER_YEARS = 8;
+const PARTNER_BIRTH_YEAR = DEFAULT_INPUT.startYear - 37;
+const PARTNER_LIFE_EXPECTANCY = 90;
+
+/** $5,400/mo — a two-earner household's bills, larger than the single-earner budgets above. */
+const HOUSEHOLD_BUDGET = [
+  expenseLine("Housing", "needs", 2_400),
+  expenseLine("Groceries", "needs", 950),
+  expenseLine("Transportation", "needs", 600),
+  expenseLine("Dining & fun", "wants", 900),
+  expenseLine("Subscriptions", "wants", 250),
+  expenseLine("Healthcare", "healthcare", 300),
+];
+
+/**
+ * A partner already in the household, with their own paycheck and their own accounts. Their
+ * accounts are theirs throughout: they count toward household net worth and may fund household
+ * spending while the couple is together, and leave with them at separation.
+ */
+function partnerEntry(over: {
+  readonly name: string;
+  readonly monthlyDollars: number;
+  readonly savingsDollars?: number;
+  readonly brokerageDollars?: number;
+  readonly retirementDollars?: number;
+}) {
+  return {
+    type: "startPartnered" as const,
+    ref: ref("partner"),
+    partneredForMonths: PARTNER_TOGETHER_YEARS * 12,
+    name: over.name,
+    birthYear: PARTNER_BIRTH_YEAR,
+    lifeExpectancy: PARTNER_LIFE_EXPECTANCY,
+    // Typed as the partner entry's own job shape, which FORBIDS an `ownerRef`: a job authored
+    // inside `startPartnered` belongs to the partner by position, and naming an owner could only
+    // contradict that.
+    jobs: [salariedJob(dollarsToCents(over.monthlyDollars))] as readonly PartnerJobEntry[],
+    accounts: {
+      savingsBalanceCents: dollarsToCents(over.savingsDollars ?? 0),
+      brokerageBalanceCents: dollarsToCents(over.brokerageDollars ?? 0),
+      retirementBalanceCents: dollarsToCents(over.retirementDollars ?? 0),
+    },
+  };
+}
+
+/** The two-earner base every partner preset varies from. Goals dropped, as the teaching presets do. */
+function partnerInput(over: Partial<ScenarioInput>): ScenarioInput {
+  return {
+    ...DEFAULT_INPUT,
+    goals: [],
+    budgetLines: HOUSEHOLD_BUDGET,
+    ...over,
+  };
+}
+
+/**
+ * A debt that belongs to ONE person. Blake earns $1,800 against a car loan of their own and holds
+ * only a small brokerage, so the payment walks the three funding tiers in order: Blake's income,
+ * then Blake's own accounts, and only once those run dry does Alex's money backstop the rest.
+ * The debt stays Blake's throughout — paying it is not assuming it.
+ */
+const PARTNER_DEBT = partnerInput({
+  name: "Alex",
+  jobs: [salariedJob(dollarsToCents(7_000))],
+  openingBalanceCents: dollarsToCents(40_000),
+  events: [
+    partnerEntry({ name: "Blake", monthlyDollars: 1_200, brokerageDollars: 6_000 }),
+    {
+      type: "carryLoan",
+      ref: ref("blakeCar"),
+      ownerRef: ref("partner"),
+      kind: "auto",
+      balanceCents: dollarsToCents(60_000),
+      apr: 0.07,
+      remainingTermMonths: 12 * 4,
+    },
+  ],
+});
+
+/**
+ * Two unequal paychecks against one shared budget, split PROPORTIONALLY: Alex earns roughly twice
+ * Blake, so Alex carries roughly twice the household's bills. Neither person's accounts fund the
+ * household merely for being listed first.
+ */
+const PARTNER_PROPORTIONAL = partnerInput({
+  name: "Alex",
+  jobs: [salariedJob(dollarsToCents(8_000))],
+  openingBalanceCents: dollarsToCents(30_000),
+  sharedScheme: "proportional",
+  events: [partnerEntry({ name: "Blake", monthlyDollars: 2_400, savingsDollars: 30_000 })],
+});
+
+/**
+ * The same two paychecks, split EVENLY — the other setting of the shared-contribution lever. Each
+ * partner puts in half the household's bills regardless of what they earn, so the lower earner
+ * carries a far larger share of their own take-home than under {@link PARTNER_PROPORTIONAL}.
+ * Identical in every other respect, so the two presets isolate the lever.
+ */
+const PARTNER_EVEN_SPLIT = partnerInput({
+  name: "Alex",
+  jobs: [salariedJob(dollarsToCents(8_000))],
+  openingBalanceCents: dollarsToCents(30_000),
+  sharedScheme: "even",
+  events: [partnerEntry({ name: "Blake", monthlyDollars: 2_400, savingsDollars: 30_000 })],
+});
+
+/**
+ * Blake arrives with substantial money of their own and leaves with it. Household net worth steps
+ * DOWN at the separation month by Blake's own balances — ownership was never pooled, so nothing
+ * of Blake's stays behind and nothing of Alex's departs.
+ */
+const PARTNER_SEPARATION = partnerInput({
+  name: "Alex",
+  jobs: [salariedJob(dollarsToCents(7_000))],
+  openingBalanceCents: dollarsToCents(25_000),
+  events: [
+    partnerEntry({
+      name: "Blake",
+      monthlyDollars: 5_000,
+      savingsDollars: 20_000,
+      brokerageDollars: 90_000,
+      retirementDollars: 40_000,
+    }),
+    { type: "separate", ref: ref("split"), month: 60, partnerRef: ref("partner") },
+  ],
+});
+
+
 /** In picker order; the first is the healthy default a fresh plan already opens with. */
 export const PRESETS: readonly Preset[] = [
   {
@@ -433,6 +571,32 @@ export const PRESETS: readonly Preset[] = [
     description:
       "The same household as Taxed in retirement, saving after tax instead of into a 401(k) — nothing it withdraws is taxed, and it has less to withdraw.",
     input: CASH_IN_RETIREMENT,
+  },
+  {
+    id: "partner-debt",
+    label: "A partner's own debt",
+    description:
+      "Blake's car loan is Blake's — paid from their paycheck, then their accounts, and only then backstopped by Alex.",
+    input: PARTNER_DEBT,
+  },
+  {
+    id: "partner-proportional",
+    label: "Two incomes, one household",
+    description: "Unequal paychecks against one shared budget, each partner carrying a share proportional to what they earn.",
+    input: PARTNER_PROPORTIONAL,
+  },
+  {
+    id: "partner-even-split",
+    label: "…vs. splitting it evenly",
+    description:
+      "The same two paychecks as Two incomes, split down the middle instead — the lower earner gives up far more of their take-home.",
+    input: PARTNER_EVEN_SPLIT,
+  },
+  {
+    id: "partner-separation",
+    label: "When a partner leaves",
+    description: "Blake's accounts were always Blake's, and household net worth steps down by exactly them at separation.",
+    input: PARTNER_SEPARATION,
   },
 ];
 

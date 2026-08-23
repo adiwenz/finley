@@ -237,7 +237,7 @@ export function HomePurchaseForm({
       <p className="hint">
         {holding
           ? "Opens at today's value — no down payment, no affordability gate."
-          : "Accounts are drained in the order you pick them, and only cash and investment accounts can pay — retirement savings and credit can’t."}
+          : "Accounts are drained in the order you pick them. Any account of your own can pay, retirement included; credit can’t."}
       </p>
     </>
   );

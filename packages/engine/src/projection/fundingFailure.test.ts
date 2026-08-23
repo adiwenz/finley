@@ -114,10 +114,31 @@ describe("classifyFundingFailure — funding-configuration", () => {
     // withheld at the draw, so the full balance is reported available.
     expect(failure.alternativeSources).toEqual([{ accountId: "brokerage", availableCents: 10_000_000 }]);
   });
+
+  it("offers a retirement account as an asset-acquisition alternative", () => {
+    // Retirement is the household's own money and a down payment may reach it. The engine prices
+    // no early-withdrawal penalty on that draw, so the balance is reported whole.
+    const failure = classifyFundingFailure({
+      treatment: "asset-acquisition",
+      requiredCents: 8_000_000,
+      selectedSourceIds: ["cash"],
+      selectedSourcesAvailableCents: 5_000_000,
+      selectedSourcesTaxCents: 0,
+      selectedSources: [{ accountId: "cash", label: "cash", kind: "account", availableCents: 5_000_000 }],
+      accounts: [cash("cash", 5_000_000), retirement("401k", 20_000_000)],
+      jurisdiction: nullJurisdiction,
+      ctx: CTX,
+      taxableByOwner: NO_BASE,
+    });
+
+    expect(failure.kind).toBe("funding-configuration");
+    if (failure.kind !== "funding-configuration") return;
+    expect(failure.alternativeSources).toEqual([{ accountId: "401k", availableCents: 20_000_000 }]);
+  });
 });
 
 describe("classifyFundingFailure — no-eligible-source-suffices", () => {
-  it("returns no-eligible when retirement wealth cannot be reached by an asset acquisition", () => {
+  it("returns no-eligible when only a credit card could close an asset acquisition's gap", () => {
     const failure = classifyFundingFailure({
       treatment: "asset-acquisition",
       requiredCents: 8_000_000,
@@ -125,8 +146,10 @@ describe("classifyFundingFailure — no-eligible-source-suffices", () => {
       selectedSourcesAvailableCents: 5_000_000,
       selectedSourcesTaxCents: 0,
       selectedSources: [{ accountId: "houseFund", label: "houseFund", kind: "account", availableCents: 5_000_000 }],
-      // $50k liquid, $2M retirement: obviously wealthy, yet nothing eligible suffices.
-      accounts: [cash("houseFund", 5_000_000), retirement("401k", 200_000_000)],
+      // $50k cash against a $2M card limit: plenty of BORROWING power, no more of the
+      // household's own money. Credit is the one thing a down payment may not reach, so nothing
+      // eligible suffices — retirement and brokerage would both have counted.
+      accounts: [cash("houseFund", 5_000_000), card("visa", 0, 200_000_000)],
       jurisdiction: nullJurisdiction,
       ctx: CTX,
       taxableByOwner: NO_BASE,

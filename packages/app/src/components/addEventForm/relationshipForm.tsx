@@ -7,6 +7,8 @@ import {
   MAX_AGE,
   MAX_LIVED_AGE,
   minLifeExpectancyFor,
+  dollarsToCents,
+  centsToDollars,
   type RelationshipEvent,
 } from "@finley/engine";
 import {
@@ -51,6 +53,14 @@ interface RelationshipDraft {
   readonly claimingAge: number;
   /** Jobs authored for the partner, in the terms the Jobs form speaks (ages + dollars). */
   readonly jobs: readonly JobEditDraft[];
+  /**
+   * The money they bring, in DOLLARS — the form's unit; the engine is told cents. Their own
+   * accounts, never merged into the primary's: they fund the household while the couple is
+   * together and leave with them at separation.
+   */
+  readonly savings: number;
+  readonly retirement: number;
+  readonly brokerage: number;
 }
 
 /**
@@ -78,6 +88,9 @@ function draftFromEvent(event: RelationshipEvent): RelationshipDraft {
     lifeExpectancy: person.lifeExpectancy,
     claimingAge: person.benefitClaimingAge,
     jobs: [],
+    savings: centsToDollars(event.accounts?.savingsBalanceCents ?? 0),
+    retirement: centsToDollars(event.accounts?.retirementBalanceCents ?? 0),
+    brokerage: centsToDollars(event.accounts?.brokerageBalanceCents ?? 0),
   };
 }
 
@@ -97,6 +110,9 @@ export function RelationshipForm({
           lifeExpectancy: PARTNER_DEFAULT_LIFE_EXPECTANCY,
           claimingAge: 67,
           jobs: [],
+          savings: 0,
+          retirement: 0,
+          brokerage: 0,
         },
   );
   const [addingJob, setAddingJob] = useState(false);
@@ -143,6 +159,12 @@ export function RelationshipForm({
           birthYear: partnerBirthYear,
           lifeExpectancy: draft.lifeExpectancy,
           benefitClaimingAge: draft.claimingAge,
+          // Balances only — the rates the event already carries are the household's own.
+          accountBalances: {
+            savingsBalanceCents: dollarsToCents(draft.savings),
+            retirementBalanceCents: dollarsToCents(draft.retirement),
+            brokerageBalanceCents: dollarsToCents(draft.brokerage),
+          },
         }),
       );
       return;
@@ -159,6 +181,11 @@ export function RelationshipForm({
         lifeExpectancy: draft.lifeExpectancy,
         benefitClaimingAge: draft.claimingAge,
         jobs: draft.jobs.map((job) => jobInputFromDraft(partnerBirthYear, job)),
+        accounts: {
+          savingsBalanceCents: dollarsToCents(draft.savings),
+          retirementBalanceCents: dollarsToCents(draft.retirement),
+          brokerageBalanceCents: dollarsToCents(draft.brokerage),
+        },
       }),
     );
   }
@@ -294,6 +321,42 @@ export function RelationshipForm({
           Each job above runs to the end date you gave it, and their benefit begins at their
           claiming age (claim earlier for a smaller monthly check, later for a larger one).
           Estimate, not advice.
+        </p>
+      </details>
+
+      <details className="collapsible">
+        <summary>
+          <h4>What they bring</h4>
+        </summary>
+        {/* No return-rate fields: their accounts grow at the household's own plan rates. One
+            market assumption for the household, not a second set to keep in step with it. */}
+        <NumInput
+          label="Their cash savings"
+          value={draft.savings}
+          onChange={(savings) => patch({ savings })}
+          prefix="$"
+          step={1_000}
+          min={0}
+        />
+        <NumInput
+          label="Their retirement account"
+          value={draft.retirement}
+          onChange={(retirement) => patch({ retirement })}
+          prefix="$"
+          step={1_000}
+          min={0}
+        />
+        <NumInput
+          label="Their brokerage"
+          value={draft.brokerage}
+          onChange={(brokerage) => patch({ brokerage })}
+          prefix="$"
+          step={1_000}
+          min={0}
+        />
+        <p className="hint">
+          Their accounts stay theirs. While you are together they count toward household net worth
+          and can fund household spending; at separation they leave with them.
         </p>
       </details>
 

@@ -179,12 +179,19 @@ export function fundingLookup(
   // each sale's tax under its own provenance (a tax-exempt cash reserve untaxed; a taxable
   // brokerage bears its gain). Every account, not just the liquid ones — `getEligibleFundingSources`
   // is what narrows this to a treatment's own eligible subset, downstream in `sourcesAt`/`failureAt`.
-  const assetAccounts = (base.initialAccounts ?? []).map((a) => a.sim);
+  const household = interpretLedger(ledger, base);
+  // Both account lists, exactly as {@link
+  // import("../projection/buildHouseholdInput").buildHouseholdSimInput} merges them: the primary's
+  // ride on `base.initialAccounts`, a partner's are minted by their `RelationshipEvent` into
+  // `household.eventAccounts`. Reading only the base here would let the simulator spend a
+  // partner's brokerage that this gate could not even offer — gate and sim must see one household.
+  const assetAccounts = [...(base.initialAccounts ?? []), ...household.eventAccounts].map(
+    (a) => a.sim,
+  );
   const labelById = new Map(assetAccounts.map((a) => [a.id, a.label || a.id]));
   const ownerById = new Map(assetAccounts.map((a) => [a.id, a.ownerId]));
   const categoryById = new Map(assetAccounts.map((a) => [a.id, a.taxProfile.withdrawalCategory]));
   const liquidById = new Map(assetAccounts.map((a) => [a.id, a.liquid]));
-  const household = interpretLedger(ledger, base);
   // A card the household has already taken (via a LoanEvent), keyed for the credit-aware source
   // resolution below. Its `creditLimitCents` is authored, never `null` — a null limit (zero usable
   // headroom) can only arise from the primitive's own defensive default, never from data this seam
@@ -287,11 +294,10 @@ export function fundingLookup(
     // {@link getEligibleFundingSources} is the sole arbiter of which of them `treatment` admits,
     // so the picker's pool can never diverge from the engine's own rule.
     const candidates = [
-      ...assetAccounts.map((a) => ({ kind: "account" as const, id: a.id, liquid: a.liquid })),
+      ...assetAccounts.map((a) => ({ kind: "account" as const, id: a.id, credit: false })),
       ...[...cardById.values()].map((c) => ({
         kind: "credit" as const,
         id: c.id,
-        liquid: false,
         credit: true as const,
       })),
     ];
@@ -363,8 +369,8 @@ export function fundingLookup(
   ) => {
     const eligibleIds = new Set(
       getEligibleFundingSources(treatment, [
-        ...assetAccounts.map((a) => ({ id: a.id, liquid: a.liquid })),
-        ...[...cardById.values()].map((c) => ({ id: c.id, liquid: false, credit: true as const })),
+        ...assetAccounts.map((a) => ({ id: a.id, credit: false })),
+        ...[...cardById.values()].map((c) => ({ id: c.id, credit: true as const })),
       ]).map((c) => c.id),
     );
     const named: FundingSourceBalance[] = [];
