@@ -176,7 +176,34 @@ function bandForTaxOnlyKey(id: string, kind: TaxBandKind): TaxSourceBand {
  * bands — up to two per source (income tax, payroll tax) — named from the month's `incomeSources`
  * where available, plus the single settlement band on top.
  */
-export function buildTaxChartData(series: ProjectionSeries): TaxChartData {
+
+/**
+ * A source label that says whose it is, when that is a question worth answering.
+ *
+ * Several engine labels are per-person facts under a shared constant — two claimants both report
+ * "Government benefit", and an RMD reports "Required distribution" whoever owes it — so a
+ * two-partner tooltip lists the same words twice and attributes neither. The owner rides on the
+ * source (`ownerId`) even though the label does not, which is what makes this recoverable here
+ * rather than in the engine, where a label is one string for every household.
+ *
+ * Silent in the two cases where a name would be noise: a household of one, where there is nobody
+ * to distinguish from; and a label that already carries the name, since a partner's ACCOUNT label
+ * is minted with it ("Blake — Retirement account draw") while the primary's never is.
+ */
+function ownerQualified(
+  label: string,
+  ownerId: string | undefined,
+  personNames: ReadonlyMap<string, string>,
+): string {
+  if (ownerId === undefined || personNames.size < 2) return label;
+  const name = personNames.get(ownerId);
+  return name === undefined || label.includes(name) ? label : `${label} · ${name}`;
+}
+
+export function buildTaxChartData(
+  series: ProjectionSeries,
+  personNames: ReadonlyMap<string, string> = new Map(),
+): TaxChartData {
   const rows: TaxMonthRow[] = [];
   let totalCents = 0;
   let peakMonthlyCents = 0;
@@ -184,7 +211,7 @@ export function buildTaxChartData(series: ProjectionSeries): TaxChartData {
   let hasSourceBreakdown = false;
   // Label/category per source id, learned from the income-source flows; a source with no
   // income band falls back to a category label below.
-  const registry = new Map<string, { label: string; category: string }>();
+  const registry = new Map<string, { label: string; category: string; ownerId?: string }>();
   // Band id → its underlying source id and tax kind, in first-appearance order (Map
   // insertion order) — first-appearance is by INCOME-TAX sources, then PAYROLL-TAX sources,
   // then by month, so a source's two bands land adjacent in the legend/stack.
@@ -195,7 +222,9 @@ export function buildTaxChartData(series: ProjectionSeries): TaxChartData {
     const flows = m.flows;
     if (flows === undefined) continue; // defensive: a flow-free snapshot carries no tax
     for (const s of flows.incomeSources ?? []) {
-      if (!registry.has(s.sourceId)) registry.set(s.sourceId, { label: s.label, category: s.category });
+      if (!registry.has(s.sourceId)) {
+        registry.set(s.sourceId, { label: s.label, category: s.category, ownerId: s.ownerId });
+      }
     }
 
     // Signed, and deliberately never clamped on the way in: `settlementPaidCents` and
@@ -274,7 +303,9 @@ export function buildTaxChartData(series: ProjectionSeries): TaxChartData {
     rows,
     sources,
     hasSourceBreakdown,
-    sourceLabels: Object.fromEntries([...registry].map(([id, { label }]) => [id, label])),
+    sourceLabels: Object.fromEntries(
+      [...registry].map(([id, { label, ownerId }]) => [id, ownerQualified(label, ownerId, personNames)]),
+    ),
     totalCents,
     peakMonthlyCents,
     peakMonth,

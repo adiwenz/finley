@@ -10,6 +10,7 @@ import {
 import { usJurisdiction } from "@finley/rules";
 import { NetWorthChart } from "./components/netWorthChart/netWorthChart";
 import { NetWorthBreakdownChart } from "./components/netWorthChart/netWorthBreakdownChart";
+import { AccountBalancesPanel } from "./components/accountBalanceChart/accountBalancesPanel";
 import { buildNetWorthBreakdown } from "./components/netWorthChart/netWorthBreakdown";
 import { timelineMarkers, blockedWarning } from "./ledgerView";
 import { BlockedWarning } from "./components/blockedWarning/blockedWarning";
@@ -109,6 +110,14 @@ export function App() {
   );
   // Markers carry per-event outcomes off the AUTHORED run, not the retirement preview: the timeline
   // is an authoring surface, so a blocked/not-reached indicator must reflect the plan as written.
+  // Every account the household holds — the primary's from the plan, a partner's from the ledger.
+  // One list, so the net-worth bands and the per-account charts can never describe different
+  // holdings.
+  const allAccounts = useMemo(
+    () => [...projection.accountDescriptors(), ...eventAccountDescriptors(household.eventAccounts)],
+    [projection, household],
+  );
+
   const markers = useMemo(
     () => timelineMarkers(ledger, series, personNames),
     [ledger, series, personNames],
@@ -185,11 +194,7 @@ export function App() {
       chartSeries,
       // Both account lists. `accountDescriptors()` is derived from the PLAN, which holds only
       // the primary's accounts, so a partner's band would otherwise be labelled off its id.
-      {
-        accounts: [...projection.accountDescriptors(), ...eventAccountDescriptors(household.eventAccounts)],
-        liabilityLabels,
-        ownerById,
-      },
+      { accounts: allAccounts, liabilityLabels, ownerById },
       // The plan's own span, so this chart ends at the same year as the total above it.
       horizonMonths,
     );
@@ -291,15 +296,7 @@ export function App() {
           {/* Standing settings rather than a live readout: both start collapsed, so the
               panels that answer "what is happening" keep the column. */}
           <CollapsibleCard title="Budget & accounts" className="inputs">
-            <BudgetEditor
-              budget={budget}
-              transact={transact}
-              accounts={projection.accountDescriptors()}
-              series={chartSeries}
-              household={household}
-              personNames={personNames}
-              horizonMonths={horizonMonths}
-            />
+            <BudgetEditor budget={budget} transact={transact} />
           </CollapsibleCard>
 
           <CollapsibleCard title="Goals">
@@ -357,6 +354,15 @@ export function App() {
 
       <div className="card">
         <NetWorthBreakdownChart data={breakdown} personNames={personNames} />
+      </div>
+
+      <div className="card">
+        <AccountBalancesPanel
+          accounts={allAccounts}
+          series={chartSeries}
+          horizonMonths={horizonMonths}
+          personNames={personNames}
+        />
       </div>
     </>
   );

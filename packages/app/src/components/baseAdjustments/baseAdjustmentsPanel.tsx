@@ -117,7 +117,7 @@ export function BaseAdjustmentsPanel({
 
   const spendingChartData = useMemo(() => buildPerLineBudgetData(series), [series]);
   const incomeChartData = useMemo(() => buildCashFlowChartData(series), [series]);
-  const taxChartData = useMemo(() => buildTaxChartData(series), [series]);
+  const taxChartData = useMemo(() => buildTaxChartData(series, personNames), [series, personNames]);
   /**
    * Wages + government benefit, not the full taxable rollup (`totalIncomeCents`): savings
    * interest and asset drawdowns are cash flow, but not pay.
