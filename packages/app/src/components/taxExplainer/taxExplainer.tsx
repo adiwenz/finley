@@ -1,14 +1,20 @@
 import type { ModelAssumption } from "@finley/engine";
 
 /**
- * The one place the plan explains its own tax model, in two registers.
+ * The one place the plan explains its own tax model, in three registers, each behind the one
+ * before it.
  *
- * "How we calculate your taxes" says what the model DOES, in language that assumes no tax
- * knowledge: the short version is always visible, and a `Detailed` disclosure holds the mechanics
- * for a reader who wants them. "Simplifications and assumptions" — the jurisdiction's and the
- * engine's own disclosures — says where the model deliberately DIFFERS from a real tax situation.
- * Two questions, two sections, one panel, and nothing said twice: mechanics live here, caveats
- * live in the assumption that embodies them.
+ * The whole panel is an "Implementation Details" disclosure, CLOSED by default: nobody arrives at
+ * a financial plan wanting to read about withholding, and a screenful of prose above the charts
+ * would be paid for by every session that never wanted it. Opened, it leads with a short
+ * explanation that assumes no tax knowledge, and each mechanism sits behind its OWN disclosure
+ * beneath that — so a reader who came for one question (why is there a bill in April? why did my
+ * bonus withhold so much?) opens that one and reads a paragraph, rather than expanding an essay.
+ *
+ * "How we calculate your taxes" says what the model DOES. "Simplifications and assumptions" — the
+ * jurisdiction's and the engine's own disclosures — says where the model deliberately DIFFERS
+ * from a real tax situation. Two questions, two sections, and nothing said twice: mechanics live
+ * here, caveats live in the assumption that embodies them.
  *
  * The assumptions are rendered, never authored. Every one is declared next to the code it
  * describes ({@link import("@finley/engine").MODEL_ASSUMPTIONS} and the jurisdiction's own), so
@@ -17,13 +23,19 @@ import type { ModelAssumption } from "@finley/engine";
  * deliberately free of form numbers and statutory dollar figures for the same reason: those belong
  * to the rules layer, which indexes them by year.
  *
- * Both disclosures are `<details>`, so open/closed state, keyboard behaviour and hiding the
- * contents from find-in-page and the accessibility tree all come from the element.
+ * Every disclosure is a `<details>`, so open/closed state, keyboard behaviour and hiding a closed
+ * section's contents from find-in-page and the accessibility tree all come from the element. Each
+ * heading lives INSIDE its `<summary>`, so a section keeps its place in the document outline while
+ * being the thing you click.
  */
 export function TaxExplainer({ assumptions }: { assumptions: readonly ModelAssumption[] }) {
   return (
-    <section className="tax-explainer" aria-labelledby="tax-explainer-heading">
-      <h2 id="tax-explainer-heading">How we calculate your taxes</h2>
+    <details className="tax-explainer collapsible">
+      <summary>
+        <h2>Implementation Details</h2>
+      </summary>
+
+      <h3>How we calculate your taxes</h3>
 
       <p>
         Finley keeps two things apart: the tax you owe for a year, and the tax taken out of your
@@ -53,10 +65,10 @@ export function TaxExplainer({ assumptions }: { assumptions: readonly ModelAssum
         including the adjustments that can happen when you file after working more than one job.
       </p>
 
-      <details className="tax-explainer-detail">
-        <summary>Detailed</summary>
-
-        <h3>Paycheck withholding</h3>
+      <details className="tax-explainer-topic collapsible">
+        <summary>
+          <h4>Paycheck withholding</h4>
+        </summary>
         <p>
           For regular wages, Finley works out federal income-tax withholding from that month&rsquo;s
           paycheck, following the same method a payroll system uses. Because the plan runs a month
@@ -67,8 +79,12 @@ export function TaxExplainer({ assumptions }: { assumptions: readonly ModelAssum
           what is withheld from that month onwards. None of them ever rewrites a paycheck you have
           already been paid.
         </p>
+      </details>
 
-        <h3>Multiple jobs</h3>
+      <details className="tax-explainer-topic collapsible">
+        <summary>
+          <h4>Multiple jobs</h4>
+        </summary>
         <p>
           An employer normally sees only the wages it pays you. Each one therefore withholds as
           though its wages were your only income, and between them several jobs can come up short
@@ -86,20 +102,27 @@ export function TaxExplainer({ assumptions }: { assumptions: readonly ModelAssum
           This is an assumption about what YOU put on your W-4. It is not employers quietly sharing
           payroll information with one another, which does not happen.
         </p>
+      </details>
 
-        <h3>Bonuses</h3>
+      <details className="tax-explainer-topic collapsible">
+        <summary>
+          <h4>Bonuses</h4>
+        </summary>
         <p>
           A bonus is treated as supplemental pay: withheld separately from your salary, at the flat
           rate employers commonly use for one-off payments rather than at your own tax rate.
         </p>
         <p>
           A bonus adds to the year&rsquo;s taxable income, but it never makes later ordinary
-          paychecks look as though your salary had permanently gone up. Wherever the flat rate
-          took too much or too little, the difference is settled when the year&rsquo;s tax is
-          worked out.
+          paychecks look as though your salary had permanently gone up. Wherever the flat rate took
+          too much or too little, the difference is settled when the year&rsquo;s tax is worked out.
         </p>
+      </details>
 
-        <h3>Income outside payroll</h3>
+      <details className="tax-explainer-topic collapsible">
+        <summary>
+          <h4>Income outside payroll</h4>
+        </summary>
         <p>
           Money taken out of a retirement account, required minimum distributions, taxable
           investment gains and interest all count towards what you owe for the year. In Finley they
@@ -111,15 +134,23 @@ export function TaxExplainer({ assumptions }: { assumptions: readonly ModelAssum
           have tax withheld, and someone expecting a large bill may pay it during the year instead.
           Finley does not model those, so the whole difference lands in the following April.
         </p>
+      </details>
 
-        <h3>The tax you owe for the year</h3>
+      <details className="tax-explainer-topic collapsible">
+        <summary>
+          <h4>The tax you owe for the year</h4>
+        </summary>
         <p>
           At the end of each calendar year, Finley works out your actual federal income tax from
           the income that actually happened. That figure is the authoritative one. Everything
           withheld from a paycheck is only money paid towards it along the way.
         </p>
+      </details>
 
-        <h3>The April settlement</h3>
+      <details className="tax-explainer-topic collapsible">
+        <summary>
+          <h4>The April settlement</h4>
+        </summary>
         <p>
           The difference between the two becomes the following April&rsquo;s settlement: too little
           withheld and you make a payment, too much and you receive a refund.
@@ -129,8 +160,12 @@ export function TaxExplainer({ assumptions }: { assumptions: readonly ModelAssum
           to be found from them. It does not go back and change any earlier month; the paychecks
           stand as they were paid, and April squares up.
         </p>
+      </details>
 
-        <h3>Social Security and Medicare</h3>
+      <details className="tax-explainer-topic collapsible">
+        <summary>
+          <h4>Social Security and Medicare</h4>
+        </summary>
         <p>
           These are worked out per employer, because each employer applies the rules to the wages
           it alone paid.
@@ -161,18 +196,17 @@ export function TaxExplainer({ assumptions }: { assumptions: readonly ModelAssum
       </details>
 
       {assumptions.length > 0 && (
-        <>
-          <h2>Simplifications and assumptions</h2>
-          <details className="assumptions">
-            <summary>Where the plan differs from real life</summary>
-            <ul>
-              {assumptions.map((a) => (
-                <li key={a.id}>{a.text}</li>
-              ))}
-            </ul>
-          </details>
-        </>
+        <details className="tax-explainer-topic collapsible">
+          <summary>
+            <h3>Simplifications and assumptions</h3>
+          </summary>
+          <ul>
+            {assumptions.map((a) => (
+              <li key={a.id}>{a.text}</li>
+            ))}
+          </ul>
+        </details>
       )}
-    </section>
+    </details>
   );
 }
