@@ -16,29 +16,47 @@ import {
 import type { NameType, ValueType } from "recharts/types/component/DefaultTooltipContent";
 import { formatDollars, monthLabel, yearOf } from "../../format";
 import { TODAY_X, axisPointLabel, axisYearTickLabel, fromAxisX, toAxisX, yearTickXs } from "../monthAxis";
-import type { IncomeBasis, IncomeChartData, IncomeMode } from "./incomeChartData";
-import { buildIncomeChartModel, SPENDING_NEED_KEY } from "./incomeChartModel";
+import type { CashFlowChartData, CashFlowMode, CashFlowView } from "./cashFlowChartData";
+import { buildCashFlowChartModel, NET_KEY, SPENDING_NEED_KEY } from "./cashFlowChartModel";
 
 /**
- * Monthly cash-flows-vs.-spending chart above the budget chart, sharing its x-axis,
- * click-to-select gesture and marker. Stacks every cash source — wages, benefit, interest,
- * asset and savings draws — broader than "income". Simple (default) folds every draw into
- * one "Living off savings" band; Advanced splits each source out.
+ * The monthly cash-flow chart above the budget chart, sharing its x-axis, click-to-select
+ * gesture and marker. THREE VIEWS of one month, chosen with a radio group:
  *
- * Bands are take-home by default (after the source's own tax and pre-tax deferral); gross
- * would show money that never reaches the checking account, overstating headroom.
+ *  • **Coming in** — every dollar the household receives: each job, each benefit, a tax refund.
+ *  • **Going out** — every dollar it pays: income tax, FICA, a settled balance, every budget
+ *    line, every debt payment.
+ *  • **Net** — the difference, as one signed line. No bands: the whole point of the net view is
+ *    that it is a single number, positive where the month saved and negative where it drew.
+ *
+ * The views exist so that nothing is ever netted per SOURCE. Both stacks are positive by
+ * construction, so there is no clamp and no pro-rata haircut anywhere in this chart — see
+ * {@link import("./cashFlowChartData")} for why that mattered.
  *
  * Pure preparation — band collapse, colours, row mapping, formatting — lives in {@link
- * buildIncomeChartModel}; this component owns only the local mode/basis state, the click
+ * buildCashFlowChartModel}; this component owns only the local view/mode state, the click
  * gesture and the Recharts JSX. The summary and data mirrors render outside Recharts (jsdom
  * gives no real width).
  */
 
 const SPENDING_NEED_COLOR = "#9c5b39"; // the dashed "is it enough" line
+const NET_COLOR = "#2f5d7c"; // the net view's single signed series
+const ZERO_COLOR = "#8a8570"; // the net view's break-even rule
 const BROKE_COLOR = "#b23a2e"; // the "plan runs out" marker
 const AXIS = "#6b6552";
 const GRID = "#e3dcc6";
 const MARKER = "#1f3a2e"; // the selected-month rule
+
+/**
+ * The radio group's options, in the order money moves: what arrives, what leaves, what's left.
+ * Labels are plain English rather than "inflows"/"outflows" — the type says that; the person
+ * reading the chart wants the sentence.
+ */
+const VIEW_CHOICES: readonly (readonly [CashFlowView, string])[] = [
+  ["inflows", "Coming in"],
+  ["outflows", "Going out"],
+  ["net", "Net"],
+];
 
 /**
  * Off-screen but in the accessibility tree — the standard clip-rect idiom, not `display:none`
@@ -75,10 +93,12 @@ const VISUALLY_HIDDEN: CSSProperties = {
  * nine lines of which one carries money. The spending need always stays: hidden at $0 it would
  * read as "not shown" rather than "nothing to cover".
  */
-export function IncomeTooltipContent(props: TooltipContentProps<ValueType, NameType>) {
+export function CashFlowTooltipContent(props: TooltipContentProps<ValueType, NameType>) {
   const { active, payload } = props;
   if (!active || !payload || payload.length === 0) return null;
-  const paying = payload.filter((e) => e.dataKey === SPENDING_NEED_KEY || Number(e.value) !== 0);
+  const paying = payload.filter(
+    (e) => e.dataKey === SPENDING_NEED_KEY || e.dataKey === NET_KEY || Number(e.value) !== 0,
+  );
   return (
     <DefaultTooltipContent
       {...props}
@@ -90,8 +110,8 @@ export function IncomeTooltipContent(props: TooltipContentProps<ValueType, NameT
   );
 }
 
-export interface IncomeChartProps {
-  readonly data: IncomeChartData;
+export interface CashFlowChartProps {
+  readonly data: CashFlowChartData;
   /** The household's age at month 0, which turns the broke marker's month into an age. */
   readonly currentAge: number;
   /** The month the editor is pointed at, marked with a vertical rule. */
@@ -104,20 +124,20 @@ export interface IncomeChartProps {
   readonly onSelectMonth: (month: number) => void;
 }
 
-export function IncomeChart({
+export function CashFlowChart({
   data,
   currentAge,
   selectedMonth,
   personNames,
   onSelectMonth,
-}: IncomeChartProps) {
-  const [mode, setMode] = useState<IncomeMode>("simple");
-  const [basis, setBasis] = useState<IncomeBasis>("takeHome");
+}: CashFlowChartProps) {
+  const [mode, setMode] = useState<CashFlowMode>("simple");
+  const [view, setView] = useState<CashFlowView>("inflows");
   // None of this depends on `selectedMonth`, so scrubbing the selection — a frequent re-render
   // — doesn't recompute the band collapse or remap every month row.
   const model = useMemo(
-    () => buildIncomeChartModel(data, { mode, basis, personNames, currentAge }),
-    [data, mode, basis, personNames, currentAge],
+    () => buildCashFlowChartModel(data, { view, mode, personNames, currentAge }),
+    [data, view, mode, personNames, currentAge],
   );
 
   return (
@@ -129,20 +149,31 @@ export function IncomeChart({
           {model.gapSummary ?? "Cash flow continues across the whole horizon."}
         </p>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 14 }}>
-          {/* Gross reads raw earning power. */}
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, whiteSpace: "nowrap" }}>
-            <input
-              type="checkbox"
-              checked={basis === "gross"}
-              onChange={(e) => setBasis(e.target.checked ? "gross" : "takeHome")}
-            />
-            Show gross cash flows
-          </label>
+          {/* Three views of one month, not three charts: the same axis, marker and click
+              gesture, so toggling never moves the reader. */}
+          <fieldset
+            style={{ display: "inline-flex", alignItems: "center", gap: 10, margin: 0, padding: 0, border: 0, fontSize: 12 }}
+          >
+            <legend style={{ padding: 0, marginRight: 4, float: "left" }}>Show:</legend>
+            {VIEW_CHOICES.map(([v, label]) => (
+              <label key={v} style={{ display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
+                <input
+                  type="radio"
+                  name="cash-flow-view"
+                  checked={view === v}
+                  onChange={() => setView(v)}
+                />
+                {label}
+              </label>
+            ))}
+          </fieldset>
           {/* Two chart presentations, not a feature that's on or off: a radio group states the
               choice explicitly and keeps one active mode visible, where a lone "Advanced"
               checkbox left "Simple" unnamed. Native radios carry the keyboard and a11y
               semantics; `mode` stays the single union, never a boolean per option. */}
+          {/* The net view has no bands, so there is nothing for Simple/Advanced to collapse. */}
           <fieldset
+            hidden={view === "net"}
             style={{ display: "inline-flex", alignItems: "center", gap: 10, margin: 0, padding: 0, border: 0, fontSize: 12 }}
           >
             <legend style={{ padding: 0, marginRight: 4, float: "left" }}>Chart detail:</legend>
@@ -150,7 +181,7 @@ export function IncomeChart({
               <label key={m} style={{ display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
                 <input
                   type="radio"
-                  name="income-mode"
+                  name="cash-flow-mode"
                   checked={mode === m}
                   onChange={() => setMode(m)}
                 />
@@ -187,7 +218,13 @@ export function IncomeChart({
                 </tr>
               ))}
               <tr>
-                <th scope="row">Total cash available</th>
+                <th scope="row">
+                  {model.view === "inflows"
+                    ? "Total cash coming in"
+                    : model.view === "outflows"
+                      ? "Total cash going out"
+                      : "Net cash flow"}
+                </th>
                 <td>{moment.totalCashFlow}</td>
               </tr>
               <tr>
@@ -213,6 +250,9 @@ export function IncomeChart({
       </output>
       <output data-testid="income-bands" hidden>
         {JSON.stringify(model.bands.map((b) => b.label))}
+      </output>
+      <output data-testid="income-first-net" hidden>
+        {model.rows[0]?.[model.netKey] ?? 0}
       </output>
       <output data-testid="income-first-spending-need" hidden>
         {model.rows[0]?.[model.spendingNeedKey] ?? 0}
@@ -250,7 +290,7 @@ export function IncomeChart({
             stroke={GRID}
           />
           <Tooltip
-            content={IncomeTooltipContent}
+            content={CashFlowTooltipContent}
             // Recharts positions the tooltip and legend as sibling absolutely-positioned
             // wrappers in DOM (not paint) order, so the legend — added after in this markup —
             // otherwise paints OVER a tooltip hovering above it.
@@ -278,7 +318,7 @@ export function IncomeChart({
               type="monotone"
               dataKey={band.id}
               name={band.label}
-              stackId="income"
+              stackId="cash-flow"
               // Not a surface-coloured separator hairline: Recharts keys the legend swatch and
               // tooltip entry to `stroke`, so a surface stroke erases both. The full-opacity
               // stroke over the 0.6 fill gives each band its darker edge.
@@ -288,16 +328,37 @@ export function IncomeChart({
               isAnimationActive={false}
             />
           ))}
-          <Line
-            type="monotone"
-            dataKey={model.spendingNeedKey}
-            name="Spending need"
-            stroke={SPENDING_NEED_COLOR}
-            strokeWidth={2}
-            strokeDasharray="6 4"
-            dot={false}
-            isAnimationActive={false}
-          />
+          {/* The net view: one signed series filled back to zero, so a surplus reads as area
+              above the break-even rule and a shortfall as area below it. `baseValue={0}` rather
+              than the axis minimum, which would fill a negative month from the bottom of the
+              chart and make every shortfall look total. */}
+          {model.view === "net" && (
+            <>
+              <ReferenceLine y={0} stroke={ZERO_COLOR} strokeWidth={1} />
+              <Area
+                type="monotone"
+                dataKey={model.netKey}
+                name="Net cash flow"
+                baseValue={0}
+                stroke={NET_COLOR}
+                fill={NET_COLOR}
+                fillOpacity={0.35}
+                isAnimationActive={false}
+              />
+            </>
+          )}
+          {model.showsSpendingNeed && (
+            <Line
+              type="monotone"
+              dataKey={model.spendingNeedKey}
+              name="Spending need"
+              stroke={SPENDING_NEED_COLOR}
+              strokeWidth={2}
+              strokeDasharray="6 4"
+              dot={false}
+              isAnimationActive={false}
+            />
+          )}
         </ComposedChart>
       </ResponsiveContainer>
       </div>

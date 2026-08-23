@@ -11,11 +11,17 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { Projection, type ProjectionSeries } from "@finley/engine";
+import { Projection } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { PRESETS, presetState } from "./presets";
 import { buildTaxChartData } from "./components/baseAdjustments/taxesByMonth";
-import { buildIncomeChartData } from "./components/baseAdjustments/incomeChartData";
+import {
+  TAX_INCOME_BAND_ID,
+  TAX_PAYROLL_BAND_ID,
+  TAX_REFUND_BAND_ID,
+  TAX_SETTLEMENT_BAND_ID,
+  buildCashFlowChartData,
+} from "./components/baseAdjustments/cashFlowChartData";
 
 /** Each preset projected once, reused by every case below — the runs dominate the file's cost. */
 const RUNS = PRESETS.map((preset) => ({
@@ -102,72 +108,97 @@ describe.each(RUNS)("$preset.id — the tax chart's accounting", ({ preset, seri
 });
 
 /**
- * The reclassification must MOVE the refund between bands, never mint it. "Before" is the same
- * series with the settlement stripped — the state of the world when a refund was silently spread
- * across whatever sources bore the year's tax, and the only thing the chart could do with it.
+ * The cash-flow chart, held to the property the three views exist to guarantee: nothing on
+ * either stack is ever negative, so nothing is ever clamped and nothing is ever charged on pro
+ * rata. The old chart netted tax into the source that bore it and needed both; a household with
+ * three equal salaries drew ONE of them carrying the whole month's take-home.
  */
-function withoutSettlementReporting(series: ProjectionSeries): ProjectionSeries {
-  return {
-    ...series,
-    months: series.months.map((m) =>
-      m.flows === undefined
-        ? m
-        : { ...m, flows: { ...m.flows, taxSettlementCents: 0, taxSettlementBySourceCents: {} } },
-    ),
-  } as ProjectionSeries;
-}
+describe.each(RUNS)("$preset.id — the cash-flow chart's two stacks", ({ preset, series }) => {
+  const data = buildCashFlowChartData(series);
+  const rowAt = new Map(data.rows.map((r) => [r.month, r] as const));
+  const flowedMonths = series.months.filter((m) => m.flows !== undefined);
 
-describe.each(RUNS)("$preset.id — the cash-flow chart's refund band", ({ preset, series }) => {
-  const after = buildIncomeChartData(series);
-  const before = buildIncomeChartData(withoutSettlementReporting(series));
-
-  // Both charts drop the flow-free snapshot, so a row index is not a month index — every lookup
-  // below goes through the month itself.
-  const wasAt = new Map(before.rows.map((r) => [r.month, r] as const));
-
-  it("leaves household take-home identical wherever the refund had somewhere to be", () => {
-    const moved = after.rows
-      .filter((row) => row.takeHomeCents !== wasAt.get(row.month)!.takeHomeCents)
-      .filter((row) => {
-        const flows = series.months.find((m) => m.month === row.month)?.flows;
-        return (flows?.incomeSources.length ?? 0) > 0;
-      })
-      .map((row) => `${where(preset.id, row.month)}: ${wasAt.get(row.month)!.takeHomeCents} → ${row.takeHomeCents}`);
-    expect(moved).toEqual([]);
-  });
-
-  /**
-   * The one place take-home legitimately MOVES, and it moves up.
-   *
-   * A refund arriving in a month with no income at all has no source to net into — the engine's
-   * stranded-haircut pass needs a band with cash on it and there is none — so before this the
-   * money simply never reached the chart. `living-on-credit` files one such April 30 years in,
-   * with six cents; a retiree filing on a year of withholding-free income is the same shape at
-   * a scale that matters.
-   */
-  it("makes a refund visible in a month that has no income to hide it in", () => {
-    const wrong: string[] = [];
-    for (const m of series.months) {
-      if (m.flows === undefined || m.flows.incomeSources.length > 0) continue;
-      const refund = Math.max(0, -m.flows.taxSettlementCents);
-      const row = after.rows.find((r) => r.month === m.month)!;
-      const gained = row.takeHomeCents - wasAt.get(m.month)!.takeHomeCents;
-      if (gained !== refund) wrong.push(`${where(preset.id, m.month)}: gained ${gained} vs refund ${refund}`);
+  it("never draws a negative band on either side, in any month", () => {
+    const negatives: string[] = [];
+    for (const row of data.rows) {
+      for (const [id, cents] of Object.entries(row.inflowCentsByBand)) {
+        if (cents < 0) negatives.push(`${where(preset.id, row.month)} · in · ${id} = ${cents}`);
+      }
+      for (const [id, cents] of Object.entries(row.outflowCentsByBand)) {
+        if (cents < 0) negatives.push(`${where(preset.id, row.month)} · out · ${id} = ${cents}`);
+      }
     }
-    expect(wrong).toEqual([]);
+    expect(negatives).toEqual([]);
   });
 
   it("bands the refund exactly once, and only in the months that got one", () => {
     const wrong: string[] = [];
-    for (const m of series.months) {
-      if (m.flows === undefined) continue;
-      const refund = Math.max(0, -m.flows.taxSettlementCents);
-      const row = after.rows.find((r) => r.month === m.month)!;
-      const banded = row.netCentsBySource["tax-refund"] ?? 0;
-      if (banded !== refund) wrong.push(`${where(preset.id, m.month)}: banded ${banded} vs refund ${refund}`);
-      // Once, not twice: gross carries the same single figure, never a doubled one.
-      const gross = row.centsBySource["tax-refund"] ?? 0;
-      if (gross !== refund) wrong.push(`${where(preset.id, m.month)}: gross ${gross} vs refund ${refund}`);
+    for (const m of flowedMonths) {
+      const refund = Math.max(0, -m.flows!.taxSettlementCents);
+      const banded = rowAt.get(m.month)!.inflowCentsByBand[TAX_REFUND_BAND_ID] ?? 0;
+      if (banded !== refund) {
+        wrong.push(`${where(preset.id, m.month)}: banded ${banded} vs refund ${refund}`);
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it("bands every source's GROSS cash, untouched by any tax it bore", () => {
+    const wrong: string[] = [];
+    for (const m of flowedMonths) {
+      const row = rowAt.get(m.month)!;
+      for (const s of m.flows!.incomeSources) {
+        if (s.category === "savingsDrawdown" || s.category === "savingsInterest") continue;
+        if (s.cashInflowCents === 0) continue;
+        const banded = row.inflowCentsByBand[s.sourceId] ?? 0;
+        if (banded !== s.cashInflowCents) {
+          wrong.push(`${where(preset.id, m.month)} · ${s.sourceId}: ${banded} vs ${s.cashInflowCents}`);
+        }
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it("sums the tax bands to the tax the month actually paid, to the cent", () => {
+    const wrong: string[] = [];
+    for (const m of flowedMonths) {
+      const f = m.flows!;
+      const out = rowAt.get(m.month)!.outflowCentsByBand;
+      const banded =
+        (out[TAX_INCOME_BAND_ID] ?? 0) + (out[TAX_PAYROLL_BAND_ID] ?? 0) + (out[TAX_SETTLEMENT_BAND_ID] ?? 0);
+      // Withholding recovered by taking the signed settlement back out, plus FICA, plus a
+      // settlement only where it was a BILL — a refund is money in, and bands on the other side.
+      const expected =
+        f.taxCents - f.taxSettlementCents + f.payrollTaxCents + Math.max(0, f.taxSettlementCents);
+      if (banded !== expected) {
+        wrong.push(`${where(preset.id, m.month)}: banded ${banded}, expected ${expected}`);
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it("sums the outflow stack to tax paid plus every obligation the month owed", () => {
+    const wrong: string[] = [];
+    for (const m of flowedMonths) {
+      const f = m.flows!;
+      const row = rowAt.get(m.month)!;
+      const stacked = Object.values(row.outflowCentsByBand).reduce((sum, c) => sum + c, 0);
+      const taxPaid =
+        f.taxCents - f.taxSettlementCents + f.payrollTaxCents + Math.max(0, f.taxSettlementCents);
+      const owed = f.obligations.reduce((sum, o) => sum + o.amountCents, 0);
+      if (stacked !== taxPaid + owed) {
+        wrong.push(`${where(preset.id, m.month)}: stacked ${stacked}, expected ${taxPaid + owed}`);
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it("makes the net exactly what came in less what went out", () => {
+    const wrong: string[] = [];
+    for (const row of data.rows) {
+      if (row.netCents !== row.inflowTotalCents - row.outflowTotalCents) {
+        wrong.push(`${where(preset.id, row.month)}: ${row.netCents}`);
+      }
     }
     expect(wrong).toEqual([]);
   });

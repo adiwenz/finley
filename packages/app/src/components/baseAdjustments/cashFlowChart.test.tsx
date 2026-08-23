@@ -1,21 +1,38 @@
 /**
  * @vitest-environment jsdom
  *
- * The income chart component's local behaviour — the mode/basis controls and the nonvisual
+ * The cash-flow chart component's local behaviour — the view/mode controls and the nonvisual
  * representation it exposes to assistive technology. Recharts needs a real layout width jsdom
  * lacks, so these tests read the DOM the component draws around the chart, never the SVG.
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { dollarsToCents, type ProjectionCashFlowIncomeSource, type ProjectionSeries } from "@finley/engine";
-import { buildIncomeChartData } from "./incomeChartData";
-import { IncomeChart, IncomeTooltipContent } from "./incomeChart";
-import { SPENDING_NEED_KEY } from "./incomeChartModel";
+import { buildCashFlowChartData } from "./cashFlowChartData";
+import { CashFlowChart, CashFlowTooltipContent } from "./cashFlowChart";
+import { SPENDING_NEED_KEY } from "./cashFlowChartModel";
 
-function seriesOf(...perMonth: ProjectionCashFlowIncomeSource[][]): ProjectionSeries {
+function seriesOf(
+  ...perMonth: {
+    sources?: ProjectionCashFlowIncomeSource[];
+    obligations?: { id: string; label: string; category: string; amountCents: number }[];
+    taxCents?: number;
+  }[]
+): ProjectionSeries {
   const months = [
     { month: 0 },
-    ...perMonth.map((incomeSources, i) => ({ month: i + 1, flows: { incomeSources } })),
+    ...perMonth.map((m, i) => ({
+      month: i + 1,
+      flows: {
+        incomeSources: m.sources ?? [],
+        obligations: m.obligations ?? [],
+        taxCents: m.taxCents ?? 0,
+        payrollTaxCents: 0,
+        taxSettlementCents: 0,
+        expensesCents: 0,
+        liabilityPaymentsCents: 0,
+      },
+    })),
   ];
   return { months } as unknown as ProjectionSeries;
 }
@@ -36,9 +53,9 @@ function source(
 
 const wages = source("Software Engineer", dollarsToCents(5_000), "wages");
 
-function renderChart(data = buildIncomeChartData(seriesOf([wages]))) {
+function renderChart(data = buildCashFlowChartData(seriesOf({ sources: [wages] }))) {
   return render(
-    <IncomeChart
+    <CashFlowChart
       data={data}
       currentAge={40}
       selectedMonth={0}
@@ -50,7 +67,7 @@ function renderChart(data = buildIncomeChartData(seriesOf([wages]))) {
 
 afterEach(cleanup);
 
-describe("IncomeChart — accessible nonvisual representation", () => {
+describe("CashFlowChart — accessible nonvisual representation", () => {
   it("renders a data table of sources and formatted amounts, not raw ids or cents", () => {
     renderChart();
     const table = screen.getByRole("table");
@@ -103,40 +120,73 @@ describe("IncomeChart — accessible nonvisual representation", () => {
   });
 });
 
-describe("IncomeChart — mode and basis controls", () => {
-  it("switches from Simple to Advanced and back through an explicit mode control", () => {
-    const data = buildIncomeChartData(
-      seriesOf([source("acct:a", dollarsToCents(1_000), "savingsDrawdown")]),
+describe("CashFlowChart — the view and detail controls", () => {
+  const rich = () =>
+    buildCashFlowChartData(
+      seriesOf({
+        sources: [wages],
+        taxCents: dollarsToCents(900),
+        obligations: [
+          { id: "line:rent", label: "Housing", category: "needs", amountCents: dollarsToCents(1_600) },
+          { id: "line:fun", label: "Dining", category: "wants", amountCents: dollarsToCents(400) },
+        ],
+      }),
     );
-    renderChart(data);
-    const bandLabels = () =>
-      within(screen.getByRole("table")).getAllByRole("rowheader").map((el) => el.textContent);
-    const simple = screen.getByRole("radio", { name: /Simple/i }) as HTMLInputElement;
-    const advanced = screen.getByRole("radio", { name: /Advanced/i }) as HTMLInputElement;
+  const bandLabels = () =>
+    within(screen.getByRole("table")).getAllByRole("rowheader").map((el) => el.textContent);
 
-    // The active mode is exposed through the radio's checked state, not a checkbox.
-    expect(simple.checked).toBe(true);
-    expect(advanced.checked).toBe(false);
-    expect(bandLabels()).toContain("Living off savings");
-
-    fireEvent.click(advanced);
-    expect(advanced.checked).toBe(true);
-    expect(bandLabels()).not.toContain("Living off savings");
-    expect(bandLabels()).toContain("acct:a");
-
-    fireEvent.click(simple);
-    expect(simple.checked).toBe(true);
-    expect(bandLabels()).toContain("Living off savings");
+  it("opens on what's coming in", () => {
+    renderChart(rich());
+    expect((screen.getByRole("radio", { name: /Coming in/i }) as HTMLInputElement).checked).toBe(true);
+    expect(bandLabels()).toContain("Software Engineer");
+    expect(bandLabels()).not.toContain("Housing");
   });
 
-  it("still toggles gross vs take-home separately from the mode", () => {
-    renderChart();
-    // The basis toggle stays a checkbox — it is not part of the Simple/Advanced mode.
-    expect(screen.getByRole("checkbox", { name: /Show gross cash flows/i })).toBeDefined();
+  it("toggles to what's going out, showing tax and spending instead of income", () => {
+    renderChart(rich());
+    fireEvent.click(screen.getByRole("radio", { name: /Going out/i }));
+    expect(bandLabels()).toContain("Taxes");
+    expect(bandLabels()).toContain("Needs");
+    expect(bandLabels()).not.toContain("Software Engineer");
+  });
+
+  it("toggles to the net, which reads as a single figure and no bands", () => {
+    renderChart(rich());
+    fireEvent.click(screen.getByRole("radio", { name: /^Net$/i }));
+    expect(bandLabels()).toContain("Net cash flow");
+    expect(bandLabels()).not.toContain("Software Engineer");
+    expect(bandLabels()).not.toContain("Taxes");
+    // 5,000 in, 900 tax + 2,000 spending out.
+    expect(screen.getByTestId("income-first-net").textContent).toBe(String(dollarsToCents(2_100)));
+  });
+
+  it("hides the detail control on the net view, which has no bands to collapse", () => {
+    renderChart(rich());
+    const detail = screen.getByRole("radio", { name: /Simple/i }).closest("fieldset")!;
+    expect(detail.hidden).toBe(false);
+    fireEvent.click(screen.getByRole("radio", { name: /^Net$/i }));
+    expect(detail.hidden).toBe(true);
+  });
+
+  it("splits spending per line in Advanced, and folds it per category in Simple", () => {
+    renderChart(rich());
+    fireEvent.click(screen.getByRole("radio", { name: /Going out/i }));
+    expect(bandLabels()).toContain("Needs");
+    expect(bandLabels()).not.toContain("Housing");
+
+    fireEvent.click(screen.getByRole("radio", { name: /Advanced/i }));
+    expect(bandLabels()).toContain("Housing");
+    expect(bandLabels()).toContain("Dining");
+    expect(bandLabels()).not.toContain("Needs");
+  });
+
+  it("no longer offers a gross/take-home basis — the views replaced it", () => {
+    renderChart(rich());
+    expect(screen.queryByRole("checkbox", { name: /gross/i })).toBeNull();
   });
 });
 
-describe("IncomeTooltipContent — the hover readout", () => {
+describe("CashFlowTooltipContent — the hover readout", () => {
   // Recharts owns the hover and needs a layout jsdom lacks, so the readout is driven directly
   // with the payload Recharts would hand it.
   // Only the fields the readout reads; Recharts' own payload type carries plumbing a test has
@@ -144,13 +194,13 @@ describe("IncomeTooltipContent — the hover readout", () => {
   const entry = (dataKey: string, value: number) =>
     ({ dataKey, name: dataKey, value, color: "#000" }) as never;
   const props = (payload: unknown[]) =>
-    ({ active: true, label: 12, payload }) as unknown as Parameters<typeof IncomeTooltipContent>[0];
+    ({ active: true, label: 12, payload }) as unknown as Parameters<typeof CashFlowTooltipContent>[0];
 
   it("leaves out the bands paying nothing this month", () => {
     // Every band sits in every row — zero-filled so a once-a-year band still draws — so without
     // this an Advanced plan hovers as nine lines of which one carries money.
     render(
-      <IncomeTooltipContent
+      <CashFlowTooltipContent
         {...props([
           entry("rmd:p1", dollarsToCents(80_000)),
           entry("brokerage", 0),
@@ -168,7 +218,7 @@ describe("IncomeTooltipContent — the hover readout", () => {
 
   it("keeps the spending need even at zero — absent, it would read as 'not shown'", () => {
     render(
-      <IncomeTooltipContent {...props([entry("brokerage", 0), entry(SPENDING_NEED_KEY, 0)])} />,
+      <CashFlowTooltipContent {...props([entry("brokerage", 0), entry(SPENDING_NEED_KEY, 0)])} />,
     );
     const rows = screen.getAllByRole("listitem").map((el) => el.textContent);
     expect(rows).toHaveLength(1);
@@ -177,7 +227,7 @@ describe("IncomeTooltipContent — the hover readout", () => {
   });
 
   it("draws nothing when nothing is hovered", () => {
-    const { container } = render(<IncomeTooltipContent {...props([])} active={false} />);
+    const { container } = render(<CashFlowTooltipContent {...props([])} active={false} />);
     expect(container.firstChild).toBeNull();
   });
 });
