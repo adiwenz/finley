@@ -26,6 +26,7 @@ describe("presets", () => {
       "three-jobs",
       "bonus",
       "taxed-in-retirement",
+      "cash-in-retirement",
     ]);
     for (const preset of PRESETS) {
       expect(preset.label).not.toBe("");
@@ -215,6 +216,45 @@ describe("presets", () => {
       usJurisdiction,
     ).run(usJurisdiction);
     expect(result.series.months.slice(0, 24).some((m) => m.isInsolvent)).toBe(false);
+  });
+
+  /**
+   * The retirement pair, which only teaches anything if the two really are one household with
+   * one difference. Pinned so a later tuning pass cannot quietly make them incomparable.
+   */
+  it("differs from the taxed-in-retirement preset by the deferral and nothing else", () => {
+    const taxed = presetById("taxed-in-retirement").input;
+    const cash = presetById("cash-in-retirement").input;
+    const { jobs: taxedJobs, name: _taxedName, ...taxedRest } = taxed;
+    const { jobs: cashJobs, name: _cashName, ...cashRest } = cash;
+    expect(cashRest).toEqual(taxedRest);
+    expect(cashJobs).toHaveLength(1);
+    expect(cashJobs![0]!.salary).toEqual(taxedJobs![0]!.salary);
+    // The one difference: the same paycheck, saved after tax instead of before it.
+    expect(taxedJobs![0]!).toHaveProperty("deferral");
+    expect(cashJobs![0]!).not.toHaveProperty("deferral");
+  });
+
+  it("names itself as the comparison it is, so the pair reads as a pair in the picker", () => {
+    const ids = PRESETS.map((preset) => preset.id);
+    // Adjacent, and in that order — the taxed one is the scenario, this one is the answer to it.
+    expect(ids.indexOf("cash-in-retirement")).toBe(ids.indexOf("taxed-in-retirement") + 1);
+    expect(presetById("cash-in-retirement").description).toContain("Taxed in retirement");
+  });
+
+  it("pays materially less retirement tax than its twin, which is the whole comparison", () => {
+    const retirementTaxCents = (id: string): number => {
+      const series = Projection.fromState(presetState(presetById(id)), usJurisdiction).run(
+        usJurisdiction,
+      ).series;
+      return series.months
+        .filter((m) => m.flows !== undefined)
+        .filter((m) => m.flows!.incomeSources.every((s) => s.category !== "wages"))
+        .reduce((sum, m) => sum + m.flows!.taxCents + m.flows!.payrollTaxCents, 0);
+    };
+    expect(retirementTaxCents("cash-in-retirement")).toBeLessThan(
+      retirementTaxCents("taxed-in-retirement"),
+    );
   });
 
   it("falls back to the default preset for an unknown id", () => {

@@ -225,6 +225,31 @@ const TAXED_IN_RETIREMENT: ScenarioInput = {
 };
 
 /**
+ * {@link TAXED_IN_RETIREMENT} with ONE field changed, and it is the field that matters.
+ *
+ * The same person, the same salary, the same budget, the same retirement — saving after tax
+ * instead of into a 401(k). Nothing this household withdraws in retirement is taxable income,
+ * where every dollar the other one withdraws is.
+ *
+ * Read as a pair, they answer two questions the charts otherwise confuse. What retirement
+ * withdrawals COST: this one pays essentially no tax in retirement while its twin pays a few
+ * hundred a month on the same spending. And what a surplus/shortfall line MEANS: an account
+ * drawn to cover a gap is not income, so both households show the same shape of shortfall —
+ * `cashFlowSurplus.test.ts` runs the pair end to end and holds them to that.
+ *
+ * It also lands the third lesson honestly, without tuning for it: this household arrives at
+ * retirement with LESS. A deferral comes off the top of the paycheck, where post-tax saving
+ * competes with an already-full budget, so dropping it costs more than the tax it saves — and
+ * the money runs out sooner, not later.
+ */
+const CASH_IN_RETIREMENT: ScenarioInput = {
+  ...TAXED_IN_RETIREMENT,
+  name: "Rowan",
+  // The one difference: no `deferral`, so the same job funds a taxable balance instead.
+  jobs: [salariedJob(dollarsToCents(8000))],
+};
+
+/**
  * Two paychecks at once. Each employer withholds as though its own salary were the household's
  * only income — neither can see the other — so between them they price the second job from the
  * bottom of the brackets a second time. The W-4's own Multiple Jobs Worksheet is what closes
@@ -401,6 +426,13 @@ export const PRESETS: readonly Preset[] = [
     label: "Taxed in retirement",
     description: "A strong 401(k) saver whose withdrawals and Social Security are both taxed after the paychecks stop.",
     input: TAXED_IN_RETIREMENT,
+  },
+  {
+    id: "cash-in-retirement",
+    label: "…vs. retiring on cash",
+    description:
+      "The same household as Taxed in retirement, saving after tax instead of into a 401(k) — nothing it withdraws is taxed, and it has less to withdraw.",
+    input: CASH_IN_RETIREMENT,
   },
 ];
 

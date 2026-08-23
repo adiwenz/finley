@@ -14,7 +14,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { Projection, dollarsToCents, type ProjectionMonth, type ScenarioInput } from "@finley/engine";
+import { Projection, type ProjectionMonth, type ScenarioInput } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { presetById } from "./presets";
 import { buildCashFlowChartData } from "./components/baseAdjustments/cashFlowChartData";
@@ -23,20 +23,10 @@ import { buildCashFlowChartData } from "./components/baseAdjustments/cashFlowCha
 const IRA_FUNDED = presetById("taxed-in-retirement").input;
 
 /**
- * The same household funding the same retirement out of after-tax cash instead — the deferral
- * dropped so nothing accumulates pre-tax, and an opening balance large enough to carry the years
- * between the last paycheck and life expectancy.
+ * The same household saving after tax instead. Authored as a PRESET rather than a fixture, so
+ * the pair these tests compare is the pair a reader can put side by side in the app.
  */
-const CASH_FUNDED: ScenarioInput = (() => {
-  const [job] = IRA_FUNDED.jobs!;
-  const { deferral: _deferral, ...withoutDeferral } = job as typeof job & { deferral?: unknown };
-  return {
-    ...IRA_FUNDED,
-    name: "Rowan",
-    jobs: [withoutDeferral as typeof job],
-    openingBalanceCents: dollarsToCents(700_000),
-  };
-})();
+const CASH_FUNDED: ScenarioInput = presetById("cash-in-retirement").input;
 
 function run(input: ScenarioInput) {
   const built = Projection.fromInput(input, usJurisdiction);
