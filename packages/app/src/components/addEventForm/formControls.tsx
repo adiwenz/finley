@@ -1,7 +1,6 @@
 /** Shared controls and props for the per-event authoring forms. */
 
 import type { LifeEvent, Projection } from "@finley/engine";
-import { HOUSEHOLD_OWNER_ID } from "@finley/engine";
 import { monthLabel } from "../../format";
 
 /** Props every event form receives from {@link AddEventForm}. */
@@ -89,9 +88,10 @@ export function MonthSelect({
 }
 
 /**
- * Who a debt or holding belongs to. Offers every household member present at `month`, plus the
- * household itself — a debt both partners carry rather than one of them, which the waterfall
- * splits by the household's own contribution scheme instead of charging to one person's pay.
+ * Who a debt or holding belongs to — always exactly one person. A debt is not co-owned here even
+ * when both partners benefit from it: ownership is what decides who funds it first and what
+ * happens to it at separation, and a jointly-owned liability has no answer to the second
+ * question that the engine could act on (there is no half-loan to divide).
  *
  * Hidden entirely for a one-person household: with a single member and no partner to distinguish
  * them from, "whose is it" is not a question worth asking, and the answer is the primary either
@@ -118,7 +118,6 @@ export function OwnerPicker({
             {p.name}
           </option>
         ))}
-        <option value={HOUSEHOLD_OWNER_ID}>Both of us (household)</option>
       </select>
     </label>
   );

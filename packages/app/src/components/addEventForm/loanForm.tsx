@@ -2,7 +2,6 @@
 
 import { useRef, useState } from "react";
 import {
-  HOUSEHOLD_OWNER_ID,
   type ProjectionResult,
   dollarsToCents,
   isPreExisting,
@@ -58,9 +57,8 @@ function draftFromEvent(event: EventOf<"LoanEvent">): LoanDraft {
     : { ...common, kind: event.kind, termYears: event.termMonths / 12 };
 }
 
-/** How an owner reads once chosen — a member's name, or the household itself. */
+/** How an owner reads once chosen. */
 function ownerLabel(ownerId: string, people: readonly { id: string; name: string }[]): string {
-  if (ownerId === HOUSEHOLD_OWNER_ID) return "Both of us (household)";
   return people.find((p) => p.id === ownerId)?.name ?? ownerId;
 }
 
@@ -120,10 +118,7 @@ export function LoanForm({
   // Everyone in the household at the loan's month, plus the household itself via the picker.
   // Derived during render so it tracks the month field without a reset effect.
   const people = result.membersAt(draft.month);
-  const ownerId =
-    draft.ownerId === HOUSEHOLD_OWNER_ID || people.some((p) => p.id === draft.ownerId)
-      ? draft.ownerId
-      : PRIMARY_PERSON_ID;
+  const ownerId = people.some((p) => p.id === draft.ownerId) ? draft.ownerId : PRIMARY_PERSON_ID;
 
   function submit() {
     // A revision keeps the loan's `kind` (and its id/owner) fixed, so it names only the

@@ -133,6 +133,15 @@ abstract class SimLiabilityBase {
    * it, amortizing after. Defaults to 0, present from simulation start.
    */
   readonly startMonth: number;
+  /**
+   * The month this debt leaves the household's books, or `null` for one that never does.
+   *
+   * Set when its sole owner separates: the debt goes with them, exactly as their individually
+   * owned accounts do. From this month the balance reads 0, no payment is charged, and it stops
+   * subtracting from household net worth — it has not been paid off or forgiven, it is simply no
+   * longer this household's. Not a payoff date: a term loan's own schedule is unaffected.
+   */
+  readonly endMonth: number | null;
   readonly apr: number;
   readonly liquid: false = false;
 
@@ -149,6 +158,7 @@ abstract class SimLiabilityBase {
     kind: LiabilityKind;
     openingBalanceCents: Cents;
     startMonth?: number;
+    endMonth?: number | null;
     apr: number;
   }) {
     this.id = params.id;
@@ -156,7 +166,13 @@ abstract class SimLiabilityBase {
     this.kind = params.kind;
     this.openingBalanceCents = params.openingBalanceCents;
     this.startMonth = params.startMonth ?? 0;
+    this.endMonth = params.endMonth ?? null;
     this.apr = params.apr;
+  }
+
+  /** Whether this debt is still the household's at `month`. */
+  heldAt(month: number): boolean {
+    return this.endMonth === null || month < this.endMonth;
   }
 
   /**
@@ -200,6 +216,7 @@ export class AmortizingLoan extends SimLiabilityBase {
     kind: Exclude<LiabilityKind, "creditCard">;
     openingBalanceCents: Cents;
     startMonth?: number;
+    endMonth?: number | null;
     apr: number;
     termMonths: number;
   }) {
@@ -233,6 +250,7 @@ export class RevolvingCard extends SimLiabilityBase {
     ownerId: string;
     openingBalanceCents: Cents;
     startMonth?: number;
+    endMonth?: number | null;
     apr: number;
     creditLimitCents?: Cents;
   }) {

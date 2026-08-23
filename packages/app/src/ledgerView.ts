@@ -6,7 +6,6 @@
  */
 
 import type { Cents, FundingLookup, Ledger, LifeEvent, ProjectionSeries, SnapshotSeries } from "@finley/engine";
-import { HOUSEHOLD_OWNER_ID } from "@finley/engine";
 import { formatDollars } from "./format";
 
 export interface EventSummary {
@@ -35,7 +34,6 @@ const KIND_NOUN: Record<string, string> = {
  */
 function ownerSuffix(ownerId: string, personNames?: ReadonlyMap<string, string>): string {
   if (personNames === undefined || personNames.size < 2) return "";
-  if (ownerId === HOUSEHOLD_OWNER_ID) return " · both of you";
   const name = personNames.get(ownerId);
   return name === undefined ? "" : ` · ${name}'s`;
 }

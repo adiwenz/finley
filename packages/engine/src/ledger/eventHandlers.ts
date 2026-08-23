@@ -8,7 +8,6 @@
  */
 
 import type { ValidationResult } from "./ledger";
-import { HOUSEHOLD_OWNER_ID } from "../compile/projectionBase";
 import type {
   ChildEvent,
   DebtPayoffEvent,
@@ -84,12 +83,13 @@ function holdingMonthFault(month: number): string | null {
 }
 
 /**
- * Owner must be a known household member (present at some point), or the household itself —
- * {@link HOUSEHOLD_OWNER_ID} is not on the roster by design, so it has to be admitted explicitly
- * rather than falling through the roster check as an unknown id would.
+ * Owner must be a known household member (present at some point). Deliberately no household-wide
+ * owner: every authored holding belongs to exactly one person, which is what lets separation
+ * decide where it goes. {@link HOUSEHOLD_OWNER_ID} exists for the engine's own synthetic card and
+ * is not an owner authoring can name.
  */
 function ownerExists(state: InterpretState, ownerId: string): boolean {
-  return ownerId === HOUSEHOLD_OWNER_ID || state.personsById.has(asPersonId(ownerId));
+  return state.personsById.has(asPersonId(ownerId));
 }
 
 /** Whole dollars for a conflict message — conflicts are read by a person, not the engine. */
@@ -285,6 +285,15 @@ const separation: EventHandler<SeparationEvent> = {
         baseline: { unit: "monthly", monthlyCents: event.childSupportMonthlyCents },
         growthMode: { type: "fixed" },
       });
+    }
+
+    // Their debts leave too, on the same principle and by the same test — sole ownership. The
+    // household stops paying it and stops counting it against net worth from this month; the debt
+    // is not settled or forgiven, it simply goes where its owner goes. Without this the household
+    // kept amortizing a departed partner's loan to term, charging it against take-home that ended
+    // at this very month, and eventually borrowing to cover it.
+    for (const def of state.liabilitiesById.values()) {
+      if (def.ownerId === event.partnerPersonId) def.endMonth = event.month;
     }
 
     // The departing partner's INDIVIDUALLY-owned accounts leave with them: drained to zero at

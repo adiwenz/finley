@@ -80,6 +80,8 @@ export interface HouseholdSeries {
 }
 
 interface HouseholdLiabilityCommon {
+  /** See {@link import("./interpretState").LiabilityDef.endMonth}. */
+  readonly endMonth?: number | null;
   readonly id: LiabilityId;
   readonly ownerId: PersonId;
   readonly causedByEventId: string;

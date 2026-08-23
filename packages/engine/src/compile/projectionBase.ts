@@ -44,17 +44,13 @@ export interface ProjectionContext {
 export const PRIMARY_PERSON_ID = "p1";
 
 /**
- * The household itself as an owner — a debt both partners carry rather than one of them. Not a
- * person: it is deliberately absent from `personsById`, so it never earns income, never holds a
- * take-home, and never appears in a per-person cut of net worth.
+ * The owner the engine's own synthetic last-resort card carries — borrowing the household did as
+ * a whole, belonging to no member in particular. NOT an owner authoring can name: every authored
+ * account and liability belongs to exactly one person, so that separation has a single answer for
+ * where it goes.
  *
- * An obligation owned by it routes to the SHARED bucket in {@link
- * import("../projection/allocationStep").splitAutomaticObligations}, which already sends every
- * obligation whose owner is not a roster member there — so a household debt is split between
- * partners by the household's own contribution scheme, which is exactly what "ours" means.
- *
- * The engine's synthetic last-resort card has always been owned this way; this names the
- * convention so authoring can use it too.
+ * Deliberately absent from `personsById`, so it earns no income, holds no take-home, and never
+ * appears as a person in a per-person cut of net worth.
  */
 export const HOUSEHOLD_OWNER_ID = "household";
 export const SAVINGS_ID = "savings";

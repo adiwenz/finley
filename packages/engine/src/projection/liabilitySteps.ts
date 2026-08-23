@@ -23,6 +23,9 @@ function scheduledPaymentsAgainst(
 ): Map<string, Cents> {
   const payments = new Map<string, Cents>();
   for (const liab of liabilities) {
+    // A debt that left with a departing partner is not the household's to pay, however much of
+    // it is still outstanding on their side of the split.
+    if (!liab.heldAt(month)) continue;
     const bal = balances.get(liab.id) ?? 0;
     if (bal <= 0) continue;
     payments.set(liab.id, liab.monthlyPaymentCents(bal, month));
@@ -162,6 +165,10 @@ export function advancedLiabilityBalanceCents(
   appliedPaymentCents: Cents,
 ): Cents {
   if (month < liability.startMonth) return balanceCents; // not originated yet — stays at 0
+  // Gone with its owner: zeroed on the household's books from the separation month, never
+  // amortized further here. Zeroing rather than freezing is what keeps it out of net worth — the
+  // debt still exists, just not as this household's.
+  if (!liability.heldAt(month)) return 0;
   // Origination: balance appears with no interest or payment, mirroring an account's opening
   // balance at month 0.
   if (month === liability.startMonth) return liability.openingBalanceCents;

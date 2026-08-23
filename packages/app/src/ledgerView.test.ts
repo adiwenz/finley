@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HOUSEHOLD_OWNER_ID, type Ledger, type SnapshotSeries } from "@finley/engine";
+import type { Ledger, SnapshotSeries } from "@finley/engine";
 import {
   blockedWarning,
   seriesLabel,
@@ -256,11 +256,6 @@ describe("summarizeEvent — a loan names its owner once the household has more 
     expect(summarizeEvent(loan("p2"), couple).detail).toBe("auto loan, $60,000 · Blake's");
   });
 
-  it("names a household debt as both partners', not as one person's", () => {
-    expect(summarizeEvent(loan(HOUSEHOLD_OWNER_ID), couple).detail).toBe(
-      "auto loan, $60,000 · both of you",
-    );
-  });
 
   it("leaves a one-person household's row exactly as it read before", () => {
     // Nobody to distinguish the owner from, so the attribution is noise rather than information.

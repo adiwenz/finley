@@ -207,6 +207,9 @@ function toHousehold(state: InterpretState, base: LedgerBaseConfig): Household {
         ownerId: def.ownerId,
         causedByEventId: def.causedByEventId,
         startMonth: def.startMonth,
+        // Carried explicitly: a separation sets it, and dropping it here would silently keep a
+        // departed partner's debt on the household's books.
+        endMonth: def.endMonth ?? null,
         openingBalanceCents: def.openingBalanceCents,
         apr: def.apr,
         transfers: def.transfers,

@@ -76,6 +76,7 @@ export function buildHouseholdSimInput(
             ownerId: def.ownerId,
             openingBalanceCents: def.openingBalanceCents,
             startMonth: def.startMonth,
+            endMonth: def.endMonth ?? null,
             apr: def.apr,
             creditLimitCents: def.creditLimitCents,
           })
@@ -85,6 +86,7 @@ export function buildHouseholdSimInput(
             kind: def.kind,
             openingBalanceCents: def.openingBalanceCents,
             startMonth: def.startMonth,
+            endMonth: def.endMonth ?? null,
             apr: def.apr,
             termMonths: def.termMonths,
           });

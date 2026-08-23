@@ -47,6 +47,9 @@ export interface SeriesDef {
 }
 
 interface LiabilityDefCommon {
+  /** The month it leaves the household with its departing owner; `null` = never. Mutated by
+   * a later `SeparationEvent`, the same way {@link SeriesDef.endMonth} is. */
+  endMonth?: number | null;
   readonly id: LiabilityId;
   readonly causedByEventId: string;
   readonly ownerId: PersonId;
