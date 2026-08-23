@@ -7,6 +7,7 @@ import { NetWorthBreakdownChart } from "./components/netWorthChart/netWorthBreak
 import { buildNetWorthBreakdown } from "./components/netWorthChart/netWorthBreakdown";
 import { timelineMarkers, blockedWarning } from "./ledgerView";
 import { BlockedWarning } from "./components/blockedWarning/blockedWarning";
+import { TaxExplainer } from "./components/taxExplainer/taxExplainer";
 import { monthLabel } from "./format";
 import { AddEventForm } from "./components/addEventForm/addEventForm";
 import { EDITABLE_EVENT_TYPES } from "./components/addEventForm/editEventForm";
@@ -227,21 +228,12 @@ export function App() {
             {blocked ? <BlockedWarning warning={blocked} /> : null}
 
             <p className="disclaimer">
-              Estimates include federal income tax for a single filer only — no state
-              or payroll tax. Not a licensed financial advisor. Jurisdiction:{" "}
-              {usJurisdiction.id}.
+              Estimates cover federal income tax and federal payroll tax (Social Security and
+              Medicare) for a single filer only — no state tax. Not a licensed financial
+              advisor. Jurisdiction: {usJurisdiction.id}.
             </p>
 
-            {report.assumptions.length > 0 && (
-              <details className="assumptions">
-                <summary>Assumptions &amp; simplifications</summary>
-                <ul>
-                  {report.assumptions.map((a) => (
-                    <li key={a.id}>{a.text}</li>
-                  ))}
-                </ul>
-              </details>
-            )}
+            <TaxExplainer assumptions={report.assumptions} />
           </div>
 
           <div className="card">

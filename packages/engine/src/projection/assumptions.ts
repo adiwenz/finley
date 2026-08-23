@@ -42,9 +42,12 @@ export const MODEL_ASSUMPTIONS: readonly ModelAssumption[] = [
       "Income tax comes out of your plan the way it comes out of real life. Tax is withheld " +
       "from each paycheck, worked out from that paycheck alone \u2014 so a raise, a pay cut, a " +
       "bonus or a month you were not paid changes what is withheld from then on, and never " +
-      "what was already taken. Nothing is withheld from money that does not come through " +
-      "payroll: a retirement withdrawal, an investment sale, or selling something to fund a " +
-      "house. At the end of the year the plan works out what you actually owe on everything " +
+      "what was already taken. The plan withholds nothing from money that does not come through " +
+      "payroll \u2014 a retirement withdrawal, an investment sale, or selling something to fund " +
+      "a house. In real life some of those can have tax withheld, and someone expecting a large " +
+      "bill may pay it during the year rather than waiting; the plan models neither, so the " +
+      "whole difference lands in April instead. At the end of the year the plan works out what " +
+      "you actually owe on everything " +
       "that happened, subtracts what was withheld, and settles the difference the following " +
       "April \u2014 a bill to pay, or a refund to receive. So a large withdrawal late in the " +
       "year will show up as an April bill rather than as smaller paycheques beforehand.",

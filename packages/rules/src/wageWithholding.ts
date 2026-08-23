@@ -70,6 +70,11 @@ export interface W4Configuration {
    * one job, and the employer switches to a rate schedule built on half the brackets — so two
    * jobs withholding independently approximate one combined liability instead of each pricing
    * itself as if it were the household's only income.
+   *
+   * AUTHORABLE, NEVER DEFAULTED. {@link defaultW4Configuration} leaves this false at every job
+   * count and corrects for multiple jobs through 4(c) instead; see the reasons there. Nothing in
+   * the app sets it today — it exists so that exposing it as a setting is a UI change rather than
+   * a change to the withholding math.
    */
   readonly multipleJobsCheckbox: boolean;
   /** Step 3, annual — a credit against tax, so it reduces withholding dollar for dollar. */
