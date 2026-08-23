@@ -16,6 +16,7 @@ import type { NewLifeEvent } from "./eventTypes";
 import { CAPITAL_GAINS_TAX_PROFILE } from "../plan/simAccount";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction/jurisdiction";
 import { personLit } from "./events.testSupport";
+import { PRE_NOW_MONTH } from "../projection/nowMarker";
 import { planAccount, type PlanAccount } from "../plan/planAccount";
 import type { PersonId } from "../job/job";
 import { Projection } from "../index";
@@ -888,3 +889,62 @@ describe("OneTimeSpendEvent — moving a spend to a different month reprices at 
     );
   });
 });
+
+/**
+ * A partner's accounts are minted by their `RelationshipEvent` as the ledger replays, not carried
+ * on `base.initialAccounts`. Three separate lists had to agree before one could be spent: the
+ * picker's pool, the affordability gate, and this handler's existence check. The last of them
+ * read the base alone, so the picker offered a partner's savings, the gate priced it as covering
+ * the spend, and authoring then refused it as "not found".
+ */
+describe("OneTimeSpendEvent — funded from a partner's own account", () => {
+  const PARTNER_SAVINGS = "savings-p2";
+
+  const withPartner = (savingsCents: number, month = PRE_NOW_MONTH): Ledger =>
+    addWithBase(emptyLedger, baseWith(10_000_000), {
+      id: "partner1",
+      type: "RelationshipEvent",
+      month,
+      person: personLit("p2", "Blake"),
+      accounts: {
+        savingsBalanceCents: savingsCents,
+        savingsReturnPct: 0,
+        retirementBalanceCents: 0,
+        retirementReturnPct: 0,
+        brokerageBalanceCents: 0,
+        brokerageReturnPct: 0,
+      },
+    } as NewLifeEvent);
+
+  it("authors a spend against the partner's savings and drains that account alone", () => {
+    const base = baseWith(10_000_000);
+    const ledger = addWithBase(withPartner(1_000_000), base, spend({ amountCents: 500_000, fundingSourceIds: [PARTNER_SAVINGS] }));
+    const series = buildProjection(interpretLedger(ledger, base), base, nullJurisdiction);
+    const m3 = series.months[3]!;
+    // The partner's own account pays, to the cent...
+    expect(m3.accountBalancesCents[PARTNER_SAVINGS]).toBe(500_000);
+    // ...and the primary's is untouched, though it could easily have covered the spend.
+    expect(m3.accountBalancesCents.savings).toBe(10_000_000);
+  });
+
+  it("still refuses a source the household does not hold at all", () => {
+    const result = addEvent(withPartner(1_000_000), baseWith(10_000_000), spend({ fundingSourceIds: ["no-such-account"] }));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.conflict).toContain(`funding source "no-such-account" not found`);
+  });
+
+  it("refuses a partner's account named before the partner joins", () => {
+    // Existence is a fact about the replay's position, not the household's eventual shape: the
+    // partner arrives at month 12, so a month-3 spend cannot name an account that does not exist
+    // yet. Consulting the interpreted state rather than the finished household is what keeps
+    // this honest.
+    const result = addEvent(
+      withPartner(1_000_000, 12),
+      baseWith(10_000_000),
+      spend({ month: 3, amountCents: 100_000, fundingSourceIds: [PARTNER_SAVINGS] }),
+    );
+    expect(result.ok).toBe(false);
+  });
+});
+

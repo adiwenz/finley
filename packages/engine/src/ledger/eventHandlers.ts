@@ -40,6 +40,25 @@ import { buildPartnerAccounts } from "../compile/projectionBase";
 import { ZERO_PARTNER_ACCOUNTS } from "./eventTypes";
 import type { PlanAccount } from "../plan/planAccount";
 
+/**
+ * Whether `id` names an account the household holds AT THIS POINT IN THE REPLAY: the base's own,
+ * plus any an earlier event minted — today, a partner's three standing accounts from their
+ * `RelationshipEvent`.
+ *
+ * `context.accountIds` is built from `base.initialAccounts` before a single event is applied, so
+ * reading it alone refuses to spend a partner's savings that the picker offers and the simulator
+ * would drain. Consulting `state` rather than the finished household keeps the ordering honest:
+ * a source still cannot be named before the event that creates it.
+ */
+function accountExistsNow(
+  sourceId: string,
+  state: InterpretState,
+  context: InterpretContext,
+): boolean {
+  const id = asAccountId(sourceId);
+  return context.accountIds.has(id) || state.accountsById.has(id);
+}
+
 export interface EventHandler<E extends LifeEvent> {
   check(event: E, state: InterpretState, context: InterpretContext): ValidationResult;
   apply(event: E, state: InterpretState, context: InterpretContext): void;
@@ -395,7 +414,7 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
       return fail(event, `at least one down-payment source is required`);
     }
     for (const sourceId of event.downPaymentSourceIds) {
-      if (!context.accountIds.has(asAccountId(sourceId))) {
+      if (!accountExistsNow(sourceId, state, context)) {
         return fail(event, `down-payment source "${sourceId}" not found`);
       }
     }
@@ -520,7 +539,7 @@ const debtPayoff: EventHandler<DebtPayoffEvent> = {
     if (!state.liabilitiesById.has(asLiabilityId(event.liabilityId))) {
       return fail(event, `liability "${event.liabilityId}" not found for payoff`);
     }
-    if (!context.accountIds.has(asAccountId(event.accountId))) {
+    if (!accountExistsNow(event.accountId, state, context)) {
       return fail(event, `account "${event.accountId}" not found for payoff`);
     }
     return ok;
@@ -578,8 +597,8 @@ function oneTimeSpendFundingFailureMessage(
 
 /**
  * A dated, source-directed spend: names the accounts (and, eligibly, credit cards) to drain and
- * in what order. `check` validates that each named source exists, as either a liquid account or
- * a credit-card liability, then — mirroring Home Purchase's own §4.5 down-payment gate — HARD
+ * in what order. `check` validates that each named source exists, as either an account the
+ * household holds by then (a partner's included) or a credit-card liability, then — mirroring Home Purchase's own §4.5 down-payment gate — HARD
  * BLOCKS when the selected sources cannot fully cover the spend at its month. `fundingAvailabilityAt`
  * runs the SAME ordered draw resolution the simulator does ({@link
  * import("../projection/fundingDrawStep").resolveFundingDraws}) — no gross-up, no tax priced
@@ -591,7 +610,7 @@ function oneTimeSpendFundingFailureMessage(
 const oneTimeSpend: EventHandler<OneTimeSpendEvent> = {
   check(event, state, context) {
     for (const sourceId of event.fundingSourceIds) {
-      const isAccount = context.accountIds.has(asAccountId(sourceId));
+      const isAccount = accountExistsNow(sourceId, state, context);
       const isCreditCard = state.liabilitiesById.get(asLiabilityId(sourceId))?.kind === "creditCard";
       if (!isAccount && !isCreditCard) {
         return fail(event, `funding source "${sourceId}" not found`);
