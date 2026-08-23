@@ -583,6 +583,7 @@ export function resolveFundingDraws(
           taxableCents: s.gainCents,
           sourceId: `${prefix}:${s.id}`,
           label: `${s.label ?? s.id} gains`,
+          fromAccountWithdrawal: true,
         };
         // Always taxed; banded only when the cash reached the household.
         gainSources.push(gainSource);

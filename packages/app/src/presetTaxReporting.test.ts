@@ -148,7 +148,7 @@ describe.each(RUNS)("$preset.id — the cash-flow chart's two stacks", ({ preset
     for (const m of flowedMonths) {
       const row = rowAt.get(m.month)!;
       for (const s of m.flows!.incomeSources) {
-        if (s.category === "savingsDrawdown" || s.category === "savingsInterest") continue;
+        if (s.fromAccountWithdrawal === true || s.category === "savingsInterest") continue;
         if (s.cashInflowCents === 0) continue;
         const banded = row.inflowCentsByBand[s.sourceId] ?? 0;
         if (banded !== s.cashInflowCents) {

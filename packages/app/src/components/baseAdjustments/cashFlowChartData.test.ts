@@ -76,6 +76,20 @@ const bill = (id: string, label: string, category: string, dollars: number) => (
   amountCents: dollarsToCents(dollars),
 });
 
+/**
+ * Cash out of one of the household's own accounts. The engine flags every one of these —
+ * a cash-buffer draw, a brokerage sale, an IRA draw, an RMD — and the category is deliberately
+ * varied across these tests, because the category is exactly what CANNOT be relied on.
+ */
+const withdrawal = (
+  sourceId: string,
+  cashInflowCents: number,
+  category: ProjectionCashFlowIncomeSource["category"],
+  label = sourceId,
+): ProjectionCashFlowIncomeSource =>
+  ({ ...source(sourceId, cashInflowCents, category, label), fromAccountWithdrawal: true }) as
+    ProjectionCashFlowIncomeSource;
+
 const JOB = source("job:a", dollarsToCents(5_000), "wages", "Job A");
 
 describe("buildCashFlowChartData — what arrives", () => {
@@ -102,21 +116,42 @@ describe("buildCashFlowChartData — what arrives", () => {
     expect(data.inflowBands.map((b) => b.id)).toEqual(["job:a"]);
   });
 
-  it("never bands a savings drawdown — moving your own money is not income", () => {
+  it("never bands an account withdrawal, whatever tax category it wears", () => {
     const data = buildCashFlowChartData(
       seriesOf({
-        sources: [JOB, source("cash", dollarsToCents(3_000), "savingsDrawdown", "Cash savings")],
+        sources: [
+          JOB,
+          withdrawal("cash", dollarsToCents(3_000), "savingsDrawdown", "Cash savings"),
+          withdrawal("retirement", dollarsToCents(4_000), "ordinaryIncome", "IRA draw"),
+          withdrawal("rmd:p1", dollarsToCents(2_000), "ordinaryIncome", "Required distribution"),
+          withdrawal("brokerage:gains", dollarsToCents(900), "capitalGains", "Brokerage gains"),
+        ],
       }),
     );
     expect(data.inflowBands.map((b) => b.id)).toEqual(["job:a"]);
     expect(data.rows[0]!.inflowTotalCents).toBe(dollarsToCents(5_000));
   });
 
+  it("still bands external income that shares a withdrawal's tax category", () => {
+    // A freelance series and an IRA draw are both `ordinaryIncome`. Only one is money from
+    // outside the household, and only the engine's flag can tell them apart.
+    const data = buildCashFlowChartData(
+      seriesOf({
+        sources: [
+          source("series:freelance", dollarsToCents(1_200), "ordinaryIncome", "Freelance"),
+          withdrawal("retirement", dollarsToCents(4_000), "ordinaryIncome", "IRA draw"),
+        ],
+      }),
+    );
+    expect(data.inflowBands.map((b) => b.id)).toEqual(["series:freelance"]);
+    expect(data.rows[0]!.inflowTotalCents).toBe(dollarsToCents(1_200));
+  });
+
   it("still records the month savings first opened, so the gap summary can name it", () => {
     const data = buildCashFlowChartData(
       seriesOf(
         { sources: [JOB] },
-        { sources: [source("cash", dollarsToCents(3_000), "savingsDrawdown", "Cash savings")] },
+        { sources: [withdrawal("cash", dollarsToCents(3_000), "savingsDrawdown", "Cash savings")] },
       ),
     );
     expect(data.firstSavingsDrawdownMonth).toBe(2);
@@ -297,7 +332,7 @@ describe("buildCashFlowChartData — the net", () => {
       seriesOf({
         sources: [
           source("benefit:p1", dollarsToCents(2_000), "governmentRetirementBenefit", "Benefit"),
-          source("cash", dollarsToCents(3_000), "savingsDrawdown", "Cash savings"),
+          withdrawal("cash", dollarsToCents(3_000), "savingsDrawdown", "Cash savings"),
         ],
         obligations: [bill("line:rent", "Housing", "needs", 5_000)],
       }),
@@ -420,7 +455,7 @@ describe("describeCashFlowGap", () => {
     const data = buildCashFlowChartData(
       seriesOf(
         { sources: [JOB] },
-        { sources: [source("cash", dollarsToCents(3_000), "savingsDrawdown", "Cash savings")] },
+        { sources: [withdrawal("cash", dollarsToCents(3_000), "savingsDrawdown", "Cash savings")] },
       ),
     );
     expect(describeCashFlowGap(data)).toContain("Year 1");

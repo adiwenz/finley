@@ -223,6 +223,7 @@ export function buildWithdrawalSources(
       // band from a sale) rather than, say, interest or growth on the account.
       sourceId: account.id,
       label: `${account.label ?? account.id} draw`,
+      fromAccountWithdrawal: true,
     });
     // `gross − gain` is the returned basis (the same figure that reduced `basisByAccount`
     // above); `taxCents` is always 0 and `netDeliveredCents` always equals `gross` — no tax

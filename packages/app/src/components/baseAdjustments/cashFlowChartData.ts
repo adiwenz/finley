@@ -21,8 +21,9 @@
  * are money it PAYS: income tax, payroll tax, a settled balance due, every budget line, every
  * debt payment.
  *
- * Moving money between the household's own pockets is neither, so savings drawdowns and savings
- * contributions are both absent. That is what makes the net line worth reading: it is not
+ * Moving money between the household's own pockets is neither, so EVERY account withdrawal is
+ * absent from the inflow side — cash savings, a brokerage sale, a 401(k) or IRA draw, a required
+ * distribution — and so are contributions into them. That is what makes the net line worth reading: it is not
  * balanced to zero by construction (every month's waterfall balances, so a chart of all cash
  * movement would say nothing), it is the household's monthly surplus or shortfall. A positive
  * net is what the month saved — the 401(k) deferral included, since a deferral is a gross wage
@@ -156,12 +157,35 @@ function rankIn(order: readonly string[], category: string): number {
 }
 
 /**
- * Categories that are the household moving its own money rather than receiving any. Excluded
- * from the inflow side entirely — see this file's header. A drawdown still REGISTERS (the gap
- * summary and the a11y moments name the month savings first opened), it just never bands.
+ * Is this the household RECEIVING money, or moving its own between its own pockets?
+ *
+ * Only the first is an inflow. Every account withdrawal is the second — cash savings, a
+ * brokerage sale, a 401(k) or IRA draw, a required distribution — and the engine flags them all
+ * (`fromAccountWithdrawal`) precisely because tax category cannot tell them apart: an elective
+ * pre-tax draw, an RMD and a freelance series are all `ordinaryIncome`, and only one of them is
+ * money from outside the household.
+ *
+ * The distinction is what makes the net line mean anything. An account is drawn BECAUSE the
+ * month came up short, so counting the draw as income nets the shortfall to exactly zero and
+ * hides the thing being measured. Excluding every withdrawal makes the net read the same way
+ * whichever account funds a retirement — external income less taxes and spending, before any
+ * account is opened.
+ *
+ * The TAX on a taxable withdrawal is untouched by this: it was really paid, and it stays on the
+ * outflow side, so a retirement funded from an IRA correctly shows a deeper shortfall than the
+ * same retirement funded from after-tax cash.
+ *
+ * Savings interest is excluded for a different reason: it is credited into the account that
+ * earned it and nothing arrives for the month to spend.
+ *
+ * A drawdown still REGISTERS (the gap summary and the a11y moments name the month savings first
+ * opened), it just never bands.
  */
-function isReceivedCash(category: string): boolean {
-  return category !== "savingsDrawdown" && category !== "savingsInterest";
+function isReceivedCash(source: {
+  readonly category: string;
+  readonly fromAccountWithdrawal?: boolean;
+}): boolean {
+  return source.fromAccountWithdrawal !== true && source.category !== "savingsInterest";
 }
 
 /**
@@ -221,11 +245,13 @@ export function buildCashFlowChartData(series: ProjectionSeries): CashFlowChartD
       }
     };
     for (const s of flows.incomeSources ?? []) {
-      if (s.category === "savingsDrawdown") {
+      if (s.fromAccountWithdrawal === true) {
         drewOnSavingsCents += s.cashInflowCents;
-        if (firstSavingsDrawdownMonth === null) firstSavingsDrawdownMonth = m.month;
+        if (s.cashInflowCents > 0 && firstSavingsDrawdownMonth === null) {
+          firstSavingsDrawdownMonth = m.month;
+        }
       }
-      if (s.cashInflowCents === 0 || !isReceivedCash(s.category)) continue;
+      if (s.cashInflowCents === 0 || !isReceivedCash(s)) continue;
       addInflow(
         {
           id: s.sourceId,

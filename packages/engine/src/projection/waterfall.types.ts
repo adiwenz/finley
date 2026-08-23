@@ -126,6 +126,17 @@ export interface IncomeSourceMonth {
    * reports under its {@link taxCategory}.
    */
   readonly reportCategory?: IncomeSourceCategory;
+  /**
+   * Reporting only: this cash came OUT OF one of the household's own accounts rather than in
+   * from outside it — a decumulation draw, an RMD, an explicitly-funded draw, the liquid buffer.
+   *
+   * Never affects allocation, tax or the withdrawal cascade. It exists because the two are
+   * indistinguishable by tax category: a pre-tax draw and an RMD are both `ordinaryIncome`, and
+   * so is a freelance series the household genuinely earned. A surplus/shortfall figure that
+   * counted a withdrawal as income would net to zero by construction — the account is drawn
+   * BECAUSE the month was short, so counting the draw hides the shortfall it was covering.
+   */
+  readonly fromAccountWithdrawal?: boolean;
 }
 
 /** Lever 2: how much each person contributes to shared obligations (step 3). */

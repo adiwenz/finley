@@ -366,6 +366,17 @@ export interface ProjectionCashFlowIncomeSource {
    */
   readonly cashInflowCents: Cents;
   /**
+   * This cash came OUT OF one of the household's own accounts rather than in from outside it:
+   * a decumulation draw, an RMD, an explicitly-funded draw, the liquid buffer. Reporting only —
+   * it never touched allocation, tax or the withdrawal cascade.
+   *
+   * Absent on external income. Consumers measuring a household's SURPLUS must exclude these:
+   * an account is drawn precisely because the month came up short, so counting the draw as
+   * income nets the shortfall to zero and hides the very thing being measured. The tax on a
+   * taxable withdrawal is unaffected and stays a real cost of the month.
+   */
+  readonly fromAccountWithdrawal?: boolean;
+  /**
    * `cashInflowCents` minus this source's pre-tax deferral and the tax it bore — the
    * single source of truth for take-home; re-deriving it in the app dropped
    * savings-interest tax, credited outside the waterfall. SIGNED and unclamped: deductions

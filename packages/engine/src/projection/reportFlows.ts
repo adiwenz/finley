@@ -177,7 +177,13 @@ export function buildFlows(
   // so interest appears rather than being dropped.
   const bySource = new Map<
     string,
-    { cashInflowCents: Cents; label: string; category: string; ownerId?: string }
+    {
+      cashInflowCents: Cents;
+      label: string;
+      category: string;
+      ownerId?: string;
+      fromAccountWithdrawal?: boolean;
+    }
   >();
   const order: string[] = [];
   for (const src of incomeSources) {
@@ -202,6 +208,8 @@ export function buildFlows(
         // A source id is opaque and two members' benefits share a label, so the owner is
         // what tells them apart.
         ownerId: src.ownerId,
+        // Reporting provenance only; see `IncomeSourceMonth.fromAccountWithdrawal`.
+        ...(src.fromAccountWithdrawal === true ? { fromAccountWithdrawal: true } : {}),
       });
     }
   }
@@ -225,6 +233,7 @@ export function buildFlows(
       label: s.label,
       category: s.category as ProjectionCashFlowIncomeSource["category"],
       ...(s.ownerId !== undefined ? { ownerId: s.ownerId } : {}),
+      ...(s.fromAccountWithdrawal === true ? { fromAccountWithdrawal: true } : {}),
       cashInflowCents: s.cashInflowCents,
       netCashFlowCents: netCashFlow(id, s.cashInflowCents),
     };
@@ -240,6 +249,7 @@ export function buildFlows(
       category: "savingsDrawdown",
       cashInflowCents: liquidDrawdownCents,
       netCashFlowCents: liquidDrawdownCents,
+      fromAccountWithdrawal: true,
     });
   }
   // One band PER ACCOUNT — entries may arrive from both the decumulation cascade and an explicit
@@ -259,6 +269,7 @@ export function buildFlows(
       category: "savingsDrawdown",
       cashInflowCents: cents,
       netCashFlowCents: cents,
+      fromAccountWithdrawal: true,
     });
   }
   applyStrandedHaircut(sources, [

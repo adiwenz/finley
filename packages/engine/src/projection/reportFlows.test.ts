@@ -202,6 +202,9 @@ describe("buildFlows", () => {
       category: "savingsDrawdown",
       cashInflowCents: 1_000_00,
       netCashFlowCents: 1_000_00,
+      // Spending the buffer is the household moving its own money, so a consumer measuring
+      // surplus can tell it apart from income without parsing the category.
+      fromAccountWithdrawal: true,
     });
   });
 
