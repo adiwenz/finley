@@ -424,12 +424,21 @@ select,
 
 /* Segmented control — a row of mutually-exclusive view toggles (e.g. the net-worth
    breakdown's Accounts / Assets / Net worth). The pressed segment fills solid. */
-/* Account charts, full width at the bottom: as many per row as fit, so a two-partner household
-   can compare accounts side by side rather than scrolling a sidebar. */
-.account-chart-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: var(--space-4);
+/* Account charts, full width at the bottom: stacked one above the next, every chart on the same
+   width so two people's balances are read against a shared axis rather than side by side at
+   different scales. */
+.account-owner-group {
+  margin-top: var(--space-4);
+}
+
+.account-chart {
+  margin: 0 0 var(--space-4);
+}
+
+.account-chart figcaption {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-1);
 }
 
 /* Two segmented controls side by side — whose net worth, and how much of it. */
