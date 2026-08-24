@@ -149,6 +149,24 @@ export type SurplusDestination =
 
 export interface WaterfallInput {
   readonly personIds: readonly string[];
+  /**
+   * Who is in the household THIS month, when that is narrower than {@link personIds} — which is
+   * the run's whole roster, every person who is ever a member or ever owns income. Absent ⇒ the
+   * roster, which is right for every household nobody joins or leaves.
+   *
+   * Only the SHARED obligation's split reads it, and it has to: a shared expense is the
+   * household's, so a person outside the household has no share of it. Under `"even"` the roster
+   * is plainly the wrong denominator — a household of two that once had a third partner would
+   * charge each of the two a THIRD of the rent and the absent partner the rest, which sums to the
+   * budget and attributes it to somebody who is not there. Proportional gets the same answer by
+   * accident (an absent person has no take-home and no accounts, so weight 0) right up until
+   * every weight is 0 and it falls back to equal shares, where the same denominator bites.
+   *
+   * Nothing else narrows to it. Coverage, leftover and the shortfall attribution still walk the
+   * full roster, because a member's own take-home and their own obligations are theirs to account
+   * for in the month they leave.
+   */
+  readonly householdMemberIds?: readonly string[];
   readonly incomeSources: readonly IncomeSourceMonth[];
   /** Shared obligations this month: expenses + scheduled liability payments. */
   readonly sharedObligationCents: Cents;

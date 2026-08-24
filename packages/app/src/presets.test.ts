@@ -31,6 +31,7 @@ describe("presets", () => {
       "partner-proportional",
       "partner-even-split",
       "partner-separation",
+      "partner-sequential",
     ]);
     for (const preset of PRESETS) {
       expect(preset.label).not.toBe("");
@@ -58,6 +59,7 @@ describe("presets", () => {
       "partner-proportional",
       "partner-even-split",
       "partner-separation",
+      "partner-sequential",
     ]);
     expect(presetById("student-loan").input.events?.[0]).toMatchObject({
       type: "takeLoan",

@@ -12,7 +12,7 @@ import {
   type FederalTaxPayment,
 } from "./federalIncomeTax";
 import type { SimState } from "./runState";
-import type { SimOwnedSeries } from "./simulate.types";
+import { isPersonActiveAt, type SimOwnedSeries } from "./simulate.types";
 import type { FinancialObligation } from "./financialObligation";
 
 export function buildIncomeSources(
@@ -181,6 +181,13 @@ function planMonthAllocation(
 
   const input: WaterfallInput = {
     personIds: state.personIds,
+    // The shared budget is split across the household as it stands this month, not across every
+    // person the run has ever known — see {@link WaterfallInput.householdMemberIds}. Someone with
+    // income but no roster entry counts: they are being paid into this household.
+    householdMemberIds: state.personIds.filter((pid) => {
+      const person = state.personsById.get(pid);
+      return person === undefined || isPersonActiveAt(person, month);
+    }),
     incomeSources,
     sharedObligationCents,
     personalObligationCentsByPerson: (pid) => personalCentsByPerson.get(pid) ?? 0,

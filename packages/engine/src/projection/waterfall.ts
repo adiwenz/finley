@@ -694,6 +694,12 @@ function splitSharedObligation(
   // 2.5 — stays in the weight, so a household past working age is weighed by its pensions and
   // Social Security first, and reaches for assets only when it has no such income at all.
   const sharingWeight = new Map<string, Cents>();
+  // Who the shared budget actually belongs to this month — see
+  // {@link WaterfallInput.householdMemberIds}. The weights are still computed for the whole
+  // roster (a leaver's own take-home is still theirs to account for below); only the split
+  // across them narrows.
+  const memberIds = input.householdMemberIds ?? input.personIds;
+  const isMember = new Set(memberIds);
   let totalSharingWeight: Cents = 0;
   let unfundedDeductionsCents: Cents = 0;
   for (const pid of input.personIds) {
@@ -702,14 +708,14 @@ function splitSharedObligation(
     positiveTakeHome.set(pid, Math.max(0, rawTakeHomeCents));
     sharingWeight.set(pid, weight);
     deficitByPerson.set(pid, Math.max(0, -rawTakeHomeCents));
-    totalSharingWeight += weight;
+    if (isMember.has(pid)) totalSharingWeight += weight;
     unfundedDeductionsCents += Math.max(0, -rawTakeHomeCents);
   }
 
   // The SHORTFALL attribution's weight — deliberately NOT `weightOf`: an asset-funded shortfall
   // is always proportional to eligible account balances, whether or not income was positive.
   const assetWeightOf = (pid: string) => input.eligibleAssetsCentsByPerson?.(pid) ?? 0;
-  const totalAssetWeight = input.personIds.reduce((sum, pid) => sum + Math.max(0, assetWeightOf(pid)), 0);
+  const totalAssetWeight = memberIds.reduce((sum, pid) => sum + Math.max(0, assetWeightOf(pid)), 0);
 
   // The REAL share's weight, in three rungs: recurring take-home while anyone has any, then
   // eligible assets, then equal weight. The last rung matters because the alternative to it is
@@ -729,12 +735,12 @@ function splitSharedObligation(
   if (input.sharedObligationCents <= 0) {
     for (const pid of input.personIds) shareByPerson.set(pid, 0);
   } else if (input.sharedScheme === "even") {
-    const shares = splitEven(input.sharedObligationCents, Math.max(1, input.personIds.length));
-    input.personIds.forEach((pid, i) => shareByPerson.set(pid, shares[i] ?? 0));
+    const shares = splitEven(input.sharedObligationCents, Math.max(1, memberIds.length));
+    memberIds.forEach((pid, i) => shareByPerson.set(pid, shares[i] ?? 0));
   } else {
     for (const [pid, share] of proportionalSplit(
       input.sharedObligationCents,
-      input.personIds,
+      memberIds,
       weightOf,
     )) {
       shareByPerson.set(pid, share);

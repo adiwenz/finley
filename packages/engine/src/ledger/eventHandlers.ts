@@ -89,13 +89,29 @@ function holdingMonthFault(month: number): string | null {
 }
 
 /**
- * Owner must be a known household member (present at some point). Deliberately no household-wide
- * owner: every authored holding belongs to exactly one person, which is what lets separation
- * decide where it goes. {@link HOUSEHOLD_OWNER_ID} exists for the engine's own synthetic card and
- * is not an owner authoring can name.
+ * What is wrong with owning this at this month, or `null`. Owner must be a known household member
+ * (present at some point) AND actually in the household when the thing is owned. Deliberately no
+ * household-wide owner: every authored holding belongs to exactly one person, which is what lets
+ * separation decide where it goes. {@link HOUSEHOLD_OWNER_ID} exists for the engine's own
+ * synthetic card and is not an owner authoring can name.
+ *
+ * The window matters because nothing downstream re-checks it. Separation clips what a departing
+ * member already held, but a holding created OUTSIDE their window is never clipped at all: a
+ * loan authored at the now marker for a partner who joins in year 7 charges the household from
+ * month 0, and the payment reaches the shared cascade — so the household spends, for seven
+ * years, on a debt belonging to someone who is not in it. Refused here, where the month and the
+ * owner are both still in front of the author, rather than silently dropped or silently charged.
  */
-function ownerExists(state: InterpretState, ownerId: string): boolean {
-  return state.personsById.has(asPersonId(ownerId));
+function ownerFault(state: InterpretState, ownerId: string, month: number): string | null {
+  const membership = state.personsById.get(asPersonId(ownerId));
+  if (membership === undefined) return `owner "${ownerId}" not found`;
+  if (month < membership.startMonth) {
+    return `owner "${ownerId}" is not in the household at month ${month}; they join at month ${membership.startMonth}`;
+  }
+  if (membership.endMonth !== null && month >= membership.endMonth) {
+    return `owner "${ownerId}" is not in the household at month ${month}; they left at month ${membership.endMonth}`;
+  }
+  return null;
 }
 
 /** Whole dollars for a conflict message — conflicts are read by a person, not the engine. */
@@ -387,11 +403,10 @@ const loan: EventHandler<LoanEvent> = {
     if (state.liabilitiesById.has(asLiabilityId(event.liabilityId))) {
       return fail(event, `liability "${event.liabilityId}" already exists`);
     }
-    if (!ownerExists(state, event.ownerId)) {
-      return fail(event, `owner "${event.ownerId}" not found`);
-    }
     const misdated = holdingMonthFault(event.month);
     if (misdated) return fail(event, misdated);
+    const unowned = ownerFault(state, event.ownerId, event.month);
+    if (unowned) return fail(event, unowned);
     return ok;
   },
   apply(event, state) {
@@ -425,9 +440,8 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     }
     const misdated = holdingMonthFault(event.month);
     if (misdated) return fail(event, misdated);
-    if (!ownerExists(state, event.ownerId)) {
-      return fail(event, `owner "${event.ownerId}" not found`);
-    }
+    const unowned = ownerFault(state, event.ownerId, event.month);
+    if (unowned) return fail(event, unowned);
     if (event.purchasePriceCents <= 0) {
       return fail(event, `purchase price must be positive`);
     }

@@ -499,6 +499,104 @@ const PARTNER_SEPARATION = partnerInput({
   ],
 });
 
+/**
+ * Two relationships end to end, with a deliberate gap between them: Blake leaves in year 5, Alex
+ * runs the household alone for two years, and Casey joins in year 7 with money, a paycheck and a
+ * career of their own.
+ *
+ * The gap is the whole design. A household that swapped partners in a single month would agree,
+ * month for month, with an engine that models "the partner" as a fixed slot rather than as two
+ * distinct people with their own windows — every wrong answer would coincide with the right one.
+ * Two years of Alex alone separate them: whatever is Blake's has to be gone by month 60, and
+ * whatever is Casey's must not appear until month 84.
+ *
+ * Every figure differs across the three so ownership is readable off the number alone — ages 35 /
+ * 37 / 32, pay $7,000 / $5,000 / $4,000, savings $25k / $20k / $15k, retirement $50k / $40k /
+ * $60k, brokerage $30k / $90k / $45k, work ending at 65 / 67 / 62, living to 90 / 88 / 95. Casey
+ * is 32 when the projection opens and 39 when they join, which is the seven elapsed years and not
+ * a second birth year.
+ */
+export const SEQUENTIAL_SEPARATION_MONTH = 60;
+export const SEQUENTIAL_JOIN_MONTH = 84;
+
+const ALEX_BIRTH_YEAR = DEFAULT_INPUT.startYear - 35;
+const BLAKE_BIRTH_YEAR = DEFAULT_INPUT.startYear - 37;
+const CASEY_BIRTH_YEAR = DEFAULT_INPUT.startYear - 32;
+
+/**
+ * A salaried job dated against ITS OWN owner's life: work from 18 to the age that person plans to
+ * stop. {@link salariedJob} bakes in the primary's birth year, so handing it to a partner would
+ * quietly give them Alex's career — Casey stopping at 62 has to mean Casey's 62, in Casey's
+ * calendar year, while the chart axis stays the household's shared timeline.
+ */
+function personSalariedJob(over: {
+  readonly monthlyDollars: number;
+  readonly birthYear: number;
+  readonly stopWorkingAge: number;
+}): JobEntry {
+  return {
+    startYear: over.birthYear + DEFAULT_WORK_START_AGE,
+    endYear: over.birthYear + over.stopWorkingAge,
+    salary: {
+      startingSalaryCents: dollarsToCents(over.monthlyDollars) * 12,
+      currentSalaryCents: dollarsToCents(over.monthlyDollars) * 12,
+      realGrowthPct: 0,
+    },
+  };
+}
+
+const SEQUENTIAL_PARTNERS = partnerInput({
+  name: "Alex",
+  jobs: [
+    personSalariedJob({ monthlyDollars: 7_000, birthYear: ALEX_BIRTH_YEAR, stopWorkingAge: 65 }),
+  ],
+  birthYear: ALEX_BIRTH_YEAR,
+  lifeExpectancy: 90,
+  openingBalanceCents: dollarsToCents(25_000),
+  retirementOpeningBalanceCents: dollarsToCents(50_000),
+  brokerageOpeningBalanceCents: dollarsToCents(30_000),
+  events: [
+    {
+      type: "startPartnered",
+      ref: ref("blake"),
+      partneredForMonths: PARTNER_TOGETHER_YEARS * 12,
+      name: "Blake",
+      birthYear: BLAKE_BIRTH_YEAR,
+      lifeExpectancy: 88,
+      jobs: [
+        personSalariedJob({ monthlyDollars: 5_000, birthYear: BLAKE_BIRTH_YEAR, stopWorkingAge: 67 }),
+      ] as readonly PartnerJobEntry[],
+      accounts: {
+        savingsBalanceCents: dollarsToCents(20_000),
+        retirementBalanceCents: dollarsToCents(40_000),
+        brokerageBalanceCents: dollarsToCents(90_000),
+      },
+    },
+    {
+      type: "separate",
+      ref: ref("blakeLeaves"),
+      month: SEQUENTIAL_SEPARATION_MONTH,
+      partnerRef: ref("blake"),
+    },
+    {
+      type: "marry",
+      ref: ref("casey"),
+      month: SEQUENTIAL_JOIN_MONTH,
+      name: "Casey",
+      birthYear: CASEY_BIRTH_YEAR,
+      lifeExpectancy: 95,
+      jobs: [
+        personSalariedJob({ monthlyDollars: 4_000, birthYear: CASEY_BIRTH_YEAR, stopWorkingAge: 62 }),
+      ] as readonly PartnerJobEntry[],
+      accounts: {
+        savingsBalanceCents: dollarsToCents(15_000),
+        retirementBalanceCents: dollarsToCents(60_000),
+        brokerageBalanceCents: dollarsToCents(45_000),
+      },
+    },
+  ],
+});
+
 
 /** In picker order; the first is the healthy default a fresh plan already opens with. */
 export const PRESETS: readonly Preset[] = [
@@ -597,6 +695,13 @@ export const PRESETS: readonly Preset[] = [
     label: "When a partner leaves",
     description: "Blake's accounts were always Blake's, and household net worth steps down by exactly them at separation.",
     input: PARTNER_SEPARATION,
+  },
+  {
+    id: "partner-sequential",
+    label: "A new partner after separation",
+    description:
+      "Blake leaves in Year 5, Alex manages alone for two years, and Casey joins in Year 7 with separate income and accounts.",
+    input: SEQUENTIAL_PARTNERS,
   },
 ];
 

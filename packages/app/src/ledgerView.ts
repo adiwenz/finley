@@ -52,6 +52,12 @@ export function summarizeEvent(e: LifeEvent, personNames?: ReadonlyMap<string, s
       };
     case "SeparationEvent": {
       const bits: string[] = [];
+      // WHO left, first: a household that has had more than one partner has more than one
+      // separation on the timeline, and "Separated · no support" twice says nothing about which
+      // relationship ended. The name is only available when the caller passes the roster, so a
+      // separation whose partner cannot be named falls back to the support terms alone.
+      const who = personNames?.get(e.partnerPersonId);
+      if (who !== undefined) bits.push(`${who} leaves the household`);
       if (e.alimonyMonthlyCents > 0)
         bits.push(`alimony ${formatDollars(e.alimonyMonthlyCents)}/mo`);
       if (e.childSupportMonthlyCents > 0)
