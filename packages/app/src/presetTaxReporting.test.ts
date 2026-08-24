@@ -117,6 +117,26 @@ describe.each(RUNS)("$preset.id — the tax chart's accounting", ({ preset, seri
 });
 
 /**
+ * The tax a month really PAID, as the chart bands it: gross across the household's members, who
+ * settle as separate single filers. A month in which one owes $1,000 and another is refunded
+ * $0.03 paid $1,000 of tax and received three cents; netting them would assert an identity
+ * against a figure nobody paid, and the refund bands on the other side of the chart.
+ */
+const taxPaidCents = (f: {
+  readonly taxCents: number;
+  readonly payrollTaxCents: number;
+  readonly taxSettlementCents: number;
+  readonly taxSettlementByPersonCents?: Readonly<Record<string, number>>;
+}): number => {
+  const settled = Object.values(f.taxSettlementByPersonCents ?? {});
+  const paid =
+    settled.length > 0
+      ? settled.reduce((s, c) => s + Math.max(0, c), 0)
+      : Math.max(0, f.taxSettlementCents);
+  return f.taxCents - f.taxSettlementCents + f.payrollTaxCents + paid;
+};
+
+/**
  * The cash-flow chart, held to the property the three views exist to guarantee: nothing on
  * either stack is ever negative, so nothing is ever clamped and nothing is ever charged on pro
  * rata. The old chart netted tax into the source that bore it and needed both; a household with
@@ -205,10 +225,9 @@ describe.each(RUNS)("$preset.id — the cash-flow chart's two stacks", ({ preset
       const out = rowAt.get(m.month)!.outflowCentsByBand;
       const banded =
         (out[TAX_INCOME_BAND_ID] ?? 0) + (out[TAX_PAYROLL_BAND_ID] ?? 0) + (out[TAX_SETTLEMENT_BAND_ID] ?? 0);
-      // Withholding recovered by taking the signed settlement back out, plus FICA, plus a
-      // settlement only where it was a BILL — a refund is money in, and bands on the other side.
-      const expected =
-        f.taxCents - f.taxSettlementCents + f.payrollTaxCents + Math.max(0, f.taxSettlementCents);
+      // Withholding recovered by taking the signed settlement back out, plus FICA, plus each
+      // filer's own bill — a refund is money in, and bands on the other side.
+      const expected = taxPaidCents(f);
       if (banded !== expected) {
         wrong.push(`${where(preset.id, m.month)}: banded ${banded}, expected ${expected}`);
       }
@@ -222,8 +241,7 @@ describe.each(RUNS)("$preset.id — the cash-flow chart's two stacks", ({ preset
       const f = m.flows!;
       const row = rowAt.get(m.month)!;
       const stacked = Object.values(row.outflowCentsByBand).reduce((sum, c) => sum + c, 0);
-      const taxPaid =
-        f.taxCents - f.taxSettlementCents + f.payrollTaxCents + Math.max(0, f.taxSettlementCents);
+      const taxPaid = taxPaidCents(f);
       const owed = f.obligations.reduce((sum, o) => sum + o.amountCents, 0);
       if (stacked !== taxPaid + owed) {
         wrong.push(`${where(preset.id, m.month)}: stacked ${stacked}, expected ${taxPaid + owed}`);

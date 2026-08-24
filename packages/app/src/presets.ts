@@ -397,6 +397,8 @@ function partnerEntry(over: {
   readonly savingsDollars?: number;
   readonly brokerageDollars?: number;
   readonly retirementDollars?: number;
+  /** The partner's authored share of shared spending. Omitted ⇒ the engine's 50/50 default. */
+  readonly sharePercent?: number;
 }) {
   return {
     type: "startPartnered" as const,
@@ -414,6 +416,7 @@ function partnerEntry(over: {
       brokerageBalanceCents: dollarsToCents(over.brokerageDollars ?? 0),
       retirementBalanceCents: dollarsToCents(over.retirementDollars ?? 0),
     },
+    ...(over.sharePercent !== undefined ? { partnerSharePercent: over.sharePercent } : {}),
   };
 }
 
@@ -438,7 +441,10 @@ const PARTNER_DEBT = partnerInput({
   jobs: [salariedJob(dollarsToCents(7_000))],
   openingBalanceCents: dollarsToCents(40_000),
   events: [
-    partnerEntry({ name: "Blake", monthlyDollars: 1_200, brokerageDollars: 6_000 }),
+    // An authored 80/20: Blake's paycheck covers their share of the household with a little to
+    // spare, so the only thing their brokerage is ever drawn for is the car loan — which is what
+    // this preset is about. A 50/50 here would empty it in the first month on the rent alone.
+    partnerEntry({ name: "Blake", monthlyDollars: 1_200, brokerageDollars: 6_000, sharePercent: 20 }),
     {
       type: "carryLoan",
       ref: ref("blakeCar"),
@@ -452,32 +458,36 @@ const PARTNER_DEBT = partnerInput({
 });
 
 /**
- * Two unequal paychecks against one shared budget, split by what each partner can CONTRIBUTE:
- * their pay plus a sustainable draw on what they have saved. Alex earns roughly three times
- * Blake but Blake holds the savings, so Alex carries appreciably less than three times the
- * household's bills — which is the point beside {@link PARTNER_EVEN_SPLIT}. Neither person's
- * accounts fund the household merely for being listed first.
- */
-const PARTNER_PROPORTIONAL = partnerInput({
-  name: "Alex",
-  jobs: [salariedJob(dollarsToCents(8_000))],
-  openingBalanceCents: dollarsToCents(30_000),
-  sharedScheme: "proportional",
-  events: [partnerEntry({ name: "Blake", monthlyDollars: 2_400, savingsDollars: 30_000 })],
-});
-
-/**
- * The same two paychecks, split EVENLY — the other setting of the shared-contribution lever. Each
- * partner puts in half the household's bills regardless of what they earn, so the lower earner
- * carries a far larger share of their own take-home than under {@link PARTNER_PROPORTIONAL}.
- * Identical in every other respect, so the two presets isolate the lever.
+ * Two unequal paychecks against one shared budget, split the way every new partnership starts:
+ * down the middle. Alex earns roughly three times Blake and the household still charges each of
+ * them half the bills, so Blake gives up far more of their own take-home than Alex does — which
+ * is the point beside {@link PARTNER_UNEVEN_SPLIT}. Nothing recalculates it; 50/50 is a number
+ * the household chose (by not changing it), not a reading of the two paychecks.
  */
 const PARTNER_EVEN_SPLIT = partnerInput({
   name: "Alex",
   jobs: [salariedJob(dollarsToCents(8_000))],
   openingBalanceCents: dollarsToCents(30_000),
-  sharedScheme: "even",
   events: [partnerEntry({ name: "Blake", monthlyDollars: 2_400, savingsDollars: 30_000 })],
+});
+
+/**
+ * The same two paychecks under an authored 70/30. Identical in every other respect, so the pair
+ * isolates the only lever there is: Alex carries 70% of the household's bills because somebody
+ * typed 70, and it stays 70 through every raise, bonus, tax bill and refund the run contains.
+ */
+const PARTNER_UNEVEN_SPLIT = partnerInput({
+  name: "Alex",
+  jobs: [salariedJob(dollarsToCents(8_000))],
+  openingBalanceCents: dollarsToCents(30_000),
+  events: [
+    partnerEntry({
+      name: "Blake",
+      monthlyDollars: 2_400,
+      savingsDollars: 30_000,
+      sharePercent: 30,
+    }),
+  ],
 });
 
 /**
@@ -511,6 +521,9 @@ const PARTNER_SEPARATION = partnerInput({
  * distinct people with their own windows — every wrong answer would coincide with the right one.
  * Two years of Alex alone separate them: whatever is Blake's has to be gone by month 60, and
  * whatever is Casey's must not appear until month 84.
+ *
+ * The split is authored per relationship and never inherited: Alex and Blake run at 70/30, Alex
+ * carries 100% of the two years alone, and Casey's partnership opens at the 50/50 default.
  *
  * Every figure differs across the three so ownership is readable off the number alone — ages 35 /
  * 37 / 32, pay $7,000 / $5,000 / $4,000, savings $25k / $20k / $15k, retirement $50k / $40k /
@@ -573,6 +586,9 @@ const SEQUENTIAL_PARTNERS = partnerInput({
         retirementBalanceCents: dollarsToCents(40_000),
         brokerageBalanceCents: dollarsToCents(90_000),
       },
+      // Authored, not derived: Alex 70 / Blake 30. Casey below states nothing and therefore gets
+      // the 50/50 default — the split rides on the relationship, so it leaves with Blake.
+      partnerSharePercent: 30,
     },
     {
       type: "separate",
@@ -680,18 +696,18 @@ export const PRESETS: readonly Preset[] = [
     input: PARTNER_DEBT,
   },
   {
-    id: "partner-proportional",
+    id: "partner-even-split",
     label: "Two incomes, one household",
     description:
-      "Unequal paychecks and unequal savings against one shared budget, each partner carrying the share they can afford.",
-    input: PARTNER_PROPORTIONAL,
+      "Unequal paychecks against one shared budget, split 50/50 — the default every partnership starts on.",
+    input: PARTNER_EVEN_SPLIT,
   },
   {
-    id: "partner-even-split",
-    label: "…vs. splitting it evenly",
+    id: "partner-uneven-split",
+    label: "…vs. an authored 70/30",
     description:
-      "The same two households as Two incomes, split down the middle instead — the partner who can afford less gives up far more of their take-home.",
-    input: PARTNER_EVEN_SPLIT,
+      "The same two paychecks with Alex carrying 70% because the household said so — and it stays 70% whatever either of them earns.",
+    input: PARTNER_UNEVEN_SPLIT,
   },
   {
     id: "partner-separation",
@@ -703,7 +719,7 @@ export const PRESETS: readonly Preset[] = [
     id: "partner-sequential",
     label: "A new partner after separation",
     description:
-      "Blake leaves in Year 5, Alex manages alone for two years, and Casey joins in Year 7 with separate income and accounts.",
+      "Alex and Blake split the bills 70/30 until Blake leaves in Year 5; Alex carries all of it alone for two years, and Casey joins in Year 7 at the default 50/50.",
     input: SEQUENTIAL_PARTNERS,
   },
 ];

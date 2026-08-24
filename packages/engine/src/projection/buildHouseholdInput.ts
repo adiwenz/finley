@@ -155,6 +155,7 @@ export function buildHouseholdSimInput(
     activeWindow: personActiveWindow(m, base.startYear),
     lifeEnd: lifeExpectancyEndMonthExclusive(m.person, base.startYear),
     separationMonth: m.endMonth,
+    sharedExpensePercent: m.sharedExpensePercent,
     person: m.person,
   }));
   // The other half of "while both are alive" — see {@link memberHorizonReach}. Absent only for a
@@ -169,6 +170,9 @@ export function buildHouseholdSimInput(
     // above: a departed member and a dead one are treated identically by the window and
     // oppositely by anything that outlives the month.
     ...(r.separationMonth !== null ? { separationMonth: r.separationMonth } : {}),
+    // The authored split rides across with them: it is a fact about this partnership, and the
+    // month's shared obligation is divided by it and by nothing else.
+    ...(r.sharedExpensePercent !== undefined ? { sharedExpensePercent: r.sharedExpensePercent } : {}),
   }));
 
   // The horizon is the longest-lived member's reach, not the primary's: a member present to their
@@ -213,7 +217,6 @@ export function buildHouseholdSimInput(
     goals: base.goals,
     // Rides on the base like goals, and funds its accounts in the waterfall each month.
     contributionLines: base.contributionLines,
-    sharedScheme: base.sharedScheme,
     surplusDestination: base.surplusDestination,
   };
 }

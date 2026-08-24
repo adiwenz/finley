@@ -68,6 +68,12 @@ export type TransactionRevision =
         readonly retirementBalanceCents?: Cents;
         readonly brokerageBalanceCents?: Cents;
       };
+      /**
+       * The partner's share of shared spending — see
+       * {@link import("./relationships").MarryInput.partnerSharePercent}. The one path by which
+       * an EXISTING partnership's split is edited, and the only thing that ever changes it.
+       */
+      readonly partnerSharePercent?: number;
     }
   | {
       readonly type: "haveChild";
@@ -203,6 +209,9 @@ function revisedEvent(state: ProjectionState, current: LifeEvent, revision: Tran
             lifeExpectancy: r.lifeExpectancy ?? person.lifeExpectancy,
             benefitClaimingAge: r.benefitClaimingAge ?? person.benefitClaimingAge,
           },
+          ...(r.partnerSharePercent === undefined
+            ? {}
+            : { partnerSharePercent: r.partnerSharePercent }),
           ...(r.accountBalances === undefined
             ? {}
             : {

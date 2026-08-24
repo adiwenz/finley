@@ -27,6 +27,12 @@ export interface HouseholdMembership {
   readonly person: Person;
   readonly startMonth: number;
   readonly endMonth: number | null;
+  /**
+   * A PARTNER's authored share of shared spending, 0–100 — see
+   * {@link import("./eventTypes").RelationshipEvent.partnerSharePercent}. Absent on the primary,
+   * who takes whatever the current partnership leaves (100 while unpartnered).
+   */
+  readonly sharedExpensePercent?: number;
 }
 
 /**

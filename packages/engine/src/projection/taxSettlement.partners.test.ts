@@ -45,7 +45,6 @@ function april(
     personIds: ["alex", "blake"],
     incomeSources: [wages("alex", dollarsToCents(4_000)), wages("blake", dollarsToCents(2_000))],
     sharedObligationCents: 0,
-    sharedScheme: "proportional",
     surplusDestination: { kind: "idle" },
     goals: [],
     accountBalanceCents: () => 0,
@@ -158,21 +157,22 @@ describe("April settlements — an owner who cannot cover their own bill", () =>
     // Alex earns $500, so the pool covers $500 of Blake's $1,800 gap and $1,300 has to come out
     // of accounts. The shortfall map is decumulation's preference — try THIS person's accounts
     // for this much first — and an unfunded deduction is one person's own charge, so it is
-    // attributed whole to them rather than spread by asset weight the way a shared obligation is.
+    // attributed whole to them rather than split the way a shared obligation is.
     const r = short(500);
     expect(r.shortfallCents).toBe(dollarsToCents(1_300));
     expect(r.obligationShortfallByPersonCents.get("blake")).toBe(dollarsToCents(1_300));
     expect(r.obligationShortfallByPersonCents.get("alex")).toBe(0);
   });
 
-  it("prefers the owner even where the partner holds every eligible asset", () => {
-    // Asset weight decides a SHARED obligation's shortfall. It must not decide this one, or a
-    // cash-rich partner would have their accounts drained first for a bill that was never theirs.
+  it("prefers the owner even where the partner earns the household's money", () => {
+    // The shared split decides a SHARED obligation. It must not decide this one, or the partner
+    // carrying the larger percentage would have their accounts drained first for a bill that was
+    // never theirs.
     const r = april(
       { blake: BLAKE_BILL },
       {
         incomeSources: [wages("alex", dollarsToCents(500)), wages("blake", dollarsToCents(200))],
-        eligibleAssetsCentsByPerson: (pid) => (pid === "alex" ? dollarsToCents(500_000) : 0),
+        sharedSharePercentOf: (pid) => (pid === "alex" ? 100 : 0),
       },
     );
     expect(r.obligationShortfallByPersonCents.get("blake")).toBe(dollarsToCents(1_300));

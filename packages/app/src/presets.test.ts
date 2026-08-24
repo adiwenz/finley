@@ -28,8 +28,8 @@ describe("presets", () => {
       "taxed-in-retirement",
       "cash-in-retirement",
       "partner-debt",
-      "partner-proportional",
       "partner-even-split",
+      "partner-uneven-split",
       "partner-separation",
       "partner-sequential",
     ]);
@@ -56,8 +56,8 @@ describe("presets", () => {
     expect(withEvents.map((preset) => preset.id)).toEqual([
       "student-loan",
       "partner-debt",
-      "partner-proportional",
       "partner-even-split",
+      "partner-uneven-split",
       "partner-separation",
       "partner-sequential",
     ]);
@@ -296,7 +296,7 @@ describe("partner presets", () => {
   };
 
   it("gives every partner preset a second earner with accounts of their own", () => {
-    for (const id of ["partner-debt", "partner-proportional", "partner-even-split", "partner-separation"]) {
+    for (const id of ["partner-debt", "partner-even-split", "partner-uneven-split", "partner-separation"]) {
       const months = runPreset(id).months;
       const owners = Object.keys(months[1]!.netWorthByPersonCents ?? {});
       // Two people, reported apart — the whole point of partner-owned accounts.
@@ -315,12 +315,12 @@ describe("partner presets", () => {
     );
     expect(partnerAccount(months[24]!.accountBalancesCents, "brokerage")).toBe(0);
 
-    // Once Blake's own money is gone, Alex carries the remainder: Alex's savings still grow on a
-    // healthy salary, but markedly slower than over the same span before the backstop began.
+    // Once Blake's own money is gone, Alex carries the remainder: Alex's savings climbed while
+    // Blake's brokerage was still paying the car, and flatten out once it is Alex paying it.
     const alexAt = (m: number) => months[m]!.accountBalancesCents["savings"]!;
-    const beforeBackstop = alexAt(18) - alexAt(12);
-    const afterBackstop = alexAt(24) - alexAt(18);
-    expect(afterBackstop).toBeLessThan(beforeBackstop);
+    const whileBlakeCouldPay = alexAt(6) - alexAt(1);
+    const onceAlexBackstops = alexAt(18) - alexAt(12);
+    expect(onceAlexBackstops).toBeLessThan(whileBlakeCouldPay);
     // Solvent right through the loan and long after: the household together could always pay it,
     // even across the years Blake alone could not. (The run still ends in insolvency in extreme
     // old age, which is the retirement trajectory, not this preset's claim.)
@@ -339,59 +339,66 @@ describe("partner presets", () => {
     expect((loans[0] as { ownerId?: string }).ownerId).toBe(partnerId);
   });
 
-  it("splits proportionally or evenly on the lever alone, leaving the household total alone", () => {
-    const proportional = runPreset("partner-proportional").months;
+  it("moves who pays on the authored percentage alone, leaving the household total alone", () => {
     const even = runPreset("partner-even-split").months;
-    const blake = (months: typeof proportional, m: number) =>
+    const uneven = runPreset("partner-uneven-split").months;
+    const blake = (months: typeof even, m: number) =>
       partnerAccount(months[m]!.accountBalancesCents, "savings");
 
-    // Blake earns far less than Alex. A proportional share fits inside Blake's take-home, so
-    // their savings GROW; an even share does not, so the difference comes out of those savings.
-    expect(blake(proportional, 120)).toBeGreaterThan(blake(proportional, 1));
+    // Blake earns far less than Alex. A 30% share fits inside Blake's take-home, so their
+    // savings GROW; a 50% share does not, so the difference comes out of those savings.
+    expect(blake(uneven, 120)).toBeGreaterThan(blake(uneven, 1));
     expect(blake(even, 120)).toBeLessThan(blake(even, 1));
 
     // The household spends the same either way — only WHO paid moved, so the totals stay within
     // a fraction of a percent of each other after a decade. Not identical: surplus banks to
     // whoever earned it, so the split decides which accounts hold the money, and accounts of
     // different kinds earn different returns.
-    const householdAt = (months: typeof proportional, m: number) =>
+    const householdAt = (months: typeof even, m: number) =>
       months[m]!.netWorthNominalCents ?? 0;
-    const gap = Math.abs(householdAt(proportional, 120) - householdAt(even, 120));
-    expect(gap / householdAt(proportional, 120)).toBeLessThan(0.01);
+    const gap = Math.abs(householdAt(uneven, 120) - householdAt(even, 120));
+    expect(gap / householdAt(uneven, 120)).toBeLessThan(0.01);
   });
 
-  it("explains that the proportional lever weighs savings as well as pay", () => {
-    // The pair exists to teach the lever, so the copy has to name what the lever now reads. A
-    // description that still said "proportional to what they earn" would describe an engine that
-    // charged Blake a share their $30,000 of savings had no part in.
-    const proportional = presetById("partner-proportional").description;
-    expect(proportional).toMatch(/savings/i);
-    expect(proportional).not.toMatch(/proportional to what they earn/i);
-    expect(presetById("partner-even-split").description).toMatch(/afford/i);
+  it("says in its copy that the unequal split is a number somebody chose", () => {
+    // The pair exists to teach the only lever there is, so the copy has to name it as authored
+    // rather than as a reading of the two paychecks.
+    const uneven = presetById("partner-uneven-split").description;
+    expect(uneven).toMatch(/70/);
+    expect(presetById("partner-even-split").description).toMatch(/50\/50|default/i);
   });
 
-  it("charges the partner with savings and no paycheck a share of the household", () => {
-    // The teaching claim under the capacity rule, on the preset that teaches it: Blake earns
-    // roughly a third of Alex but holds savings of their own, so Blake's share is larger than
-    // their paycheck alone would buy — and Alex's is smaller than three times Blake's.
-    const flows = runPreset("partner-proportional").months[12]!.flows!;
+  it("charges exactly the authored 70/30, whatever the two paychecks say", () => {
+    const flows = runPreset("partner-uneven-split").months[12]!.flows!;
     const alex = flows.obligationChargedByPersonCents["p1"]!;
     const blake = Object.entries(flows.obligationChargedByPersonCents).find(([id]) =>
       id.startsWith("person-"),
     )![1];
     expect(alex + blake).toBe(flows.totalObligationsCents);
-    const payRatio = 8_000 / 2_400;
-    expect(alex / blake).toBeLessThan(payRatio);
-    expect(alex).toBeGreaterThan(blake);
+    // 8,000 against 2,400 would be 77/23 on pay alone; it is 70/30 because somebody typed it.
+    expect(alex / (alex + blake)).toBeCloseTo(0.7, 3);
   });
 
-  it("is identical between the two split presets apart from the lever itself", () => {
-    const { sharedScheme: proportionalScheme, ...proportional } = presetById("partner-proportional").input;
-    const { sharedScheme: evenScheme, ...even } = presetById("partner-even-split").input;
-    expect(proportionalScheme).toBe("proportional");
-    expect(evenScheme).toBe("even");
+  it("is identical between the two split presets apart from the percentage itself", () => {
+    const strip = (id: string) => {
+      const input = presetById(id).input;
+      return {
+        ...input,
+        events: input.events?.map((e) => {
+          const { partnerSharePercent: _authored, ...rest } = e as { partnerSharePercent?: number };
+          return rest;
+        }),
+      };
+    };
+    expect(presetById("partner-even-split").input.events?.[0]).not.toHaveProperty(
+      "partnerSharePercent",
+    );
+    expect(
+      (presetById("partner-uneven-split").input.events?.[0] as { partnerSharePercent?: number })
+        .partnerSharePercent,
+    ).toBe(30);
     // Everything else byte-identical, so the comparison the pair invites is genuinely one-variable.
-    expect(proportional).toEqual(even);
+    expect(strip("partner-even-split")).toEqual(strip("partner-uneven-split"));
   });
 
   it("takes the partner's accounts out of the household when they leave", () => {

@@ -163,6 +163,12 @@ export interface MarryEntry extends EventEntryCommon {
    * no money of their own, which is what every scenario written before this field existed meant.
    */
   readonly accounts?: PartnerAccountsInput;
+  /**
+   * The partner's share of shared spending — see {@link
+   * import("../authoring/relationships").MarryInput.partnerSharePercent}. Omitted → 50, which is
+   * what every scenario written before this field existed means.
+   */
+  readonly partnerSharePercent?: number;
 }
 
 /** A child joining the household — see {@link import("../authoring/relationships").HaveChildInput}. */
@@ -199,6 +205,8 @@ export interface StartPartneredEntry extends Omit<EventEntryCommon, "month"> {
    * no money of their own, which is what every scenario written before this field existed meant.
    */
   readonly accounts?: PartnerAccountsInput;
+  /** See {@link MarryEntry.partnerSharePercent}. */
+  readonly partnerSharePercent?: number;
 }
 
 /**

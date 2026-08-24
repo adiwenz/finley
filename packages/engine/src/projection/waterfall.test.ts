@@ -13,7 +13,6 @@ function makeInput(over: Partial<WaterfallInput>): WaterfallInput {
     personIds: ["p1"],
     incomeSources: [],
     sharedObligationCents: 0,
-    sharedScheme: "proportional",
     surplusDestination: { kind: "idle" },
     goals: [],
     accountBalanceCents: () => 0,
@@ -505,7 +504,6 @@ describe("runWaterfall — shared obligations (step 3)", () => {
         personIds: ["earner", "zero"],
         incomeSources: [wageSource("earner", dollarsToCents(4000))],
         sharedObligationCents: dollarsToCents(3000),
-        sharedScheme: "even",
       }),
     );
     // Even split = $1500 each.
@@ -513,13 +511,12 @@ describe("runWaterfall — shared obligations (step 3)", () => {
     expect(r.accountDepositsCents.get("checking")).toBe(dollarsToCents(2500));
   });
 
-  it("zero total household income short-circuits the proportional math (no 0/0)", () => {
+  it("still assigns every cent of the budget when the household has no income at all", () => {
     const r = runWaterfall(
       makeInput({
         personIds: ["p1", "p2"],
         incomeSources: [],
         sharedObligationCents: dollarsToCents(3000),
-        sharedScheme: "proportional",
       }),
     );
     expect(r.shortfallCents).toBe(dollarsToCents(3000));
@@ -1046,6 +1043,9 @@ describe("runWaterfall — unfunded deductions (deductions beyond the waterfall'
         personIds: ["A", "B"],
         incomeSources: [alreadyPaidWages(500, "A"), wageSource("B", dollarsToCents(3000))],
         sharedObligationCents: dollarsToCents(2000),
+        // The whole budget authored to B, so the only thing left for the household's pooled
+        // cash to cover is A's deduction — which is what this case is about.
+        sharedSharePercentOf: (pid) => (pid === "B" ? 100 : 0),
         ...fica20Seam,
       }),
     );
@@ -1293,25 +1293,28 @@ describe("runWaterfall — what each person had left", () => {
     );
 
   it("reports what is left after each person's own share of the household's spending", () => {
-    // $4,000 of shared spending, split proportional to take-home: 3:1, so $3,000 and $1,000.
-    const r = twoEarners({ sharedObligationCents: dollarsToCents(4000), sharedScheme: "proportional" });
+    // $4,000 of shared spending on an authored 75/25: $3,000 and $1,000.
+    const r = twoEarners({
+      sharedObligationCents: dollarsToCents(4000),
+      sharedSharePercentOf: (pid) => (pid === "hi" ? 75 : 25),
+    });
     expect(r.leftoverByPersonCents.get("hi")).toBe(dollarsToCents(6000 - 3000));
     expect(r.leftoverByPersonCents.get("lo")).toBe(dollarsToCents(2000 - 1000));
   });
 
-  it("follows the household's funding scheme rather than re-deciding it", () => {
-    // Even split of the same $4,000: $2,000 each, which takes the whole of the lower earner's
-    // income and leaves the higher earner more than the proportional scheme did.
-    const r = twoEarners({ sharedObligationCents: dollarsToCents(4000), sharedScheme: "even" });
+  it("follows the household's authored split rather than re-deciding it", () => {
+    // The same $4,000 at the default 50/50: $2,000 each, which takes the whole of the lower
+    // earner's income and leaves the higher earner more than a 75/25 would have.
+    const r = twoEarners({ sharedObligationCents: dollarsToCents(4000) });
     expect(r.leftoverByPersonCents.get("hi")).toBe(dollarsToCents(6000 - 2000));
     expect(r.leftoverByPersonCents.get("lo")).toBe(0);
   });
 
   it("floors at zero rather than reporting one person as owing the other", () => {
-    // An even split of $8,000 charges the lower earner $4,000 against $2,000 of income. The
+    // A 50/50 split of $8,000 charges the lower earner $4,000 against $2,000 of income. The
     // uncovered $2,000 is a household shortfall, not a negative balance carried by a person:
     // the money has to come from somewhere, and "somewhere" is the cascade, not their pocket.
-    const r = twoEarners({ sharedObligationCents: dollarsToCents(8000), sharedScheme: "even" });
+    const r = twoEarners({ sharedObligationCents: dollarsToCents(8000) });
     expect(r.leftoverByPersonCents.get("lo")).toBe(0);
     expect(r.obligationShortfallCents).toBe(dollarsToCents(2000));
   });
@@ -1328,9 +1331,9 @@ describe("runWaterfall — what each person had left", () => {
     // The pair that matters for reporting. Nobody funds a goal out of a deficit, so `leftover`
     // stops at zero — but a household spending more than it receives HAS a negative month, and
     // showing every member flat at $0 under a household line deep underwater reads as though
-    // nobody were losing money. An even split of $8,000 charges the lower earner $4,000 against
+    // nobody were losing money. A 50/50 split of $8,000 charges the lower earner $4,000 against
     // $2,000 of income: $0 to spend, and −$2,000 of net cash flow.
-    const r = twoEarners({ sharedObligationCents: dollarsToCents(8000), sharedScheme: "even" });
+    const r = twoEarners({ sharedObligationCents: dollarsToCents(8000) });
     expect(r.leftoverByPersonCents.get("lo")).toBe(0);
     expect(r.netCashFlowByPersonCents.get("lo")).toBe(-dollarsToCents(2000));
     expect(r.netCashFlowByPersonCents.get("hi")).toBe(dollarsToCents(6000 - 4000));
@@ -1339,7 +1342,7 @@ describe("runWaterfall — what each person had left", () => {
   it("sums the signed figures to the household's own net, deficit and all", () => {
     // What lets a chart draw a person's line and the household's line together. The floored
     // figure cannot do this: it loses the deficit entirely.
-    const r = twoEarners({ sharedObligationCents: dollarsToCents(8000), sharedScheme: "even" });
+    const r = twoEarners({ sharedObligationCents: dollarsToCents(8000) });
     const parts = [...r.netCashFlowByPersonCents.values()].reduce((sum, cents) => sum + cents, 0);
     expect(parts).toBe(dollarsToCents(8000 - 8000));
   });

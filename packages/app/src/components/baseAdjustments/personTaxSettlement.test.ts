@@ -206,7 +206,7 @@ describe("Two incomes, one household — one partner refunded while the other ow
   const APRIL = 15;
 
   function reported(): ProjectionSeries {
-    const p = Projection.fromState(presetState(presetById("partner-proportional")), usJurisdiction);
+    const p = Projection.fromState(presetState(presetById("partner-uneven-split")), usJurisdiction);
     p.updatePlan({ openingBalanceCents: dollarsToCents(500_000), savingsReturnPct: 7 });
     p.replacePartnerJob("job-9", {
       startYear: 2009,
@@ -228,8 +228,8 @@ describe("Two incomes, one household — one partner refunded while the other ow
     cashFlowBandsForView(data, view, "advanced", NAMES, ownerId).rows.find((r) => r.month === APRIL)!
       .centsByBand;
 
-  const REFUND = 370_608;
-  const ALEX_SETTLEMENT = 743_932;
+  const REFUND = 370_313;
+  const ALEX_SETTLEMENT = 739_788;
 
   it("shows Blake the refund Blake received", () => {
     expect(bandsAt("inflows", BLAKE_ENGINE_ID)[refundBandId(BLAKE_ENGINE_ID)]).toBe(REFUND);
@@ -259,28 +259,16 @@ describe("Two incomes, one household — one partner refunded while the other ow
     // The other thing April was doing to this scenario: Alex's bill took their take-home
     // negative, and a split weighed on charged take-home read that as Blake — who earns nothing —
     // being the household's sole earner for one month, so the whole $5,562 budget jumped to Blake
-    // and jumped back in May. April now says exactly what March and May say.
-    //
-    // Blake's own share is small and steady, and it is not zero: Blake has $30,000 of savings
-    // against Alex's $8,240 a month, so Blake can contribute something to the household every
-    // month — including the ones either of them files in.
+    // and jumped back in May. The split is now a number the household wrote, so April, March and
+    // May are the identical 70/30 to the cent.
     const spendAt = (month: number, ownerId: string) =>
       cashFlowBandsForView(data, "outflows", "advanced", NAMES, ownerId).rows.find(
         (r) => r.month === month,
       )!.centsByBand[SHARED_SPENDING_BAND_ID] ?? 0;
-    // Both balances grow every month, so the split drifts by a few cents from one month to the
-    // next. April sits on that trend — the bug moved the whole $5,562 and moved it back in May.
-    const drift = (month: number) => Math.abs(spendAt(month, ALEX) - spendAt(month - 1, ALEX));
-    expect(drift(APRIL - 1)).toBeLessThan(50);
-    expect(drift(APRIL)).toBeLessThan(50);
-    // May steps, by $4.71 — Blake's refund is now sitting in Blake's savings, and money in an
-    // account is money a person can contribute whatever it arrived as. That is the refund
-    // affecting the split as an ASSET the month after, not as income the month it was paid.
-    expect(drift(APRIL + 1)).toBeGreaterThan(drift(APRIL));
-    expect(drift(APRIL + 1)).toBeLessThan(1_000);
     for (const month of [APRIL - 1, APRIL, APRIL + 1]) {
+      expect(spendAt(month, ALEX)).toBe(spendAt(APRIL, ALEX));
       expect(spendAt(month, ALEX) + spendAt(month, BLAKE_ENGINE_ID)).toBe(556_200);
-      expect(spendAt(month, BLAKE_ENGINE_ID) / 556_200).toBeLessThan(0.05);
+      expect(spendAt(month, BLAKE_ENGINE_ID) / 556_200).toBeCloseTo(0.3, 4);
     }
   });
 

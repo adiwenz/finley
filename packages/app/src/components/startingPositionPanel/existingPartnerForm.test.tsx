@@ -47,6 +47,8 @@ describe("ExistingPartnerForm", () => {
         retirementBalanceCents: 0,
         brokerageBalanceCents: 0,
       },
+      // The field's own default, and the only split there is — 50/50 is a percentage, not a mode.
+      partnerSharePercent: 50,
     });
     expect(onDone).toHaveBeenCalledTimes(1);
   });

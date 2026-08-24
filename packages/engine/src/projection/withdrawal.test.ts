@@ -988,14 +988,14 @@ describe("Person-aware decumulation — fund each person's share from accounts a
     expect(st.assetBalances.get("p2-brokerage")).toBe(dollarsToCents(10_000));
   });
 
-  it("splits proportionally to each person's assets when nobody has income (via the waterfall's asset fallback)", () => {
-    // Integration-level: runWaterfall's zero-income branch splits `sharedObligationCents`
-    // proportional to `eligibleAssetsCentsByPerson` rather than dumping it all as shortfall.
-    const input: WaterfallInput = {
+  it("assigns the whole budget by the authored split even when nobody has income", () => {
+    // Integration-level: with no income at all, every cent of the shared obligation is still
+    // somebody's — the authored percentages decide whose, and the shortfall map hands each
+    // person's own gap back to them so their own accounts are sold for it first.
+    const base: WaterfallInput = {
       personIds: ["p1", "p2"],
       incomeSources: [],
       sharedObligationCents: dollarsToCents(3_000),
-      sharedScheme: "proportional",
       surplusDestination: { kind: "idle" },
       goals: [],
       accountBalanceCents: () => 0,
@@ -1004,21 +1004,24 @@ describe("Person-aware decumulation — fund each person's share from accounts a
       remainingCombinedDepositRoomCents: () => Infinity,
       payPeriodsPerYear: 12,
       periodsRemainingInTaxYear: 12,
-      // p1 has 3x p2's assets — a 3:1 split of the $3,000 obligation.
-      eligibleAssetsCentsByPerson: (pid) =>
-        pid === "p1" ? dollarsToCents(30_000) : dollarsToCents(10_000),
     };
-    const result = runWaterfall(input);
-    expect(result.obligationShortfallByPersonCents.get("p1")).toBe(dollarsToCents(2_250));
-    expect(result.obligationShortfallByPersonCents.get("p2")).toBe(dollarsToCents(750));
-    expect(result.shortfallCents).toBe(dollarsToCents(3_000));
+    const even = runWaterfall(base);
+    expect(even.obligationShortfallByPersonCents.get("p1")).toBe(dollarsToCents(1_500));
+    expect(even.obligationShortfallByPersonCents.get("p2")).toBe(dollarsToCents(1_500));
+    expect(even.shortfallCents).toBe(dollarsToCents(3_000));
+
+    const authored = runWaterfall({
+      ...base,
+      sharedSharePercentOf: (pid) => (pid === "p1" ? 70 : 30),
+    });
+    expect(authored.obligationShortfallByPersonCents.get("p1")).toBe(dollarsToCents(2_100));
+    expect(authored.obligationShortfallByPersonCents.get("p2")).toBe(dollarsToCents(900));
+    expect(authored.shortfallCents).toBe(dollarsToCents(3_000));
   });
 
-  it("end to end: a big month draws each partner's own brokerage EVENLY when their eligible assets are equal, despite unequal income", () => {
-    // p1 earns 3x p2's wage — income funds the real 3:1 share of the expense — but both
-    // partners hold EQUAL eligible assets ($100k each), so the asset-funded shortfall (§
-    // Household funding, step 2) is proportional to THAT, not to the 3:1 income split: an
-    // asset-funded shortfall follows eligible account balances, never income.
+  it("end to end: a big month draws each partner's own brokerage EVENLY on the default split, despite unequal income", () => {
+    // p1 earns 3x p2's wage and it buys p1 no smaller a share: the split is the authored 50/50,
+    // and neither partner's account stays untouched while the other's alone covers the household.
     const wage = (ownerId: string, monthlyDollars: number): SimOwnedSeries => ({
       series: new SimCashFlowSeries(0, dollarsToCents(monthlyDollars), { type: "fixed" }, {
         baselineUnit: "monthly",
@@ -1047,27 +1050,16 @@ describe("Person-aware decumulation — fund each person's share from accounts a
     expect(month0.isInsolvent).toBe(false);
     const p1Drawn = 100_000 - month0.accountBalancesCents["p1-brokerage"]! / 100;
     const p2Drawn = 100_000 - month0.accountBalancesCents["p2-brokerage"]! / 100;
-    // Both partners' own accounts funded their own share — neither stayed untouched while the
-    // other's alone covered the household, and neither was drained to fund the other's share —
-    // and, with equal eligible assets, roughly the SAME amount each, despite the 3:1 income gap.
-    expect(p1Drawn).toBeGreaterThan(0);
-    expect(p2Drawn).toBeGreaterThan(0);
-    expect(p1Drawn).toBeCloseTo(p2Drawn, 0);
+    // p1 has more income to put against the identical share, so p1 sells LESS — the difference
+    // is exactly the $2,000 of extra pay, not a difference in what either was assigned.
+    expect(p2Drawn - p1Drawn).toBeCloseTo(2_000, 0);
   });
 
-  it("end to end: the asset-funded shortfall splits ~75/25 when eligible assets do, even with equal income", () => {
-    // Both partners earn the same wage (an equal income split covers its own share evenly), but
-    // p1 holds 3x p2's eligible assets ($90k vs $30k) — a household example straight from the
-    // spec: a $30k asset-funded shortfall should draw ~$22.5k from p1 and ~$7.5k from p2.
-    const wage = (ownerId: string, monthlyDollars: number): SimOwnedSeries => ({
-      series: new SimCashFlowSeries(0, dollarsToCents(monthlyDollars), { type: "fixed" }, {
-        baselineUnit: "monthly",
-        taxCategory: "wages",
-      }),
-      ownerId,
-    });
+  it("end to end: an authored 75/25 draws 75/25 out of identical accounts", () => {
+    // Neither assets nor income decide this: both partners hold the same $60k and neither earns
+    // anything, so the only thing left to explain a 3:1 draw is the number the household wrote.
     const p1: SimPerson = { id: "p1", name: "Alice" };
-    const p2: SimPerson = { id: "p2", name: "Bob" };
+    const p2: SimPerson = { id: "p2", name: "Bob", sharedExpensePercent: 25 };
     const series = simulateHousehold(
       {
         horizonMonths: 1,
@@ -1075,55 +1067,42 @@ describe("Person-aware decumulation — fund each person's share from accounts a
         startYear: 2026,
         persons: [p1, p2],
         accounts: [
-          ownedAccount("p1-brokerage", "p1", 90_000),
-          ownedAccount("p2-brokerage", "p2", 30_000),
+          ownedAccount("p1-brokerage", "p1", 60_000),
+          ownedAccount("p2-brokerage", "p2", 60_000),
         ],
-        incomeSeries: [wage("p1", 2_000), wage("p2", 2_000)],
+        incomeSeries: [],
         expenseSeries: [expense(20_000)],
       },
       nullJurisdiction,
     );
     const month0 = series.months[0];
     expect(month0.isInsolvent).toBe(false);
-    const p1Drawn = 90_000 - month0.accountBalancesCents["p1-brokerage"]! / 100;
-    const p2Drawn = 30_000 - month0.accountBalancesCents["p2-brokerage"]! / 100;
-    expect(p1Drawn).toBeGreaterThan(0);
-    expect(p2Drawn).toBeGreaterThan(0);
-    // ~75/25, not 50/50 and not by whichever account is listed first.
-    expect(p1Drawn / (p1Drawn + p2Drawn)).toBeCloseTo(0.75, 1);
+    expect(60_000 - month0.accountBalancesCents["p1-brokerage"]! / 100).toBeCloseTo(15_000, 0);
+    expect(60_000 - month0.accountBalancesCents["p2-brokerage"]! / 100).toBeCloseTo(5_000, 0);
   });
 
-  it("swapping which partner is primary produces the symmetric asset-proportional draw", () => {
-    const wage = (ownerId: string, monthlyDollars: number): SimOwnedSeries => ({
-      series: new SimCashFlowSeries(0, dollarsToCents(monthlyDollars), { type: "fixed" }, {
-        baselineUnit: "monthly",
-        taxCategory: "wages",
-      }),
-      ownerId,
-    });
+  it("swapping which partner carries the larger percentage swaps the draw with it", () => {
     const p1: SimPerson = { id: "p1", name: "Alice" };
-    const p2: SimPerson = { id: "p2", name: "Bob" };
+    const p2: SimPerson = { id: "p2", name: "Bob", sharedExpensePercent: 75 };
     const series = simulateHousehold(
       {
         horizonMonths: 1,
         annualInflationRate: 0,
         startYear: 2026,
         persons: [p1, p2],
-        // Assets swapped relative to the previous test: p2 now holds 3x p1's.
         accounts: [
-          ownedAccount("p1-brokerage", "p1", 30_000),
-          ownedAccount("p2-brokerage", "p2", 90_000),
+          ownedAccount("p1-brokerage", "p1", 60_000),
+          ownedAccount("p2-brokerage", "p2", 60_000),
         ],
-        incomeSeries: [wage("p1", 2_000), wage("p2", 2_000)],
+        incomeSeries: [],
         expenseSeries: [expense(20_000)],
       },
       nullJurisdiction,
     );
     const month0 = series.months[0];
     expect(month0.isInsolvent).toBe(false);
-    const p1Drawn = 30_000 - month0.accountBalancesCents["p1-brokerage"]! / 100;
-    const p2Drawn = 90_000 - month0.accountBalancesCents["p2-brokerage"]! / 100;
-    expect(p2Drawn / (p1Drawn + p2Drawn)).toBeCloseTo(0.75, 1);
+    expect(60_000 - month0.accountBalancesCents["p1-brokerage"]! / 100).toBeCloseTo(5_000, 0);
+    expect(60_000 - month0.accountBalancesCents["p2-brokerage"]! / 100).toBeCloseTo(15_000, 0);
   });
 
   it("end to end: a partner's own loan payment draws only their own brokerage while it can cover it (#160)", () => {

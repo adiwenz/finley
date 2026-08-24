@@ -85,7 +85,11 @@ export function StartingPositionPanel({
       {open && (
         <div className={styles.form}>
           {open === "partner" && !startingPartner && (
-            <ExistingPartnerForm onAdd={onAdd} onDone={onDone} />
+            <ExistingPartnerForm
+              onAdd={onAdd}
+              onDone={onDone}
+              primaryName={result.household.memberships[0]?.person.name}
+            />
           )}
           {open === "child" && <ExistingChildForm onAdd={onAdd} onDone={onDone} />}
           {open === "loan" && <ExistingLoanForm onAdd={onAdd} onDone={onDone} />}

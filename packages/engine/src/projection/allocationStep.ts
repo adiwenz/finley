@@ -116,61 +116,30 @@ function surplusAccountIdFor(state: SimState, personId: string): string | null {
 }
 
 /**
- * The balances that count toward one person's contribution capacity — the asset half of the
- * shared split's weight (see {@link import("./waterfall").SUSTAINABLE_DRAW_RATE}).
+ * The month's authored shared-expense percentages, over the members `householdMemberIds` names.
  *
- * What counts is what the person could genuinely put toward the household's shared spending:
+ * The split rides on the RELATIONSHIP, so it is stored on the partner and the primary takes what
+ * is left: while a partnership is running the partner has their authored percent and the primary
+ * the remainder, and the moment nobody is partnered the primary has all of it. Sequential
+ * partners are therefore independent by construction — Casey's percent is Casey's own, and
+ * Blake's leaving takes Blake's with it.
  *
- *  - **Cash and taxable investments they own, in full.** Money that can be spent this month.
- *  - **Retirement savings only from `jurisdiction.penaltyFreeRetirementAge`.** Before it, drawing
- *    on them costs a penalty the engine models nowhere, so counting them would assert an
- *    accessibility the projection cannot price — and would hand a household's whole budget to
- *    whichever partner had the larger 401(k) at 40. A jurisdiction that states no age (the null
- *    one) never counts them.
- *  - **Never a goal's fund account.** An emergency fund and a down-payment fund are money the
- *    household has already committed elsewhere; the funding rules keep them out of ordinary
- *    spending, and a capacity that spent them would contradict that. They still back the person
- *    in a genuine shortfall, where {@link WaterfallInput.eligibleAssetsCentsByPerson} counts every
- *    balance — being able to survive on a fund is not the same as being free to spend it.
- *
- * Balances only; nothing about the accounts themselves is read for the month.
+ * Nothing here reads a balance, a paycheck, or an age. That is the whole point.
  */
-export function capacityAssetsCentsByPerson(
+function sharedSharePercentOf(
   state: SimState,
-  ctx: JurisdictionContext,
-  jurisdiction: Jurisdiction,
-): Map<string, Cents> {
-  const goalFunds = new Set(state.goals.map((g) => g.fundAccountId));
-  const accessAge = jurisdiction.penaltyFreeRetirementAge;
-  const byPerson = new Map<string, Cents>();
-  for (const account of state.accounts) {
-    if (goalFunds.has(account.id)) continue;
-    const treatment = account.taxProfile.taxTreatment;
-    const isRetirementVehicle = treatment === "taxDeferred" || treatment === "taxExempt";
-    if (isRetirementVehicle) {
-      if (accessAge === undefined) continue;
-      const birthYear = state.personsById.get(account.ownerId)?.birthYear;
-      if (birthYear === undefined || ctx.year - birthYear < accessAge) continue;
-    }
-    const balance = Math.max(0, state.assetBalances.get(account.id) ?? 0);
-    if (balance > 0) byPerson.set(account.ownerId, (byPerson.get(account.ownerId) ?? 0) + balance);
+  memberIds: readonly string[],
+): (personId: string) => number {
+  let partnerTotal = 0;
+  for (const pid of memberIds) {
+    const percent = state.personsById.get(pid)?.sharedExpensePercent;
+    if (percent !== undefined) partnerTotal += Math.max(0, Math.min(100, percent));
   }
-  return byPerson;
-}
-
-/**
- * Take the month's capacity snapshot, once, before anything the month does can move a balance —
- * see {@link SimState.capacityAssetsByPerson} for why it is taken rather than read live.
- */
-export function refreshCapacityAssets(
-  state: SimState,
-  ctx: JurisdictionContext,
-  jurisdiction: Jurisdiction,
-): void {
-  state.capacityAssetsByPerson.clear();
-  for (const [pid, cents] of capacityAssetsCentsByPerson(state, ctx, jurisdiction)) {
-    state.capacityAssetsByPerson.set(pid, cents);
-  }
+  const primaryShare = Math.max(0, 100 - partnerTotal);
+  return (pid) => {
+    const percent = state.personsById.get(pid)?.sharedExpensePercent;
+    return percent === undefined ? primaryShare : Math.max(0, Math.min(100, percent));
+  };
 }
 
 function splitAutomaticObligations(
@@ -237,19 +206,20 @@ function planMonthAllocation(
     return monthlyCents > 0 ? [{ accountId, monthlyCents }] : [];
   });
 
+  const memberIds = state.personIds.filter((pid) => {
+    const person = state.personsById.get(pid);
+    return person === undefined || isPersonActiveAt(person, month);
+  });
   const input: WaterfallInput = {
     personIds: state.personIds,
     // The shared budget is split across the household as it stands this month, not across every
     // person the run has ever known — see {@link WaterfallInput.householdMemberIds}. Someone with
     // income but no roster entry counts: they are being paid into this household.
-    householdMemberIds: state.personIds.filter((pid) => {
-      const person = state.personsById.get(pid);
-      return person === undefined || isPersonActiveAt(person, month);
-    }),
+    householdMemberIds: memberIds,
     incomeSources,
     sharedObligationCents,
     personalObligationCentsByPerson: (pid) => personalCentsByPerson.get(pid) ?? 0,
-    sharedScheme: state.sharedScheme,
+    sharedSharePercentOf: sharedSharePercentOf(state, memberIds),
     surplusDestination: state.surplusDestination,
     goals: state.goals,
     contributions,
@@ -272,17 +242,6 @@ function planMonthAllocation(
     // take-home rather than lowering it. Kept apart from this month's withholding because it pays
     // a DIFFERENT year and must never be credited against this one.
     settlementCashCents: (pid) => priorYearSettlements.get(pid)?.totalCents ?? 0,
-    // Every account this person owns, summed — the fallback split weight when nobody has
-    // positive take-home. Same pool `orderedAccountsForPerson` (withdrawal.ts) later draws
-    // from, so the split and the draw agree on what "this person's assets" means.
-    eligibleAssetsCentsByPerson: (pid) =>
-      state.accounts.reduce(
-        (sum, acc) =>
-          acc.ownerId === pid ? sum + Math.max(0, state.assetBalances.get(acc.id) ?? 0) : sum,
-        0,
-      ),
-    // The asset half of the sharing weight, off the month's opening snapshot.
-    capacityAssetsCentsByPerson: (pid) => state.capacityAssetsByPerson.get(pid) ?? 0,
     // Absent seam → no payroll tax; the waterfall then leaves take-home untouched.
     computePayrollWithholdingCents: jurisdiction.computePayrollWithholdingCents
       ? (earnedByCategory) => jurisdiction.computePayrollWithholdingCents!(earnedByCategory, ctx)
@@ -461,6 +420,8 @@ export function allocateMonth(
   netCashFlowByPersonCents: Readonly<Record<string, Cents>>;
   /** See {@link WaterfallResult.obligationChargedByPersonCents}. */
   obligationChargedByPersonCents: Readonly<Record<string, Cents>>;
+  /** See {@link WaterfallResult.obligationFundedByPersonCents}. */
+  obligationFundedByPersonCents: Readonly<Record<string, Cents>>;
 } {
   const { input, contributions } = planMonthAllocation(
     state,
@@ -656,6 +617,7 @@ export function allocateMonth(
     deferredByPersonCents: Object.fromEntries(result.deferredByPersonCents),
     netCashFlowByPersonCents: Object.fromEntries(result.netCashFlowByPersonCents),
     obligationChargedByPersonCents: Object.fromEntries(result.obligationChargedByPersonCents),
+    obligationFundedByPersonCents: Object.fromEntries(result.obligationFundedByPersonCents),
   };
 }
 

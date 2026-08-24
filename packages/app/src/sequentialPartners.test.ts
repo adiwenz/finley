@@ -242,25 +242,35 @@ describe("accounts follow membership, and stay owned by whoever brought them", (
 });
 
 describe("shared spending is allocated to the household that exists this month", () => {
-  it("splits proportionally between the two people who are actually here", () => {
-    // Alex $7,000 against Blake $5,000, then Alex alone, then Alex against Casey's $4,000 —
-    // each partner's pay plus a sustainable draw on what they have saved. Blake's $150,000 of
-    // accounts against Alex's $105,000 narrows the gap the paychecks alone would open; Casey's
-    // $120,000 against Alex's larger balances by year 7 widens it. The ratio moves at each
-    // boundary because the household did, and drifts only with the balances in between.
+  it("splits by the percentage each partnership authored, between the two people who are here", () => {
+    // Alex and Blake authored 70/30. Alex alone carries 100%. Casey's partnership authored
+    // nothing and therefore runs at the 50/50 default — Casey does not inherit Blake's 30.
     const share = (m: number, id: string) => sharesAt(m)[id] ?? 0;
     const ratio = (m: number, id: string) => share(m, id) / flowsAt(m).totalObligationsCents;
 
-    expect(ratio(12, ALEX)).toBeCloseTo(0.561, 2);
-    expect(ratio(12, BLAKE)).toBeCloseTo(0.439, 2);
+    expect(ratio(12, ALEX)).toBeCloseTo(0.7, 4);
+    expect(ratio(12, BLAKE)).toBeCloseTo(0.3, 4);
 
     expect(share(ALONE, ALEX)).toBe(flowsAt(ALONE).totalObligationsCents);
     expect(share(ALONE, BLAKE)).toBe(0);
     expect(share(ALONE, CASEY)).toBe(0);
 
-    expect(ratio(JOIN + 12, ALEX)).toBeCloseTo(0.639, 2);
-    expect(ratio(JOIN + 12, CASEY)).toBeCloseTo(0.361, 2);
+    expect(ratio(JOIN + 12, ALEX)).toBeCloseTo(0.5, 4);
+    expect(ratio(JOIN + 12, CASEY)).toBeCloseTo(0.5, 4);
     expect(share(JOIN + 12, BLAKE)).toBe(0);
+  });
+
+  it("assigns every cent of an odd budget, so the two shares are the household's exactly", () => {
+    // Cumulative rounding, not two independent multiplications: 70% and 30% of a budget ending
+    // in an odd cent would otherwise leave a cent unattributed in about half of all months.
+    const wrong: string[] = [];
+    for (const month of RUN.series.months) {
+      const f = month.flows;
+      if (f === undefined) continue;
+      const total = Object.values(f.obligationChargedByPersonCents).reduce((s, c) => s + c, 0);
+      if (total !== f.totalObligationsCents) wrong.push(`month ${month.month}: ${total} of ${f.totalObligationsCents}`);
+    }
+    expect(wrong).toEqual([]);
   });
 
   it("gives Blake no share of anything after they leave", () => {
@@ -289,46 +299,28 @@ describe("shared spending is allocated to the household that exists this month",
     expect(wrong).toEqual([]);
   });
 
-  it("splits evenly between the active pair when the household asks for that instead", () => {
-    const evenly = Projection.fromState(
-      presetState({ ...presetById(PRESET_ID), input: { ...presetById(PRESET_ID).input, sharedScheme: "even" } }),
-      usJurisdiction,
-    ).run(usJurisdiction);
-    const at = (m: number) => {
-      const f = evenly.series.months[m]!.flows!;
-      return { shares: f.obligationChargedByPersonCents, total: f.totalObligationsCents };
-    };
-    // "Evenly" is between the people who are here — one of them during the gap, which is the
-    // whole household's spending and not half of it left unassigned.
-    const together = at(12);
-    expect(together.shares[ALEX]).toBe(Math.ceil(together.total / 2));
-    expect(together.shares[BLAKE]).toBe(Math.floor(together.total / 2));
-    expect(together.shares[CASEY] ?? 0).toBe(0);
-
-    const alone = at(ALONE);
-    expect(alone.shares[ALEX]).toBe(alone.total);
-
-    const withCasey = at(JOIN + 12);
-    expect(withCasey.shares[ALEX]).toBe(Math.ceil(withCasey.total / 2));
-    expect(withCasey.shares[CASEY]).toBe(Math.floor(withCasey.total / 2));
-    expect(withCasey.shares[BLAKE] ?? 0).toBe(0);
+  it("hands the whole budget to Alex in the gap, rather than half of it to nobody", () => {
+    // The denominator is the household that exists this month. Splitting across the run's whole
+    // roster would charge Alex a third of the rent and leave the rest on two people who are not
+    // here — a sum that still balances and describes nothing.
+    for (let m = SEPARATION; m < JOIN; m++) {
+      const f = RUN.series.months[m]!.flows!;
+      expect(f.obligationChargedByPersonCents[ALEX]).toBe(f.totalObligationsCents);
+    }
   });
 
   it("leaves the split alone in the months a tax settlement lands", () => {
     // April moves take-home in opposite directions for the same reason — the under-withheld
-    // partner pays and the over-withheld one collects — so a split weighed on charged take-home
-    // would swing the whole budget onto whoever happened to be owed money, and swing it back in
-    // May. Each April here reads exactly like the March and May either side of it.
+    // partner pays and the over-withheld one collects. A split that read either would swing the
+    // whole budget onto whoever happened to be owed money and swing it back in May. This one
+    // reads neither, so each April's percentages are the March and May percentages exactly.
     const APRILS = [15, 51, 99];
     for (const april of APRILS) {
       expect(Object.keys(flowsAt(april).taxSettlementByPersonCents).length).toBeGreaterThan(0);
       for (const id of [ALEX, BLAKE, CASEY]) {
-        const settled = sharesAt(april)[id] ?? 0;
-        // Pennies, against a budget of several thousand dollars. The weight includes each
-        // person's savings, which grow every month, so the split drifts continuously; April sits
-        // inside that drift instead of stepping out of it, which is the whole claim.
-        expect(Math.abs(settled - (sharesAt(april - 1)[id] ?? 0))).toBeLessThan(100);
-        expect(Math.abs(settled - (sharesAt(april + 1)[id] ?? 0))).toBeLessThan(100);
+        const pct = (m: number) => (sharesAt(m)[id] ?? 0) / flowsAt(m).totalObligationsCents;
+        expect(pct(april)).toBeCloseTo(pct(april - 1), 4);
+        expect(pct(april)).toBeCloseTo(pct(april + 1), 4);
       }
     }
   });
@@ -461,56 +453,74 @@ describe("debts and taxes stay with the person who owns them", () => {
   });
 });
 
-describe("what each person brings, and takes away, to the sharing weight", () => {
-  const capacityShare = (series: ProjectionSeries, month: number, id: string) => {
+describe("what the authored split does, and does not, respond to", () => {
+  const shareOf = (series: ProjectionSeries, month: number, id: string) => {
     const f = series.months[month]!.flows!;
     return (f.obligationChargedByPersonCents[id] ?? 0) / f.totalObligationsCents;
   };
 
-  it("counts a joining partner's savings from the month they arrive, and not before", () => {
-    // Casey brings $15k cash and $45k brokerage. Under a weight that read income alone, Casey's
-    // share would be set by their $4,000 paycheck and nothing else; the balances are worth
-    // another $200 a month of capacity, and they start counting the month Casey does.
-    expect(capacityShare(RUN.series, ALONE, CASEY)).toBe(0);
-    expect(capacityShare(RUN.series, JOIN, CASEY)).toBeGreaterThan(0.3);
-
-    // Casey's retirement account is not among them: at 39 it cannot be drawn on without a
-    // penalty the engine prices nowhere, so counting it would claim an access nothing models.
-    // $4,000 of pay plus 4%/12 of $60,000 of reachable savings, against Alex's own.
-    const caseyCapacity = 400_000 + Math.floor((dollarsToCents(60_000) * 0.04) / 12);
-    const share = capacityShare(RUN.series, JOIN, CASEY);
-    expect(share).toBeGreaterThan(0.3);
-    expect(share).toBeLessThan(0.4);
-    expect(caseyCapacity).toBeGreaterThan(400_000);
+  it("holds Alex and Blake at 70/30 for every month of their partnership", () => {
+    // Not one figure at one month: every month of it. Pay grows, balances grow, benefits start,
+    // Aprils come and go, and none of them is a reason for a number the household wrote down to
+    // change. The two shares are within a cent of 70/30 in all sixty months.
+    const wrong: string[] = [];
+    for (let m = 0; m < SEPARATION; m++) {
+      const alex = shareOf(RUN.series, m, ALEX);
+      const blake = shareOf(RUN.series, m, BLAKE);
+      if (Math.abs(alex - 0.7) > 0.001 || Math.abs(blake - 0.3) > 0.001) {
+        wrong.push(`month ${m}: ${alex.toFixed(4)} / ${blake.toFixed(4)}`);
+      }
+    }
+    expect(wrong).toEqual([]);
   });
 
-  it("stops counting a departing partner's savings the month they take them", () => {
-    // Blake holds more than Alex does and earns nearly as much, so Blake carries a large share
-    // right up to month 59 — and none of it survives into month 60, balances included.
-    expect(capacityShare(RUN.series, SEPARATION - 1, BLAKE)).toBeGreaterThan(0.4);
-    expect(capacityShare(RUN.series, SEPARATION, BLAKE)).toBe(0);
-    expect(capacityShare(RUN.series, SEPARATION, ALEX)).toBe(1);
+  it("does not move when a partner's savings arrive with them", () => {
+    // Casey brings $15k cash, $45k brokerage and $60k of retirement, and Alex by year 7 holds
+    // considerably more. A split that weighed balances would open at something other than half;
+    // this one opens at half, on the month Casey arrives and on every month after.
+    expect(shareOf(RUN.series, ALONE, CASEY)).toBe(0);
+    expect(shareOf(RUN.series, JOIN, CASEY)).toBeCloseTo(0.5, 3);
+    expect(shareOf(RUN.series, JOIN + 60, CASEY)).toBeCloseTo(0.5, 3);
   });
 
-  it("weighs each partnership on its own household, with nothing carried between them", () => {
-    // Two relationships, two weights. Alex's share is larger with Casey than it was with Blake —
-    // Casey earns less and holds less, and seven more years have grown Alex's own accounts.
-    expect(capacityShare(RUN.series, 12, ALEX)).toBeCloseTo(0.561, 2);
-    expect(capacityShare(RUN.series, JOIN + 12, ALEX)).toBeCloseTo(0.639, 2);
-    // Nothing of the first partnership's weight reaches the second: Blake's balances left, and
-    // the gap in between is Alex's alone.
-    for (let m = SEPARATION; m < JOIN; m++) expect(capacityShare(RUN.series, m, ALEX)).toBe(1);
+  it("does not move when the household's earnings do", () => {
+    // Blake earns $5,000 against Alex's $7,000 for the whole partnership and carries 30% of it;
+    // Casey earns $4,000 against Alex's grown salary and carries 50%. Whatever explains the two
+    // numbers, it is not the paychecks.
+    expect(shareOf(RUN.series, SEPARATION - 1, BLAKE)).toBeCloseTo(0.3, 3);
+    expect(shareOf(RUN.series, SEPARATION, BLAKE)).toBe(0);
+    expect(shareOf(RUN.series, SEPARATION, ALEX)).toBe(1);
   });
 
-  it("leaves a one-time spend drawing its named accounts in its named order, whatever the scheme", () => {
+  it("gives each partnership its own number, with nothing carried between them", () => {
+    expect(shareOf(RUN.series, 12, ALEX)).toBeCloseTo(0.7, 3);
+    expect(shareOf(RUN.series, JOIN + 12, ALEX)).toBeCloseTo(0.5, 3);
+    // The 30 left with Blake. Casey's partnership starts from the default, not from it.
+    for (let m = SEPARATION; m < JOIN; m++) expect(shareOf(RUN.series, m, ALEX)).toBe(1);
+  });
+
+  it("keeps a Social Security claim from re-deciding anything", () => {
+    // Both partners' benefits start inside the run, which is the single biggest change to who
+    // earns what across the whole projection — and the percentages step at neither claim.
+    const benefitMonths = RUN.series.months.filter(
+      (m) => m.flows?.incomeSources.some((s) => s.category === "governmentRetirementBenefit") === true,
+    );
+    expect(benefitMonths.length).toBeGreaterThan(0);
+    for (const month of benefitMonths) {
+      // Only while both are alive: Alex is 35 at the start and lives to 90, and Casey outlives
+      // them by five years. Casey carrying everything after that is a change in who is here,
+      // not a change to what anybody authored.
+      if (month.month < JOIN || month.month >= (90 - 35) * 12) continue;
+      expect(shareOf(RUN.series, month.month, ALEX)).toBeCloseTo(0.5, 3);
+    }
+  });
+
+  it("leaves a one-time spend drawing its named accounts in its named order", () => {
     // The sharing rule decides who OWES the recurring budget. It has no business anywhere near
     // an explicitly-funded draw, which spends the accounts the author picked, in their order.
     const SPEND = dollarsToCents(120_000);
-    const run = (scheme: "proportional" | "even", withSpend: boolean) => {
-      const q = Projection.fromState(
-        presetState({ ...presetById(PRESET_ID), input: { ...presetById(PRESET_ID).input, sharedScheme: scheme } }),
-        usJurisdiction,
-      );
+    const run = (withSpend: boolean) => {
+      const q = fresh();
       if (withSpend) {
         q.spendOnce({
           month: 24,
@@ -521,27 +531,23 @@ describe("what each person brings, and takes away, to the sharing weight", () =>
       }
       return q.run(usJurisdiction).series.months[24]!.accountBalancesCents;
     };
-    // Measured against the same scheme's own run without the spend, since the two schemes put
-    // the household's money in different places long before month 24.
-    for (const scheme of ["proportional", "even"] as const) {
-      const spent = run(scheme, true);
-      const baseline = run(scheme, false);
-      const drawn = (id: string) => (baseline[id] ?? 0) - (spent[id] ?? 0);
-      // The whole spend comes from the two named accounts, in the named order: Alex's cash
-      // cannot cover $120,000 alone, so it empties and Blake's brokerage covers the remainder.
-      // A couple of hundred dollars over, because the drained money also stops earning its
-      // return that month — a difference between the two runs, not a third funding source.
-      expect(drawn("savings") + drawn(`brokerage-${BLAKE}`) - SPEND).toBeLessThan(dollarsToCents(500));
-      expect(drawn("savings") + drawn(`brokerage-${BLAKE}`)).toBeGreaterThanOrEqual(SPEND);
-      expect(drawn("savings")).toBeGreaterThan(0);
-      expect(drawn(`brokerage-${BLAKE}`)).toBeGreaterThan(0);
-      expect(drawn("savings")).toBeGreaterThan(drawn(`brokerage-${BLAKE}`));
-      // And nothing else funds it — not Alex's own brokerage, not either retirement account.
-      // Tens of dollars apart, not tens of thousands: the same knock-on as above, since a
-      // household holding $120,000 less runs its month slightly differently.
-      for (const untouched of ["brokerage", "retirement", `savings-${BLAKE}`, `retirement-${BLAKE}`]) {
-        expect(Math.abs(drawn(untouched))).toBeLessThan(dollarsToCents(100));
-      }
+    const spent = run(true);
+    const baseline = run(false);
+    const drawn = (id: string) => (baseline[id] ?? 0) - (spent[id] ?? 0);
+    // The whole spend comes from the two named accounts, in the named order: Alex's cash
+    // cannot cover $120,000 alone, so it empties and Blake's brokerage covers the remainder.
+    // A couple of hundred dollars over, because the drained money also stops earning its
+    // return that month — a difference between the two runs, not a third funding source.
+    expect(drawn("savings") + drawn(`brokerage-${BLAKE}`) - SPEND).toBeLessThan(dollarsToCents(500));
+    expect(drawn("savings") + drawn(`brokerage-${BLAKE}`)).toBeGreaterThanOrEqual(SPEND);
+    expect(drawn("savings")).toBeGreaterThan(0);
+    expect(drawn(`brokerage-${BLAKE}`)).toBeGreaterThan(0);
+    expect(drawn("savings")).toBeGreaterThan(drawn(`brokerage-${BLAKE}`));
+    // And nothing else funds it — not Alex's own brokerage, not either retirement account.
+    // Tens of dollars apart, not tens of thousands: the same knock-on as above, since a
+    // household holding $120,000 less runs its month slightly differently.
+    for (const untouched of ["brokerage", "retirement", `savings-${BLAKE}`, `retirement-${BLAKE}`]) {
+      expect(Math.abs(drawn(untouched))).toBeLessThan(dollarsToCents(100));
     }
   });
 });
@@ -764,7 +770,7 @@ describe("editing the relationships, and reloading the scenario", () => {
     // `presetState` rebuilds through the engine's own authoring on every call, so switching away
     // and back cannot carry a mutation, a stale id or a chart filter's owner with it.
     const first = presetState(presetById(PRESET_ID));
-    const elsewhere = presetState(presetById("partner-proportional"));
+    const elsewhere = presetState(presetById("partner-uneven-split"));
     const second = presetState(presetById(PRESET_ID));
     expect(second).toEqual(first);
     expect(second).not.toBe(first);

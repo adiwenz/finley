@@ -236,6 +236,7 @@ function toHousehold(state: InterpretState, base: LedgerBaseConfig): Household {
     person: m.person,
     startMonth: m.startMonth,
     endMonth: m.endMonth,
+    ...(m.sharedExpensePercent !== undefined ? { sharedExpensePercent: m.sharedExpensePercent } : {}),
   }));
 
   const eventAccounts = [...state.accountsById.values()];

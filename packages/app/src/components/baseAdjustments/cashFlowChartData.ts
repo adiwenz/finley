@@ -89,7 +89,7 @@ export const TAX_OUTFLOW_CATEGORY = "tax";
  * rent, not $1,400 of Alex's rent — so a person's stack cannot carry the line itself. What it
  * carries is the engine's own figure for what that person was CHARGED
  * (`obligationChargedByPersonCents` less their own obligations), which is how the household
- * FUNDS its spending under `sharedScheme`, stated once rather than split across lines it cannot
+ * FUNDS its spending under the authored split, stated once rather than split across lines it cannot
  * honestly be split across. Absent from the combined stack, where the real lines are drawn.
  */
 export const SHARED_SPENDING_BAND_ID = "spend:shared";
@@ -162,7 +162,7 @@ export interface CashFlowMonthRow {
    * so a reader toggling between Combined and a person is never shown money that appears or
    * vanishes.
    *
-   * The split is how the household FUNDS its spending — `sharedScheme`'s share of the shared
+   * The split is how the household FUNDS its spending — each person's authored share of the shared
    * obligations — not who authored which budget line, because no budget line has an author.
    * Empty for a projection run before the engine reported it.
    */
@@ -176,7 +176,7 @@ export interface CashFlowMonthRow {
   readonly spendingNeedCents: number;
   /**
    * {@link spendingNeedCents} per person — their own obligations plus their share of the shared
-   * ones, as the household's `sharedScheme` splits them. What makes a person's cut ask "is MY
+   * ones, as the household's authored percentages split them. What makes a person's cut ask "is MY
    * income covering MY share" instead of holding one earner's pay against everything the
    * household spends. Empty for a projection run before the engine reported it.
    */

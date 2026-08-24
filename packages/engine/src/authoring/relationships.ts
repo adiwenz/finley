@@ -88,6 +88,14 @@ export interface MarryInput {
   readonly jobs?: readonly JobInput[];
   /** The partner's standing accounts — see {@link PartnerAccountsInput}. Absent ⇒ none. */
   readonly accounts?: PartnerAccountsInput;
+  /**
+   * This partner's share of shared household spending, a whole number 0–100. Absent ⇒
+   * {@link import("../ledger/eventTypes").DEFAULT_PARTNER_SHARE_PERCENT} — 50, so a new
+   * partnership starts even and stays there until the household says otherwise. The primary
+   * carries the remainder, and a sequential partner starts at the default again rather than
+   * inheriting the last partner's number.
+   */
+  readonly partnerSharePercent?: number;
 }
 
 /**
@@ -111,6 +119,8 @@ export interface StartPartneredInput {
   readonly jobs?: readonly JobInput[];
   /** See {@link MarryInput.accounts}. */
   readonly accounts?: PartnerAccountsInput;
+  /** See {@link MarryInput.partnerSharePercent}. */
+  readonly partnerSharePercent?: number;
 }
 
 /**
@@ -285,7 +295,16 @@ export function applyMarriage(
     state: appendEvent(
       state,
       jurisdiction,
-      { id, type: "RelationshipEvent", month: input.month, person, accounts },
+      {
+        id,
+        type: "RelationshipEvent",
+        month: input.month,
+        person,
+        accounts,
+        ...(input.partnerSharePercent !== undefined
+          ? { partnerSharePercent: input.partnerSharePercent }
+          : {}),
+      },
       nextSeq,
     ),
     result: id,

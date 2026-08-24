@@ -30,6 +30,13 @@ export interface PersonMembership {
   startMonth: number;
   /** Month membership ended (separation), or `null` while still a member. */
   endMonth: number | null;
+  /**
+   * A PARTNER's authored share of shared spending, 0–100 — see
+   * {@link import("./eventTypes").RelationshipEvent.partnerSharePercent}. Absent on the primary,
+   * whose share is whatever the current partnership leaves: they are one side of every split and
+   * are never the side that states a number.
+   */
+  readonly sharedExpensePercent?: number;
 }
 
 export interface SeriesDef {

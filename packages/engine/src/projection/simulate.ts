@@ -34,7 +34,6 @@ import {
   buildInterestAccrualSources,
   allocateMonth,
   projectObligationShortfallCents,
-  refreshCapacityAssets,
   unwindUnfundedContributions,
 } from "./allocationStep";
 import { dueTaxYearSettlements, finalizeTaxYear } from "./taxYearSettlement";
@@ -264,9 +263,6 @@ function runMonth(
   // investments untouched — for decades, since a working household's gap is small and a card
   // compounds. There is now one subtraction, so a deduction added to the waterfall is netted here
   // by construction.
-  // Who could contribute what, measured before the month spends or sells anything — the shared
-  // split's asset weight, snapshotted so the two waterfall passes below weigh the same balances.
-  refreshCapacityAssets(state, ctx, jurisdiction);
   const shortfallBeforeDecumulation = projectObligationShortfallCents(
     state,
     preDecumulationSources,
@@ -315,6 +311,7 @@ function runMonth(
     deferredByPersonCents,
     netCashFlowByPersonCents,
     obligationChargedByPersonCents,
+    obligationFundedByPersonCents,
   } = allocateMonth(
     state,
     allocationSources,
@@ -524,6 +521,7 @@ function runMonth(
     deferredByPersonCents,
     netCashFlowByPersonCents,
     obligationChargedByPersonCents,
+    obligationFundedByPersonCents,
     taxSettlementByPersonCents,
     resolvedFunding,
     taxableByOwnerAfterFundingCents: toTaxableRecord(fundingDraw.taxableByOwnerAfter),

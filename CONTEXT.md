@@ -232,16 +232,16 @@ _Avoid_: error, alert, dismissible warning.
 **Allocation waterfall**:
 The fixed, opinionated per-month order that routes net cash flow to the month's
 **automatically-funded obligations**: per-income-source pre-tax deductions → personal cash
-pool → shared pool (proportional-to-income by default) → shared goals in priority order →
-personal goals → shortfall cascade. Not user-configurable except for four named levers
-(contribution %, shared-contribution scheme, goal priority order, surplus-cash
+pool → shared pool (each partner's authored percentage, 50/50 by default) → shared goals in
+priority order → personal goals → shortfall cascade. Not user-configurable except for four
+named levers (contribution %, shared-expense split, goal priority order, surplus-cash
 destination). The ordering is fixed plumbing, never user-configurable.
 _Avoid_: budget rules, allocation policy (waterfall is the precise term; "policy" is used
 loosely, but "waterfall" names the specific fixed sequence).
 
 **Lever**:
 One of the (now four) user-exposed choices *within* the fixed waterfall: per-person 401(k)
-%, shared-contribution scheme (proportional vs. even), goal priority order, and default
+%, the shared-expense split (a percentage per partnership), goal priority order, and default
 surplus-cash destination (idle-in-liquid vs. swept-to-investment). Everything else about the
 waterfall is under the hood.
 _Avoid_: knob, setting, option ("lever" is the precise word, and it is deliberately a

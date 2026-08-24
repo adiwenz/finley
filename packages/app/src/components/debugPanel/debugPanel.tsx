@@ -144,7 +144,6 @@ function Configuration({
             "SS COLA",
             `${ratePct(inputs.benefitColaRate)}${inputs.benefitColaRateIsExplicit ? "" : " (from CPI)"}`,
           ],
-          ["Shared scheme", budget.sharedScheme],
           ["Leftover cash", "idle in savings"],
         ]}
       />

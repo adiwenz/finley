@@ -178,6 +178,7 @@ export function buildFlows(
   | "deferredByPersonCents"
   | "netCashFlowByPersonCents"
   | "obligationChargedByPersonCents"
+  | "obligationFundedByPersonCents"
   | "taxSettlementByPersonCents"
 > {
   const cashFlowIncomeByCategoryCents: Record<string, Cents> = {};

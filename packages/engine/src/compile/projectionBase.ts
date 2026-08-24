@@ -373,7 +373,7 @@ export function createProjectionBase(
     (l) => l.target.kind === "account",
   );
   // The owner tag is inert today: the simulator sums all expense series into one household
-  // obligation and splits it by `sharedScheme`, never reading an expense's ownerId. It
+  // obligation and splits it by the authored percentages, never reading an expense's ownerId. It
   // starts doing work once a line can be *personal* (charged against that person's
   // take-home first).
   const generalExpenseSeries: readonly SimOwnedSeries[] = compileExpenseBudgetLines(
@@ -426,7 +426,6 @@ export function createProjectionBase(
     initialExpenseSeries: generalExpenseSeries,
     goals: buildPlanGoals(budget),
     contributionLines,
-    sharedScheme: budget.sharedScheme,
     surplusDestination,
     // Carried through so `interpret` caps a partner's jobs at the same boundary this call just
     // capped the primary's at.

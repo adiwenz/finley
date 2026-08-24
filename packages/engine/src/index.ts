@@ -134,6 +134,7 @@ export { healthcareMonthlyCents } from "./budget/budgetLine";
 export type { Scenario } from "./plan/scenario";
 export type { Ledger } from "./ledger/ledger";
 export type { LifeEvent, NewLifeEvent, RelationshipEvent } from "./ledger/eventTypes";
+export { DEFAULT_PARTNER_SHARE_PERCENT } from "./ledger/eventTypes";
 export type { Household } from "./ledger/household";
 export { resolvedJobPaySpan } from "./ledger/household";
 export type { FundingLookup } from "./ledger/addEvent";
@@ -148,7 +149,6 @@ export type {
   IncomeSourceCategory,
 } from "./projection/simulate.types";
 export type { EstateSettlement } from "./projection/estateSettlement";
-export type { SharedContributionScheme } from "./projection/waterfall.types";
 // Why a blocked projection fell short, and the engine-owned rule for which accounts may fund a
 // draw — the UI classifies and picks sources through these, never re-implementing eligibility.
 export type { FundingFailure } from "./projection/fundingFailure";

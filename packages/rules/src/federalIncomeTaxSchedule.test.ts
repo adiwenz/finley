@@ -31,7 +31,6 @@ const plan: Plan = {
   savingsReturnPct: 4,
   retirementReturnPct: 0,
   brokerageReturnPct: 0,
-  sharedScheme: "proportional",
   goals: [],
   inflationPct: 0,
   primary: {

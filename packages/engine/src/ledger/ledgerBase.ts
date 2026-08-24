@@ -11,7 +11,6 @@ import type { PlanAccount } from "../plan/planAccount";
 import type { SimGoal } from "../goal/goal";
 import type { BudgetLine } from "../budget/budgetLine";
 import type {
-  SharedContributionScheme,
   SurplusDestination,
 } from "../projection/waterfall";
 
@@ -45,8 +44,6 @@ export interface LedgerBaseConfig {
    * Account-target lines only; expense lines compile into {@link initialExpenseSeries}.
    */
   readonly contributionLines?: readonly BudgetLine[];
-  /** Lever 2: how partners split shared obligations. Default proportional. */
-  readonly sharedScheme?: SharedContributionScheme;
   /** Lever 4: where leftover cash lands once every goal is funded. */
   readonly surplusDestination?: SurplusDestination;
 }

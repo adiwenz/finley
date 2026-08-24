@@ -482,7 +482,7 @@ describe("describeCashFlowGap", () => {
  */
 describe("buildCashFlowChartData — per-person net, against a real projection", () => {
   const series = Projection.fromState(
-    presetState(presetById("partner-proportional")),
+    presetState(presetById("partner-uneven-split")),
     usJurisdiction,
   ).run(usJurisdiction).series;
   const data = buildCashFlowChartData(series);

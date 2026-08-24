@@ -14,7 +14,6 @@ describe("ScenarioInput shape", () => {
       savingsReturnPct: 2,
       retirementReturnPct: 6,
       brokerageReturnPct: 5,
-      sharedScheme: "proportional",
       inflationPct: 2,
       birthYear: 1996,
       lifeExpectancy: 90,

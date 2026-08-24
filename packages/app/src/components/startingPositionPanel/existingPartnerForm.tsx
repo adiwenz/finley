@@ -4,6 +4,10 @@ import { useState } from "react";
 import { MAX_AGE, MAX_LIVED_AGE, minLifeExpectancyFor, dollarsToCents } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
 import type { StartingPositionFormProps } from "./startingPositionFormControls";
+import {
+  DEFAULT_PARTNER_SHARE_PERCENT,
+  SharedSplitFields,
+} from "../addEventForm/sharedSplitFields";
 
 /**
  * What the life-expectancy field opens on. A visible, editable starting point — NOT a fallback:
@@ -24,7 +28,7 @@ const PARTNER_DEFAULT_LIFE_EXPECTANCY = 90;
  */
 const MIN_RELATIONSHIP_AGE = 16;
 
-export function ExistingPartnerForm({ onAdd, onDone }: StartingPositionFormProps) {
+export function ExistingPartnerForm({ onAdd, onDone, primaryName }: StartingPositionFormProps) {
   const [name, setName] = useState("");
   const [age, setAge] = useState(40);
   const [lifeExpectancy, setLifeExpectancy] = useState(PARTNER_DEFAULT_LIFE_EXPECTANCY);
@@ -35,6 +39,8 @@ export function ExistingPartnerForm({ onAdd, onDone }: StartingPositionFormProps
   const [savings, setSavings] = useState(0);
   const [retirement, setRetirement] = useState(0);
   const [brokerage, setBrokerage] = useState(0);
+  // A number, not a mode: the partnership opens on an even split and stays wherever it is put.
+  const [sharePercent, setSharePercent] = useState(DEFAULT_PARTNER_SHARE_PERCENT);
 
   function submit() {
     // The anchor lands at its true past month, driven by how long the household has been
@@ -51,6 +57,7 @@ export function ExistingPartnerForm({ onAdd, onDone }: StartingPositionFormProps
           retirementBalanceCents: dollarsToCents(retirement),
           brokerageBalanceCents: dollarsToCents(brokerage),
         },
+        partnerSharePercent: sharePercent,
       }),
     );
     onDone();
@@ -114,6 +121,12 @@ export function ExistingPartnerForm({ onAdd, onDone }: StartingPositionFormProps
         min={0}
       />
       <NumInput label="Their brokerage" value={brokerage} onChange={setBrokerage} prefix="$" step={1_000} min={0} />
+      <SharedSplitFields
+        primaryName={primaryName ?? "You"}
+        partnerName={name}
+        partnerPercent={sharePercent}
+        onChange={setSharePercent}
+      />
       <p className="hint">
         Their accounts join the household's net worth and can fund household spending while you are
         together, and leave with them at separation.

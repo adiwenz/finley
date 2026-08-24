@@ -24,6 +24,14 @@ function fresh(): Projection {
   );
 }
 
+/** The same plan with spending to divide, for the cases that assert who is charged what. */
+function withBudget(): Projection {
+  return Projection.fromState(
+    stateOf({ ...samplePlan, primary: { ...samplePlan.primary, jobs: [] } }),
+    nullJurisdiction,
+  );
+}
+
 /** A partner who outlives the plan, so only a separation ever ends their partnership. */
 function partner(name: string, month: number) {
   return { month, name, birthYear: SAMPLE_START_YEAR - 40, lifeExpectancy: 90 };
@@ -228,5 +236,180 @@ describe("sequential partnerships keep each partner's own money and work", () =>
     );
     expect(samIncome.length).toBeGreaterThan(0);
     for (const s of samIncome) expect(s.endMonth).toBeLessThan(5 * YEAR);
+  });
+});
+
+/**
+ * The authored shared-expense split, at the authoring plane — where the number is written,
+ * corrected, refused, and where it stops.
+ *
+ * It rides on the RELATIONSHIP, which is the whole of what makes sequential partners
+ * independent: Casey's percentage is a fact about Alex-and-Casey, and Blake's leaves with Blake.
+ */
+describe("the shared-expense split is written per partnership", () => {
+  const shareOf = (state: ProjectionState, personId: string): number | undefined => {
+    const event = state.scenario.ledger.events.find(
+      (e) => e.type === "RelationshipEvent" && e.person.id === personId,
+    ) as { partnerSharePercent?: number } | undefined;
+    return event?.partnerSharePercent;
+  };
+
+  /** What the projection ACTUALLY charges this partner, as a fraction of the household's budget. */
+  function chargedFraction(p: Projection, month: number, personId: string): number {
+    const flows = p.run(nullJurisdiction).series.months[month]!.flows!;
+    return (flows.obligationChargedByPersonCents[personId] ?? 0) / flows.totalObligationsCents;
+  }
+
+  it("defaults a new partnership to 50/50, storing nothing to say so", () => {
+    // Absent MEANS the default, so a scenario written before the field existed and one written
+    // today with the field left alone are the same scenario — and both replay at 50/50, never at
+    // a percentage back-computed from anybody's history.
+    const p = fresh();
+    const sam = p.marry(partner("Sam", 0)) as PersonId;
+    expect(shareOf(p.toState(), sam)).toBeUndefined();
+    const membership = p
+      .run(nullJurisdiction)
+      .household.memberships.find((m) => m.person.id === sam)!;
+    expect(membership.sharedExpensePercent).toBe(50);
+  });
+
+  it("carries an authored percentage through to the household it describes", () => {
+    const p = fresh();
+    const sam = p.marry({ ...partner("Sam", 0), partnerSharePercent: 30 }) as PersonId;
+    const membership = p
+      .run(nullJurisdiction)
+      .household.memberships.find((m) => m.person.id === sam)!;
+    expect(membership.sharedExpensePercent).toBe(30);
+  });
+
+  it("takes both ends — 0 and 100 — as ordinary answers", () => {
+    for (const percent of [0, 100]) {
+      const p = fresh();
+      const sam = p.marry({ ...partner("Sam", 0), partnerSharePercent: percent }) as PersonId;
+      expect(
+        p.run(nullJurisdiction).household.memberships.find((m) => m.person.id === sam)!
+          .sharedExpensePercent,
+      ).toBe(percent);
+    }
+  });
+
+  it("refuses a percentage nobody could have meant, rather than quietly rounding it", () => {
+    // Clamping 130 to 100 or 12.5 to 12 would put a number the household never chose behind the
+    // projection. The form clamps as you type, so anything reaching here was not typed there.
+    for (const bad of [-1, 101, 130, 12.5, Number.NaN]) {
+      const p = fresh();
+      expect(() => p.marry({ ...partner("Sam", 0), partnerSharePercent: bad })).toThrow(
+        /shared-expense share/,
+      );
+    }
+  });
+
+  it("changes only when the household changes it, through a revision", () => {
+    const p = fresh();
+    const sam = p.marry({ ...partner("Sam", 0), partnerSharePercent: 30 }) as PersonId;
+    const eventId = p
+      .toState()
+      .scenario.ledger.events.find((e) => e.type === "RelationshipEvent")!.id;
+    p.reviseTransaction(eventId, { type: "marry", partnerSharePercent: 65 });
+    expect(shareOf(p.toState(), sam)).toBe(65);
+    // And a revision that says nothing about the split leaves it exactly where it was.
+    p.reviseTransaction(eventId, { type: "marry", name: "Samantha" });
+    expect(shareOf(p.toState(), sam)).toBe(65);
+  });
+
+  it("starts a later partnership from the default rather than from the last one", () => {
+    // The rule the sequential case exists for: Blake's 30 is Blake's, and Casey inherits none
+    // of it — the split lives on the relationship, and the relationship ended.
+    const p = fresh();
+    const sam = p.marry({ ...partner("Sam", 0), partnerSharePercent: 30 }) as PersonId;
+    p.separate({ month: 5 * YEAR, partnerPersonId: sam });
+    const kim = p.marry(partner("Kim", 5 * YEAR)) as PersonId;
+
+    const memberships = p.run(nullJurisdiction).household.memberships;
+    expect(memberships.find((m) => m.person.id === sam)!.sharedExpensePercent).toBe(30);
+    expect(memberships.find((m) => m.person.id === kim)!.sharedExpensePercent).toBe(50);
+  });
+
+  it("lets sequential partners hold genuinely different percentages", () => {
+    const p = fresh();
+    const sam = p.marry({ ...partner("Sam", 0), partnerSharePercent: 30 }) as PersonId;
+    p.separate({ month: 5 * YEAR, partnerPersonId: sam });
+    const kim = p.marry({ ...partner("Kim", 5 * YEAR), partnerSharePercent: 80 }) as PersonId;
+    const memberships = p.run(nullJurisdiction).household.memberships;
+    expect(memberships.find((m) => m.person.id === sam)!.sharedExpensePercent).toBe(30);
+    expect(memberships.find((m) => m.person.id === kim)!.sharedExpensePercent).toBe(80);
+  });
+
+  it("applies the incoming partner's split on a same-month handover, not the outgoing one's", () => {
+    // Sam out and Kim in on the identical month — the case where a "the partner" slot rather
+    // than two distinct people would answer with whichever percentage it happened to still hold.
+    const p = withBudget();
+    const sam = p.marry({ ...partner("Sam", 0), partnerSharePercent: 20 }) as PersonId;
+    p.separate({ month: 5 * YEAR, partnerPersonId: sam });
+    const kim = p.marry({ ...partner("Kim", 5 * YEAR), partnerSharePercent: 80 }) as PersonId;
+
+    expect(chargedFraction(p, 5 * YEAR - 1, sam)).toBeCloseTo(0.2, 3);
+    expect(chargedFraction(p, 5 * YEAR, sam)).toBe(0);
+    expect(chargedFraction(p, 5 * YEAR, kim)).toBeCloseTo(0.8, 3);
+  });
+
+  it("hands the whole budget to the primary in the months nobody is partnered", () => {
+    const p = withBudget();
+    const sam = p.marry({ ...partner("Sam", 0), partnerSharePercent: 30 }) as PersonId;
+    p.separate({ month: 3 * YEAR, partnerPersonId: sam });
+    for (const month of [3 * YEAR, 3 * YEAR + 1, 4 * YEAR]) {
+      expect(chargedFraction(p, month, "p1")).toBe(1);
+      expect(chargedFraction(p, month, sam)).toBe(0);
+    }
+  });
+});
+
+/**
+ * Scenarios written under the old proportional/even lever, restored today.
+ *
+ * They become fixed 50/50 — never a percentage inferred from the history they carry. Back-computing
+ * one would be the same mistake the whole change is against: a number nobody chose, standing where
+ * an authored one belongs, and drifting the moment anything about the household drifted.
+ */
+describe("a scenario saved before the split was a number", () => {
+  /** A state as the old app wrote it: a `sharedScheme` on the plan, and no split anywhere. */
+  function legacyState(scheme: "proportional" | "even"): ProjectionState {
+    const p = fresh();
+    p.marry(partner("Sam", 0));
+    const written = JSON.parse(JSON.stringify(p.toState())) as ProjectionState & {
+      scenario: { plan: Record<string, unknown> };
+    };
+    written.scenario.plan.sharedScheme = scheme;
+    return written;
+  }
+
+  it("restores either old lever at a fixed 50/50", () => {
+    for (const scheme of ["proportional", "even"] as const) {
+      const restored = Projection.fromState(legacyState(scheme), nullJurisdiction);
+      const partnership = restored
+        .run(nullJurisdiction)
+        .household.memberships.find((m) => Number.isFinite(m.startMonth))!;
+      expect(partnership.sharedExpensePercent).toBe(50);
+    }
+  });
+
+  it("gives the two old levers the identical household, since neither is a percentage", () => {
+    const asProportional = Projection.fromState(legacyState("proportional"), nullJurisdiction)
+      .run(nullJurisdiction)
+      .series.months.map((m) => m.flows?.obligationChargedByPersonCents);
+    const asEven = Projection.fromState(legacyState("even"), nullJurisdiction)
+      .run(nullJurisdiction)
+      .series.months.map((m) => m.flows?.obligationChargedByPersonCents);
+    expect(asProportional).toEqual(asEven);
+  });
+
+  it("keeps the stale lever out of the projection entirely", () => {
+    // It survives the round trip as an unread field on the document — the format is unchanged and
+    // nothing migrates — and no part of the run reads it.
+    const restored = Projection.fromState(legacyState("proportional"), nullJurisdiction).toState();
+    expect((restored.scenario.plan as unknown as Record<string, unknown>).sharedScheme).toBe(
+      "proportional",
+    );
+    expect(restored.version).toBe(legacyState("proportional").version);
   });
 });

@@ -102,7 +102,6 @@ export const samplePlan = {
   savingsReturnPct: 5,
   retirementReturnPct: 6,
   brokerageReturnPct: 6,
-  sharedScheme: "proportional",
   goals: [
     {
       id: "emergency",
@@ -154,7 +153,6 @@ export const baristaPlan = {
   savingsReturnPct: 5,
   retirementReturnPct: 6,
   brokerageReturnPct: 6,
-  sharedScheme: "proportional",
   goals: [],
   inflationPct: 3,
   primary: {

@@ -37,7 +37,7 @@ import { PRE_NOW_MONTH, isPreExisting } from "../projection/nowMarker";
 import { explicitObligation } from "../projection/financialObligation";
 import type { FundingFailure } from "../projection/fundingFailure";
 import { buildPartnerAccounts } from "../compile/projectionBase";
-import { ZERO_PARTNER_ACCOUNTS } from "./eventTypes";
+import { DEFAULT_PARTNER_SHARE_PERCENT, ZERO_PARTNER_ACCOUNTS } from "./eventTypes";
 import {
   overlappingPartnership,
   partnershipConflictReason,
@@ -185,6 +185,15 @@ const relationship: EventHandler<RelationshipEvent> = {
     if (conflict) {
       return fail(event, partnershipConflictReason(candidate, conflict, context.startYear));
     }
+    const share = event.partnerSharePercent;
+    if (share !== undefined && (!Number.isInteger(share) || share < 0 || share > 100)) {
+      // Refused, never clamped: a split is a statement the household made, and quietly turning
+      // 130 into 100 (or 12.5 into 12) would put a number nobody chose behind the projection.
+      return fail(
+        event,
+        `shared-expense share ${share}% must be a whole number from 0 to 100`,
+      );
+    }
     return ok;
   },
   apply(event, state) {
@@ -192,6 +201,7 @@ const relationship: EventHandler<RelationshipEvent> = {
       person: event.person,
       startMonth: event.month,
       endMonth: null,
+      sharedExpensePercent: event.partnerSharePercent ?? DEFAULT_PARTNER_SHARE_PERCENT,
     });
 
     // A negative month is `startPartnered`'s true-past anchor — unreachable by a simulated

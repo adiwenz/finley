@@ -18,7 +18,6 @@ import {
   MAX_LIVED_AGE,
   minLifeExpectancyFor,
   dollarsToCents,
-  type SharedContributionScheme,
   type SurplusCashDestination,
 } from "@finley/engine";
 import type { Plan, PlanPatch } from "@finley/engine";
@@ -190,23 +189,6 @@ export function BudgetEditor({ budget, transact }: BudgetEditorProps) {
 
       <section className="budget-shared" aria-label="Shared">
         <h3>Shared</h3>
-
-        <label className="field">
-          <span className="field-label">Shared expenses split</span>
-          <select
-            value={budget.sharedScheme}
-            onChange={(e) =>
-              updateBudget({ sharedScheme: e.target.value as SharedContributionScheme })
-            }
-          >
-            <option value="proportional">Based on income and savings</option>
-            <option value="even">Split evenly</option>
-          </select>
-        </label>
-        <p className="hint">
-          Shared expenses are divided based on each person’s regular income and available
-          savings.
-        </p>
 
         <label className="field">
           <span className="field-label">Surplus cash goes to</span>

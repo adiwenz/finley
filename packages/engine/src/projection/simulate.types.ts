@@ -15,7 +15,6 @@ import type { EstateSettlement } from "./estateSettlement";
 import type { FundingFailure } from "./fundingFailure";
 import type {
   PlanDescriptor,
-  SharedContributionScheme,
   SurplusDestination,
 } from "./waterfall";
 
@@ -194,6 +193,17 @@ export interface ProjectionMonthFlows {
    * counterpart of the household's spending need.
    */
   readonly obligationChargedByPersonCents: Readonly<Record<string, Cents>>;
+  /**
+   * What each person's OWN money covered of that share — see {@link
+   * import("./waterfall.types").WaterfallResult.obligationFundedByPersonCents}. Charged less
+   * funded is the assistance they received; funded less charged is the assistance they gave.
+   *
+   * Kept as a separate figure rather than folded into the share, because the two answer different
+   * questions and a household needs both: a partner who could only pay $900 of their $1,500 still
+   * OWES $1,500, and saying otherwise would rewrite an authored 70/30 as 82/18 every month one
+   * person happened to help the other.
+   */
+  readonly obligationFundedByPersonCents: Readonly<Record<string, Cents>>;
   /**
    * April's settled balance per PERSON, SIGNED — positive is that person's bill, negative is
    * their refund. Sums to {@link taxSettlementCents}.
@@ -616,6 +626,13 @@ export interface SimPerson {
     readonly endMonthExclusive: number;
   };
   /**
+   * A PARTNER's authored share of shared household spending, 0–100 — see
+   * {@link import("../ledger/eventTypes").RelationshipEvent.partnerSharePercent}. Absent on the
+   * primary and on anyone who is not a partner, who between them take the remainder: 100 while
+   * unpartnered, `100 − this` while a partnership is running.
+   */
+  readonly sharedExpensePercent?: number;
+  /**
    * The month this person LEFT the household, if they did — separation only, never death.
    * Absent for a member who is still here and for one who died in it.
    *
@@ -767,11 +784,6 @@ export interface HouseholdSimInput {
    * lines arrive precompiled in `expenseSeries`.
    */
   readonly contributionLines?: readonly BudgetLine[];
-  /**
-   * Lever 2: how partners split shared obligations. Defaults to `"proportional"` (to
-   * take-home), which degrades gracefully under unequal or zero incomes.
-   */
-  readonly sharedScheme?: SharedContributionScheme;
   /**
    * Lever 4: where leftover cash lands once every goal is funded. Defaults to `{ kind:
    * "idle" }` — the first liquid account.

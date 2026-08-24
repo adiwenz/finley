@@ -106,9 +106,6 @@ export {
 
 export const usJurisdiction: Jurisdiction = {
   id: "US-2026",
-  // §72(t): 59½ is the age the 10% additional tax on an early distribution stops applying. The
-  // engine bands on whole-year ages, so this takes effect in the year the person turns 60.
-  penaltyFreeRetirementAge: 59.5,
   // ANNUAL in, ANNUAL out, and AUTHORITATIVE: the engine calls this once, at the year's close, on
   // the income that actually arrived. What payroll withheld against it during the year is a
   // separate and deliberately cruder figure; the difference is the refund or balance due.

@@ -243,6 +243,9 @@ describe("RelationshipForm — editing an existing partner", () => {
         retirementBalanceCents: 0,
         brokerageBalanceCents: 0,
       },
+      // The event on the timeline states no split, which MEANS 50/50 — so an untouched edit
+      // sends back the default rather than a blank, and the partnership is unchanged.
+      partnerSharePercent: 50,
     });
   });
 

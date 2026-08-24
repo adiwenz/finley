@@ -17,19 +17,16 @@ export interface ModelAssumption {
 
 export const MODEL_ASSUMPTIONS: readonly ModelAssumption[] = [
   {
-    id: "sharedSpendingSplitByCapacity",
+    id: "sharedSpendingSplitIsAuthored",
     text:
-      "When a household shares its spending, each person's share is worked out from what they " +
-      "could contribute that month: their regular income \u2014 pay, a pension, Social Security " +
-      "\u2014 plus 4% a year of the savings and investments they hold, divided by twelve. The 4% " +
-      "is only a way of comparing savings with a paycheque; nothing is actually withdrawn at that " +
-      "rate. One-offs are left out, because they say nothing about what someone can keep " +
-      "contributing: a bonus, a tax refund or bill, money moved between accounts, and money taken " +
-      "out of savings (the savings themselves already count). Retirement accounts count only once " +
-      "you are old enough to draw on them without a penalty; money set aside for a goal never " +
-      "counts, since it is already committed. Whose money ends up paying is a separate question " +
-      "\u2014 if someone cannot cover their share, their own accounts are used first and their " +
-      "partner's after that, and neither changes whose share it was.",
+      "When a household shares its spending, each person's share is the percentage you set for " +
+      "that partnership — 50/50 unless you change it. Nothing recalculates it: a raise, a job " +
+      "loss, retirement, a bonus, a tax bill or refund, or a change in savings all leave the " +
+      "split exactly where you put it. While there is no partner, the primary person carries " +
+      "100%, and a later partner starts at 50/50 again rather than inheriting an earlier " +
+      "partner's percentage. Whose money ends up paying is a separate question — if someone " +
+      "cannot cover their share, their own accounts are used first and their partner's after " +
+      "that, and neither changes whose share it was.",
   },
   {
     id: "postTaxOpeningBasis",

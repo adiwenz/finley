@@ -24,6 +24,7 @@ import { START_YEAR } from "../../config";
 import { NumInput } from "../numInput/numInput";
 import { formatDollars } from "../../format";
 import { JobForm } from "../jobsPanel/jobForm";
+import { DEFAULT_PARTNER_SHARE_PERCENT, SharedSplitFields } from "./sharedSplitFields";
 
 /** A generic-adult starting point, until the user says otherwise. */
 const PARTNER_DEFAULT_AGE = 40;
@@ -62,6 +63,8 @@ interface RelationshipDraft {
   readonly savings: number;
   readonly retirement: number;
   readonly brokerage: number;
+  /** Their share of shared household spending, 0–100. The primary carries the rest. */
+  readonly sharePercent: number;
 }
 
 /**
@@ -92,6 +95,9 @@ function draftFromEvent(event: RelationshipEvent): RelationshipDraft {
     savings: centsToDollars(event.accounts?.savingsBalanceCents ?? 0),
     retirement: centsToDollars(event.accounts?.retirementBalanceCents ?? 0),
     brokerage: centsToDollars(event.accounts?.brokerageBalanceCents ?? 0),
+    // Absent on the event means the default, which is also what a partnership authored before
+    // the split existed means — so an old scenario edits as 50/50 rather than as a blank.
+    sharePercent: event.partnerSharePercent ?? DEFAULT_PARTNER_SHARE_PERCENT,
   };
 }
 
@@ -115,6 +121,7 @@ export function RelationshipForm({
           savings: 0,
           retirement: 0,
           brokerage: 0,
+          sharePercent: DEFAULT_PARTNER_SHARE_PERCENT,
         },
   );
   const [addingJob, setAddingJob] = useState(false);
@@ -148,6 +155,8 @@ export function RelationshipForm({
    *
    * A revision never conflicts with the partner it is revising.
    */
+  /** Whoever is never a partner — the household's own person, who carries the remainder. */
+  const primaryName = result.household.memberships[0]?.person.name ?? "You";
   const occupied = result.activePartnerAt(draft.month);
   const conflict = occupied !== null && occupied.id !== edit?.event.person.id ? occupied : null;
 
@@ -179,6 +188,7 @@ export function RelationshipForm({
             retirementBalanceCents: dollarsToCents(draft.retirement),
             brokerageBalanceCents: dollarsToCents(draft.brokerage),
           },
+          partnerSharePercent: draft.sharePercent,
         }),
       );
       return;
@@ -200,6 +210,7 @@ export function RelationshipForm({
           retirementBalanceCents: dollarsToCents(draft.retirement),
           brokerageBalanceCents: dollarsToCents(draft.brokerage),
         },
+        partnerSharePercent: draft.sharePercent,
       }),
     );
   }
@@ -243,6 +254,13 @@ export function RelationshipForm({
         min={18}
         max={MAX_LIVED_AGE}
         step={1}
+      />
+
+      <SharedSplitFields
+        primaryName={primaryName}
+        partnerName={draft.name}
+        partnerPercent={draft.sharePercent}
+        onChange={(sharePercent) => patch({ sharePercent })}
       />
 
       {/* The same job model and form the primary earner uses, scoped to the partner. Hidden
