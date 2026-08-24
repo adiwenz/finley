@@ -232,6 +232,23 @@ describe.each(RUNS)("$preset.id — the cash-flow chart's two stacks", ({ preset
     expect(wrong).toEqual([]);
   });
 
+  it("hands every cent of the month's spending to somebody", () => {
+    // The person cuts of "Going out" are the engine's own charge figures, so they are only
+    // trustworthy if the charges account for the whole budget: a month that assigns nobody the
+    // rent still spends it, and would read on every person's chart as though it cost them
+    // nothing. Asserted against the household's obligations rather than against the shares
+    // themselves, so a split that quietly drops a share to an unattributed shortfall fails here.
+    const wrong: string[] = [];
+    for (const m of flowedMonths) {
+      const f = m.flows!;
+      const charged = Object.values(f.obligationChargedByPersonCents).reduce((sum, c) => sum + c, 0);
+      if (charged !== f.totalObligationsCents) {
+        wrong.push(`${where(preset.id, m.month)}: charged ${charged} of ${f.totalObligationsCents}`);
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
   it("makes the net exactly what came in less what went out", () => {
     const wrong: string[] = [];
     for (const row of data.rows) {

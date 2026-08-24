@@ -640,9 +640,11 @@ function chargePersonalObligations(
  * their take-home. Only positive take-home contributes; an uncovered share becomes a
  * household shortfall, never silently absorbed by the other partner.
  *
- * While the household has ANY positive take-home, the REAL share (`shareByPerson`) is
- * proportional to it (§ Household funding, step 1). Only when nobody has positive take-home does
- * that real split fall back to each person's {@link WaterfallInput.eligibleAssetsCentsByPerson}.
+ * While the household has ANY positive take-home to weigh, the REAL share (`shareByPerson`) is
+ * proportional to it (§ Household funding, step 1) — measured BEFORE the April settlement, see
+ * `sharingWeight` below. Only when nobody has any does that real split fall back to each
+ * person's {@link WaterfallInput.eligibleAssetsCentsByPerson}, and only when there are none of
+ * those either does it fall back to equal shares.
  *
  * The SHORTFALL attribution (`obligationShortfallByPersonCents`) is a separate question with its
  * own weight, always: whatever still needs to come out of accounts is proportional to each
@@ -680,24 +682,48 @@ function splitSharedObligation(
   // Whose deduction went unfunded, and by how much — an April balance due is the usual cause,
   // and it is the person's OWN bill however the household ends up finding the cash.
   const deficitByPerson = new Map<string, Cents>();
-  let totalPositive: Cents = 0;
+  // The proportional scheme's weight: take-home with the year-end settlement PUT BACK, so the
+  // split reads a person's recurring earning power rather than one month's filing accident.
+  // Charged take-home is the wrong figure to weigh responsibility by, because April moves it in
+  // opposite directions for the same reason: the partner who under-withheld pays a balance and
+  // the one who over-withheld collects a refund, so in that one month the household's whole
+  // budget would swing onto whoever happened to be owed money — and swing back in May. A refund
+  // is last year's wages returned, not this month's income; a balance due is a debt, not a pay
+  // cut. Neither says anything about who can carry the rent. Everything else take-home already
+  // contains — wages, a pension, Social Security, a partner's own obligations charged in step
+  // 2.5 — stays in the weight, so a household past working age is weighed by its pensions and
+  // Social Security first, and reaches for assets only when it has no such income at all.
+  const sharingWeight = new Map<string, Cents>();
+  let totalSharingWeight: Cents = 0;
   let unfundedDeductionsCents: Cents = 0;
   for (const pid of input.personIds) {
     const rawTakeHomeCents = takeHomeByPerson.get(pid) ?? 0;
+    const weight = Math.max(0, rawTakeHomeCents + (input.settlementCashCents?.(pid) ?? 0));
     positiveTakeHome.set(pid, Math.max(0, rawTakeHomeCents));
+    sharingWeight.set(pid, weight);
     deficitByPerson.set(pid, Math.max(0, -rawTakeHomeCents));
-    totalPositive += Math.max(0, rawTakeHomeCents);
+    totalSharingWeight += weight;
     unfundedDeductionsCents += Math.max(0, -rawTakeHomeCents);
   }
 
-  // The REAL share's weight: income while any exists, otherwise each person's eligible assets.
-  const weightOf =
-    totalPositive > 0
-      ? (pid: string) => positiveTakeHome.get(pid) ?? 0
-      : (pid: string) => input.eligibleAssetsCentsByPerson?.(pid) ?? 0;
   // The SHORTFALL attribution's weight — deliberately NOT `weightOf`: an asset-funded shortfall
   // is always proportional to eligible account balances, whether or not income was positive.
   const assetWeightOf = (pid: string) => input.eligibleAssetsCentsByPerson?.(pid) ?? 0;
+  const totalAssetWeight = input.personIds.reduce((sum, pid) => sum + Math.max(0, assetWeightOf(pid)), 0);
+
+  // The REAL share's weight, in three rungs: recurring take-home while anyone has any, then
+  // eligible assets, then equal weight. The last rung matters because the alternative to it is
+  // not a different answer but NO answer — an all-zero weight assigns nobody anything, and the
+  // household's whole budget goes unattributed while still being spent, so every person's
+  // reported net cash flow reads as though the month cost them nothing. A household with neither
+  // income nor eligible assets is a household with nothing to weigh by, and the honest reading of
+  // "we both live here and the rent is due" is that the responsibility is shared equally.
+  const weightOf =
+    totalSharingWeight > 0
+      ? (pid: string) => sharingWeight.get(pid) ?? 0
+      : totalAssetWeight > 0
+        ? assetWeightOf
+        : () => 1;
 
   const shareByPerson = new Map<string, Cents>();
   if (input.sharedObligationCents <= 0) {

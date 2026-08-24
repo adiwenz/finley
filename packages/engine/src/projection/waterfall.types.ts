@@ -176,9 +176,10 @@ export interface WaterfallInput {
   readonly accountBalanceCents: (accountId: string) => Cents;
   /**
    * A person's eligible available assets — the fallback weight a shared obligation splits by
-   * when nobody has positive take-home (§ Household funding, step 2). Absent, or every
-   * person's weight 0, leaves the obligation unattributed to anyone (see
-   * {@link WaterfallResult.obligationShortfallByPersonCents}), same as today.
+   * when nobody has recurring take-home to weigh (§ Household funding, step 2). Absent, or every
+   * person's weight 0, the split drops to its last rung and shares the obligation equally: a
+   * household with nothing to weigh by still spends the money, and leaving it unassigned would
+   * report the month as costing nobody anything.
    */
   readonly eligibleAssetsCentsByPerson?: (personId: string) => Cents;
   /**
@@ -285,6 +286,10 @@ export interface WaterfallInput {
    *
    * A FIXED figure the caller priced from a CLOSED year; the waterfall never derives it. Absent,
    * or in any month but the filing month → 0.
+   *
+   * Excluded from the proportional split's WEIGHT, and only from that: who can carry the rent is
+   * a question about recurring income, and a filing that lands once a year answers it in whichever
+   * direction the withholding happened to miss.
    */
   readonly settlementCashCents?: (personId: string) => Cents;
   /**
@@ -423,7 +428,8 @@ export interface WaterfallResult {
    * the money goals, contributions and the surplus are then funded out of.
    *
    * This is per-person NET CASH FLOW as the household actually funds it: the shared-obligation
-   * share is `sharedScheme`'s split (proportional to take-home, or even), not an attribution of
+   * share is `sharedScheme`'s split (proportional to recurring take-home — see
+   * `settlementCashCents`, which the weight deliberately excludes — or even), not an attribution of
    * who authored which budget line — no budget line HAS an author today. Σ over this map is ≥
    * `totalDiscretionary`, since a negative-take-home deficit the pool absorbs is charged to the
    * household total and to nobody's own figure.

@@ -255,6 +255,22 @@ describe("Two incomes, one household — one partner refunded while the other ow
     expect(bandsAt("outflows", ALEX)).not.toEqual(bandsAt("outflows", BLAKE_ENGINE_ID));
   });
 
+  it("does not move the household's spending onto Blake for the month Alex files", () => {
+    // The other thing April was doing to this scenario. Alex is the only person with a job, and
+    // the whole $5,562 budget is Alex's responsibility in March and in May — but Alex's bill took
+    // their take-home negative, and a split weighed on charged take-home read that as Blake, who
+    // earns nothing, being the household's sole earner for one month.
+    const SPENDING = 556_200;
+    const spendAt = (month: number, ownerId: string) =>
+      cashFlowBandsForView(data, "outflows", "advanced", NAMES, ownerId).rows.find(
+        (r) => r.month === month,
+      )!.centsByBand[SHARED_SPENDING_BAND_ID];
+    for (const month of [APRIL - 1, APRIL, APRIL + 1]) {
+      expect(spendAt(month, ALEX)).toBe(SPENDING);
+      expect(spendAt(month, BLAKE_ENGINE_ID)).toBeUndefined();
+    }
+  });
+
   it("reconciles the two cuts with the household's, every month", () => {
     const wrong: string[] = [];
     for (const row of data.rows) {
