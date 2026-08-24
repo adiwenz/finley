@@ -273,13 +273,16 @@ describe("buildCashFlowChartModel — one person's cut", () => {
     // The comparison the cut exists to make. Blake's $2,400 against their $857.14 share is a
     // household comfortably covered; Blake's $2,400 against the whole $3,000 rent reads as a
     // shortfall in a household that has none.
+    //
+    // Displayed at $857, not $857.14: the household's $3,000 is apportioned to whole dollars
+    // once, so Alex's $2,143 and Blake's $857 add back to the figure the combined view shows.
     const combined = buildCashFlowChartModel(twoEarners, { view: "inflows" });
     expect(combined.showsSpendingNeed).toBe(true);
     expect(combined.rows[0]![SPENDING_NEED_KEY]).toBe(RENT);
 
     const blake = buildCashFlowChartModel(twoEarners, { view: "inflows", ownerId: "p2" });
     expect(blake.showsSpendingNeed).toBe(true);
-    expect(blake.rows[0]![SPENDING_NEED_KEY]).toBe(85_714);
+    expect(blake.rows[0]![SPENDING_NEED_KEY]).toBe(85_700);
   });
 
   it("sums the two people's shares back to the household's spending need", () => {
@@ -321,8 +324,9 @@ describe("buildCashFlowChartModel — one person's cut", () => {
   it("draws one person's net from the engine's own figure", () => {
     // Blake's $2,400 less their $857.14 share of the rent. Not Blake's income minus the WHOLE
     // rent, and not a half of the household's net: the share is the one the waterfall funded.
+    // Rounded to the dollar the same way, and against the same household total.
     const net = buildCashFlowChartModel(twoEarners, { view: "net", ownerId: "p2" });
-    expect(net.rows[0]![NET_KEY]).toBe(BLAKE_PAY - 85_714);
+    expect(net.rows[0]![NET_KEY]).toBe(BLAKE_PAY - 85_700);
   });
 
   it("sums the two people's net back to the household's, to the cent", () => {

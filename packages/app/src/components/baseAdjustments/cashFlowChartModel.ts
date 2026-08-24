@@ -11,6 +11,7 @@
  */
 
 import { formatDollars } from "../../format";
+import { toDisplayCents } from "./displayShares";
 import { toAxisX } from "../monthAxis";
 import {
   TAX_OUTFLOW_CATEGORY,
@@ -134,14 +135,15 @@ function steps(before: number, after: number): boolean {
  * against the same clamped-at-0 band figures the stacked chart draws, so the moments never
  * quote a value the chart doesn't.
  *
- * A band beginning or ending is structural and always surfaces, however small the amount: those
- * are the transitions the chart's shape is made of.
+ * A band beginning or ending is structural and surfaces whatever the amount — but only once the
+ * amount is one the reader can SEE. A transition invisible in every figure beside it is not a
+ * moment in the plan, it is a moment in the arithmetic.
  */
 function buildAccessibleMoments(
   view: { readonly rows: readonly CashFlowViewRow[] },
   bands: readonly CashFlowChartBand[],
   currentAge: number,
-  firstSavingsDrawdownMonth: number | null,
+  drawdown: { readonly month: number | null; readonly reason: string },
   firstInsolventMonth: number | null,
 ): CashFlowChartAccessibleMoment[] {
   const reasonsByMonth = new Map<number, string[]>();
@@ -178,8 +180,13 @@ function buildAccessibleMoments(
     if (i === 0) addReason(r.month, "Projection starts");
     if (prevDrawn !== null) {
       for (const b of bands) {
-        const before = prevDrawn[b.id] ?? 0;
-        const after = drawn[b.id] ?? 0;
+        // Compared as the table PRINTS them, never as the engine holds them. A band is announced
+        // beside the figures beneath it, and a 4-cent refund beginning is "Tax refund begins" over
+        // a row reading $0 — fifteen of them in one preset, each a transition the reader is told
+        // about and cannot see. The threshold is not a tolerance picked here: it is the rounding
+        // {@link formatDollars} already does, so a moment exists exactly when the numbers move.
+        const before = toDisplayCents(prevDrawn[b.id] ?? 0);
+        const after = toDisplayCents(drawn[b.id] ?? 0);
         if (before === after) continue;
         if (before === 0) addDiscreteReason(r.month, `${b.label} begins`);
         else if (after === 0) addDiscreteReason(r.month, `${b.label} ends`);
@@ -197,9 +204,7 @@ function buildAccessibleMoments(
   }
   // Named explicitly even when a band-begins reason already covers the same month, so the
   // reason a screen-reader user hears never depends on which mode collapsed which band.
-  if (firstSavingsDrawdownMonth !== null) {
-    addDiscreteReason(firstSavingsDrawdownMonth, "First savings withdrawal");
-  }
+  if (drawdown.month !== null) addDiscreteReason(drawdown.month, drawdown.reason);
   if (firstInsolventMonth !== null) addDiscreteReason(firstInsolventMonth, "Plan becomes insolvent");
 
   const rowByMonth = new Map(view.rows.map((r) => [r.month, r]));
@@ -359,14 +364,23 @@ export function buildCashFlowChartModel(
   });
   const lastX = toAxisX(folded.rows[folded.rows.length - 1]?.month ?? 0);
   const brokeMonth = data.firstInsolventMonth;
-  const summary = describeCashFlowGap(data);
+  const summary = describeCashFlowGap(data, ownerId, ownerId === undefined ? undefined : personNames.get(ownerId));
   const title = VIEW_TITLES[view];
 
+  // Scoped like the summary: a household drawdown is a household fact, and a person's cut names
+  // only their own. The reasons differ because the claims do.
+  const drawdown =
+    ownerId === undefined
+      ? { month: data.firstHouseholdDrawdownMonth, reason: "Household starts living off savings" }
+      : {
+          month: data.firstDrawdownMonthByPerson[ownerId] ?? null,
+          reason: "First personal savings withdrawal",
+        };
   const accessibleMoments = buildAccessibleMoments(
     folded,
     bands,
     currentAge,
-    data.firstSavingsDrawdownMonth,
+    drawdown,
     data.firstInsolventMonth,
   );
 

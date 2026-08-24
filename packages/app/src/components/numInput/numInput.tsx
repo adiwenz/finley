@@ -31,6 +31,7 @@ export function NumInput({
   label,
   value,
   onChange,
+  onLiveChange,
   prefix,
   suffix,
   min,
@@ -40,6 +41,18 @@ export function NumInput({
   label: string;
   value: number;
   onChange: (v: number) => void;
+  /**
+   * Fired on every keystroke that already reads as a whole, in-range figure — for the rare field
+   * whose value is not a fact about the plan but half of a pair the form has to keep consistent
+   * while it is being typed (a percentage split's complement). Nothing that re-projects may
+   * subscribe: the commit-on-blur contract above exists because those runs are expensive and
+   * answer questions nobody asked.
+   *
+   * Deliberately silent on anything out of bounds or half-entered — "1" on the way to "130", a
+   * lone "-", an emptied field — so a live listener never sees a figure the commit would refuse
+   * and then clamp with an explanation.
+   */
+  onLiveChange?: (v: number) => void;
   prefix?: string;
   suffix?: string;
   min?: number;
@@ -93,6 +106,12 @@ export function NumInput({
             // Typing again is the user answering the note; it has nothing left to say.
             setClamped(null);
             setDraft(e.target.value);
+            if (onLiveChange === undefined) return;
+            const typed = e.target.value.trim();
+            const parsed = Number(typed);
+            if (typed === "" || Number.isNaN(parsed)) return;
+            if ((min !== undefined && parsed < min) || (max !== undefined && parsed > max)) return;
+            if (parsed !== value) onLiveChange(parsed);
           }}
           onBlur={commit}
           onKeyDown={(e) => {

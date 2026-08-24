@@ -270,7 +270,7 @@ describe("CashFlowChart — whose cash flow", () => {
       // Proportional to pay: Alex carries $2,142.86 of the $3,000 rent, Blake $857.14.
       netCashFlowByPersonCents: {
         p1: ALEX_PAY - 214_286,
-        p2: BLAKE_PAY - 85_714,
+        p2: BLAKE_PAY - 85_700,
       },
       obligationChargedByPersonCents: { p1: 214_286, p2: 85_714 },
     }),
@@ -378,7 +378,7 @@ describe("CashFlowChart — whose net", () => {
       sources: [owned("Software Engineer", ALEX_PAY, "p1"), owned("Teacher", BLAKE_PAY, "p2")],
       obligations: [{ id: "rent", label: "Rent", category: "needs", amountCents: RENT }],
       expensesCents: RENT,
-      netCashFlowByPersonCents: { p1: ALEX_PAY - 214_286, p2: BLAKE_PAY - 85_714 },
+      netCashFlowByPersonCents: { p1: ALEX_PAY - 214_286, p2: BLAKE_PAY - 85_700 },
     }),
   );
 
@@ -412,8 +412,10 @@ describe("CashFlowChart — whose net", () => {
     renderChart();
     fireEvent.click(view("Net"));
     fireEvent.click(cut("Blake"));
+    // Rounded to the dollar against the household's own rounded total, so the two people's
+    // displayed shares add back to it.
     // Blake's $2,400 less their $857.14 proportional share — not $2,400 less the whole rent.
-    expect(netFigure()).toBe(BLAKE_PAY - 85_714);
+    expect(netFigure()).toBe(BLAKE_PAY - 85_700);
   });
 
   it("carries the chosen person across a view change, since both views can honour it", () => {
@@ -421,6 +423,6 @@ describe("CashFlowChart — whose net", () => {
     fireEvent.click(cut("Blake"));
     fireEvent.click(view("Net"));
     expect(cut("Blake").getAttribute("aria-pressed")).toBe("true");
-    expect(netFigure()).toBe(BLAKE_PAY - 85_714);
+    expect(netFigure()).toBe(BLAKE_PAY - 85_700);
   });
 });

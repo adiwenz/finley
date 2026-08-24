@@ -146,19 +146,36 @@ export function RelationshipForm({
   const ageYear = anchored ? START_YEAR : joinYear;
   const partnerBirthYear = ageYear - draft.age;
 
-  /**
-   * The partnership already covering the chosen date, if there is one — the household may only
-   * ever be in one at a time. Shown and blocked here rather than left to the engine's refusal
-   * because the date picker is where the choice is made and where it can still be changed
-   * cheaply. The engine enforces the rule regardless, including the case this cannot see: a
-   * partnering dated BEFORE one already on the timeline and left running into it.
-   *
-   * A revision never conflicts with the partner it is revising.
-   */
   /** Whoever is never a partner — the household's own person, who carries the remainder. */
   const primaryName = result.household.memberships[0]?.person.name ?? "You";
-  const occupied = result.activePartnerAt(draft.month);
-  const conflict = occupied !== null && occupied.id !== edit?.event.person.id ? occupied : null;
+  /**
+   * Why this partnership cannot be written, if it cannot — the engine's own span overlap, asked
+   * before the click instead of after it. The household may only ever be in one partnership at a
+   * time, and the question is a SPAN rather than a date: a partnering authored in Year 6 with a
+   * partner already booked for Year 7 would still be running when they arrive, so a date nobody
+   * else occupies is not on its own enough.
+   *
+   * Recomputed from the whole draft, so it answers again when the month moves, when the partner's
+   * expectancy changes the span's far end, and when a separation elsewhere on the timeline opens
+   * or closes the gap. A revision never conflicts with the partnership it is revising — the id
+   * below is what excludes it.
+   *
+   * The engine refuses this regardless; blocking here only spares the user a click that could
+   * only fail.
+   */
+  const rawConflict = result.partnershipConflict({
+    month: draft.month,
+    person: {
+      name: draft.name || "Partner",
+      birthYear: partnerBirthYear,
+      lifeExpectancy: draft.lifeExpectancy,
+      ...(edit ? { id: edit.event.person.id } : {}),
+    },
+  });
+  // One text node, not three: the engine composes the clause mid-sentence, and splicing the
+  // capital in as its own child would break the sentence across elements for anything reading it.
+  const conflictReason =
+    rawConflict === null ? null : `${rawConflict.charAt(0).toUpperCase()}${rawConflict.slice(1)}.`;
 
   function addJob(job: JobEditDraft) {
     setDraft((d) => ({ ...d, jobs: [...d.jobs, job] }));
@@ -392,13 +409,12 @@ export function RelationshipForm({
         </p>
       </details>
 
-      {conflict && (
-        <p className="hint warn">
-          You&apos;re already partnered with {conflict.name || "someone"} in{" "}
-          {yearOfMonth(draft.month)}. Add a separation first or choose a later date.
+      {conflictReason !== null && (
+        <p className="hint warn" role="status">
+          {conflictReason}
         </p>
       )}
-      <button className="btn primary" disabled={conflict !== null} onClick={submit}>
+      <button className="btn primary" disabled={conflictReason !== null} onClick={submit}>
         {edit ? "Save changes" : "Add event"}
       </button>
     </>

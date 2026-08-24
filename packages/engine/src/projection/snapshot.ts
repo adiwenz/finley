@@ -143,6 +143,29 @@ export function buildSnapshot(
   const m = clampMonth(month, projection);
 
   const persons = membersAt(household, m);
+  /**
+   * Whose holdings this cross-section is entitled to show. The whole-plan views are deliberately
+   * omniscient — a partner still to come appears on the timeline, in the job projections and in
+   * every chart drawn over the horizon — but a DATED snapshot answers "who is in this household
+   * now", so a future partner's accounts must not sit in it at $0 years before they arrive, and a
+   * separated partner's must leave with them.
+   *
+   * Read from {@link membersAt}, which closes a membership on SEPARATION alone. Death is not a
+   * departure: a partner who died left their accounts to the household, so they stay in the
+   * snapshot exactly as the projection still carries them.
+   */
+  const memberIds = new Set(persons.map((p) => p.id));
+  /**
+   * Everyone the household has EVER held a membership for. An owner outside it is not a member
+   * who has left or not yet arrived — it is a holding whose owner this roster cannot speak for
+   * (a ledger snapshotted without its people), and hiding it would be inventing an absence.
+   */
+  const knownIds = new Set(household.memberships.map((mem) => mem.person.id));
+  const present = (ownerId: string): boolean => memberIds.has(ownerId) || !knownIds.has(ownerId);
+  const ownedByMember = (owners: readonly string[]): boolean =>
+    owners.length === 0 || owners.some(present);
+  const accountOwners = new Map(household.accounts.map((a) => [a.id, a.owners as readonly string[]]));
+  const liabilityOwner = new Map(household.liabilities.map((l) => [l.id as string, l.ownerId as string]));
 
   const children: SnapshotChild[] = household.children
     .filter((c) => c.birthMonth <= m)
@@ -171,6 +194,7 @@ export function buildSnapshot(
   const projectionMonth = projection?.months[m];
   const liabilities: SnapshotLiability[] = household.liabilities
     .filter((l) => {
+      if (!present(l.ownerId)) return false;
       // With a projection, "active" means a positive balance at the month, so a paid-off
       // liability disappears. Without one, fall back to the contractual origination month.
       if (projectionMonth) return (projectionMonth.liabilityBalancesCents[l.id] ?? 0) > 0;
@@ -189,7 +213,7 @@ export function buildSnapshot(
   const properties: SnapshotProperty[] = household.properties
     .filter((p) => {
       const active = p.startMonth <= m && (p.endMonth === null || m <= p.endMonth);
-      if (!active) return false;
+      if (!active || !present(p.ownerId)) return false;
       if (projectionMonth) return (projectionMonth.propertyValuesCents[p.id] ?? 0) > 0;
       return true;
     })
@@ -213,12 +237,15 @@ export function buildSnapshot(
   let balances: SnapshotBalances | null = null;
   if (projectionMonth) {
     balances = {
-      accounts: Object.entries(projectionMonth.accountBalancesCents).map(
-        ([id, balanceCents]) => ({ id, balanceCents }),
-      ),
-      liabilities: Object.entries(projectionMonth.liabilityBalancesCents).map(
-        ([id, balanceCents]) => ({ id, balanceCents }),
-      ),
+      accounts: Object.entries(projectionMonth.accountBalancesCents)
+        .filter(([id]) => ownedByMember(accountOwners.get(id) ?? []))
+        .map(([id, balanceCents]) => ({ id, balanceCents })),
+      liabilities: Object.entries(projectionMonth.liabilityBalancesCents)
+        .filter(([id]) => {
+          const owner = liabilityOwner.get(id);
+          return owner === undefined || present(owner);
+        })
+        .map(([id, balanceCents]) => ({ id, balanceCents })),
       netWorthNominalCents: projectionMonth.netWorthNominalCents,
       isInsolvent: projectionMonth.isInsolvent,
     };

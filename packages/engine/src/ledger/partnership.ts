@@ -25,6 +25,7 @@
  */
 
 import type { InterpretState } from "./interpretState";
+import type { HouseholdMembership } from "./household";
 import type { Person } from "../plan/person";
 import { lifeExpectancyEndMonthExclusive } from "../job/personActiveWindow";
 import { yearOfMonth } from "../authoring/reachability";
@@ -130,4 +131,24 @@ export function partnershipConflictReason(
         `Add a separation first or choose a later date`
     : `this partnership would still be running when you partner with ${who} in ` +
         `${when(conflict.startMonth, nowYear)}. Add a separation before then or choose a later date`;
+}
+
+/**
+ * The same spans as {@link partnershipSpans}, read off the interpreted {@link Household} instead
+ * of the replay accumulator — the shape every surface outside interpretation holds. Kept beside
+ * its twin so a form asking "would this collide?" and the ledger's own refusal can never answer
+ * from two different notions of when a partnership runs.
+ */
+export function householdPartnershipSpans(
+  household: { readonly memberships: readonly HouseholdMembership[] },
+  nowYear: number | undefined,
+): PartnershipSpan[] {
+  const spans: PartnershipSpan[] = [];
+  for (const membership of household.memberships) {
+    if (!Number.isFinite(membership.startMonth)) continue;
+    spans.push(
+      partnershipSpan(membership.person, membership.startMonth, membership.endMonth, nowYear),
+    );
+  }
+  return spans;
 }

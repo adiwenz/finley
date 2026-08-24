@@ -50,6 +50,7 @@
  */
 
 import type { IncomeSourceCategory, ProjectionSeries } from "@finley/engine";
+import { apportionDisplayCents, toDisplayCents } from "./displayShares";
 
 /**
  * The tax refund's band. Not an engine income source: the refund is a settlement, and the engine
@@ -190,7 +191,28 @@ export interface CashFlowChartData {
   readonly outflowBands: readonly CashFlowBand[];
   /** First month with no inflow at all AND no savings drawdown, which a solvent plan never hits. */
   readonly firstMonthWithNoIncome: number | null;
-  readonly firstSavingsDrawdownMonth: number | null;
+  /**
+   * First month the HOUSEHOLD lived off savings: its net cash flow was negative AND somebody drew
+   * on an account to close the gap. Both halves are load-bearing.
+   *
+   * A withdrawal alone says nothing about the household. Two earners splitting the bills 50/50
+   * can leave one of them short of their own share every month while the household earns $10,400
+   * against $5,400 of spending — one partner sells a fund, the other banks a surplus, and a
+   * chart reading the withdrawal alone announced that the household was living off its savings
+   * from Year 1. That is a fact about Blake, and it belongs to Blake's view; see
+   * {@link firstDrawdownMonthByPerson}.
+   *
+   * A negative net alone says something, but not this: a month whose gap nothing covered is an
+   * unfunded shortfall, not a drawdown, and {@link firstMonthWithNoIncome} and
+   * {@link firstInsolventMonth} are what name it.
+   */
+  readonly firstHouseholdDrawdownMonth: number | null;
+  /**
+   * Per person, the first month THEIR own income fell short of what they were charged and they
+   * drew on their own accounts for the difference — the genuine version of the warning above, at
+   * the scope where it is true. Absent for anyone who never had to.
+   */
+  readonly firstDrawdownMonthByPerson: Readonly<Record<string, number>>;
   /** First `ProjectionMonth.isInsolvent` month. */
   readonly firstInsolventMonth: number | null;
   /** Everyone the engine reported a net figure for, in first-appearance order. */
@@ -330,7 +352,8 @@ export function buildCashFlowChartData(series: ProjectionSeries): CashFlowChartD
   /** Income source -> its owner, learned as the months go by; see the settlement note below. */
   const ownerBySource = new Map<string, string>();
   let firstMonthWithNoIncome: number | null = null;
-  let firstSavingsDrawdownMonth: number | null = null;
+  let firstHouseholdDrawdownMonth: number | null = null;
+  const firstDrawdownMonthByPerson: Record<string, number> = {};
   let firstInsolventMonth: number | null = null;
   const netOwners: string[] = [];
 
@@ -344,6 +367,8 @@ export function buildCashFlowChartData(series: ProjectionSeries): CashFlowChartD
     // Not banded, and tracked only so "nothing at all is covering spending" can stay distinct
     // from "spending is covered by savings" — two very different months that both band nothing.
     let drewOnSavingsCents = 0;
+    /** The same, split by whose account it came out of — a drawdown belongs to its owner. */
+    const drewByPerson: Record<string, number> = {};
     const addInflow = (band: CashFlowBand, cents: number): void => {
       if (cents <= 0) return;
       inflowCentsByBand[band.id] = (inflowCentsByBand[band.id] ?? 0) + cents;
@@ -356,8 +381,8 @@ export function buildCashFlowChartData(series: ProjectionSeries): CashFlowChartD
     for (const s of flows.incomeSources ?? []) {
       if (s.fromAccountWithdrawal === true) {
         drewOnSavingsCents += s.cashInflowCents;
-        if (s.cashInflowCents > 0 && firstSavingsDrawdownMonth === null) {
-          firstSavingsDrawdownMonth = m.month;
+        if (s.cashInflowCents > 0 && s.ownerId !== undefined) {
+          drewByPerson[s.ownerId] = (drewByPerson[s.ownerId] ?? 0) + s.cashInflowCents;
         }
       }
       if (s.cashInflowCents === 0 || !isReceivedCash(s)) continue;
@@ -495,6 +520,19 @@ export function buildCashFlowChartData(series: ProjectionSeries): CashFlowChartD
       if (!netOwners.includes(pid)) netOwners.push(pid);
     }
 
+    // Resolved here rather than in the source loop above, because whether a withdrawal was the
+    // household living off savings or one partner covering their own share is a question about
+    // the month's NET, which is not known until both sides are totalled.
+    const netCents = inflowTotalCents - outflowTotalCents;
+    if (netCents < 0 && drewOnSavingsCents > 0 && firstHouseholdDrawdownMonth === null) {
+      firstHouseholdDrawdownMonth = m.month;
+    }
+    for (const [pid, cents] of Object.entries(drewByPerson)) {
+      if (cents > 0 && (netCentsByPerson[pid] ?? 0) < 0 && firstDrawdownMonthByPerson[pid] === undefined) {
+        firstDrawdownMonthByPerson[pid] = m.month;
+      }
+    }
+
     rows.push({
       month: m.month,
       inflowCentsByBand,
@@ -502,7 +540,7 @@ export function buildCashFlowChartData(series: ProjectionSeries): CashFlowChartD
       outflowCentsByBandByPerson,
       inflowTotalCents,
       outflowTotalCents,
-      netCents: inflowTotalCents - outflowTotalCents,
+      netCents,
       netCentsByPerson,
       spendingNeedCents: (flows.expensesCents ?? 0) + (flows.liabilityPaymentsCents ?? 0),
       spendingNeedCentsByPerson: flows.obligationChargedByPersonCents ?? {},
@@ -548,7 +586,8 @@ export function buildCashFlowChartData(series: ProjectionSeries): CashFlowChartD
     inflowBands,
     outflowBands,
     firstMonthWithNoIncome,
-    firstSavingsDrawdownMonth,
+    firstHouseholdDrawdownMonth,
+    firstDrawdownMonthByPerson,
     firstInsolventMonth,
     netOwners,
   };
@@ -640,9 +679,33 @@ function withEarnerNames(
  * The spending a cut has to cover: the household's whole need, or one person's share of it.
  * A person the engine reported no share for covers nothing — never the household's figure,
  * which would hold one earner's pay against everything the household spends.
+ *
+ * A person's share is apportioned for DISPLAY ({@link apportionDisplayCents}) rather than handed
+ * over raw, so the whole-dollar figures the reader compares between Combined and each person add
+ * up. The engine's cents are untouched and nothing here feeds back into one.
  */
-function spendingNeedFor(row: CashFlowMonthRow, ownerId: string | undefined): number {
-  return ownerId === undefined ? row.spendingNeedCents : (row.spendingNeedCentsByPerson[ownerId] ?? 0);
+function spendingNeedFor(
+  row: CashFlowMonthRow,
+  ownerId: string | undefined,
+  owners: readonly string[],
+): number {
+  if (ownerId === undefined) return row.spendingNeedCents;
+  return shareOf(row.spendingNeedCents, row.spendingNeedCentsByPerson, ownerId, owners);
+}
+
+/** One person's display share of a household figure the engine already split to the cent. */
+function shareOf(
+  totalCents: number,
+  byPerson: Readonly<Record<string, number>>,
+  ownerId: string,
+  owners: readonly string[],
+): number {
+  const index = owners.indexOf(ownerId);
+  if (index < 0) return toDisplayCents(byPerson[ownerId] ?? 0);
+  return apportionDisplayCents(
+    totalCents,
+    owners.map((pid) => byPerson[pid] ?? 0),
+  )[index]!;
 }
 
 /** One month, reduced to the bands the chosen view stacks. */
@@ -684,13 +747,16 @@ export function cashFlowBandsForView(
       rows: data.rows.map((r) => {
         // A person with no reported figure draws 0 rather than the household's line, which
         // would silently show them the whole household's net under their own name.
-        const net = ownerId === undefined ? r.netCents : (r.netCentsByPerson[ownerId] ?? 0);
+        const net =
+          ownerId === undefined
+            ? r.netCents
+            : shareOf(r.netCents, r.netCentsByPerson, ownerId, data.netOwners);
         return {
           month: r.month,
           centsByBand: {},
           totalCents: net,
           netCents: net,
-          spendingNeedCents: spendingNeedFor(r, ownerId),
+          spendingNeedCents: spendingNeedFor(r, ownerId, data.netOwners),
         };
       }),
     };
@@ -753,8 +819,11 @@ export function cashFlowBandsForView(
       month: r.month,
       centsByBand,
       totalCents,
-      netCents: ownerId === undefined ? r.netCents : (r.netCentsByPerson[ownerId] ?? 0),
-      spendingNeedCents: spendingNeedFor(r, ownerId),
+      netCents:
+        ownerId === undefined
+          ? r.netCents
+          : shareOf(r.netCents, r.netCentsByPerson, ownerId, data.netOwners),
+      spendingNeedCents: spendingNeedFor(r, ownerId, data.netOwners),
     };
   });
   return { bands, rows };
@@ -765,11 +834,33 @@ function yearOf(month: number): number {
   return Math.floor(month / 12) + 1;
 }
 
-/** A one-line summary for the a11y label, or `null` when income covers spending throughout. */
-export function describeCashFlowGap(data: CashFlowChartData): string | null {
-  if (data.firstSavingsDrawdownMonth !== null) {
+/**
+ * A one-line summary for the a11y label and the visible hint, SCOPED to the view it sits under —
+ * or `null` when that view has no gap to describe.
+ *
+ * The combined view speaks for the household and only about the household: it says "living off
+ * savings" when the household's own cash flow went negative and savings closed the gap, and says
+ * nothing merely because one partner sold a fund. A person's view speaks for that person, and the
+ * sentence it gets is a different claim in different words — their income did not stretch to
+ * their share, which is true of them and not of the household around them.
+ */
+export function describeCashFlowGap(
+  data: CashFlowChartData,
+  ownerId?: string,
+  personName?: string,
+): string | null {
+  if (ownerId !== undefined) {
+    const month = data.firstDrawdownMonthByPerson[ownerId];
+    if (month === undefined) return null;
+    const who = personName?.trim() || "This person";
     return (
-      `From Year ${yearOf(data.firstSavingsDrawdownMonth)} you're living off savings — ` +
+      `From Year ${yearOf(month)} ${who} covers their share from personal savings — ` +
+      `their own income doesn't stretch to it. That is theirs alone, not the household's total.`
+    );
+  }
+  if (data.firstHouseholdDrawdownMonth !== null) {
+    return (
+      `From Year ${yearOf(data.firstHouseholdDrawdownMonth)} you're living off savings — ` +
       `net cash flow turns negative and the gap comes out of what you've saved.`
     );
   }

@@ -324,7 +324,11 @@ describe("RelationshipForm — one partnership at a time", () => {
     expect((btn(/Add event/i) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("clears once the date moves back before the partnership began", () => {
+  it("still refuses a date BEFORE the partnership, which this one would run into", () => {
+    // The half a date check cannot see. Month 0 is occupied by nobody, so "is somebody partnered
+    // on this date" says yes; the partnership authored there has no separation and would still be
+    // running when Blake arrives in 2031, which is the overlap the ledger refuses. The form asks
+    // the same span question, so the button and the write agree.
     const marry = vi.fn();
     const onAdd = (write: (p: Projection) => void) => write({ marry } as unknown as Projection);
     render(
@@ -338,9 +342,155 @@ describe("RelationshipForm — one partnership at a time", () => {
 
     fireEvent.change(screen.getByRole("combobox", { name: /When/i }), { target: { value: "0" } });
 
-    // Month 0 sits clear of a partnership that starts at 24 — the overlap the engine would still
-    // catch (this one running INTO Blake's) is not something the date picker can see.
     expect(screen.queryByText(/already partnered/i)).toBeNull();
-    expect((btn(/Add event/i) as HTMLButtonElement).disabled).toBe(false);
+    expect(
+      screen.getByText(/would still be running when you partner with Blake in 2028/i),
+    ).toBeTruthy();
+    expect((btn(/Add event/i) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+/**
+ * The whole PROPOSED interval, not just its first day.
+ *
+ * A partnership being authored has no separation yet, so it runs from its date to the end of that
+ * partner's life. That is what a date check could never see: Year 6 is unoccupied, and a
+ * partnership starting there is still running when Casey arrives in Year 7. The engine has always
+ * refused this on replay; what these pin is that the button refuses it first, for the same reason
+ * and in the same words, so a user is never invited to make a write that cannot land.
+ */
+describe("RelationshipForm — a partnership booked ahead of this one", () => {
+  const SEPARATION_MONTH = 60;
+  const JOIN_MONTH = 84;
+
+  /** Blake from month 0, gone at 60; Casey from 84 — the sequential household. */
+  function sequentialRun() {
+    const p = readerOf(PLAN_DEFAULTS);
+    p.marry({ month: 0, name: "Blake", birthYear: 1990, lifeExpectancy: 88, partnerSharePercent: 30 });
+    p.separate({
+      month: SEPARATION_MONTH,
+      partnerPersonId: p.run(usJurisdiction).activePartnerAt(0)!.id,
+    });
+    p.marry({ month: JOIN_MONTH, name: "Casey", birthYear: 1992, lifeExpectancy: 95 });
+    return p.run(usJurisdiction);
+  }
+
+  function renderAt(month: number, result = sequentialRun()) {
+    const marry = vi.fn();
+    const onAdd = (write: (p: Projection) => void) => write({ marry } as unknown as Projection);
+    render(
+      <RelationshipForm result={result} defaultMonth={month} horizonMonths={600} onAdd={onAdd} />,
+    );
+    return marry;
+  }
+
+  const addButton = () => btn(/Add event/i) as HTMLButtonElement;
+
+  it("refuses a date inside a partnership that is already running", () => {
+    renderAt(24);
+    expect(screen.getByText(/already partnered with Blake/i)).toBeTruthy();
+    expect(addButton().disabled).toBe(true);
+  });
+
+  it("refuses a date whose partnership would still be running when the next one begins", () => {
+    // The reported case. Month 72 is Year 6: Blake left in Year 5, so nothing occupies it, and
+    // the button used to be live right up until the engine threw.
+    renderAt(72);
+    expect(screen.getByText(/would still be running when you partner with Casey/i)).toBeTruthy();
+    expect(addButton().disabled).toBe(true);
+  });
+
+  it("names WHICH partnership is in the way, since the two are fixed by different edits", () => {
+    renderAt(72);
+    const warning = screen.getByText(/would still be running/i).textContent!;
+    expect(warning).toContain("Casey");
+    expect(warning).toMatch(/Add a separation before then/i);
+  });
+
+  it("allows a partnership whose own span ends before the next one begins", () => {
+    // The gap is real: this partner does not live to reach Casey, so the two never overlap. The
+    // span's far end is the partner's own life, which is why the expectancy field revalidates.
+    renderAt(60);
+    enterNumber(spin(/Their age in/i), "80");
+    enterNumber(spin(/Their life expectancy/i), "81");
+    expect(screen.queryByText(/would still be running/i)).toBeNull();
+    expect(addButton().disabled).toBe(false);
+  });
+
+  it("allows a partnership beginning the very month the last one ended", () => {
+    // Separation is processed before the join, so the spans sit end to end rather than overlap.
+    // Blake's ends at 60 exclusive; a partner arriving AT 60 is legal, and would be legal
+    // whatever the split either partnership was authored with.
+    const p = readerOf(PLAN_DEFAULTS);
+    p.marry({ month: 0, name: "Blake", birthYear: 1990, lifeExpectancy: 88, partnerSharePercent: 30 });
+    p.separate({
+      month: SEPARATION_MONTH,
+      partnerPersonId: p.run(usJurisdiction).activePartnerAt(0)!.id,
+    });
+    renderAt(SEPARATION_MONTH, p.run(usJurisdiction));
+    expect(screen.queryByText(/hint warn/i)).toBeNull();
+    expect(addButton().disabled).toBe(false);
+  });
+
+  it("revalidates when the date moves, without remounting the form", () => {
+    renderAt(72);
+    expect(addButton().disabled).toBe(true);
+    // Past Casey entirely: Casey's own span is what this one would now sit behind, and Casey
+    // never separates, so it collides the other way and stays refused.
+    fireEvent.change(screen.getByRole("combobox", { name: /When/i }), {
+      target: { value: String(JOIN_MONTH + 12) },
+    });
+    expect(screen.getByText(/already partnered with Casey/i)).toBeTruthy();
+    expect(addButton().disabled).toBe(true);
+  });
+
+  it("still opens a brand-new partnership at 50/50, whatever the last one was authored at", () => {
+    // The split rides on the relationship. Blake's 70/30 above is Blake's, and Casey's default is
+    // reached by the same field opening on the same number.
+    renderAt(60);
+    expect(spin(/Partner/).value).toBe("50");
+  });
+});
+
+/** The same rule when the partnership already exists and its date is being corrected. */
+describe("RelationshipForm — editing a partnership into an overlap", () => {
+  function withCasey() {
+    const p = readerOf(PLAN_DEFAULTS);
+    p.marry({ month: 120, name: "Casey", birthYear: 1992, lifeExpectancy: 95 });
+    return p.run(usJurisdiction);
+  }
+
+  function renderEditAt(event: RelationshipEvent, result: ReturnType<typeof withCasey>) {
+    const reviseTransaction = vi.fn();
+    const onRevise = (write: (p: Projection) => void) =>
+      write({ reviseTransaction } as unknown as Projection);
+    render(
+      <RelationshipForm
+        result={result}
+        defaultMonth={0}
+        horizonMonths={600}
+        onAdd={() => {}}
+        edit={{ event, onRevise }}
+      />,
+    );
+    return reviseTransaction;
+  }
+
+  it("refuses a correction that would run the partnership into a later one", () => {
+    renderEditAt(EXISTING, withCasey());
+    expect(screen.getByText(/would still be running when you partner with Casey/i)).toBeTruthy();
+    expect((btn(/Save changes/i) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("never treats a partnership as conflicting with itself", () => {
+    // The partner being edited IS on the timeline. Measuring the correction against the version
+    // it replaces would refuse every edit that changed nothing.
+    const p = readerOf(PLAN_DEFAULTS);
+    p.marry({ month: 24, name: "Sam", birthYear: 1988, lifeExpectancy: 85 });
+    const run = p.run(usJurisdiction);
+    const sam = run.household.memberships[1]!.person;
+    renderEditAt({ ...EXISTING, person: { ...EXISTING.person, id: sam.id } }, run);
+    expect(screen.queryByText(/still be running|already partnered/i)).toBeNull();
+    expect((btn(/Save changes/i) as HTMLButtonElement).disabled).toBe(false);
   });
 });

@@ -25,6 +25,12 @@ import { projectScenarioParts } from "../retirement/retirementSolver";
 import { summarizeSimulation } from "../projection/report";
 import type { SimulationReport } from "../projection/report";
 import { activePartnerAt, buildSnapshot, membersAt } from "../projection/snapshot";
+import {
+  householdPartnershipSpans,
+  overlappingPartnership,
+  partnershipConflictReason,
+  partnershipSpan,
+} from "../ledger/partnership";
 import type { HouseholdSnapshot } from "../projection/snapshot";
 import type { Household } from "../ledger/household";
 import type { Person } from "../plan/person";
@@ -65,6 +71,22 @@ export interface ProjectionResult {
    * surface that used to ask which partner a change was about now asks this instead.
    */
   readonly activePartnerAt: (month: number) => Person | null;
+  /**
+   * Why partnering on `month` would collide with a partnership already on the timeline, in the
+   * reader's own words, or `null` when it sits clear — the SAME span overlap the ledger refuses
+   * on, asked before the write instead of after it.
+   *
+   * A span, not a moment: the candidate runs from `month` to its own death, since a partnership
+   * being authored has no separation yet, so a date that merely looks free still collides with a
+   * partner booked years ahead of it. `personId` names the partnership being re-dated, which
+   * never conflicts with itself.
+   */
+  readonly partnershipConflict: (candidate: {
+    readonly month: number;
+    readonly person: Pick<Person, "name" | "birthYear" | "lifeExpectancy"> & {
+      readonly id?: string;
+    };
+  }) => string | null;
   /**
    * Every plan goal beside how it is tracking against THIS run, in funding-priority order.
    * Paired, because a row needs both and the two lists are index-aligned only by construction.
@@ -145,6 +167,19 @@ export function runProjection(
     snapshot: (month: number) => buildSnapshot(household, month, series),
     membersAt: (month: number) => membersAt(household, month),
     activePartnerAt: (month: number) => activePartnerAt(household, month, state.startYear),
+    partnershipConflict: (candidate: {
+      readonly month: number;
+      readonly person: Pick<Person, "name" | "birthYear" | "lifeExpectancy"> & { readonly id?: string };
+    }) => {
+      const span = partnershipSpan(candidate.person, candidate.month, null, state.startYear);
+      const conflict = overlappingPartnership(
+        householdPartnershipSpans(household, state.startYear),
+        span,
+      );
+      return conflict === null
+        ? null
+        : partnershipConflictReason(span, conflict, state.startYear);
+    },
     goalProgress: () => {
       const accounts = buildPlanAccounts(plan);
       return buildPlanGoals(plan).map((goal) => ({

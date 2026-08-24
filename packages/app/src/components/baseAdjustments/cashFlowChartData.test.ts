@@ -154,14 +154,17 @@ describe("buildCashFlowChartData — what arrives", () => {
     expect(data.rows[0]!.inflowTotalCents).toBe(dollarsToCents(1_200));
   });
 
-  it("still records the month savings first opened, so the gap summary can name it", () => {
+  it("still records the month the household first lived off savings, so the summary can name it", () => {
     const data = buildCashFlowChartData(
       seriesOf(
-        { sources: [JOB] },
-        { sources: [withdrawal("cash", dollarsToCents(3_000), "savingsDrawdown", "Cash savings")] },
+        { sources: [JOB], obligations: [bill("rent", "Rent", "needs", 3_000)] },
+        {
+          sources: [withdrawal("cash", dollarsToCents(3_000), "savingsDrawdown", "Cash savings")],
+          obligations: [bill("rent", "Rent", "needs", 3_000)],
+        },
       ),
     );
-    expect(data.firstSavingsDrawdownMonth).toBe(2);
+    expect(data.firstHouseholdDrawdownMonth).toBe(2);
     expect(data.firstMonthWithNoIncome).toBeNull();
   });
 
@@ -461,8 +464,11 @@ describe("describeCashFlowGap", () => {
   it("names the year savings start covering the gap", () => {
     const data = buildCashFlowChartData(
       seriesOf(
-        { sources: [JOB] },
-        { sources: [withdrawal("cash", dollarsToCents(3_000), "savingsDrawdown", "Cash savings")] },
+        { sources: [JOB], obligations: [bill("rent", "Rent", "needs", 3_000)] },
+        {
+          sources: [withdrawal("cash", dollarsToCents(3_000), "savingsDrawdown", "Cash savings")],
+          obligations: [bill("rent", "Rent", "needs", 3_000)],
+        },
       ),
     );
     expect(describeCashFlowGap(data)).toContain("Year 1");

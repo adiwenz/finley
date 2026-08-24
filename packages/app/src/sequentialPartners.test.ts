@@ -794,3 +794,82 @@ describe("editing the relationships, and reloading the scenario", () => {
     ]);
   });
 });
+
+/**
+ * The dated "As of Year X" panel, which is the one surface in the app that is NOT omniscient.
+ *
+ * Everywhere else, seeing a partner before they arrive is the point: the timeline shows the plan,
+ * the charts run the whole horizon, and Casey's job appears in the job projections years ahead of
+ * the wedding. The snapshot answers a different question — who is in this household right now,
+ * and what does it hold — so Casey's savings, retirement and brokerage sitting in the Year 1
+ * balance list at $0 is not foresight, it is three accounts nobody has.
+ */
+describe("the dated household snapshot holds only the household of that month", () => {
+  const ownerNamesOf = (month: number) => {
+    const shown = new Set(RUN.snapshot(month).balances!.accounts.map((a) => a.id));
+    const names = new Set<string>();
+    for (const account of RUN.household.accounts) {
+      if (!shown.has(account.id)) continue;
+      for (const owner of account.owners) {
+        names.add(RUN.household.memberships.find((m) => m.person.id === owner)!.person.name);
+      }
+    }
+    return [...names].sort();
+  };
+
+  it("shows Alex and Blake at month 0, and nothing of Casey's", () => {
+    expect(ownerNamesOf(0)).toEqual(["Alex", "Blake"]);
+  });
+
+  it("still shows Blake on their last month in the household", () => {
+    expect(ownerNamesOf(SEPARATION - 1)).toEqual(["Alex", "Blake"]);
+  });
+
+  it("takes Blake's accounts with Blake the month they leave", () => {
+    expect(ownerNamesOf(SEPARATION)).toEqual(["Alex"]);
+  });
+
+  it("leaves Alex alone through the whole gap, right up to the day before Casey", () => {
+    expect(ownerNamesOf(ALONE)).toEqual(["Alex"]);
+  });
+
+  it("shows Casey's accounts from the month they join, at the balances they brought", () => {
+    expect(ownerNamesOf(JOIN)).toEqual(["Alex", "Casey"]);
+    const caseyAccounts = RUN.household.accounts.filter((a) => a.owners.includes(CASEY));
+    const shown = new Map(RUN.snapshot(JOIN).balances!.accounts.map((a) => [a.id, a.balanceCents]));
+    // Not placeholders: the money the preset gave Casey is there the month it arrives.
+    expect(caseyAccounts.length).toBeGreaterThan(0);
+    expect(caseyAccounts.some((a) => (shown.get(a.id) ?? 0) > 0)).toBe(true);
+  });
+
+  it("never lists a future partner's accounts, whatever they will one day hold", () => {
+    // Both halves of the reported bug: the $0 rows, and the fact that a nonzero opening balance
+    // would have been just as wrong — earlier, and louder.
+    const caseyAccounts = new Set(
+      RUN.household.accounts.filter((a) => a.owners.includes(CASEY)).map((a) => a.id),
+    );
+    for (const month of [0, 12, SEPARATION, ALONE]) {
+      const shown = RUN.snapshot(month).balances!.accounts.map((a) => a.id);
+      expect(shown.filter((id) => caseyAccounts.has(id))).toEqual([]);
+    }
+  });
+
+  it("keeps the roster and the balance list telling the same story", () => {
+    // They are two readings of one membership, so a month where the names and the accounts
+    // disagree is the bug in either direction.
+    for (const month of [0, SEPARATION - 1, SEPARATION, ALONE, JOIN]) {
+      const names = RUN.snapshot(month).persons.map((p) => p.name).sort();
+      expect(ownerNamesOf(month)).toEqual(names);
+    }
+  });
+
+  it("leaves the whole-plan views omniscient, exactly as they were", () => {
+    // The fix is scoped to the dated panel. The timeline still shows Casey's arrival from month
+    // 0, and the account chart still draws every account across the whole horizon.
+    const markers = timelineMarkers(fresh().toState().scenario.ledger, RUN.series, NAMES);
+    expect(markers.some((m) => m.detail?.includes("Casey"))).toBe(true);
+    for (const account of RUN.household.accounts) {
+      expect(buildAccountBalanceData(RUN.series, account.id).points.length).toBeGreaterThan(0);
+    }
+  });
+});
