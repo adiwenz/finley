@@ -315,11 +315,20 @@ export function BaseAdjustmentsPanel({
           <h3 data-testid="selected-month">Editing {describeMonth(selectedMonth, (START_YEAR - plan.primary.birthYear))}</h3>
           {/* Keyboard/assistive path to the same selection. */}
           <NumInput
-            label="Month"
+            label="Month to edit"
             value={selectedMonth}
             onChange={(m) => selectMonth(Math.max(0, Math.min(lastMonth, Math.round(m))))}
           />
         </div>
+        {/* Two month controls are on screen at once and they are deliberately not joined: this one
+            picks the month being EDITED, and the timeline scrubber picks the month being LOOKED AT.
+            Reading a projection at one month while correcting a budget at another is an ordinary
+            thing to want, and yoking them would make every glance at a future year move the row the
+            user was typing into. Since they can disagree, each says which is which. */}
+        <p className="hint">
+          Set by clicking a point on the charts above. The timeline scrubber is separate — it moves
+          the “As of” snapshot, and the two can sit on different months.
+        </p>
 
         <h4 className={styles.groupHeading}>Income</h4>
         <div className={styles.lineRow}>

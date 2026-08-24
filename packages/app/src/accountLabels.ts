@@ -1,5 +1,5 @@
 /**
- * Naming an account in a household that has more than one person in it.
+ * Naming an account — or a debt — in a household that has more than one person in it.
  *
  * An account's authored label says what KIND of money it is — "Cash savings", "Brokerage" — which
  * was the whole answer while there was only ever one person to own it. With a partner there are
@@ -14,10 +14,15 @@
  * A goal fund keeps its authored name. It is the household's purpose rather than a person's
  * holding, and "Alex's emergency fund" would claim an ownership the goal does not have.
  *
- * Pure — no React, no engine calls — so it unit-tests in node beside the other `*View` modules.
+ * Pure — no React, no simulation — so it unit-tests in node beside the other `*View` modules.
  */
 
-import type { PlanAccountDescriptor } from "@finley/engine";
+import {
+  liabilityKindLabel,
+  SYNTHETIC_CARD_ID,
+  type Household,
+  type PlanAccountDescriptor,
+} from "@finley/engine";
 
 /**
  * A partner's account already carries its owner, compiled in as "Blake — Cash savings", because
@@ -62,4 +67,31 @@ export function accountOwnersFor(
   accounts: readonly PlanAccountDescriptor[],
 ): Map<string, string> {
   return new Map(accounts.map((a) => [a.id, a.ownerId]));
+}
+
+/**
+ * Liability id → the name to show for it, by the same rule accounts follow: the KIND, qualified by
+ * its owner only where there is somebody to distinguish them from (two partners can each carry an
+ * "Auto loan").
+ *
+ * The engine's last-resort borrowing is a real revolving card in the model but nobody authored it,
+ * so it has no label of its own and the balances list printed its internal id at the reader —
+ * "synthetic-credit-card (owed)" names an implementation, not a debt. It belongs to the household
+ * rather than to a person, so it is never owner-qualified.
+ */
+export function liabilityLabelsFor(
+  household: Household,
+  personNames: ReadonlyMap<string, string>,
+): Map<string, string> {
+  const labels = new Map<string, string>([[SYNTHETIC_CARD_ID, liabilityKindLabel("creditCard")]]);
+  for (const liability of household.liabilities) {
+    const owner = personNames.get(liability.ownerId);
+    labels.set(
+      liability.id,
+      owner === undefined || personNames.size < 2
+        ? liabilityKindLabel(liability.kind)
+        : `${owner} — ${liabilityKindLabel(liability.kind)}`,
+    );
+  }
+  return labels;
 }

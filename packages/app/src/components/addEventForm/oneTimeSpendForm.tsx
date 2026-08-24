@@ -37,10 +37,13 @@ export function OneTimeSpendForm({
   horizonMonths,
   onAdd,
   funding,
+  accountLabels,
   edit,
 }: FormProps & {
   /** The engine's funding questions, extended to list eligible credit cards for an expense. */
   funding: FundingLookup;
+  /** Owner-qualified account names, so this list reads as the dated snapshot's does. */
+  accountLabels?: ReadonlyMap<string, string>;
   edit?: EditProps<EventOf<"OneTimeSpendEvent">>;
 }) {
   const [draft, setDraft] = useState<OneTimeSpendDraft>(() =>
@@ -127,6 +130,7 @@ export function OneTimeSpendForm({
         availability={availability}
         onChange={(sourceIds) => patch({ sourceIds })}
         label="Funded from"
+        accountLabels={accountLabels}
       />
       <button
         className="btn primary"
@@ -136,9 +140,10 @@ export function OneTimeSpendForm({
         {edit ? "Save changes" : "Add event"}
       </button>
       <p className="hint">
-        Accounts and credit cards are drained in the order you pick them. The selected sources
-        must fully cover the amount — this is different from a dated expense override, which
-        finances itself from whatever the plan has.
+        Accounts and credit cards are drained in the order you pick them, and the list is the
+        household as it stands on that date — while you are partnered, your partner’s accounts
+        are on it too. The selected sources must fully cover the amount, which is what makes this
+        different from a dated expense override, financed from whatever the plan has.
       </p>
     </>
   );

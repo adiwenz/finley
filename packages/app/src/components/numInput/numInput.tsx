@@ -69,12 +69,16 @@ export function NumInput({
    * commit-on-blur contract above exists because those runs are expensive and answer questions
    * nobody asked.
    *
-   * Subscribing also moves the CLAMP forward to the keystroke, and the field snaps to the bound
-   * with the usual note. That is the opposite of the "4 on the way to 45" freedom above, and it
-   * has to be: the listener's whole job is to hold the pair at 100, so a live 150 would show
-   * 150 beside a complement of 0 — two figures summing to 150, one of which the commit is about
-   * to refuse. A bounded pair has no half-typed 150 to protect; there is no in-range number it
-   * is on the way to.
+   * Subscribing moves the CEILING forward to the keystroke, and the field snaps to it with the
+   * usual note. That is the opposite of the "4 on the way to 45" freedom above, and it has to be:
+   * the listener's whole job is to hold the pair at 100, so a live 150 would show 150 beside a
+   * complement of 0 — two figures summing to 150, one of which the commit is about to refuse. A
+   * bounded pair has no half-typed 150 to protect; there is no in-range number it is on the way to.
+   *
+   * The FLOOR is not moved forward, because below it every figure is one still being entered: "-1"
+   * is on its way to "-10", and snapping it to 0 mid-word left the next keystroke landing on that
+   * 0 to give "00". A figure under the floor is reported as nothing usable — the same answer an
+   * emptied field gives — and the commit is what bounds it.
    *
    * Subscribing FORFEITS the private draft for any keystroke that parses: the figure is handed
    * up and the field re-renders from `value`, so the caller is the only one holding it. A live
@@ -92,6 +96,10 @@ export function NumInput({
 }) {
   /** The uncommitted edit, verbatim; `null` when the committed `value` is what's shown. */
   const [draft, setDraft] = useState<string | null>(null);
+  /** What the last commit did to a figure it would not take, or `null` when it took it whole. */
+  const [clamped, setClamped] = useState<{ readonly typed: number; readonly used: number } | null>(
+    null,
+  );
   /**
    * The `value` this field last rendered against, so a change of it can be noticed here.
    *
@@ -105,11 +113,13 @@ export function NumInput({
   if (value !== lastValue) {
     setLastValue(value);
     if (onLiveChange !== undefined && draft !== null) setDraft(null);
+    // The note describes a figure this field WAS made to hold. A value arriving from anywhere else
+    // replaces that figure, so the note is now about nothing: "250% isn't allowed here — using
+    // 100%" sat over a field reading 30 because the correction had been typed into its complement
+    // beside it, and two halves of one pair could each be explaining a clamp neither still had.
+    // Not when the new value IS what the clamp produced — that arrival is the clamp landing.
+    if (clamped !== null && value !== clamped.used) setClamped(null);
   }
-  /** What the last commit did to a figure it would not take, or `null` when it took it whole. */
-  const [clamped, setClamped] = useState<{ readonly typed: number; readonly used: number } | null>(
-    null,
-  );
 
   const noteId = useId();
 
@@ -146,6 +156,11 @@ export function NumInput({
     // it left behind is the bounded figure and this commit then has nothing of its own to say.
     const next = bound(parsed);
     if (next !== parsed) setClamped({ typed: parsed, used: next });
+    // A live caller was last told this field showed nothing usable — the only way a live field
+    // reaches here is a figure typed below its floor, which is held rather than snapped (see the
+    // change handler). Saying what it resolved to is what lets the pair stop reporting itself
+    // incomplete over a field that now plainly reads 0.
+    onLiveChange?.(next);
     if (next !== value) onChange(next);
   }
 
@@ -203,7 +218,14 @@ export function NumInput({
             }
             // Half-entered: there is no figure to hand up or to clamp. The text stays verbatim,
             // and the caller is told the field is currently showing nothing it can use.
-            if (typed === "" || Number.isNaN(parsed)) {
+            //
+            // A figure BELOW the floor counts as half-entered too, which is the one place a live
+            // field keeps its text. Clamping it forward mangled what was being typed: "-10" went
+            // "-" (held), "-1" (snapped to 0, so the box read "0"), then "-10" typed on top of
+            // that 0 to give "00". Above the ceiling there is nothing to wait for — no in-range
+            // number begins with 150 — but every negative is a prefix of nothing at all, so it is
+            // held whole and the commit is what bounds it, with the note that explains it.
+            if (typed === "" || Number.isNaN(parsed) || (min !== undefined && parsed < min)) {
               setDraft(e.target.value);
               onLiveChange(null);
               return;

@@ -2,9 +2,7 @@ import { StrictMode, useCallback, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Projection,
-  liabilityKindLabel,
   planHorizonMonths,
-  SYNTHETIC_CARD_ID,
   eventAccountDescriptors,
 } from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
@@ -20,7 +18,7 @@ import { AddEventForm } from "./components/addEventForm/addEventForm";
 import { EDITABLE_EVENT_TYPES } from "./components/addEventForm/editEventForm";
 import { Timeline } from "./components/timeline/timeline";
 import { SnapshotPanel } from "./components/snapshotPanel/snapshotPanel";
-import { accountLabelsFor } from "./accountLabels";
+import { accountLabelsFor, liabilityLabelsFor } from "./accountLabels";
 import { BudgetEditor } from "./components/budgetEditor/budgetEditor";
 import { GoalsPanel } from "./components/goalsPanel/goalsPanel";
 import { CollapsibleCard } from "./components/collapsibleCard/collapsibleCard";
@@ -54,7 +52,8 @@ export function App() {
   // it. Held by id, not by value, so it always resolves against the live ledger and a revision
   // that moved the event is reflected without re-seeding.
   const [editingId, setEditingId] = useState<string | null>(null);
-  const { state, conflict, transact, removeEvent, loadState } = useProjection(INITIAL_STATE);
+  const { state, conflict, transact, removeEvent, loadState, conflictOf } =
+    useProjection(INITIAL_STATE);
   const budget = state.scenario.plan;
   const ledger = state.scenario.ledger;
 
@@ -123,6 +122,12 @@ export function App() {
     () => accountLabelsFor(allAccounts, personNames),
     [allAccounts, personNames],
   );
+  // The debts, named by the same rule — read by the net-worth breakdown below and by the dated
+  // balances list, which used to print a liability's internal id.
+  const liabilityLabels = useMemo(
+    () => liabilityLabelsFor(household, personNames),
+    [household, personNames],
+  );
 
   const markers = useMemo(
     () => timelineMarkers(ledger, series, personNames),
@@ -188,22 +193,10 @@ export function App() {
   // — account descriptors and the household's liabilities, labelled by kind — never the
   // SimAccount class, so presentation stays off the sim-construction path.
   const breakdown = useMemo(() => {
-    // The engine's synthetic last-resort borrowing is a revolving credit card in the model,
-    // so it charts as "Credit card" debt below zero: a plan living on borrowed money (or one
-    // running dry in late retirement) shows that debt rather than the composition stopping.
-    const liabilityLabels: Record<string, string> = {
-      [SYNTHETIC_CARD_ID]: liabilityKindLabel("creditCard"),
-    };
     // Owners for the non-account bands. The synthetic card is deliberately absent: it belongs to
     // the household rather than to a person, so it stays out of every per-person cut.
     const ownerById: Record<string, string> = {};
     for (const liability of household.liabilities) {
-      const owner = personNames.get(liability.ownerId);
-      // Two partners can each carry an "Auto loan"; the owner's name is what tells the bands apart.
-      liabilityLabels[liability.id] =
-        owner === undefined || personNames.size < 2
-          ? liabilityKindLabel(liability.kind)
-          : `${owner} — ${liabilityKindLabel(liability.kind)}`;
       ownerById[liability.id] = liability.ownerId;
     }
     for (const property of household.properties) {
@@ -213,11 +206,11 @@ export function App() {
       chartSeries,
       // Both account lists. `accountDescriptors()` is derived from the PLAN, which holds only
       // the primary's accounts, so a partner's band would otherwise be labelled off its id.
-      { accounts: allAccounts, liabilityLabels, ownerById },
+      { accounts: allAccounts, liabilityLabels: Object.fromEntries(liabilityLabels), ownerById },
       // The plan's own span, so this chart ends at the same year as the total above it.
       horizonMonths,
     );
-  }, [chartSeries, projection, household, horizonMonths]);
+  }, [chartSeries, allAccounts, liabilityLabels, household, horizonMonths]);
 
   return (
     <>
@@ -294,6 +287,7 @@ export function App() {
               result={result}
               month={scrubMonth}
               accountLabels={accountLabels}
+              liabilityLabels={liabilityLabels}
             />
           </div>
         </div>
@@ -303,12 +297,18 @@ export function App() {
             <AddEventForm
               result={result}
               funding={formFunding}
+              accountLabels={accountLabels}
               defaultMonth={Math.floor(scrubMonth / 12) * 12}
               horizonMonths={horizonMonths}
               onAdd={transact}
               editing={
                 editingEvent
-                  ? { event: editingEvent, onRevise: reviseEvent, onCancel: () => setEditingId(null) }
+                  ? {
+                      event: editingEvent,
+                      onRevise: reviseEvent,
+                      conflictOf,
+                      onCancel: () => setEditingId(null),
+                    }
                   : undefined
               }
             />

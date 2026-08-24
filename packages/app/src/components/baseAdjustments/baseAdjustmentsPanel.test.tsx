@@ -119,7 +119,7 @@ const spin = (name: RegExp | string) =>
 
 /** The keyboard equivalent of a chart click. */
 const selectMonth = (month: number) =>
-  enterNumber(spin("Month"), month);
+  enterNumber(spin("Month to edit"), month);
 
 /** Typing an amount stages the how-long question. */
 const editRow = (name: RegExp | string, dollars: number) =>

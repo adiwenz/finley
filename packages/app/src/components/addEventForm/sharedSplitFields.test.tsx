@@ -166,13 +166,37 @@ describe("SharedSplitFields — while the household is still typing", () => {
     expect(screen.getByText(/150/)).toBeTruthy();
   });
 
-  it("clamps a negative figure on the keystroke in the same way", () => {
+  it("holds a negative figure while it is being typed, and bounds it on the way out", () => {
+    // The other direction is NOT the same, and treating it as such mangled the typing: "-10"
+    // went "-", then "-1" snapped to 0, then the next keystroke landed on that 0 to give "00".
+    // 150 is on its way to nothing; every negative is a prefix of a figure still being entered,
+    // so it stands as typed and the pair reports itself unfinished until the field is left.
     render(<Harness initial={30} />);
     type(spin(/Blake/), "-5");
+    expect(spin(/Blake/).value).toBe("-5");
+    expect(screen.getByText(/add up to 100/)).toBeTruthy();
+
+    fireEvent.blur(spin(/Blake/));
     expect(spin(/Blake/).value).toBe("0");
     expect(spin(/Alex/).value).toBe("100");
     sums100();
     expect(screen.getByText(/-5/)).toBeTruthy();
+  });
+
+  it("takes a negative typed one character at a time without mangling it", () => {
+    // The reported transient, keystroke by keystroke: "-10" must never read back as "00".
+    render(<Harness initial={30} />);
+    // A lone "-" is not a number, and a number input reports it as nothing at all — that is the
+    // DOM's own answer, and it is the one keystroke the field never had trouble with.
+    type(spin(/Blake/), "-");
+    expect(spin(/Blake/).value).toBe("");
+    for (const typed of ["-1", "-10"]) {
+      type(spin(/Blake/), typed);
+      expect(spin(/Blake/).value).toBe(typed);
+    }
+    fireEvent.blur(spin(/Blake/));
+    expect(spin(/Blake/).value).toBe("0");
+    sums100();
   });
 
   it("clamps a figure in exponent notation, which a number field accepts", () => {
@@ -262,9 +286,9 @@ describe("SharedSplitFields — after a figure has been clamped", () => {
   it("keeps editing the other field after the primary's share was clamped", () => {
     // The same field, reached from the other side — neither half is the special one.
     render(<Harness initial={30} />);
-    type(spin(/Alex/), "-5");
-    expect(spin(/Alex/).value).toBe("0");
-    expect(spin(/Blake/).value).toBe("100");
+    type(spin(/Alex/), "200");
+    expect(spin(/Alex/).value).toBe("100");
+    expect(spin(/Blake/).value).toBe("0");
     type(spin(/Blake/), "35");
     expect(spin(/Alex/).value).toBe("65");
     sums100();
@@ -283,7 +307,7 @@ describe("SharedSplitFields — after a figure has been clamped", () => {
     render(<Harness initial={30} />);
     for (const [field, typed] of [
       [/Blake/, "150"],
-      [/Alex/, "-5"],
+      [/Alex/, "120"],
       [/Blake/, "1e5"],
       [/Alex/, "200"],
     ] as const) {
@@ -427,5 +451,60 @@ describe("SharedSplitFields — refilling an emptied half from the other one", (
     type(spin(/Blake/), "");
     type(spin(/Alex/), "25");
     expect(spin(/Blake/).value).toBe("75");
+  });
+});
+
+/**
+ * A clamp note is about the field it happened in, and only for as long as that field still holds
+ * the figure the clamp produced.
+ *
+ * Neither was true. A note was raised at the keystroke and cleared only by another keystroke in
+ * the SAME field — so correcting the split from the other half (which is the whole point of a pair
+ * that always sums to 100) left "250% isn't allowed here" standing over a field now reading 30,
+ * and clamping each half in turn put two notes on screen at once, describing two figures the
+ * control no longer had between them.
+ */
+describe("SharedSplitFields — how long a clamp note stands", () => {
+  const type = (field: HTMLElement, value: string) =>
+    fireEvent.change(field, { target: { value } });
+  const notes = () => screen.queryAllByText(/isn't allowed here/);
+
+  it("clears the note when the field is corrected from its complement", () => {
+    render(<Harness initial={30} />);
+    type(spin(/Blake/), "250");
+    expect(notes()).toHaveLength(1);
+
+    // Nothing is typed into Blake's field again; the correction arrives as its complement.
+    type(spin(/Alex/), "70");
+    expect(spin(/Blake/).value).toBe("30");
+    expect(notes()).toHaveLength(0);
+  });
+
+  it("clears the note when the same field is retyped", () => {
+    render(<Harness initial={30} />);
+    type(spin(/Blake/), "250");
+    expect(notes()).toHaveLength(1);
+    type(spin(/Blake/), "40");
+    expect(notes()).toHaveLength(0);
+  });
+
+  it("never shows two notes at once, however many clamps in a row", () => {
+    render(<Harness initial={30} />);
+    type(spin(/Blake/), "250");
+    type(spin(/Alex/), "180");
+    expect(notes()).toHaveLength(1);
+    type(spin(/Blake/), "999");
+    expect(notes()).toHaveLength(1);
+    expect(screen.getByText(/999/)).toBeTruthy();
+  });
+
+  it("keeps the note while the clamped figure is what the field still holds", () => {
+    // The clamp's own arrival must not be mistaken for a correction from elsewhere — the value
+    // does change (that is the clamp landing), and the note has to survive it.
+    render(<Harness initial={30} />);
+    type(spin(/Blake/), "250");
+    fireEvent.blur(spin(/Blake/));
+    expect(spin(/Blake/).value).toBe("100");
+    expect(notes()).toHaveLength(1);
   });
 });

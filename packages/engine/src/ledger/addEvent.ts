@@ -24,6 +24,7 @@ import { getEligibleFundingSources, type FundingTreatment } from "../projection/
 import { nullJurisdiction, type Jurisdiction, type JurisdictionContext } from "../jurisdiction/jurisdiction";
 import type { HouseholdLiability } from "./household";
 import { isPreExisting } from "../projection/nowMarker";
+import { householdPresenceAt } from "../projection/snapshot";
 
 // simulate.ts / report.ts hold the same local constant. Only bracket indexing reads it, so
 // an off-by-a-year is immaterial.
@@ -293,13 +294,26 @@ export function fundingLookup(
     // One eligibility pass over every asset account plus every card the household has taken —
     // {@link getEligibleFundingSources} is the sole arbiter of which of them `treatment` admits,
     // so the picker's pool can never diverge from the engine's own rule.
+    // Whose money the household actually HAS at this month. A partner still to come, and one who
+    // has already left, both own accounts the whole-plan views carry — the picker offering them
+    // listed a future partner's savings at $0 years before they arrive and a departed partner's
+    // at $0 forever after. Asked through the same rule the dated snapshot's balances use, so the
+    // list of accounts and the list of people can never describe different households.
+    //
+    // Membership, not life: a partner who died left their accounts here, and the sim still spends
+    // them, so an offer to fund from them is an offer the sim will honour.
+    const present = householdPresenceAt(household, month);
     const candidates = [
-      ...assetAccounts.map((a) => ({ kind: "account" as const, id: a.id, credit: false })),
-      ...[...cardById.values()].map((c) => ({
-        kind: "credit" as const,
-        id: c.id,
-        credit: true as const,
-      })),
+      ...assetAccounts
+        .filter((a) => present(a.ownerId))
+        .map((a) => ({ kind: "account" as const, id: a.id, credit: false })),
+      ...[...cardById.values()]
+        .filter((c) => present(c.ownerId))
+        .map((c) => ({
+          kind: "credit" as const,
+          id: c.id,
+          credit: true as const,
+        })),
     ];
     const pool: FundingSourceBalance[] = getEligibleFundingSources(treatment, candidates).map((c) => {
       if (c.kind === "credit") {

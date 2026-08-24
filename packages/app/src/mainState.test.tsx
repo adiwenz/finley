@@ -167,7 +167,7 @@ describe("App — scenario replacement", () => {
     // summary above is not looking — the page then said "Editing month 61" over a projection
     // still reporting "As of Year 0".
     render(<App />);
-    const monthField = screen.getByLabelText(/^Month$/) as HTMLInputElement;
+    const monthField = screen.getByLabelText(/^Month to edit$/) as HTMLInputElement;
     fireEvent.change(monthField, { target: { value: "61" } });
     fireEvent.blur(monthField);
     expect(screen.getByTestId("selected-month").textContent).toMatch(/month 61/);

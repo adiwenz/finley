@@ -35,6 +35,7 @@ export function EditEventForm({
   editing,
   result,
   funding,
+  accountLabels,
   defaultMonth,
   horizonMonths,
   onAdd,
@@ -44,11 +45,13 @@ export function EditEventForm({
   result: ProjectionResult;
   /** The home form's down-payment source picker. */
   funding: FundingLookup;
+  /** Owner-qualified account names for those pickers — see {@link AddEventForm}. */
+  accountLabels?: ReadonlyMap<string, string>;
   defaultMonth: number;
   horizonMonths: number;
   onAdd: (write: (projection: Projection) => void) => void;
 }) {
-  const { event, onRevise, onCancel } = editing;
+  const { event, onRevise, conflictOf, onCancel } = editing;
   const formProps = { defaultMonth, horizonMonths, onAdd };
 
   // Every arm hands the form the same `edit` seam — the event to seed from and the sink that
@@ -56,19 +59,34 @@ export function EditEventForm({
   function form() {
     switch (event.type) {
       case "RelationshipEvent":
-        return <RelationshipForm {...formProps} result={result} edit={{ event, onRevise }} />;
+        return (
+          <RelationshipForm {...formProps} result={result} edit={{ event, onRevise, conflictOf }} />
+        );
       case "ChildEvent":
         return <ChildForm {...formProps} edit={{ event, onRevise }} />;
       case "LoanEvent":
         return <LoanForm {...formProps} result={result} edit={{ event, onRevise }} />;
       case "HomePurchaseEvent":
         return (
-          <HomePurchaseForm {...formProps} result={result} funding={funding} edit={{ event, onRevise }} />
+          <HomePurchaseForm
+            {...formProps}
+            result={result}
+            funding={funding}
+            accountLabels={accountLabels}
+            edit={{ event, onRevise }}
+          />
         );
       case "SeparationEvent":
         return <SeparationForm {...formProps} result={result} edit={{ event, onRevise }} />;
       case "OneTimeSpendEvent":
-        return <OneTimeSpendForm {...formProps} funding={funding} edit={{ event, onRevise }} />;
+        return (
+          <OneTimeSpendForm
+            {...formProps}
+            funding={funding}
+            accountLabels={accountLabels}
+            edit={{ event, onRevise }}
+          />
+        );
       default:
         // Unreachable: the timeline only offers Edit for {@link EDITABLE_EVENT_TYPES}.
         return null;

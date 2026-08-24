@@ -141,6 +141,28 @@ export function activePartnerAt(
 }
 
 /**
+ * Whether a holding's owner is somebody this household HAS at `month` — the one presence rule
+ * every dated surface asks, so a cross-section and an authoring picker cannot disagree about who
+ * is here.
+ *
+ * Membership, not life: {@link membersAt} closes a membership on separation alone, because a
+ * partner who died left their accounts to the household and those accounts stay. What leaves is
+ * a partner who LEFT, and what has not arrived is a partner still to come.
+ *
+ * An owner the roster has never held a membership for is present. That is not a member who has
+ * gone or not yet come — it is a holding whose owner this roster cannot speak for (a ledger read
+ * without its people), and hiding it would be inventing an absence.
+ */
+export function householdPresenceAt(
+  household: Household,
+  month: number,
+): (ownerId: string) => boolean {
+  const memberIds = new Set(membersAt(household, month).map((p) => p.id));
+  const knownIds = new Set(household.memberships.map((mem) => mem.person.id));
+  return (ownerId: string): boolean => memberIds.has(ownerId) || !knownIds.has(ownerId);
+}
+
+/**
  * Household cross-section as of `month` (end-of-month convention: an event at month M is
  * applied at M). Presence is derived from `household`; balances (stocks) are read from
  * `projection` when supplied.
@@ -192,13 +214,7 @@ export function buildSnapshot(
   const allOwnersDead = (owners: readonly string[]): boolean =>
     owners.length > 0 &&
     owners.every((id) => memberIds.has(id) && !livingIds.has(id));
-  /**
-   * Everyone the household has EVER held a membership for. An owner outside it is not a member
-   * who has left or not yet arrived — it is a holding whose owner this roster cannot speak for
-   * (a ledger snapshotted without its people), and hiding it would be inventing an absence.
-   */
-  const knownIds = new Set(household.memberships.map((mem) => mem.person.id));
-  const present = (ownerId: string): boolean => memberIds.has(ownerId) || !knownIds.has(ownerId);
+  const present = householdPresenceAt(household, m);
   const ownedByMember = (owners: readonly string[]): boolean =>
     owners.length === 0 || owners.some(present);
   const accountOwners = new Map(household.accounts.map((a) => [a.id, a.owners as readonly string[]]));

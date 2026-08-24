@@ -126,3 +126,53 @@ describe("NumInput — what the field prints", () => {
     expect(spin().value).toBe("7.10");
   });
 });
+
+/**
+ * A clamp note describes the figure this field was made to hold. It stands for exactly as long as
+ * the field still holds it.
+ *
+ * It used to be cleared only by another keystroke in the same field, so a value corrected from
+ * anywhere else — a form recomputing it, the other half of a percentage pair — left the note
+ * explaining a number the field no longer had.
+ */
+describe("NumInput — how long a clamp note stands", () => {
+  /** A bounded field whose value the surrounding form can also move on its own. */
+  function Bounded({ initial }: { readonly initial: number }) {
+    const [value, setValue] = useState(initial);
+    return (
+      <div>
+        <NumInput label="Share" value={value} onChange={setValue} suffix="%" min={0} max={100} />
+        <button onClick={() => setValue(30)}>Set 30</button>
+      </div>
+    );
+  }
+  const note = () => screen.queryByText(/isn't allowed here/);
+
+  it("states the clamp, and keeps stating it once the clamped figure lands", () => {
+    render(<Bounded initial={50} />);
+    fireEvent.change(spin(), { target: { value: "250" } });
+    fireEvent.blur(spin());
+    expect(spin().value).toBe("100");
+    // The value DID change — that change is the clamp arriving, not a correction of it.
+    expect(note()).toBeTruthy();
+  });
+
+  it("drops the note when the value is corrected from outside the field", () => {
+    render(<Bounded initial={50} />);
+    fireEvent.change(spin(), { target: { value: "250" } });
+    fireEvent.blur(spin());
+    expect(note()).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Set 30"));
+    expect(spin().value).toBe("30");
+    expect(note()).toBeNull();
+  });
+
+  it("drops the note when the field itself is retyped", () => {
+    render(<Bounded initial={50} />);
+    fireEvent.change(spin(), { target: { value: "250" } });
+    fireEvent.blur(spin());
+    fireEvent.change(spin(), { target: { value: "40" } });
+    expect(note()).toBeNull();
+  });
+});

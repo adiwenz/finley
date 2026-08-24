@@ -26,16 +26,17 @@ import styles from "./addEventForm.module.css";
  */
 function rowAriaLabel(
   source: FundingSourceBalance,
+  name: string,
   { isCredit, noLimit, empty }: { isCredit: boolean; noLimit: boolean; empty: boolean },
 ): string {
   if (isCredit) {
-    if (noLimit) return `${source.label} — no credit limit entered, so it can't be offered`;
-    if (empty) return `${source.label} — no available credit at that time`;
-    return `${source.label} — borrow up to ${formatDollars(source.balanceCents)}, increasing this card's debt`;
+    if (noLimit) return `${name} — no credit limit entered, so it can't be offered`;
+    if (empty) return `${name} — no available credit at that time`;
+    return `${name} — borrow up to ${formatDollars(source.balanceCents)}, increasing this card's debt`;
   }
   return empty
-    ? `${source.label} — nothing available at that time`
-    : `${source.label} — ${formatDollars(source.balanceCents)} available`;
+    ? `${name} — nothing available at that time`
+    : `${name} — ${formatDollars(source.balanceCents)} available`;
 }
 
 export function FundingSourcePicker({
@@ -45,6 +46,7 @@ export function FundingSourcePicker({
   availability,
   onChange,
   label = "Paid from",
+  accountLabels,
 }: {
   /**
    * Every account that could fund the event, with what it holds AT THE EVENT MONTH (possibly
@@ -63,6 +65,15 @@ export function FundingSourcePicker({
   availability: FundingAvailability;
   onChange: (ids: readonly string[]) => void;
   label?: string;
+  /**
+   * Account id → the name to show for it, owner-qualified where the household has two people
+   * (see `accountLabelsFor`). The engine's own label names a partner's account "Casey — Cash
+   * savings" and the primary's plain "Cash savings", which is two naming schemes on one list;
+   * the dated snapshot beside it says "Alex's cash savings" for both. One map, so a row here and
+   * a row there name the same account with the same words. An id the map does not know keeps the
+   * engine's label — a credit card is not an account anybody owns a share of.
+   */
+  accountLabels?: ReadonlyMap<string, string>;
 }) {
   // Selecting APPENDS (drained last); deselecting closes the gap so the numbers stay 1..n
   // with no hole.
@@ -90,6 +101,7 @@ export function FundingSourcePicker({
             const noLimit = isCredit && source.limited === false;
             const empty = source.balanceCents <= 0;
             const disabled = empty || noLimit;
+            const name = accountLabels?.get(source.id) ?? source.label;
             return (
               <li key={source.id}>
                 <label
@@ -100,14 +112,14 @@ export function FundingSourcePicker({
                     checked={order >= 0}
                     disabled={disabled}
                     onChange={() => toggle(source.id)}
-                    aria-label={rowAriaLabel(source, { isCredit, noLimit, empty })}
+                    aria-label={rowAriaLabel(source, name, { isCredit, noLimit, empty })}
                   />
                   {/* Drain position — an unchosen source has none. */}
                   <span className={styles.sourceOrder} aria-hidden="true">
                     {order >= 0 ? order + 1 : ""}
                   </span>
                   <span className={styles.sourceName}>
-                    {source.label}
+                    {name}
                     {/* The consequence a card makes plain: paying with it borrows rather than spends. */}
                     {isCredit && (
                       <span className={styles.sourceNote}> — credit, increases this card's debt</span>

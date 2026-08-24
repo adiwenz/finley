@@ -10,6 +10,7 @@ export function SnapshotPanel({
   result,
   month,
   accountLabels,
+  liabilityLabels,
 }: {
   ledger: Ledger;
   result: ProjectionResult;
@@ -20,6 +21,12 @@ export function SnapshotPanel({
    * question, so a row here read as `savings-person-8` was naming a person by their internal id.
    */
   accountLabels?: ReadonlyMap<string, string>;
+  /**
+   * Liability id → the name to show for it — see `liabilityLabelsFor`. Same reason as above, plus
+   * one this list has of its own: the engine's own last-resort borrowing is authored by nobody, so
+   * without a label it printed `synthetic-credit-card` at the reader.
+   */
+  liabilityLabels?: ReadonlyMap<string, string>;
 }) {
   const snap = result.snapshot(month);
   const { passed, upcoming } = splitMarkers(ledger, month);
@@ -27,6 +34,8 @@ export function SnapshotPanel({
   return (
     <div className={styles.snapshot}>
       <h2>As of {monthLabel(month)}</h2>
+      {/* Which of the two month controls this one follows — see the note beside the other. */}
+      <p className="hint">Moved by the timeline scrubber, not by the budget editor’s own month.</p>
 
       <div className={styles.snapSection}>
         <h3>Balances <span className={`${styles.tag} ${styles.stock}`}>stock</span></h3>
@@ -45,7 +54,7 @@ export function SnapshotPanel({
           ))}
           {snap.balances?.liabilities.map((b) => (
             <li key={b.id} className={styles.owed}>
-              <span>{b.id} (owed)</span>
+              <span>{liabilityLabels?.get(b.id) ?? b.id} (owed)</span>
               <span>−{formatDollars(b.balanceCents)}</span>
             </li>
           ))}

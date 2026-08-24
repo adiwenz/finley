@@ -1,6 +1,6 @@
 /** Partner joins the household — a RelationshipEvent. */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   AGE_LIMITS,
   isPreExisting,
@@ -9,6 +9,7 @@ import {
   minLifeExpectancyFor,
   dollarsToCents,
   centsToDollars,
+  type Projection,
   type ProjectionResult,
   type RelationshipEvent,
 } from "@finley/engine";
@@ -191,28 +192,63 @@ export function RelationshipForm({
     setDraft((d) => ({ ...d, jobs: d.jobs.filter((_, i) => i !== index) }));
   }
 
+  /**
+   * The revision this form would write. Named rather than inlined at the click, because the same
+   * write is what the dry run below asks the engine about — a Save that is offered and a Save that
+   * is refused must be the same edit, or the button would promise something else.
+   */
+  const revise = (p: Projection): void => {
+    if (edit === undefined) return;
+    p.reviseTransaction(edit.event.id, {
+      type: "marry",
+      month: draft.month,
+      name: draft.name || "Partner",
+      birthYear: partnerBirthYear,
+      lifeExpectancy: draft.lifeExpectancy,
+      benefitClaimingAge: draft.claimingAge,
+      // Balances only — the rates the event already carries are the household's own.
+      accountBalances: {
+        savingsBalanceCents: dollarsToCents(draft.savings),
+        retirementBalanceCents: dollarsToCents(draft.retirement),
+        brokerageBalanceCents: dollarsToCents(draft.brokerage),
+      },
+      partnerSharePercent: draft.sharePercent,
+    });
+  };
+
+  /**
+   * Why this correction would be refused, if it would be — everything the engine checks that this
+   * form does not, asked before the click.
+   *
+   * A partner's life expectancy is the field that needed it: shortening it below the end of a job
+   * they already hold is refused (a job must end while its owner is alive), and the click did
+   * nothing a reader could connect to the number they had just typed — the panel stayed open on
+   * the value they entered, and the reason appeared as a banner in the other column. The engine's
+   * own sentence names the year, the job and the person, so it is shown verbatim on the control it
+   * belongs to.
+   *
+   * Editing only. A new partnering has no event to revise, and its own overlap check is
+   * `partnershipConflict` above.
+   */
+  const reviseConflict = useMemo(
+    () => (edit?.conflictOf === undefined ? null : edit.conflictOf(revise)),
+    // Every field of the draft feeds the revision, so the answer is re-asked whenever any of
+    // them moves — which is exactly when it can change.
+    [edit, draft, partnerBirthYear],
+  );
+
+  /**
+   * The one thing standing in the way, if anything is. Overlap first: it is the more specific
+   * answer, and it is the only one a form that is ADDING can give.
+   */
+  const blockedReason = conflictReason ?? reviseConflict;
+
   function submit() {
     // A revision names only the person's own fields; the `marry` verb and revision share them,
     // so the same draft feeds both paths. Jobs are absent from the revision — the engine keeps
     // the partner's existing list untouched, and the Jobs panel is where they change.
     if (edit) {
-      edit.onRevise((p) =>
-        p.reviseTransaction(edit.event.id, {
-          type: "marry",
-          month: draft.month,
-          name: draft.name || "Partner",
-          birthYear: partnerBirthYear,
-          lifeExpectancy: draft.lifeExpectancy,
-          benefitClaimingAge: draft.claimingAge,
-          // Balances only — the rates the event already carries are the household's own.
-          accountBalances: {
-            savingsBalanceCents: dollarsToCents(draft.savings),
-            retirementBalanceCents: dollarsToCents(draft.retirement),
-            brokerageBalanceCents: dollarsToCents(draft.brokerage),
-          },
-          partnerSharePercent: draft.sharePercent,
-        }),
-      );
+      edit.onRevise(revise);
       return;
     }
     // `marry` mints the partner's person id and every job id, and stamps each job's owner to
@@ -415,14 +451,14 @@ export function RelationshipForm({
         </p>
       </details>
 
-      {conflictReason !== null && (
+      {blockedReason !== null && (
         <p className="hint warn" role="status">
-          {conflictReason}
+          {blockedReason}
         </p>
       )}
       <button
         className="btn primary"
-        disabled={conflictReason !== null || splitIncomplete}
+        disabled={blockedReason !== null || splitIncomplete}
         onClick={submit}
       >
         {edit ? "Save changes" : "Add event"}

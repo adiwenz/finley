@@ -30,6 +30,15 @@ export type EventOf<T extends LifeEvent["type"]> = Extract<LifeEvent, { type: T 
 export interface EditProps<E extends LifeEvent> {
   readonly event: E;
   readonly onRevise: (write: (projection: Projection) => void) => void;
+  /**
+   * Why that same revision would be refused, or `null` when it would be taken — asked before the
+   * click rather than after it, so Save can be disabled with the reason beside it instead of
+   * doing nothing visible. The pattern the timeline's blocked Remove already uses.
+   *
+   * Optional, and a form that does not ask keeps the old behaviour: the refusal still arrives
+   * from {@link onRevise}, as a banner elsewhere on the page.
+   */
+  readonly conflictOf?: (write: (projection: Projection) => void) => string | null;
 }
 
 /**
