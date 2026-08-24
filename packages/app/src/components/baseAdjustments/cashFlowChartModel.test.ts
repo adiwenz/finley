@@ -22,6 +22,8 @@ interface MonthSpec {
   readonly isInsolvent?: boolean;
   /** The waterfall's signed per-person net, which the net view's per-person cut reads. */
   readonly netCashFlowByPersonCents?: Record<string, number>;
+  /** Each person's share of the month's spending, which the inflow cut's reference line reads. */
+  obligationChargedByPersonCents?: Record<string, number>;
 }
 
 function seriesOf(...perMonth: MonthSpec[]): ProjectionSeries {
@@ -40,6 +42,7 @@ function seriesOf(...perMonth: MonthSpec[]): ProjectionSeries {
         liabilityPaymentsCents: 0,
         netCashFlowByPersonCents: m.netCashFlowByPersonCents ?? {},
         deferredByPersonCents: {},
+        obligationChargedByPersonCents: m.obligationChargedByPersonCents ?? {},
       },
     })),
   ];
@@ -251,6 +254,7 @@ describe("buildCashFlowChartModel — one person's cut", () => {
       expensesCents: RENT,
       // The waterfall's own proportional split of the rent: $2,142.86 to Alex, $857.14 to Blake.
       netCashFlowByPersonCents: { p1: ALEX_PAY - 214_286, p2: BLAKE_PAY - 85_714 },
+      obligationChargedByPersonCents: { p1: 214_286, p2: 85_714 },
     }),
   );
 
@@ -265,17 +269,29 @@ describe("buildCashFlowChartModel — one person's cut", () => {
     expect(model.rows[0]!["Software Engineer"]).toBeUndefined();
   });
 
-  it("stops drawing the household's spending-need line", () => {
-    // The dashed line is the WHOLE household's need. Over Blake's $2,400 alone it asks "does
-    // Blake cover the rent by themselves?" — a shortfall in a household that has none, and not
-    // the question the cut was reached for. The figure stays honest on the row; it is the
-    // COMPARISON that stops being drawn.
+  it("holds a person's income against THEIR share of the spending, not the household's", () => {
+    // The comparison the cut exists to make. Blake's $2,400 against their $857.14 share is a
+    // household comfortably covered; Blake's $2,400 against the whole $3,000 rent reads as a
+    // shortfall in a household that has none.
     const combined = buildCashFlowChartModel(twoEarners, { view: "inflows" });
     expect(combined.showsSpendingNeed).toBe(true);
     expect(combined.rows[0]![SPENDING_NEED_KEY]).toBe(RENT);
 
     const blake = buildCashFlowChartModel(twoEarners, { view: "inflows", ownerId: "p2" });
-    expect(blake.showsSpendingNeed).toBe(false);
+    expect(blake.showsSpendingNeed).toBe(true);
+    expect(blake.rows[0]![SPENDING_NEED_KEY]).toBe(85_714);
+  });
+
+  it("sums the two people's shares back to the household's spending need", () => {
+    const alex = buildCashFlowChartModel(twoEarners, { view: "inflows", ownerId: "p1" });
+    const blake = buildCashFlowChartModel(twoEarners, { view: "inflows", ownerId: "p2" });
+    expect(alex.rows[0]![SPENDING_NEED_KEY]! + blake.rows[0]![SPENDING_NEED_KEY]!).toBe(RENT);
+  });
+
+  it("charges a person the engine reported no share for with nothing", () => {
+    // Never the household's whole need under one person's name.
+    const nobody = buildCashFlowChartModel(twoEarners, { view: "inflows", ownerId: "nobody" });
+    expect(nobody.rows[0]![SPENDING_NEED_KEY]).toBe(0);
   });
 
   it("leaves the outflow view whole, because spending is not attributable", () => {

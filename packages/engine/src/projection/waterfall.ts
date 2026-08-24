@@ -924,12 +924,16 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
   // reading as though nobody were losing money. Here the full charge is subtracted from the raw
   // take-home whether income covered it or not, so a month that overspends says so per person
   // and the two people's figures still sum to the household's.
+  const obligationChargedByPersonCents = new Map<string, Cents>(
+    input.personIds.map((pid) => [
+      pid,
+      (personalCharge.chargedByPerson.get(pid) ?? 0) + (shareByPerson.get(pid) ?? 0),
+    ]),
+  );
   const netCashFlowByPersonCents = new Map<string, Cents>(
     input.personIds.map((pid) => [
       pid,
-      (takeHomeByPerson.get(pid) ?? 0) -
-        (personalCharge.chargedByPerson.get(pid) ?? 0) -
-        (shareByPerson.get(pid) ?? 0),
+      (takeHomeByPerson.get(pid) ?? 0) - (obligationChargedByPersonCents.get(pid) ?? 0),
     ]),
   );
   const contributionShortfall = fundGoalsAndContributions(
@@ -979,5 +983,6 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     obligationShortfallByPersonCents,
     leftoverByPersonCents: leftoverByPerson,
     netCashFlowByPersonCents,
+    obligationChargedByPersonCents,
   };
 }

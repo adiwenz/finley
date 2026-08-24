@@ -29,7 +29,7 @@ import {
 } from "recharts";
 import { formatDollars, monthLabel, yearOf } from "../../format";
 import { TODAY_X, axisPointLabel, axisYearTickLabel, toAxisX, yearTickXs } from "../monthAxis";
-import type { BreakdownBand, NetWorthBreakdownData } from "./netWorthBreakdown";
+import { peakNetWorthOf, type BreakdownBand, type NetWorthBreakdownData } from "./netWorthBreakdown";
 import { NotSimulatedHatch, useHatchId } from "./notSimulatedHatch";
 
 const AXIS = "#6b6552";
@@ -226,7 +226,17 @@ export function NetWorthBreakdownChart({
 
   const colors = useMemo(() => colorsForBands(data.bands), [data.bands]);
   // Owner first, then view: the cut decides WHOSE balance sheet, the view decides how much of it.
-  const visibleBands = bandsForMode(bandsForOwner(data.bands, activeOwner), activeMode);
+  const ownedBands = bandsForOwner(data.bands, activeOwner);
+  const visibleBands = bandsForMode(ownedBands, activeMode);
+
+  // Recomputed over the cut's OWN bands. `data.peakNetWorthCents` is the household's, and
+  // printing it under a person's name claimed a partner peaked at a figure their own chart
+  // never reaches — the axis and the sentence disagreed on the same screen. Mode-independent,
+  // like the household figure: the headline is a balance sheet, whichever view is drawn.
+  const peak = useMemo(
+    () => (activeOwner === COMBINED ? data.peakNetWorthCents : peakNetWorthOf(data, ownedBands)),
+    [activeOwner, data, ownedBands],
+  );
 
   const hatchId = useHatchId("nwb");
 
@@ -253,7 +263,6 @@ export function NetWorthBreakdownChart({
   // stop earlier than this whenever the projection did (blocked, or insolvent).
   const lastX = data.xMax;
   const accountCount = visibleBands.filter((b) => b.kind === "account").length;
-  const peak = data.peakNetWorthCents;
   const whose = activeOwner === COMBINED ? "" : `${personNames?.get(activeOwner) ?? activeOwner}'s `;
   const summary =
     peak === null

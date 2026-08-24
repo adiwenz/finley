@@ -12,6 +12,18 @@ import type { StartingPositionFormProps } from "./startingPositionFormControls";
  */
 const PARTNER_DEFAULT_LIFE_EXPECTANCY = 90;
 
+/**
+ * The youngest a person can have been when the relationship began. Without it, "Together for"
+ * was bounded only by a flat 70 years, so a partner aged 20 could be recorded as 30 years
+ * together — a relationship starting when they were −10, which the plan then simulates as
+ * though it were an ordinary past.
+ *
+ * 16 rather than 18: the field is describing a relationship, not a marriage, and a couple who
+ * met in their teens is an ordinary thing to plan around. It is a floor against nonsense, not
+ * a judgement about when a relationship ought to start.
+ */
+const MIN_RELATIONSHIP_AGE = 16;
+
 export function ExistingPartnerForm({ onAdd, onDone }: StartingPositionFormProps) {
   const [name, setName] = useState("");
   const [age, setAge] = useState(40);
@@ -56,7 +68,18 @@ export function ExistingPartnerForm({ onAdd, onDone }: StartingPositionFormProps
           placeholder="Partner's name"
         />
       </label>
-      <NumInput label="Their age today" value={age} onChange={setAge} min={18} max={MAX_LIVED_AGE} />
+      {/* Lowering the age has to pull an already-entered relationship length down with it, or
+          the bound below would hold only for whoever filled the fields in order. */}
+      <NumInput
+        label="Their age today"
+        value={age}
+        onChange={(next) => {
+          setAge(next);
+          setPartneredForYears((yrs) => Math.min(yrs, Math.max(0, next - MIN_RELATIONSHIP_AGE)));
+        }}
+        min={18}
+        max={MAX_LIVED_AGE}
+      />
       {/* Their own, not the household's: the projection runs to the longest-lived member, so a
           partner younger than the primary is what extends it. */}
       <NumInput
@@ -68,13 +91,16 @@ export function ExistingPartnerForm({ onAdd, onDone }: StartingPositionFormProps
         min={minLifeExpectancyFor(age)}
         max={MAX_AGE}
       />
+      {/* Bounded by THEIR age, not a flat maximum: a relationship cannot predate the person in
+          it. The bound moves with the age above, and a figure past it is clamped and explained
+          rather than silently accepted. */}
       <NumInput
         label="Together for"
         value={partneredForYears}
         onChange={setPartneredForYears}
         suffix="yr"
         min={0}
-        max={70}
+        max={Math.max(0, age - MIN_RELATIONSHIP_AGE)}
       />
       {/* Return rates are deliberately absent: a partner's accounts grow at the household's own
           plan rates, which is one market assumption rather than a second set to keep in step. */}

@@ -21,6 +21,8 @@ function seriesOf(
     expensesCents?: number;
     /** The waterfall's signed per-person net, which the net view's per-person cut reads. */
     netCashFlowByPersonCents?: Record<string, number>;
+  /** Each person's share of the month's spending, which the inflow cut's reference line reads. */
+  obligationChargedByPersonCents?: Record<string, number>;
   }[]
 ): ProjectionSeries {
   const months = [
@@ -37,6 +39,7 @@ function seriesOf(
         liabilityPaymentsCents: 0,
         netCashFlowByPersonCents: m.netCashFlowByPersonCents ?? {},
         deferredByPersonCents: {},
+        obligationChargedByPersonCents: m.obligationChargedByPersonCents ?? {},
       },
     })),
   ];
@@ -270,6 +273,7 @@ describe("CashFlowChart — whose cash flow", () => {
         p1: ALEX_PAY - 214_286,
         p2: BLAKE_PAY - 85_714,
       },
+      obligationChargedByPersonCents: { p1: 214_286, p2: 85_714 },
     }),
   );
 

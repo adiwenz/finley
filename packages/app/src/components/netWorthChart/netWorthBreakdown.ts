@@ -130,6 +130,25 @@ function netWorthOf(row: BreakdownMonthRow, bands: readonly BreakdownBand[]): nu
  * charts below zero as debt, including the engine's synthetic last-resort borrowing once the
  * caller labels it.
  */
+/**
+ * The highest nominal net worth a given set of bands ever reaches. Pass every band for the
+ * household's figure, or one person's for theirs — the whole point of taking bands rather than
+ * reading a precomputed total is that a person's cut has a peak of its own, and printing the
+ * household's under their name claims a partner peaked at a figure their own chart never
+ * reaches.
+ *
+ * Today is a charted point, so it competes for the peak — for a plan that decumulates from day
+ * one, "now" IS the high-water mark, and reporting month 0's slightly lower figure would be a
+ * number the chart visibly contradicts.
+ */
+export function peakNetWorthOf(
+  data: { readonly opening: BreakdownMonthRow; readonly rows: readonly BreakdownMonthRow[] },
+  bands: readonly BreakdownBand[],
+): number | null {
+  if (data.rows.length === 0) return null;
+  return Math.max(netWorthOf(data.opening, bands), ...data.rows.map((r) => netWorthOf(r, bands)));
+}
+
 export function buildNetWorthBreakdown(
   series: ProjectionSeries,
   meta: BreakdownMeta,
@@ -198,12 +217,7 @@ export function buildNetWorthBreakdown(
 
   const bands = [...accountBands, ...propertyBands, ...liabilityBands];
   const lastRow = rows[rows.length - 1];
-  // Today is a charted point, so it competes for the peak — for a plan that decumulates from
-  // day one, "now" IS the high-water mark, and reporting month 0's slightly lower figure
-  // would be a number the chart visibly contradicts.
-  const peakNetWorthCents = rows.length
-    ? Math.max(netWorthOf(opening, bands), ...rows.map((r) => netWorthOf(r, bands)))
-    : null;
+  const peakNetWorthCents = peakNetWorthOf({ opening, rows }, bands);
 
   // The axis spans the plan, not the rows — which stop early at a block (the series is truncated)
   // and at insolvency (dropped above). Same span and same shaded tail as the chart above it.

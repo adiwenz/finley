@@ -121,6 +121,13 @@ export interface CashFlowMonthRow {
    * line.
    */
   readonly spendingNeedCents: number;
+  /**
+   * {@link spendingNeedCents} per person — their own obligations plus their share of the shared
+   * ones, as the household's `sharedScheme` splits them. What makes a person's cut ask "is MY
+   * income covering MY share" instead of holding one earner's pay against everything the
+   * household spends. Empty for a projection run before the engine reported it.
+   */
+  readonly spendingNeedCentsByPerson: Readonly<Record<string, number>>;
 }
 
 export interface CashFlowChartData {
@@ -346,6 +353,7 @@ export function buildCashFlowChartData(series: ProjectionSeries): CashFlowChartD
       netCents: inflowTotalCents - outflowTotalCents,
       netCentsByPerson,
       spendingNeedCents: (flows.expensesCents ?? 0) + (flows.liabilityPaymentsCents ?? 0),
+      spendingNeedCentsByPerson: flows.obligationChargedByPersonCents ?? {},
     });
   }
 
@@ -450,6 +458,15 @@ function withEarnerNames(
   });
 }
 
+/**
+ * The spending a cut has to cover: the household's whole need, or one person's share of it.
+ * A person the engine reported no share for covers nothing — never the household's figure,
+ * which would hold one earner's pay against everything the household spends.
+ */
+function spendingNeedFor(row: CashFlowMonthRow, ownerId: string | undefined): number {
+  return ownerId === undefined ? row.spendingNeedCents : (row.spendingNeedCentsByPerson[ownerId] ?? 0);
+}
+
 /** One month, reduced to the bands the chosen view stacks. */
 export interface CashFlowViewRow {
   readonly month: number;
@@ -495,7 +512,7 @@ export function cashFlowBandsForView(
           centsByBand: {},
           totalCents: net,
           netCents: net,
-          spendingNeedCents: r.spendingNeedCents,
+          spendingNeedCents: spendingNeedFor(r, ownerId),
         };
       }),
     };
@@ -542,8 +559,8 @@ export function cashFlowBandsForView(
       month: r.month,
       centsByBand,
       totalCents,
-      netCents: r.netCents,
-      spendingNeedCents: r.spendingNeedCents,
+      netCents: ownerId === undefined ? r.netCents : (r.netCentsByPerson[ownerId] ?? 0),
+      spendingNeedCents: spendingNeedFor(r, ownerId),
     };
   });
   return { bands, rows };

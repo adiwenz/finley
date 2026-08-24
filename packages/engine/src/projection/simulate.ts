@@ -309,6 +309,7 @@ function runMonth(
     leftoverByPersonCents,
     deferredByPersonCents,
     netCashFlowByPersonCents,
+    obligationChargedByPersonCents,
   } = allocateMonth(
     state,
     allocationSources,
@@ -517,6 +518,7 @@ function runMonth(
     leftoverByPersonCents,
     deferredByPersonCents,
     netCashFlowByPersonCents,
+    obligationChargedByPersonCents,
     resolvedFunding,
     taxableByOwnerAfterFundingCents: toTaxableRecord(fundingDraw.taxableByOwnerAfter),
     accountBalancesAfterFundingCents,

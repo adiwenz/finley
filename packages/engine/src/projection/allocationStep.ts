@@ -381,6 +381,8 @@ export function allocateMonth(
   deferredByPersonCents: Readonly<Record<string, Cents>>;
   /** See {@link WaterfallResult.netCashFlowByPersonCents}. */
   netCashFlowByPersonCents: Readonly<Record<string, Cents>>;
+  /** See {@link WaterfallResult.obligationChargedByPersonCents}. */
+  obligationChargedByPersonCents: Readonly<Record<string, Cents>>;
 } {
   const { input, contributions } = planMonthAllocation(
     state,
@@ -571,6 +573,7 @@ export function allocateMonth(
     leftoverByPersonCents: Object.fromEntries(result.leftoverByPersonCents),
     deferredByPersonCents: Object.fromEntries(result.deferredByPersonCents),
     netCashFlowByPersonCents: Object.fromEntries(result.netCashFlowByPersonCents),
+    obligationChargedByPersonCents: Object.fromEntries(result.obligationChargedByPersonCents),
   };
 }
 

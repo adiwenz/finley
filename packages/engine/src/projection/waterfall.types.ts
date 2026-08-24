@@ -444,4 +444,14 @@ export interface WaterfallResult {
    * which is what lets a chart show a person's line and the household's line together.
    */
   readonly netCashFlowByPersonCents: ReadonlyMap<string, Cents>;
+  /**
+   * What each person was CHARGED this month — their own obligations in full, plus their share
+   * of the shared ones under `sharedScheme`. Charged, not paid: an amount their income could
+   * not cover is still theirs here, and the cascade finds the cash elsewhere.
+   *
+   * The per-person counterpart of the household's spending need, and the figure that makes a
+   * person's cut of a cash-flow chart answer "is MY income covering MY share" rather than
+   * "is my income covering everything the household spends".
+   */
+  readonly obligationChargedByPersonCents: ReadonlyMap<string, Cents>;
 }

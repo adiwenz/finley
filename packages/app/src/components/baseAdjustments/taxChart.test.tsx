@@ -86,6 +86,7 @@ describe("TaxTooltipContent — a filing month's readout", () => {
     settlementPaidCents: 0,
     refundCents: 0,
     settlementBySourceCents: {},
+    settlementByOwnerCents: {},
     ...over,
   });
   const hover = (payload: unknown[], r: TaxMonthRow) => ({
@@ -202,6 +203,7 @@ describe("TaxChart — whose tax", () => {
     settlementPaidCents: centsBySource["tax-settlement"] ?? 0,
     refundCents: 0,
     settlementBySourceCents: {},
+    settlementByOwnerCents: {},
   });
 
   const data = {
@@ -210,6 +212,7 @@ describe("TaxChart — whose tax", () => {
       row(1, { "job-a": ALEX_TAX, "job-b": BLAKE_TAX, "tax-settlement": SETTLEMENT }),
     ],
     sources: bands,
+    settlementBands: [],
     hasSourceBreakdown: true,
     sourceLabels: {},
     totalCents: ALEX_TAX * 2 + BLAKE_TAX * 2 + SETTLEMENT,
@@ -298,5 +301,101 @@ describe("TaxChart — whose tax", () => {
 
     fireEvent.click(cut("Blake"));
     expect(drawnBands()).toEqual(["Government benefit"]);
+  });
+});
+
+/**
+ * The April settlement in a person's cut. The balance was always attributed — the diagnostic
+ * tooltip has named the sources all along — but it was drawn as one household band, so a
+ * person's cut left their own April bill out entirely and the two people's totals fell short
+ * of the household's.
+ */
+describe("TaxChart — whose April settlement", () => {
+  const couple = new Map([
+    ["p1", "Alex"],
+    ["p2", "Blake"],
+  ]);
+
+  const withSettlement = {
+    rows: [
+      {
+        month: 15,
+        taxCents: dollarsToCents(1_000),
+        centsBySource: {
+          "job-a": dollarsToCents(600),
+          "tax-settlement": dollarsToCents(400),
+          "tax-settlement:p1": dollarsToCents(300),
+          "tax-settlement:p2": dollarsToCents(100),
+        },
+        settlementCents: dollarsToCents(400),
+        settlementPaidCents: dollarsToCents(400),
+        refundCents: 0,
+        settlementBySourceCents: {},
+        settlementByOwnerCents: {
+          "tax-settlement:p1": dollarsToCents(300),
+          "tax-settlement:p2": dollarsToCents(100),
+        },
+      },
+    ],
+    sources: [
+      { id: "job-a", label: "Software engineer", category: "wages", kind: "incomeTax" as const, ownerId: "p1" },
+      { id: "tax-settlement", label: "Tax settlement", category: "tax-settlement", kind: "settlement" as const },
+    ],
+    settlementBands: [
+      { id: "tax-settlement:p1", label: "Tax settlement", category: "tax-settlement", kind: "settlement" as const, ownerId: "p1" },
+      { id: "tax-settlement:p2", label: "Tax settlement", category: "tax-settlement", kind: "settlement" as const, ownerId: "p2" },
+    ],
+    hasSourceBreakdown: true,
+    sourceLabels: {},
+    totalCents: dollarsToCents(1_000),
+    peakMonthlyCents: dollarsToCents(1_000),
+    peakMonth: 15,
+    hasAnyTax: true,
+    owners: ["p1", "p2"],
+  };
+
+  const renderChart = () =>
+    render(
+      <TaxChart data={withSettlement} selectedMonth={0} onSelectMonth={() => {}} personNames={couple} />,
+    );
+
+  const drawnBands = (): string[] =>
+    JSON.parse(screen.getByTestId("tax-bands").textContent ?? "[]") as string[];
+  const cut = (name: string) => screen.getByRole("button", { name });
+
+  it("draws the household's whole balance as one band on the combined view", () => {
+    renderChart();
+    expect(drawnBands()).toEqual(["Software engineer", "Tax settlement"]);
+  });
+
+  it("gives a person their own slice of the April bill", () => {
+    renderChart();
+    fireEvent.click(cut("Blake"));
+    // Blake earns no wages here, so their whole tax IS their share of the settlement.
+    expect(drawnBands()).toEqual(["Tax settlement"]);
+    expect(screen.getByTestId("tax-summary").textContent).toMatch(/Blake's \$100 in tax/);
+  });
+
+  it("never draws the household band and a person's slice together", () => {
+    // Both at once would draw the same April money twice.
+    renderChart();
+    fireEvent.click(cut("Alex"));
+    expect(drawnBands()).toEqual(["Software engineer", "Tax settlement"]);
+    expect(screen.getByTestId("tax-summary").textContent).toMatch(/Alex's \$900 in tax/);
+  });
+
+  it("adds the two people's totals back up to the household's", () => {
+    // The whole point: $101,279 of a real household's lifetime tax used to belong to nobody
+    // because every April bill sat outside both people's cuts.
+    renderChart();
+    fireEvent.click(cut("Alex"));
+    const alex = screen.getByTestId("tax-summary").textContent ?? "";
+    fireEvent.click(cut("Blake"));
+    const blake = screen.getByTestId("tax-summary").textContent ?? "";
+    fireEvent.click(cut("Combined"));
+    const combined = screen.getByTestId("tax-summary").textContent ?? "";
+    expect(alex).toMatch(/\$900 in tax/);
+    expect(blake).toMatch(/\$100 in tax/);
+    expect(combined).toMatch(/\$1,000 in tax/);
   });
 });

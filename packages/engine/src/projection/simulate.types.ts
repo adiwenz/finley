@@ -189,6 +189,12 @@ export interface ProjectionMonthFlows {
    */
   readonly netCashFlowByPersonCents: Readonly<Record<string, Cents>>;
   /**
+   * Each person's share of the month's spending — see {@link
+   * import("./waterfall.types").WaterfallResult.obligationChargedByPersonCents}. The per-person
+   * counterpart of the household's spending need.
+   */
+  readonly obligationChargedByPersonCents: Readonly<Record<string, Cents>>;
+  /**
    * Σ `cashFlowIncomeByCategoryCents` — realized taxable income: includes savings interest,
    * excludes the savings drawdown.
    */

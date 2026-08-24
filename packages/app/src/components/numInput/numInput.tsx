@@ -18,9 +18,14 @@
  *
  * An abandoned edit is DISCARDED, not committed: blanking the field and leaving it restores the
  * value rather than writing 0, which is a figure with consequences and was never typed.
+ *
+ * A clamped commit SAYS SO. Silently rewriting −$5,000 to $0 leaves the field showing a figure
+ * the user did not type and gives no reason for it — they entered a negative balance, the form
+ * accepted their click, and a partner arrived with nothing. The bound is still enforced; it is
+ * now stated in the same breath.
  */
 
-import { useState } from "react";
+import { useId, useState } from "react";
 
 export function NumInput({
   label,
@@ -43,6 +48,14 @@ export function NumInput({
 }) {
   /** The uncommitted edit, verbatim; `null` when the committed `value` is what's shown. */
   const [draft, setDraft] = useState<string | null>(null);
+  /** What the last commit did to a figure it would not take, or `null` when it took it whole. */
+  const [clamped, setClamped] = useState<{ readonly typed: number; readonly used: number } | null>(
+    null,
+  );
+
+  const noteId = useId();
+
+  const withAffixes = (n: number) => `${prefix ?? ""}${n.toLocaleString("en-US")}${suffix ? ` ${suffix}` : ""}`;
 
   /**
    * Turn the draft into a fact, or discard it. Clamping happens here and only here: the
@@ -60,6 +73,7 @@ export function NumInput({
     let next = parsed;
     if (min !== undefined) next = Math.max(min, next);
     if (max !== undefined) next = Math.min(max, next);
+    setClamped(next === parsed ? null : { typed: parsed, used: next });
     if (next !== value) onChange(next);
   }
 
@@ -74,7 +88,12 @@ export function NumInput({
           min={min ?? 0}
           max={max}
           step={step ?? 1}
-          onChange={(e) => setDraft(e.target.value)}
+          aria-describedby={clamped === null ? undefined : noteId}
+          onChange={(e) => {
+            // Typing again is the user answering the note; it has nothing left to say.
+            setClamped(null);
+            setDraft(e.target.value);
+          }}
           onBlur={commit}
           onKeyDown={(e) => {
             // Enter commits in place, keeping focus — the gesture for "yes, that figure",
@@ -88,6 +107,17 @@ export function NumInput({
         />
         {suffix && <span className="field-affix">{suffix}</span>}
       </span>
+      {clamped !== null && (
+        <span className="field-note" id={noteId} role="status">
+          {withAffixes(clamped.typed)} isn't allowed here — using{" "}
+          {withAffixes(clamped.used)}
+          {clamped.used === min
+            ? ", the lowest this can be."
+            : clamped.used === max
+              ? ", the highest this can be."
+              : "."}
+        </span>
+      )}
     </label>
   );
 }

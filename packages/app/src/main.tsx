@@ -335,7 +335,14 @@ export function App() {
             — so its spending need counts loan payments and every other event, not just the
             standing budget. Everything rides on that one series (the engine itemizes the
             spending), so there is nothing else to pass. */}
+        {/* Keyed by scenario, so loading one remounts the panel and its editing month snaps
+            back to "now" along with the scrub cursor. The month is a position in a plan; carried
+            into a different plan it points somewhere the summary above is not looking, and the
+            two headers disagree about which moment is on screen. The panel's other local state
+            — a half-finished month edit, the last route taken — belongs to the replaced timeline
+            for the same reason `editingId` is cleared above. */}
         <BaseAdjustmentsPanel
+          key={presetId}
           plan={budget}
           transact={transact}
           series={chartSeries}

@@ -43,6 +43,11 @@ export type TaxBandKind = "incomeTax" | "payrollTax" | "settlement";
 export const SETTLEMENT_BAND_ID = "tax-settlement";
 export const SETTLEMENT_BAND_LABEL = "Tax settlement";
 
+/** One person's slice of the April band, drawn in their cut in place of the household's. */
+export function ownerSettlementBandId(ownerId: string): string {
+  return `${SETTLEMENT_BAND_ID}:${ownerId}`;
+}
+
 export interface TaxSourceBand {
   /**
    * The chart's stable dataKey. For an income-tax band this is the engine's source id
@@ -87,6 +92,33 @@ export interface TaxMonthRow {
    * negative; none of them is a band.
    */
   readonly settlementBySourceCents: Readonly<Record<string, number>>;
+  /**
+   * {@link settlementPaidCents} apportioned to the people whose income caused it, keyed by
+   * {@link ownerSettlementBandId}. Σ is `settlementPaidCents` exactly.
+   *
+   * Kept OUT of {@link centsBySource}, which must go on summing to {@link taxCents}: this is
+   * the same April money the household band already carries, said a second way. Read it via
+   * {@link bandCentsAt}, which is what a chart drawing one person's cut needs.
+   *
+   * Apportioned across POSITIVE shares rather than handed out signed. A source the
+   * multiple-jobs correction concentrated withholding on settles as a NEGATIVE — it is owed
+   * money back while the household still owes — and on a joint balance that refund genuinely
+   * offsets what the others owe, so it reduces every payer's slice instead of drawing one
+   * person a band below the axis. A month whose whole balance is attributable to nobody
+   * (every share negative, or no source with an owner) leaves this empty: the household band
+   * still carries it, and no person is charged a bill that was not theirs.
+   */
+  readonly settlementByOwnerCents: Readonly<Record<string, number>>;
+}
+
+/**
+ * A band's height this month, wherever it is recorded. The household's bands live in
+ * `centsBySource`, which sums to the tax actually paid; a person's April slice lives apart in
+ * `settlementByOwnerCents`, because it is the same money the household band already counts and
+ * putting both in one map would double it.
+ */
+export function bandCentsAt(row: TaxMonthRow, bandId: string): number {
+  return row.centsBySource[bandId] ?? row.settlementByOwnerCents[bandId] ?? 0;
 }
 
 /** Suffix distinguishing a source's payroll-tax band id from its income-tax id. */
@@ -115,6 +147,12 @@ export interface TaxChartData {
   /** The largest single month's tax and the month it falls in. */
   readonly peakMonthlyCents: number;
   readonly peakMonth: number;
+  /**
+   * One April band per person who ever bore a settlement, kept OUT of {@link sources} — the
+   * combined view draws the household's single band, and a person's cut draws theirs instead.
+   * Both in one list would double-count the same balance.
+   */
+  readonly settlementBands: readonly TaxSourceBand[];
   /** False for a null jurisdiction, or an all-exempt plan. */
   readonly hasAnyTax: boolean;
   /**
@@ -213,6 +251,29 @@ export function ownerQualified(
   return name === undefined || label.includes(name) ? label : `${label} · ${name}`;
 }
 
+/**
+ * Split `totalCents` across `weights` proportional to each, cumulative-rounded so the shares
+ * sum to `totalCents` exactly — the same technique the engine's own `proportionalSplit` uses,
+ * for the same reason: a chart whose parts do not add up to its whole is worse than no split.
+ */
+function apportion(
+  totalCents: number,
+  weights: readonly (readonly [string, number])[],
+): Map<string, number> {
+  const shares = new Map<string, number>();
+  const totalWeight = weights.reduce((sum, [, w]) => sum + w, 0);
+  if (totalWeight <= 0 || totalCents <= 0) return shares;
+  let acc = 0;
+  let prevCum = 0;
+  for (const [key, weight] of weights) {
+    acc += weight;
+    const cum = Math.round((totalCents * acc) / totalWeight);
+    shares.set(key, cum - prevCum);
+    prevCum = cum;
+  }
+  return shares;
+}
+
 export function buildTaxChartData(
   series: ProjectionSeries,
   personNames: ReadonlyMap<string, string> = new Map(),
@@ -230,6 +291,8 @@ export function buildTaxChartData(
   // then by month, so a source's two bands land adjacent in the legend/stack.
   const bandsSeen = new Map<string, { sourceId: string; kind: TaxBandKind }>();
   const sourceTotals = new Map<string, number>();
+  /** Owners who ever bore an April balance, in first-appearance order. */
+  const settlementOwners: string[] = [];
 
   for (const m of series.months) {
     const flows = m.flows;
@@ -282,6 +345,24 @@ export function buildTaxChartData(
     // One band for the whole balance due, and none at all for a refund. Added last so it sits on
     // top of the stack, where a once-a-year spike reads as the separate event it is.
     if (settlementPaidCents > 0) addBand(SETTLEMENT_BAND_ID, "settlement", settlementPaidCents);
+
+    // The same balance again, this time attributed — drawn only in a person's cut, so it never
+    // stacks alongside the household band above.
+    const settlementByOwnerCents: Record<string, number> = {};
+    if (settlementPaidCents > 0) {
+      const owed = new Map<string, number>();
+      for (const [sourceId, cents] of Object.entries(settlementBySourceCents)) {
+        const owner = registry.get(sourceId)?.ownerId;
+        if (owner === undefined || cents <= 0) continue;
+        owed.set(owner, (owed.get(owner) ?? 0) + cents);
+      }
+      for (const [owner, share] of apportion(settlementPaidCents, [...owed])) {
+        if (share === 0) continue;
+        settlementByOwnerCents[ownerSettlementBandId(owner)] = share;
+        if (!settlementOwners.includes(owner)) settlementOwners.push(owner);
+      }
+    }
+
     rows.push({
       month: m.month,
       taxCents,
@@ -290,6 +371,7 @@ export function buildTaxChartData(
       settlementPaidCents,
       refundCents,
       settlementBySourceCents,
+      settlementByOwnerCents,
     });
   }
 
@@ -313,9 +395,18 @@ export function buildTaxChartData(
     // Ties keep first-appearance order — sort is stable.
     .sort((a, b) => categoryRank(a.category) - categoryRank(b.category));
 
+  const settlementBands: TaxSourceBand[] = settlementOwners.map((ownerId) => ({
+    id: ownerSettlementBandId(ownerId),
+    label: SETTLEMENT_BAND_LABEL,
+    category: SETTLEMENT_BAND_ID,
+    kind: "settlement",
+    ownerId,
+  }));
+
   return {
     rows,
     sources,
+    settlementBands,
     hasSourceBreakdown,
     sourceLabels: Object.fromEntries(
       [...registry].map(([id, { label, ownerId }]) => [id, ownerQualified(label, ownerId, personNames)]),
@@ -326,7 +417,13 @@ export function buildTaxChartData(
     hasAnyTax: totalCents > 0,
     // Drawn bands only, so an owner whose every band was dropped for carrying nothing is not
     // offered a cut that would render empty.
-    owners: [...new Set(sources.map((s) => s.ownerId).filter((id): id is string => id !== undefined))],
+    owners: [
+      ...new Set(
+        [...sources, ...settlementBands]
+          .map((s) => s.ownerId)
+          .filter((id): id is string => id !== undefined),
+      ),
+    ],
   };
 }
 
@@ -356,7 +453,7 @@ export function taxTotalsForBands(
   let peakMonth = 0;
   for (const r of rows) {
     let monthCents = 0;
-    for (const id of ids) monthCents += r.centsBySource[id] ?? 0;
+    for (const id of ids) monthCents += bandCentsAt(r, id);
     totalCents += monthCents;
     if (monthCents > peakMonthlyCents) {
       peakMonthlyCents = monthCents;

@@ -10,7 +10,12 @@ import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { SYNTHETIC_CARD_ID, type ProjectionSeries } from "@finley/engine";
 import { NetWorthBreakdownChart, tooltipTotals } from "./netWorthBreakdownChart";
-import { buildNetWorthBreakdown, type BreakdownMeta, type BreakdownBand } from "./netWorthBreakdown";
+import {
+  buildNetWorthBreakdown,
+  peakNetWorthOf,
+  type BreakdownMeta,
+  type BreakdownBand,
+} from "./netWorthBreakdown";
 
 interface MonthSpec {
   readonly accounts?: Readonly<Record<string, number>>;
@@ -209,3 +214,52 @@ describe("NetWorthBreakdownChart — whose net worth", () => {
   });
 });
 
+
+/**
+ * The headline figure under a person's cut. The summary used to read `peakNetWorthCents` — the
+ * HOUSEHOLD's high-water mark — whichever cut was showing, so selecting a partner printed a
+ * number their own chart never comes near, with the axis and the sentence disagreeing on the
+ * same screen.
+ */
+describe("peakNetWorthOf — whose high-water mark", () => {
+  const data = buildNetWorthBreakdown(
+    series([
+      { accounts: { savings: 10_000, "savings-p2": 4_000 }, liabilities: { "loan-1": 2_000 } },
+      // Alex peaks here; Blake keeps climbing afterwards, so the two peaks fall in different
+      // months and neither is the household's.
+      { accounts: { savings: 30_000, "savings-p2": 5_000 }, liabilities: { "loan-1": 1_500 } },
+      { accounts: { savings: 12_000, "savings-p2": 9_000 }, liabilities: { "loan-1": 1_000 } },
+    ]),
+    {
+      accounts: [
+        { id: "savings", label: "Cash savings", ownerId: "p1" },
+        { id: "savings-p2", label: "Blake — Cash savings", ownerId: "p2" },
+      ],
+      liabilityLabels: { "loan-1": "Auto loan" },
+      ownerById: { "loan-1": "p2" },
+    },
+  );
+  const owned = (ownerId: string) => data.bands.filter((b) => b.ownerId === ownerId);
+
+  it("gives each person their own peak, in their own month", () => {
+    // Alex: $30,000, no debt. Blake: $9,000 of savings less the $1,000 still owed on the loan.
+    expect(peakNetWorthOf(data, owned("p1"))).toBe(30_000);
+    expect(peakNetWorthOf(data, owned("p2"))).toBe(8_000);
+  });
+
+  it("never reports the household's figure for one person", () => {
+    // The household peaks at $33,500 in month 1 — a number neither partner reaches alone.
+    expect(data.peakNetWorthCents).toBe(33_500);
+    expect(peakNetWorthOf(data, owned("p1"))).not.toBe(data.peakNetWorthCents);
+    expect(peakNetWorthOf(data, owned("p2"))).not.toBe(data.peakNetWorthCents);
+  });
+
+  it("counts a person's debt against them, not just their assets", () => {
+    // Blake's loan is Blake's: $9,000 of savings is not an $9,000 peak.
+    expect(peakNetWorthOf(data, owned("p2"))).toBeLessThan(9_000);
+  });
+
+  it("agrees with the household figure when handed every band", () => {
+    expect(peakNetWorthOf(data, data.bands)).toBe(data.peakNetWorthCents);
+  });
+});

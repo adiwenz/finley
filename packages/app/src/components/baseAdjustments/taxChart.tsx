@@ -16,6 +16,7 @@ import type { NameType, ValueType } from "recharts/types/component/DefaultToolti
 import { formatDollars, monthLabel, yearOf } from "../../format";
 import { TODAY_X, axisPointLabel, axisYearTickLabel, fromAxisX, toAxisX, yearTickXs } from "../monthAxis";
 import {
+  bandCentsAt,
   describeTaxes,
   ownerQualified,
   taxTotalsForBands,
@@ -187,12 +188,22 @@ export function TaxTooltipContent(props: TooltipContentProps<ValueType, NameType
 const COMBINED = "__combined__";
 
 /**
- * The bands one person bore. A band with no owner — the April settlement, the shared buffer
- * drawdown, a source the engine keyed by bare category — belongs to the combined view only,
- * so a person's cut never charges them with tax that was not attributed to them.
+ * The bands one cut draws. Combined gets the household's own list, whose April band is the
+ * whole balance due. A person gets the bands attributed to them, plus THEIR slice of that
+ * balance in place of the household's — the two never appear together, or the same April
+ * money would be drawn twice.
+ *
+ * A band with no owner — the shared buffer drawdown, a source the engine keyed by bare tax
+ * category — belongs to the combined view only, so a person's cut is never charged with tax
+ * that was not attributed to them.
  */
-function bandsForOwner(bands: readonly TaxSourceBand[], owner: string): TaxSourceBand[] {
-  return owner === COMBINED ? [...bands] : bands.filter((b) => b.ownerId === owner);
+function bandsForOwner(data: TaxChartData, owner: string): TaxSourceBand[] {
+  if (owner === COMBINED) return [...data.sources];
+  return [
+    ...data.sources.filter((b) => b.ownerId === owner),
+    // Last, so the once-a-year spike sits on top of the stack exactly as the household's does.
+    ...data.settlementBands.filter((b) => b.ownerId === owner),
+  ];
 }
 
 export interface TaxChartProps {
@@ -224,14 +235,14 @@ export function TaxChart({ data, selectedMonth, onSelectMonth, personNames }: Ta
   // would put a name on every row and disambiguate nothing. Under a person's own button the
   // name is stated once by the button, so nothing is qualified at all.
   const visibleBands = useMemo(() => {
-    const cut = bandsForOwner(data.sources, activeOwner);
+    const cut = bandsForOwner(data, activeOwner);
     if (activeOwner !== COMBINED) return cut;
     const seen = new Map<string, number>();
     for (const b of cut) seen.set(b.label, (seen.get(b.label) ?? 0) + 1);
     return cut.map((b) =>
       (seen.get(b.label) ?? 0) > 1 ? { ...b, label: ownerQualified(b.label, b.ownerId, names) } : b,
     );
-  }, [data.sources, activeOwner, names]);
+  }, [data, activeOwner, names]);
 
   // The household's whole burden, or just this person's — summed over the bands actually drawn.
   const totals = useMemo(
@@ -244,8 +255,12 @@ export function TaxChart({ data, selectedMonth, onSelectMonth, personNames }: Ta
   // has no sources, so the row carries the lone `taxCents`.
   const stacked = data.hasSourceBreakdown && visibleBands.length > 0;
   // Coloured off the FULL band list, not the visible cut, so a band keeps its colour when the
-  // reader toggles between combined and their own.
-  const colors = useMemo(() => colorsForBands(data.sources), [data.sources]);
+  // reader toggles between combined and their own — and a person's April band takes the same
+  // settlement tone as the household's, since it is the same event.
+  const colors = useMemo(
+    () => colorsForBands([...data.sources, ...data.settlementBands]),
+    [data.sources, data.settlementBands],
+  );
   // On the shared months-from-now axis; a flow chart, so the today slot stays empty (no tax is
   // paid at "now") and the bands start at end-of-month-0, aligned with the charts above.
   //
@@ -260,7 +275,7 @@ export function TaxChart({ data, selectedMonth, onSelectMonth, personNames }: Ta
         const x = toAxisX(r.month);
         if (!stacked) return { month: x, taxCents: r.taxCents };
         const zeroed: Record<string, number> = {};
-        for (const band of visibleBands) zeroed[band.id] = r.centsBySource[band.id] ?? 0;
+        for (const band of visibleBands) zeroed[band.id] = bandCentsAt(r, band.id);
         return { month: x, ...zeroed };
       }),
     [data.rows, visibleBands, stacked],

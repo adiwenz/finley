@@ -374,11 +374,11 @@ export function buildCashFlowChartModel(
     spendingNeedKey: SPENDING_NEED_KEY,
     netKey: NET_KEY,
     // Only the inflow view: on the outflow view the spending IS the bands, and on the net view
-    // spending has already been subtracted, so the reference worth drawing is zero. Dropped in
-    // a person's cut too — the line is the WHOLE household's spending need, and drawing it over
-    // one earner's income asks "does Alex alone cover everything?", which is not the question
-    // the toggle was reached for and reads as a shortfall in a household that has none.
-    showsSpendingNeed: view === "inflows" && ownerId === undefined,
+    // spending has already been subtracted, so the reference worth drawing is zero. In a
+    // person's cut the line is THEIR share of the household's spending, not the household's
+    // whole need — held against one earner's pay, the latter reads as a shortfall in a
+    // household that has none.
+    showsSpendingNeed: view === "inflows",
     lastX,
     brokeMonth,
     brokeAgeLabel: brokeMonth === null ? null : formatAgeAtMonth(currentAge, brokeMonth),

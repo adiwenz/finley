@@ -129,6 +129,22 @@ describe("App — scenario replacement", () => {
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Jordan");
     expect(screen.getByText(/No life events yet/)).toBeTruthy();
   });
+
+  it("snaps the editing month back to now, so both headers describe the same moment", () => {
+    // A month is a position in a plan. Carried into a different plan it points somewhere the
+    // summary above is not looking — the page then said "Editing month 61" over a projection
+    // still reporting "As of Year 0".
+    render(<App />);
+    const monthField = screen.getByLabelText(/^Month$/) as HTMLInputElement;
+    fireEvent.change(monthField, { target: { value: "61" } });
+    fireEvent.blur(monthField);
+    expect(screen.getByTestId("selected-month").textContent).toMatch(/month 61/);
+
+    fireEvent.change(screen.getByLabelText(/Start from a scenario/), {
+      target: { value: "student-loan" },
+    });
+    expect(screen.getByTestId("selected-month").textContent).toMatch(/month 0/);
+  });
 });
 
 describe("App — projection orchestration", () => {
