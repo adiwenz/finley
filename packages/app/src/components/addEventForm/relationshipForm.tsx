@@ -9,6 +9,7 @@ import {
   minLifeExpectancyFor,
   dollarsToCents,
   centsToDollars,
+  type ProjectionResult,
   type RelationshipEvent,
 } from "@finley/engine";
 import {
@@ -95,11 +96,12 @@ function draftFromEvent(event: RelationshipEvent): RelationshipDraft {
 }
 
 export function RelationshipForm({
+  result,
   defaultMonth,
   horizonMonths,
   onAdd,
   edit,
-}: FormProps & { edit?: EditProps<RelationshipEvent> }) {
+}: FormProps & { result: ProjectionResult; edit?: EditProps<RelationshipEvent> }) {
   const [draft, setDraft] = useState<RelationshipDraft>(() =>
     edit
       ? draftFromEvent(edit.event)
@@ -136,6 +138,18 @@ export function RelationshipForm({
    */
   const ageYear = anchored ? START_YEAR : joinYear;
   const partnerBirthYear = ageYear - draft.age;
+
+  /**
+   * The partnership already covering the chosen date, if there is one — the household may only
+   * ever be in one at a time. Shown and blocked here rather than left to the engine's refusal
+   * because the date picker is where the choice is made and where it can still be changed
+   * cheaply. The engine enforces the rule regardless, including the case this cannot see: a
+   * partnering dated BEFORE one already on the timeline and left running into it.
+   *
+   * A revision never conflicts with the partner it is revising.
+   */
+  const occupied = result.activePartnerAt(draft.month);
+  const conflict = occupied !== null && occupied.id !== edit?.event.person.id ? occupied : null;
 
   function addJob(job: JobEditDraft) {
     setDraft((d) => ({ ...d, jobs: [...d.jobs, job] }));
@@ -360,7 +374,13 @@ export function RelationshipForm({
         </p>
       </details>
 
-      <button className="btn primary" onClick={submit}>
+      {conflict && (
+        <p className="hint warn">
+          You&apos;re already partnered with {conflict.name || "someone"} in{" "}
+          {yearOfMonth(draft.month)}. Add a separation first or choose a later date.
+        </p>
+      )}
+      <button className="btn primary" disabled={conflict !== null} onClick={submit}>
         {edit ? "Save changes" : "Add event"}
       </button>
     </>

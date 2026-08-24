@@ -17,6 +17,7 @@ import { interpretLedger } from "../ledger/interpret";
 import type { Ledger } from "../ledger/ledger";
 import type { Person } from "../plan/person";
 import type { ProjectionSeries } from "./simulate";
+import { personActiveWindow } from "../job/personActiveWindow";
 
 export interface SnapshotChild extends Child {
   readonly id: ChildId;
@@ -101,6 +102,32 @@ export function membersAt(household: Household, month: number): Person[] {
   return household.memberships
     .filter((mem) => mem.startMonth <= month && (mem.endMonth === null || mem.endMonth > month))
     .map((mem) => mem.person);
+}
+
+/**
+ * The partner the household has at `month`, or `null` when it has none — the single answer every
+ * partner-offering surface reads, now that there can only ever be one.
+ *
+ * Death-aware, which is what separates it from {@link membersAt}: a membership's `endMonth`
+ * records a separation and nothing else, so a partner who died years ago is still "a member" by
+ * that reckoning. Asking through {@link personActiveWindow} composes the two the way every
+ * person-scoped rule in the simulation already does, so a form cannot offer to separate from
+ * somebody the projection has already buried.
+ *
+ * Base members are excluded by their infinite start: the primary is not somebody the primary is
+ * partnered with.
+ */
+export function activePartnerAt(
+  household: Household,
+  month: number,
+  nowYear: number | undefined,
+): Person | null {
+  for (const membership of household.memberships) {
+    if (!Number.isFinite(membership.startMonth)) continue;
+    const active = personActiveWindow(membership, nowYear);
+    if (active.startMonth <= month && month < active.endMonthExclusive) return membership.person;
+  }
+  return null;
 }
 
 /**

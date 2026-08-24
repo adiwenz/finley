@@ -290,7 +290,7 @@ export function App() {
           </div>
 
           <div className="card">
-            <StartingPositionPanel onAdd={transact} />
+            <StartingPositionPanel result={result} onAdd={transact} />
           </div>
 
           {/* Standing settings rather than a live readout: both start collapsed, so the

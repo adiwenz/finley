@@ -9,7 +9,10 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import type { Projection } from "@finley/engine";
+import { PLAN_DEFAULTS } from "../../planDefaults";
 import { StartingPositionPanel } from "./startingPositionPanel";
+import { readerOf, runOf } from "../../testing/projectionHarness";
+import { usJurisdiction } from "@finley/rules";
 
 afterEach(cleanup);
 
@@ -18,7 +21,7 @@ function renderPanel() {
   const ownHome = vi.fn();
   const onAdd = (write: (p: Projection) => void) =>
     write({ carryLoan, ownHome } as unknown as Projection);
-  render(<StartingPositionPanel onAdd={onAdd} />);
+  render(<StartingPositionPanel result={runOf(PLAN_DEFAULTS)} onAdd={onAdd} />);
   return { carryLoan, ownHome };
 }
 
@@ -56,5 +59,20 @@ describe("StartingPositionPanel — accordion", () => {
 
     expect(carryLoan).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("combobox", { name: /Type/i })).toBeNull();
+  });
+});
+
+describe("StartingPositionPanel — one partnership at a time", () => {
+  it("closes the Partner tile once a partnership already covers day one", () => {
+    const p = readerOf(PLAN_DEFAULTS);
+    p.startPartnered({ partneredForMonths: 60, name: "Blake", birthYear: 1990, lifeExpectancy: 90 });
+    render(<StartingPositionPanel result={p.run(usJurisdiction)} onAdd={() => {}} />);
+
+    const partner = toggle(/Partner/) as HTMLButtonElement;
+    expect(partner.disabled).toBe(true);
+    expect(partner.title).toMatch(/already partnered with Blake/i);
+
+    fireEvent.click(partner);
+    expect(screen.queryByRole("spinbutton", { name: /Together for/i })).toBeNull();
   });
 });

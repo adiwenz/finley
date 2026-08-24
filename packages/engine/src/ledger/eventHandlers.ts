@@ -38,6 +38,12 @@ import { explicitObligation } from "../projection/financialObligation";
 import type { FundingFailure } from "../projection/fundingFailure";
 import { buildPartnerAccounts } from "../compile/projectionBase";
 import { ZERO_PARTNER_ACCOUNTS } from "./eventTypes";
+import {
+  overlappingPartnership,
+  partnershipConflictReason,
+  partnershipSpan,
+  partnershipSpans,
+} from "./partnership";
 import type { PlanAccount } from "../plan/planAccount";
 
 /**
@@ -141,9 +147,27 @@ function fundingFailureMessage(
 }
 
 const relationship: EventHandler<RelationshipEvent> = {
-  check(event, state) {
+  check(event, state, context) {
     if (state.personsById.has(asPersonId(event.person.id))) {
       return fail(event, `person "${event.person.id}" already exists`);
+    }
+    // The hard half of "one partnership at a time" — see {@link partnershipSpans}. Enforced on
+    // the REPLAY state rather than beside each verb, so it holds for every path that can produce
+    // an overlap and not only the ones that obviously do: adding a partner, re-dating one,
+    // removing or moving the separation between two, raising an expectancy so the first
+    // partnership outlives the gap, and a whole ledger arriving from an import.
+    //
+    // The candidate carries no separation of its own: replay reaches this event before any
+    // separation dated after it, and a brand-new partnering has none. Its own death still bounds
+    // it, so a partner who does not live to reach a partnership already booked ahead is no
+    // conflict with it.
+    const candidate = partnershipSpan(event.person, event.month, null, context.startYear);
+    const conflict = overlappingPartnership(
+      partnershipSpans(state, context.startYear),
+      candidate,
+    );
+    if (conflict) {
+      return fail(event, partnershipConflictReason(candidate, conflict, context.startYear));
     }
     return ok;
   },

@@ -56,7 +56,7 @@ export function sortedEvents(events: readonly LifeEvent[]): LifeEvent[] {
 export function contextFrom(base: LedgerBaseConfig): InterpretContext {
   const accountIds = new Set<AccountId>();
   for (const acc of base.initialAccounts ?? []) accountIds.add(acc.account.id as AccountId);
-  return { accountIds, annualInflationRate: base.annualInflationRate };
+  return { accountIds, annualInflationRate: base.annualInflationRate, startYear: base.startYear };
 }
 
 /** Seed the pre-event household from base config (durable persons present from the start). */

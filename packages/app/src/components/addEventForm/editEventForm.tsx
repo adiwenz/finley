@@ -56,7 +56,7 @@ export function EditEventForm({
   function form() {
     switch (event.type) {
       case "RelationshipEvent":
-        return <RelationshipForm {...formProps} edit={{ event, onRevise }} />;
+        return <RelationshipForm {...formProps} result={result} edit={{ event, onRevise }} />;
       case "ChildEvent":
         return <ChildForm {...formProps} edit={{ event, onRevise }} />;
       case "LoanEvent":

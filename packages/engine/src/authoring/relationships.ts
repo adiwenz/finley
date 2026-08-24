@@ -13,7 +13,14 @@ import type { Cents } from "../money/money";
 import type { PartnerStandingAccounts } from "../ledger/eventTypes";
 import type { ProjectionState, Written } from "./state";
 import { mint } from "./mint";
-import { appendEvent } from "./eventWrite";
+import { appendEvent, projectionBaseFor } from "./eventWrite";
+import { interpretToState } from "../ledger/interpret";
+import {
+  overlappingPartnership,
+  partnershipConflictReason,
+  partnershipSpan,
+  partnershipSpans,
+} from "../ledger/partnership";
 import { earliestDeath, yearOfMonth } from "./reachability";
 import { resolveJobInput, type JobInput } from "./jobs";
 
@@ -192,6 +199,41 @@ function assertBothAliveAt(
   );
 }
 
+/**
+ * Refuse a partnering that would overlap one already on the timeline — the WRITE-time half of
+ * the one-partnership-at-a-time rule, kept for the sentence it can say.
+ *
+ * The rule itself is {@link import("../ledger/partnership")}, enforced on replay by
+ * `relationship.check`, which is what makes it true of every path — a revision, a removed
+ * separation, a raised expectancy, an imported ledger. This half adds nothing to the invariant
+ * and exists only so the commonest path of all, adding a partner, refuses in the plain sentence
+ * the user can act on rather than through the replay's event-naming wrapper.
+ *
+ * The candidate carries no id: it names the person this very call is about to mint, so there is
+ * none yet. It carries no separation either, for the same reason.
+ */
+function assertNotAlreadyPartnered(
+  state: ProjectionState,
+  jurisdiction: Jurisdiction,
+  partner: Pick<Person, "name" | "birthYear" | "lifeExpectancy">,
+  month: number,
+): void {
+  const replayed = interpretToState(
+    state.scenario.ledger,
+    projectionBaseFor(state, jurisdiction),
+  );
+  const candidate = partnershipSpan(partner, month, null, state.startYear);
+  const conflict = overlappingPartnership(
+    partnershipSpans(replayed, state.startYear),
+    candidate,
+  );
+  if (conflict === null) return;
+  // Everything the reader needs sits AFTER the em-dash — see {@link assertBothAliveAt}.
+  throw new Error(
+    `Projection: cannot marry — ${partnershipConflictReason(candidate, conflict, state.startYear)}`,
+  );
+}
+
 /** Answers with the minted `"person-N"` id. */
 export function applyMarriage(
   state: ProjectionState,
@@ -218,6 +260,7 @@ export function applyMarriage(
   }
   // Before the first mint, so a refused marriage leaves no id issued behind it.
   assertBothAliveAt(state, input.month, { ...input, lifeExpectancy }, "marry");
+  assertNotAlreadyPartnered(state, jurisdiction, { ...input, lifeExpectancy }, input.month);
   const { id, nextSeq: afterPerson } = mint(state, "person");
   // One counter, threaded person → jobs: each job mints against the seq the previous mint left,
   // so the partner and their jobs draw distinct ids from the same monotonic run. The owner is

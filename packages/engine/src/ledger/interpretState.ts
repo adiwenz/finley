@@ -173,6 +173,13 @@ export interface InterpretContext {
   /** The default rate for `inflationLinked` growth. */
   readonly annualInflationRate: number;
   /**
+   * The plan's frozen "now", for the one precondition that reckons a death: a partnership ends
+   * when a partner dies, so whether two of them overlap depends on placing an expectancy on the
+   * calendar. Absent on a hand-built base with no start year, which makes every death unreckonable
+   * and so unbounded — see {@link import("../job/personActiveWindow").lifeExpectancyEndMonthExclusive}.
+   */
+  readonly startYear?: number;
+  /**
    * The shared funding-availability calculation, resolved against a projection of the ledger *so
    * far* by the SAME ordered draw resolution the simulator runs ({@link
    * import("../projection/fundingDrawStep").resolveOrderedFundingDraw}). Gates the home-purchase

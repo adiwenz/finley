@@ -24,7 +24,7 @@ import {
 import { projectScenarioParts } from "../retirement/retirementSolver";
 import { summarizeSimulation } from "../projection/report";
 import type { SimulationReport } from "../projection/report";
-import { buildSnapshot, membersAt } from "../projection/snapshot";
+import { activePartnerAt, buildSnapshot, membersAt } from "../projection/snapshot";
 import type { HouseholdSnapshot } from "../projection/snapshot";
 import type { Household } from "../ledger/household";
 import type { Person } from "../plan/person";
@@ -59,6 +59,12 @@ export interface ProjectionResult {
   readonly snapshot: (month: number) => HouseholdSnapshot;
   /** Who is in the household at `month`; a partner joins and leaves on their own dates. */
   readonly membersAt: (month: number) => Person[];
+  /**
+   * The one partner the household has at `month`, or `null` — see
+   * {@link import("../projection/snapshot").activePartnerAt}. There is never a second, so every
+   * surface that used to ask which partner a change was about now asks this instead.
+   */
+  readonly activePartnerAt: (month: number) => Person | null;
   /**
    * Every plan goal beside how it is tracking against THIS run, in funding-priority order.
    * Paired, because a row needs both and the two lists are index-aligned only by construction.
@@ -138,6 +144,7 @@ export function runProjection(
     report,
     snapshot: (month: number) => buildSnapshot(household, month, series),
     membersAt: (month: number) => membersAt(household, month),
+    activePartnerAt: (month: number) => activePartnerAt(household, month, state.startYear),
     goalProgress: () => {
       const accounts = buildPlanAccounts(plan);
       return buildPlanGoals(plan).map((goal) => ({

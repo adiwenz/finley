@@ -90,7 +90,8 @@ describe("App — central projection state", () => {
     fireEvent.change(screen.getByLabelText("What happened?"), {
       target: { value: "SeparationEvent" },
     });
-    fireEvent.change(screen.getByLabelText("From"), { target: { value: "p-0" } });
+    // No partner to pick: the household has exactly one, so the form names them and separates
+    // from them.
     fireEvent.click(screen.getByText("Add event"));
 
     expect(screen.getAllByText("Remove")).toHaveLength(2);

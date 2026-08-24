@@ -39,13 +39,15 @@ function stubProjection() {
   return { p, onAdd, onRevise: onAdd };
 }
 
-/** You plus a partner from month 0 — all the separation form reads of a run
- *  (`membersAt`, and only each person's `{id,name}`). */
+/** You plus a partner from month 0 — all the separation form reads of a run: the one active
+ *  partner (there is never a second), and the roster it names an edited event's partner from. */
 const withPartner = {
   membersAt: () => [
     { id: "p1", name: "You" },
     { id: "p2", name: "Partner" },
   ],
+  activePartnerAt: () => ({ id: "p2", name: "Partner" }),
+  household: { memberships: [{ person: { id: "p2", name: "Partner" } }] },
 } as unknown as ProjectionResult;
 
 /** A household of one — the owner picker hides itself here, as the Jobs panel's does. */
@@ -138,6 +140,35 @@ describe("SeparationForm — alimony amount gates its duration", () => {
         alimonyMonthlyCents: 500_00,
         alimonyDurationMonths: 36,
       }),
+    );
+  });
+});
+
+describe("SeparationForm — the sole partner is named, never picked", () => {
+  it("offers no partner picker and separates from the one partner there is", () => {
+    const { p, onAdd } = stubProjection();
+    render(
+      <SeparationForm defaultMonth={0} horizonMonths={660} onAdd={onAdd} result={withPartner} />,
+    );
+
+    // One partnership at a time means there is nothing to choose between.
+    expect(screen.queryByRole("combobox", { name: /From/i })).toBeNull();
+    expect(screen.getByText("Partner")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Add event/i }));
+    expect(p.separate).toHaveBeenCalledWith(
+      expect.objectContaining({ partnerPersonId: "p2" }),
+    );
+  });
+
+  it("says there is nobody to separate from, and blocks, when the household has no partner", () => {
+    const { onAdd } = stubProjection();
+    const solo = { ...soloResult, activePartnerAt: () => null } as unknown as ProjectionResult;
+    render(<SeparationForm defaultMonth={0} horizonMonths={660} onAdd={onAdd} result={solo} />);
+
+    expect(screen.getByText(/No partner in the household/i)).toBeTruthy();
+    expect((screen.getByRole("button", { name: /Add event/i }) as HTMLButtonElement).disabled).toBe(
+      true,
     );
   });
 });

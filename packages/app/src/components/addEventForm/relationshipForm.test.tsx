@@ -9,7 +9,10 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { enterNumber } from "../../testing/numberField";
 import type { Projection, RelationshipEvent } from "@finley/engine";
+import { PLAN_DEFAULTS } from "../../planDefaults";
 import { RelationshipForm } from "./relationshipForm";
+import { readerOf, runOf } from "../../testing/projectionHarness";
+import { usJurisdiction } from "@finley/rules";
 
 afterEach(cleanup);
 
@@ -33,12 +36,16 @@ const EXISTING: RelationshipEvent = {
  * Renders the form in edit mode over {@link EXISTING}, returning the `reviseTransaction` spy.
  * An edit revises the event in place, so a test asserts the `(id, revision)` pair it submits.
  */
+/** A single-earner run: nobody is partnered, so the form's own overlap gate never fires. */
+const UNPARTNERED = runOf(PLAN_DEFAULTS);
+
 function renderEdit(event: RelationshipEvent = EXISTING) {
   const reviseTransaction = vi.fn();
   const onRevise = (write: (p: Projection) => void) =>
     write({ reviseTransaction } as unknown as Projection);
   render(
     <RelationshipForm
+      result={UNPARTNERED}
       defaultMonth={0}
       horizonMonths={600}
       onAdd={() => {}}
@@ -57,7 +64,14 @@ function renderForm(defaultMonth = 0) {
   const marry = vi.fn();
   const onAdd = (write: (p: Projection) => void) =>
     write({ marry } as unknown as Projection);
-  render(<RelationshipForm defaultMonth={defaultMonth} horizonMonths={600} onAdd={onAdd} />);
+  render(
+    <RelationshipForm
+      result={UNPARTNERED}
+      defaultMonth={defaultMonth}
+      horizonMonths={600}
+      onAdd={onAdd}
+    />,
+  );
   return marry;
 }
 
@@ -280,5 +294,50 @@ describe("RelationshipForm — editing a partner already in the household", () =
     enterNumber(spin(/Their age today/i), "44");
     fireEvent.click(btn(/Save changes/i));
     expect(revise.mock.calls[0][1]).toMatchObject({ month: -60, birthYear: 2026 - 44 });
+  });
+});
+
+describe("RelationshipForm — one partnership at a time", () => {
+  /** A run where the household is already partnered with Blake from 2028 (month 24) onward. */
+  function partneredRun() {
+    const p = readerOf(PLAN_DEFAULTS);
+    p.marry({ month: 24, name: "Blake", birthYear: 1990, lifeExpectancy: 90 });
+    return p.run(usJurisdiction);
+  }
+
+  it("names the partnership in the way and refuses to submit onto it", () => {
+    const marry = vi.fn();
+    const onAdd = (write: (p: Projection) => void) => write({ marry } as unknown as Projection);
+    render(
+      <RelationshipForm
+        result={partneredRun()}
+        defaultMonth={60}
+        horizonMonths={600}
+        onAdd={onAdd}
+      />,
+    );
+
+    expect(screen.getByText(/already partnered with Blake in 2031/i)).toBeTruthy();
+    expect((btn(/Add event/i) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("clears once the date moves back before the partnership began", () => {
+    const marry = vi.fn();
+    const onAdd = (write: (p: Projection) => void) => write({ marry } as unknown as Projection);
+    render(
+      <RelationshipForm
+        result={partneredRun()}
+        defaultMonth={60}
+        horizonMonths={600}
+        onAdd={onAdd}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("combobox", { name: /When/i }), { target: { value: "0" } });
+
+    // Month 0 sits clear of a partnership that starts at 24 — the overlap the engine would still
+    // catch (this one running INTO Blake's) is not something the date picker can see.
+    expect(screen.queryByText(/already partnered/i)).toBeNull();
+    expect((btn(/Add event/i) as HTMLButtonElement).disabled).toBe(false);
   });
 });
