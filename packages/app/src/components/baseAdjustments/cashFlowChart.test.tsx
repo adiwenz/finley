@@ -242,12 +242,11 @@ describe("CashFlowTooltipContent — the hover readout", () => {
 });
 
 /**
- * The Combined / per-person toggle on the inflow view. Cash ARRIVING carries the owner the
- * engine attributed it to, so "whose income is this?" is answerable. Cash LEAVING does not:
- * every budget line compiles under the primary person whoever it is really for, so cutting the
- * outflow stack by person would draw the primary paying for the whole household. The toggle is
- * therefore offered on "Coming in" alone rather than shown everywhere and quietly lying on two
- * of the three views.
+ * The Combined / per-person toggle, on all three views. Cash ARRIVING carries the owner the
+ * engine attributed it to; cash LEAVING carries the engine's own per-person charge — each
+ * person's tax and their share of what the household spends, which is how the waterfall funded
+ * it rather than a split this chart invents. A shared budget line has no per-person amount, so
+ * a person's cut states their whole share of the shared lines as one band instead.
  */
 describe("CashFlowChart — whose cash flow", () => {
   const owned = (
@@ -313,29 +312,31 @@ describe("CashFlowChart — whose cash flow", () => {
     );
   });
 
-  it("offers no cut on the one view that cannot honour it", () => {
-    // Going out is a household figure end to end — no budget line has an author — so a control
-    // that changed nothing there would read as though the household spent nothing on the
-    // partner's behalf. Coming in and Net both have real per-person answers.
+  it("offers the cut on every view", () => {
     renderTwoEarners();
-    expect(screen.getByRole("group", { name: "Whose cash flow" })).toBeTruthy();
-
-    fireEvent.click(view("Going out"));
-    expect(screen.queryByRole("group", { name: "Whose cash flow" })).toBeNull();
-
-    fireEvent.click(view("Net"));
-    expect(screen.getByRole("group", { name: "Whose cash flow" })).toBeTruthy();
+    for (const label of ["Coming in", "Going out", "Net"]) {
+      fireEvent.click(view(label));
+      expect(screen.getByRole("group", { name: "Whose cash flow" })).toBeTruthy();
+    }
   });
 
-  it("returns to the whole household when the reader leaves the inflow view and comes back", () => {
-    // The cut is dropped rather than remembered while it cannot apply, so "Going out" is never
-    // silently showing a stale person's name.
+  it("carries the cut across to the outflow view, where it names that person's own share", () => {
+    // The household's whole $3,000 of rent is one band under Combined; Blake's cut states the
+    // $857.14 the waterfall charged Blake, which is a different question about the same money.
     renderTwoEarners();
     fireEvent.click(cut("Blake"));
-    expect(drawnBands()).toEqual(["Teacher"]);
-
     fireEvent.click(view("Going out"));
+
+    expect(drawnBands()).toEqual(["Share of shared spending"]);
+    expect(screen.getByTestId("income-first-row").textContent).toBe(
+      JSON.stringify({ "spend:shared": 85_714 }),
+    );
+
+    fireEvent.click(cut("Combined"));
     expect(drawnBands()).toEqual(["Needs"]);
+    expect(screen.getByTestId("income-first-row").textContent).toBe(
+      JSON.stringify({ "spend:needs": dollarsToCents(3_000) }),
+    );
   });
 
   it("offers no cut at all to a household of one", () => {

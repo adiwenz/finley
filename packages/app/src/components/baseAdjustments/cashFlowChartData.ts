@@ -33,6 +33,16 @@
  * it and nothing arrives for the month to spend. Banding it counted the same dollar twice, once
  * entering the account and again inside the draw that later took it out.
  *
+ * WHOSE
+ *
+ * Either side can be cut to one member, and the two sides are cut differently because they are
+ * differently attributable. An inflow band BELONGS to whoever receives it — a paycheque, a
+ * benefit, a tax refund — so a person's stack is a subset of the household's bands. An outflow
+ * band is a household line whose per-person amount is a separate figure the engine states
+ * ({@link CashFlowMonthRow.outflowCentsByBandByPerson}): the same band id, a different number,
+ * plus {@link SHARED_SPENDING_BAND_ID} for the shared lines, which have no per-person amount at
+ * all. Nothing here derives a person's share from the household's total.
+ *
  * Bands are the engine's own facts — per-source flows (`ProjectionMonthFlows.incomeSources`) and
  * per-obligation costs (`ProjectionMonthFlows.obligations`), each already labelled and
  * categorized. This chart is never a statement of taxable income, and the two genuinely differ:
@@ -51,6 +61,15 @@ export const TAX_REFUND_CATEGORY = "taxRefund";
 export const TAX_REFUND_LABEL = "Tax refund";
 
 /**
+ * One refund band per FILER. The household files as separate single filers, so an April in which
+ * one partner is refunded and the other owes is two facts, not one net figure — and the refunded
+ * partner is the only person whose cut of the chart may show the money arriving.
+ */
+export function refundBandId(personId: string): string {
+  return `${TAX_REFUND_BAND_ID}:${personId}`;
+}
+
+/**
  * Tax outflow bands. Simple draws {@link TAX_BAND_ID} alone; Advanced splits it three ways,
  * which is the split the tax chart below already makes and the one a reader asks for first —
  * withholding is a rate, FICA is a different tax, and a settlement is last year's arithmetic
@@ -62,6 +81,24 @@ export const TAX_PAYROLL_BAND_ID = "tax:payroll";
 export const TAX_SETTLEMENT_BAND_ID = "tax:settlement";
 /** Every tax band's category, so the palette treats them as one family. */
 export const TAX_OUTFLOW_CATEGORY = "tax";
+
+/**
+ * One person's share of what the household spends together, drawn ONLY in that person's cut.
+ *
+ * A shared budget line has no per-person amount and never will — the household spends $2,400 on
+ * rent, not $1,400 of Alex's rent — so a person's stack cannot carry the line itself. What it
+ * carries is the engine's own figure for what that person was CHARGED
+ * (`obligationChargedByPersonCents` less their own obligations), which is how the household
+ * FUNDS its spending under `sharedScheme`, stated once rather than split across lines it cannot
+ * honestly be split across. Absent from the combined stack, where the real lines are drawn.
+ */
+export const SHARED_SPENDING_BAND_ID = "spend:shared";
+export const SHARED_SPENDING_CATEGORY = "sharedSpending";
+const SHARED_SPENDING_BAND: CashFlowBand = {
+  id: SHARED_SPENDING_BAND_ID,
+  label: "Share of shared spending",
+  category: SHARED_SPENDING_CATEGORY,
+};
 
 /** Which of the three the chart is drawing. */
 export type CashFlowView = "inflows" | "outflows" | "net";
@@ -94,6 +131,22 @@ export interface CashFlowMonthRow {
   readonly inflowCentsByBand: Readonly<Record<string, number>>;
   /** Cash leaving, per outflow band. Never negative. */
   readonly outflowCentsByBand: Readonly<Record<string, number>>;
+  /**
+   * The same month's outflows CHARGED to one person, keyed person → band → cents, and the only
+   * honest way to cut the outflow side: a band id here means the engine reported that person's
+   * own figure for it, never a share derived from the household's.
+   *
+   * Three of the four kinds are the engine's own per-person facts — each person's withholding
+   * and FICA (their income sources' attribution), and their April balance from
+   * `taxSettlementByPersonCents`. The fourth is their obligations: the ones charged to them
+   * alone at full amount, then {@link SHARED_SPENDING_BAND_ID} for their share of the rest.
+   *
+   * Σ over people is the household's figure for the tax bands and for a person-owned
+   * obligation; the shared band replaces the shared LINES rather than summing with them, so the
+   * two sides of the toggle state the same spending differently on purpose. Empty for a
+   * projection run before the engine reported any of it.
+   */
+  readonly outflowCentsByBandByPerson: Readonly<Record<string, Readonly<Record<string, number>>>>;
   readonly inflowTotalCents: number;
   readonly outflowTotalCents: number;
   /**
@@ -164,6 +217,7 @@ const INFLOW_CATEGORY_ORDER: readonly string[] = [
  */
 const OUTFLOW_CATEGORY_ORDER: readonly string[] = [
   TAX_OUTFLOW_CATEGORY,
+  SHARED_SPENDING_CATEGORY,
   "needs",
   "healthcare",
   "wants",
@@ -273,6 +327,8 @@ export function buildCashFlowChartData(series: ProjectionSeries): CashFlowChartD
   const outflowSeen = new Map<string, CashFlowBand>();
   const outflowOrder: string[] = [];
   const outflowCarriesMoney = new Set<string>();
+  /** Income source -> its owner, learned as the months go by; see the settlement note below. */
+  const ownerBySource = new Map<string, string>();
   let firstMonthWithNoIncome: number | null = null;
   let firstSavingsDrawdownMonth: number | null = null;
   let firstInsolventMonth: number | null = null;
@@ -315,12 +371,32 @@ export function buildCashFlowChartData(series: ProjectionSeries): CashFlowChartD
         s.cashInflowCents,
       );
     }
-    // Money back from last April, arriving whole. Nothing is taken off any other band to make
-    // room for it: the inflow side is gross, so no source was ever netted against it.
-    addInflow(
-      { id: TAX_REFUND_BAND_ID, label: TAX_REFUND_LABEL, category: TAX_REFUND_CATEGORY },
-      refundInflowOf(flows),
-    );
+    // Money back from last April, arriving whole and arriving to SOMEBODY. Nothing is taken off
+    // any other band to make room for it: the inflow side is gross, so no source was ever netted
+    // against it — and a refund banded to the household rather than to the filer vanished from
+    // every person's cut, which is the one place a reader goes to ask who got it.
+    const settlementByPerson = flows.taxSettlementByPersonCents ?? {};
+    if (Object.keys(settlementByPerson).length === 0) {
+      // No per-person report (a projection predating one, or a month that settled nothing):
+      // the household's clamped net is the whole of the old behaviour.
+      addInflow(
+        { id: TAX_REFUND_BAND_ID, label: TAX_REFUND_LABEL, category: TAX_REFUND_CATEGORY },
+        refundInflowOf(flows),
+      );
+    } else {
+      for (const [personId, cents] of Object.entries(settlementByPerson)) {
+        if (cents >= 0) continue; // their filing took money rather than gave it back
+        addInflow(
+          {
+            id: refundBandId(personId),
+            label: TAX_REFUND_LABEL,
+            category: TAX_REFUND_CATEGORY,
+            ownerId: personId,
+          },
+          -cents,
+        );
+      }
+    }
 
     // ——— outflows ———
     const outflowCentsByBand: Record<string, number> = {};
@@ -354,6 +430,50 @@ export function buildCashFlowChartData(series: ProjectionSeries): CashFlowChartD
       addOutflow({ id: o.id, label: o.label, category: o.category }, o.amountCents, true);
     }
 
+    // --- the same outflows, charged to the person who bore them ---
+    const outflowCentsByBandByPerson: Record<string, Record<string, number>> = {};
+    const charge = (personId: string, bandId: string, cents: number): void => {
+      if (cents <= 0) return;
+      const forPerson = (outflowCentsByBandByPerson[personId] ??= {});
+      forPerson[bandId] = (forPerson[bandId] ?? 0) + cents;
+    };
+    // A source's owner is remembered across months because a SETTLED source need not still be
+    // paying: last year's job settles this April having stopped in June, and it appears in the
+    // attribution with no income source beside it to name its owner.
+    for (const s of flows.incomeSources ?? []) {
+      if (s.ownerId !== undefined) ownerBySource.set(s.sourceId, s.ownerId);
+    }
+    const settlementBySource = flows.taxSettlementBySourceCents ?? {};
+    for (const [sourceId, cents] of Object.entries(flows.taxBySourceCents ?? {})) {
+      // The settlement comes out because it is charged per PERSON below; what is left is the
+      // withholding this month's pay really took, which is never negative.
+      const owner = ownerBySource.get(sourceId);
+      if (owner !== undefined) charge(owner, TAX_INCOME_BAND_ID, cents - (settlementBySource[sourceId] ?? 0));
+    }
+    for (const [sourceId, cents] of Object.entries(flows.payrollTaxBySourceCents ?? {})) {
+      const owner = ownerBySource.get(sourceId);
+      if (owner !== undefined) charge(owner, TAX_PAYROLL_BAND_ID, cents);
+    }
+    // Signed, and only the bills land here: a refund is money arriving and bands on the inflow
+    // side, so a person refunded pays no settlement rather than a negative one.
+    for (const [personId, cents] of Object.entries(settlementByPerson)) {
+      charge(personId, TAX_SETTLEMENT_BAND_ID, cents);
+    }
+    // Their own obligations in full, then their share of everything else -- the same two terms
+    // the waterfall added to get `obligationChargedByPersonCents`, so the difference is exactly
+    // the share and never has to be derived from the household's total.
+    const ownObligationCents: Record<string, number> = {};
+    for (const o of flows.obligations ?? []) {
+      // Explicitly-funded obligations draw named accounts rather than anyone's income, so the
+      // waterfall charges them to nobody and neither does this.
+      if (o.ownerId === undefined || o.funding.kind !== "automatic") continue;
+      charge(o.ownerId, o.id, o.amountCents);
+      ownObligationCents[o.ownerId] = (ownObligationCents[o.ownerId] ?? 0) + o.amountCents;
+    }
+    for (const [personId, cents] of Object.entries(flows.obligationChargedByPersonCents ?? {})) {
+      charge(personId, SHARED_SPENDING_BAND_ID, cents - (ownObligationCents[personId] ?? 0));
+    }
+
     if (inflowTotalCents === 0 && drewOnSavingsCents === 0 && firstMonthWithNoIncome === null) {
       firstMonthWithNoIncome = m.month;
     }
@@ -379,6 +499,7 @@ export function buildCashFlowChartData(series: ProjectionSeries): CashFlowChartD
       month: m.month,
       inflowCentsByBand,
       outflowCentsByBand,
+      outflowCentsByBandByPerson,
       inflowTotalCents,
       outflowTotalCents,
       netCents: inflowTotalCents - outflowTotalCents,
@@ -407,6 +528,18 @@ export function buildCashFlowChartData(series: ProjectionSeries): CashFlowChartD
           ...row,
           outflowCentsByBand: Object.fromEntries(
             Object.entries(row.outflowCentsByBand).filter(([id]) => drawn.has(id)),
+          ),
+          // The per-person maps key off the same band ids, plus the shared-spending band, which
+          // is a person's alone and never appears in the household stack to be drawn from it.
+          outflowCentsByBandByPerson: Object.fromEntries(
+            Object.entries(row.outflowCentsByBandByPerson).map(([personId, byBand]) => [
+              personId,
+              Object.fromEntries(
+                Object.entries(byBand).filter(
+                  ([id]) => drawn.has(id) || id === SHARED_SPENDING_BAND_ID,
+                ),
+              ),
+            ]),
           ),
         }));
 
@@ -460,6 +593,9 @@ function simpleOutflowBandOf(band: CashFlowBand): CashFlowBand {
   if (band.category === TAX_OUTFLOW_CATEGORY) {
     return { id: TAX_BAND_ID, label: "Taxes", category: TAX_OUTFLOW_CATEGORY };
   }
+  // Already a collapse, and of the one thing Simple cannot collapse further: a person's share of
+  // the shared lines is a single figure precisely because those lines have no per-person split.
+  if (band.id === SHARED_SPENDING_BAND_ID) return band;
   return {
     id: `spend:${band.category}`,
     label: OUTFLOW_CATEGORY_LABELS[band.category] ?? "Other spending",
@@ -468,22 +604,33 @@ function simpleOutflowBandOf(band: CashFlowBand): CashFlowBand {
 }
 
 /**
- * Only when two or more benefit bands are on the chart, so a single-earner plan gains no
- * redundant "· Alex". Wage bands already carry the job's own name.
+ * Bands labelled by the KIND of money rather than by the person it reaches: a government benefit,
+ * and a tax refund. Two of either on one chart are one legend entry repeated, and the reader
+ * cannot tell whose is whose.
+ */
+const EARNER_NAMED_CATEGORIES: readonly string[] = [
+  "governmentRetirementBenefit",
+  TAX_REFUND_CATEGORY,
+];
+
+/**
+ * Only when two or more bands of the same kind are on the chart, so a single-earner plan gains
+ * no redundant "· Alex". Wage bands already carry the job's own name.
  */
 function withEarnerNames(
   bands: readonly CashFlowBand[],
   personNames: ReadonlyMap<string, string>,
 ): readonly CashFlowBand[] {
-  const owners = new Set(
-    bands
-      .filter((b) => b.category === "governmentRetirementBenefit")
-      .map((b) => b.ownerId)
-      .filter((id): id is string => id !== undefined),
-  );
-  if (owners.size < 2) return bands;
+  const named = (b: CashFlowBand) => EARNER_NAMED_CATEGORIES.includes(b.category);
+  const owners = new Map<string, Set<string>>();
+  for (const b of bands) {
+    if (!named(b) || b.ownerId === undefined) continue;
+    (owners.get(b.category) ?? owners.set(b.category, new Set()).get(b.category)!).add(b.ownerId);
+  }
+  if ([...owners.values()].every((o) => o.size < 2)) return bands;
   return bands.map((b) => {
-    if (b.category !== "governmentRetirementBenefit" || b.ownerId === undefined) return b;
+    if (!named(b) || b.ownerId === undefined) return b;
+    if ((owners.get(b.category)?.size ?? 0) < 2) return b;
     const name = personNames.get(b.ownerId);
     return name === undefined ? b : { ...b, label: `${b.label} · ${name}` };
   });
@@ -517,12 +664,12 @@ export interface CashFlowViewData {
  * draws {@link CashFlowViewRow.netCents} as a single signed series. `advanced` keeps every band;
  * `simple` collapses via {@link simpleInflowBandOf} / {@link simpleOutflowBandOf}.
  *
- * `ownerId` cuts the chart down to one person, on the INFLOW and NET views. Cash arriving is
- * attributed to whoever receives it, and the engine reports what each person had left once
- * their share of the household's obligations was paid. Cash LEAVING is still not attributable:
- * every budget line compiles under the primary person whoever it is really for (see {@link
- * CashFlowBand.ownerId}), so a per-person outflow stack would draw the primary paying for the
- * whole household and the partner paying almost nothing. The OUTFLOW view therefore ignores it.
+ * `ownerId` cuts the chart down to one person, on all three views. Cash arriving is attributed
+ * to whoever receives it; cash leaving is read from {@link
+ * CashFlowMonthRow.outflowCentsByBandByPerson}, which the engine states per person rather than
+ * this file deriving it. The two sides are cut differently for that reason: an inflow band
+ * BELONGS to one person, so the cut is a filter over bands, while an outflow band is a household
+ * line whose per-person amount is a separate figure — the same band id, a different number.
  */
 export function cashFlowBandsForView(
   data: CashFlowChartData,
@@ -551,12 +698,28 @@ export function cashFlowBandsForView(
 
   const inflows = view === "inflows";
   const all = inflows ? data.inflowBands : data.outflowBands;
-  // Cut before collapsing: Simple folds two people's benefits onto one band, so filtering
-  // afterwards would have nothing left to filter by.
-  const sourceBands =
-    inflows && ownerId !== undefined ? all.filter((b) => b.ownerId === ownerId) : all;
+  const outflowsForPerson = !inflows && ownerId !== undefined;
   const order = inflows ? INFLOW_CATEGORY_ORDER : OUTFLOW_CATEGORY_ORDER;
-  const centsOf = (r: CashFlowMonthRow) => (inflows ? r.inflowCentsByBand : r.outflowCentsByBand);
+  const centsOf = (r: CashFlowMonthRow) =>
+    inflows
+      ? r.inflowCentsByBand
+      : outflowsForPerson
+        ? (r.outflowCentsByBandByPerson[ownerId!] ?? {})
+        : r.outflowCentsByBand;
+
+  // Cut before collapsing: Simple folds two people's benefits onto one band, so filtering
+  // afterwards would have nothing left to filter by. An outflow cut keeps the household's bands
+  // that this person was charged something under, plus their share of the shared lines — which
+  // is not one of the household's bands, since the household draws those lines themselves.
+  const chargedBandIds = outflowsForPerson
+    ? new Set(data.rows.flatMap((r) => Object.keys(centsOf(r))))
+    : null;
+  const sourceBands =
+    inflows && ownerId !== undefined
+      ? all.filter((b) => b.ownerId === ownerId)
+      : chargedBandIds === null
+        ? all
+        : [...all, SHARED_SPENDING_BAND].filter((b) => chargedBandIds.has(b.id));
 
   const bandForSource = new Map<string, CashFlowBand>();
   const collapsed = new Map<string, CashFlowBand>();

@@ -294,14 +294,28 @@ describe("buildCashFlowChartModel — one person's cut", () => {
     expect(nobody.rows[0]![SPENDING_NEED_KEY]).toBe(0);
   });
 
-  it("leaves the outflow view whole, because spending is not attributable", () => {
-    // Every budget line compiles under the primary person whoever it is really for, so honouring
-    // a cut here would draw the primary paying for the household and the partner paying nothing.
-    // The model ignores the request rather than answering it wrongly.
-    const out = buildCashFlowChartModel(twoEarners, { view: "outflows", ownerId: "p2" });
-    expect(out.bands.map((b) => b.label)).toEqual(
-      buildCashFlowChartModel(twoEarners, { view: "outflows" }).bands.map((b) => b.label),
-    );
+  it("cuts the outflow view to the person's own share of the shared lines", () => {
+    // A shared budget line has no per-person amount — the household spends $3,000 on rent, not
+    // $857.14 of Blake's rent — so the cut states the SHARE the waterfall charged Blake rather
+    // than splitting the line itself, which nothing in the engine knows how to do.
+    const combined = buildCashFlowChartModel(twoEarners, { view: "outflows" });
+    expect(combined.bands.map((b) => b.label)).toEqual(["Needs"]);
+    expect(combined.rows[0]!["spend:needs"]).toBe(RENT);
+
+    const blake = buildCashFlowChartModel(twoEarners, { view: "outflows", ownerId: "p2" });
+    expect(blake.bands.map((b) => b.label)).toEqual(["Share of shared spending"]);
+    expect(blake.rows[0]!["spend:shared"]).toBe(85_714);
+  });
+
+  it("sums the two people's outflow stacks back to the household's spending", () => {
+    const alex = buildCashFlowChartModel(twoEarners, { view: "outflows", ownerId: "p1" });
+    const blake = buildCashFlowChartModel(twoEarners, { view: "outflows", ownerId: "p2" });
+    expect(alex.rows[0]!["spend:shared"]! + blake.rows[0]!["spend:shared"]!).toBe(RENT);
+  });
+
+  it("draws nothing leaving for a person the engine charged nothing", () => {
+    const nobody = buildCashFlowChartModel(twoEarners, { view: "outflows", ownerId: "nobody" });
+    expect(nobody.bands).toEqual([]);
   });
 
   it("draws one person's net from the engine's own figure", () => {

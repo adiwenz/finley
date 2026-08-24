@@ -55,6 +55,9 @@ const SPEND_COLORS: Readonly<Record<string, readonly string[]>> = {
   wants: ["#b5761f", "#c99a3f", "#d9b775"],
   savings: ["#8a8570", "#a39d85"],
   debtService: ["#9c5b39", "#b23a2e", "#7d4a30"],
+  // One person's share of the shared lines — the needs green, since needs are most of what it
+  // stands in for, one step muted so it never reads as the household's own "Needs" band.
+  sharedSpending: ["#2f5c47"],
 };
 const OTHER_OUTFLOW_COLORS = ["#8a8570", "#a39d85", "#6f6b5c"];
 
@@ -272,11 +275,11 @@ export interface CashFlowChartModelOptions {
   readonly view: CashFlowView;
   /** Ignored by the net view, which has no bands to collapse. */
   readonly mode?: CashFlowMode;
-  /** Names benefit bands by earner when two are on the chart; otherwise a band keeps its label. */
+  /** Names a benefit or refund band by its earner when two are on the chart; otherwise a band keeps its label. */
   readonly personNames?: ReadonlyMap<string, string>;
   /**
-   * Draw only this person's figures. Honoured on the inflow and net views — see {@link
-   * cashFlowBandsForView} for why cash leaving cannot be cut the same way.
+   * Draw only this person's figures — honoured on all three views, though the two sides are cut
+   * differently; see {@link cashFlowBandsForView}.
    */
   readonly ownerId?: string;
   /** The household's age at month 0, which turns the insolvency month into an age. */

@@ -21,6 +21,7 @@ import {
   TAX_REFUND_BAND_ID,
   TAX_SETTLEMENT_BAND_ID,
   buildCashFlowChartData,
+  refundBandId,
 } from "./components/baseAdjustments/cashFlowChartData";
 
 /** Each preset projected once, reused by every case below — the runs dominate the file's cost. */
@@ -139,13 +140,43 @@ describe.each(RUNS)("$preset.id — the cash-flow chart's two stacks", ({ preset
     expect(negatives).toEqual([]);
   });
 
-  it("bands the refund exactly once, and only in the months that got one", () => {
+  it("bands each filer's refund to that filer, and nobody's twice", () => {
     const wrong: string[] = [];
     for (const m of flowedMonths) {
-      const refund = Math.max(0, -m.flows!.taxSettlementCents);
-      const banded = rowAt.get(m.month)!.inflowCentsByBand[TAX_REFUND_BAND_ID] ?? 0;
-      if (banded !== refund) {
-        wrong.push(`${where(preset.id, m.month)}: banded ${banded} vs refund ${refund}`);
+      const row = rowAt.get(m.month)!;
+      const byPerson = m.flows!.taxSettlementByPersonCents ?? {};
+      // GROSS: the household's net settlement nets a bill against a refund, and a refund is
+      // the filer's whatever their partner's filing came to.
+      const refunded = Object.entries(byPerson).filter(([, c]) => c < 0);
+      const expected = Object.fromEntries(refunded.map(([pid, c]) => [refundBandId(pid), -c]));
+      const banded = Object.fromEntries(
+        Object.entries(row.inflowCentsByBand).filter(([id]) => id.startsWith(TAX_REFUND_BAND_ID)),
+      );
+      if (JSON.stringify(banded) !== JSON.stringify(expected)) {
+        wrong.push(
+          `${where(preset.id, m.month)}: banded ${JSON.stringify(banded)} vs ${JSON.stringify(expected)}`,
+        );
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it("keeps every person's cut of the settlement summing to the household's", () => {
+    const wrong: string[] = [];
+    for (const m of flowedMonths) {
+      const row = rowAt.get(m.month)!;
+      const cuts = Object.values(row.outflowCentsByBandByPerson);
+      const paid = cuts.reduce((sum, byBand) => sum + (byBand[TAX_SETTLEMENT_BAND_ID] ?? 0), 0);
+      const refunds = Object.entries(row.inflowCentsByBand)
+        .filter(([id]) => id.startsWith(TAX_REFUND_BAND_ID))
+        .reduce((sum, [, c]) => sum + c, 0);
+      const household = row.outflowCentsByBand[TAX_SETTLEMENT_BAND_ID] ?? 0;
+      // The two halves of the same signed figure, each summing to its own household total —
+      // and the difference between them is the household's net settlement.
+      if (paid !== household || paid - refunds !== m.flows!.taxSettlementCents) {
+        wrong.push(
+          `${where(preset.id, m.month)}: paid ${paid} vs ${household}, refunds ${refunds}, net ${m.flows!.taxSettlementCents}`,
+        );
       }
     }
     expect(wrong).toEqual([]);

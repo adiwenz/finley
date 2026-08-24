@@ -1,0 +1,338 @@
+/**
+ * April, per person — who paid the bill and who got the money back.
+ *
+ * The household files as separate single filers, so an April is never one figure. It is one
+ * balance per person, and the two can point opposite ways: a partner whose pay stopped mid-year
+ * is refunded the withholding they no longer owed, in the same month the other partner settles a
+ * bill on interest nothing withheld against. The chart's job is to show each of those to the
+ * person it happened to, and to keep the two cuts summing to the household's.
+ *
+ * The bug these exist against banded the refund to the HOUSEHOLD: it appeared under Combined and
+ * vanished from both people's cuts, so the one question the toggle is for — who got the $3,708?
+ * — had no answer anywhere on the chart.
+ */
+
+import { describe, expect, it } from "vitest";
+import {
+  Projection,
+  dollarsToCents,
+  type ProjectionCashFlowIncomeSource,
+  type ProjectionSeries,
+} from "@finley/engine";
+import { usJurisdiction } from "@finley/rules";
+import { presetById, presetState } from "../../presets";
+import {
+  SHARED_SPENDING_BAND_ID,
+  TAX_INCOME_BAND_ID,
+  TAX_PAYROLL_BAND_ID,
+  TAX_SETTLEMENT_BAND_ID,
+  buildCashFlowChartData,
+  cashFlowBandsForView,
+  refundBandId,
+} from "./cashFlowChartData";
+
+const ALEX = "p1";
+const BLAKE = "p2";
+const NAMES = new Map([
+  [ALEX, "Alex"],
+  [BLAKE, "Blake"],
+]);
+
+interface AprilSpec {
+  /** SIGNED per person: positive is their bill, negative is their refund. */
+  readonly settlementByPerson: Record<string, number>;
+  /** Withholding per source, INCLUDING the settlement — the shape the engine reports. */
+  readonly taxBySource?: Record<string, number>;
+  readonly settlementBySource?: Record<string, number>;
+  readonly chargedByPerson?: Record<string, number>;
+}
+
+/**
+ * One flowed month shaped like the engine's April: `taxCents` carries the month's withholding
+ * plus the signed settlement, exactly as the simulator reports it, so the chart's own
+ * subtraction is the one under test rather than a tidied fixture.
+ */
+function aprilOf(spec: AprilSpec): ProjectionSeries {
+  const settlement = Object.values(spec.settlementByPerson).reduce((s, c) => s + c, 0);
+  const taxBySourceCents = spec.taxBySource ?? {};
+  const withholding = Object.values(taxBySourceCents).reduce((s, c) => s + c, 0);
+  const owned = (sourceId: string, ownerId: string, cents: number): ProjectionCashFlowIncomeSource =>
+    ({
+      sourceId,
+      label: sourceId,
+      category: "wages",
+      ownerId,
+      cashInflowCents: cents,
+      netCashFlowCents: cents,
+    }) as ProjectionCashFlowIncomeSource;
+  return {
+    months: [
+      { month: 0 },
+      {
+        month: 1,
+        flows: {
+          incomeSources: [owned("alex-job", ALEX, dollarsToCents(8_000)), owned("blake-job", BLAKE, 0)],
+          obligations: [
+            {
+              id: "line:rent",
+              label: "Rent",
+              category: "needs",
+              amountCents: dollarsToCents(3_000),
+              funding: { kind: "automatic" },
+            },
+          ],
+          taxCents: withholding,
+          payrollTaxCents: 0,
+          payrollTaxBySourceCents: {},
+          taxBySourceCents,
+          taxSettlementCents: settlement,
+          taxSettlementBySourceCents: spec.settlementBySource ?? {},
+          taxSettlementByPersonCents: spec.settlementByPerson,
+          expensesCents: dollarsToCents(3_000),
+          liabilityPaymentsCents: 0,
+          netCashFlowByPersonCents: {},
+          deferredByPersonCents: {},
+          obligationChargedByPersonCents:
+            spec.chargedByPerson ?? { [ALEX]: dollarsToCents(3_000), [BLAKE]: 0 },
+        },
+      },
+    ],
+  } as unknown as ProjectionSeries;
+}
+
+/** What one person's cut of one view actually stacks, by band id. */
+function cutOf(series: ProjectionSeries, view: "inflows" | "outflows", ownerId?: string) {
+  const data = buildCashFlowChartData(series);
+  const folded = cashFlowBandsForView(data, view, "advanced", NAMES, ownerId);
+  return folded.rows.find((r) => r.month === 1)!.centsByBand;
+}
+
+describe("April's settlement, per filer", () => {
+  it("bands a refund to the person refunded, and their partner's bill to them", () => {
+    const april = aprilOf({
+      settlementByPerson: { [ALEX]: dollarsToCents(7_460), [BLAKE]: -dollarsToCents(3_708) },
+      taxBySource: { "alex-job": dollarsToCents(8_460), "blake-job": -dollarsToCents(3_708) },
+      settlementBySource: { "alex-job": dollarsToCents(7_460), "blake-job": -dollarsToCents(3_708) },
+    });
+
+    expect(cutOf(april, "inflows", BLAKE)[refundBandId(BLAKE)]).toBe(dollarsToCents(3_708));
+    expect(cutOf(april, "inflows", ALEX)[refundBandId(BLAKE)]).toBeUndefined();
+
+    // Alex's bill is Alex's WHOLE bill: nothing about Blake's refund reduces or reassigns it.
+    expect(cutOf(april, "outflows", ALEX)[TAX_SETTLEMENT_BAND_ID]).toBe(dollarsToCents(7_460));
+    expect(cutOf(april, "outflows", BLAKE)[TAX_SETTLEMENT_BAND_ID]).toBeUndefined();
+
+    // And the household still states both gross figures, neither netted into the other.
+    expect(cutOf(april, "inflows")[refundBandId(BLAKE)]).toBe(dollarsToCents(3_708));
+    expect(cutOf(april, "outflows")[TAX_SETTLEMENT_BAND_ID]).toBe(dollarsToCents(7_460));
+  });
+
+  it("holds the other way round, with the primary refunded", () => {
+    const april = aprilOf({
+      settlementByPerson: { [ALEX]: -dollarsToCents(1_200), [BLAKE]: dollarsToCents(900) },
+      taxBySource: { "alex-job": -dollarsToCents(1_200), "blake-job": dollarsToCents(900) },
+      settlementBySource: { "alex-job": -dollarsToCents(1_200), "blake-job": dollarsToCents(900) },
+    });
+
+    expect(cutOf(april, "inflows", ALEX)[refundBandId(ALEX)]).toBe(dollarsToCents(1_200));
+    expect(cutOf(april, "inflows", BLAKE)[refundBandId(ALEX)]).toBeUndefined();
+    expect(cutOf(april, "outflows", BLAKE)[TAX_SETTLEMENT_BAND_ID]).toBe(dollarsToCents(900));
+    expect(cutOf(april, "outflows", ALEX)[TAX_SETTLEMENT_BAND_ID]).toBeUndefined();
+  });
+
+  it("bands two refunds separately, and names each one for its filer", () => {
+    const april = aprilOf({
+      settlementByPerson: { [ALEX]: -dollarsToCents(500), [BLAKE]: -dollarsToCents(300) },
+    });
+    const combined = cutOf(april, "inflows");
+
+    expect(combined[refundBandId(ALEX)]).toBe(dollarsToCents(500));
+    expect(combined[refundBandId(BLAKE)]).toBe(dollarsToCents(300));
+    // One legend entry repeated is unreadable, so two refunds on one chart carry their names.
+    const bands = cashFlowBandsForView(buildCashFlowChartData(april), "inflows", "advanced", NAMES).bands;
+    expect(bands.filter((b) => b.id.startsWith("tax-refund")).map((b) => b.label)).toEqual([
+      "Tax refund · Alex",
+      "Tax refund · Blake",
+    ]);
+    // Nobody paid anything, so no settlement band is drawn at all.
+    expect(cutOf(april, "outflows")[TAX_SETTLEMENT_BAND_ID]).toBeUndefined();
+  });
+
+  it("names a lone refund plainly, and still bands it to its filer", () => {
+    const april = aprilOf({ settlementByPerson: { [BLAKE]: -dollarsToCents(3_708) } });
+    const bands = cashFlowBandsForView(buildCashFlowChartData(april), "inflows", "advanced", NAMES).bands;
+
+    expect(bands.filter((b) => b.id.startsWith("tax-refund")).map((b) => b.label)).toEqual(["Tax refund"]);
+    expect(cutOf(april, "inflows", BLAKE)[refundBandId(BLAKE)]).toBe(dollarsToCents(3_708));
+    expect(cutOf(april, "inflows", ALEX)[refundBandId(BLAKE)]).toBeUndefined();
+  });
+
+  it("keeps each person's withholding and FICA their own", () => {
+    const april = aprilOf({
+      settlementByPerson: { [ALEX]: dollarsToCents(7_460), [BLAKE]: -dollarsToCents(3_708) },
+      taxBySource: { "alex-job": dollarsToCents(8_460), "blake-job": -dollarsToCents(3_708) },
+      settlementBySource: { "alex-job": dollarsToCents(7_460), "blake-job": -dollarsToCents(3_708) },
+    });
+
+    // $8,460 charged less the $7,460 that settled last year is the $1,000 this month withheld.
+    expect(cutOf(april, "outflows", ALEX)[TAX_INCOME_BAND_ID]).toBe(dollarsToCents(1_000));
+    // Blake's whole charge WAS the refund, so Blake withheld nothing rather than a negative.
+    expect(cutOf(april, "outflows", BLAKE)[TAX_INCOME_BAND_ID]).toBeUndefined();
+    expect(cutOf(april, "outflows", BLAKE)[TAX_PAYROLL_BAND_ID]).toBeUndefined();
+  });
+
+  it("states each person's share of the shared spending instead of the lines themselves", () => {
+    const april = aprilOf({
+      settlementByPerson: { [ALEX]: dollarsToCents(7_460), [BLAKE]: -dollarsToCents(3_708) },
+      chargedByPerson: { [ALEX]: dollarsToCents(1_800), [BLAKE]: dollarsToCents(1_200) },
+    });
+
+    expect(cutOf(april, "outflows", ALEX)[SHARED_SPENDING_BAND_ID]).toBe(dollarsToCents(1_800));
+    expect(cutOf(april, "outflows", BLAKE)[SHARED_SPENDING_BAND_ID]).toBe(dollarsToCents(1_200));
+    // The household draws the real line; the shares are the same money asked about differently.
+    expect(cutOf(april, "outflows")["line:rent"]).toBe(dollarsToCents(3_000));
+    expect(cutOf(april, "outflows")[SHARED_SPENDING_BAND_ID]).toBeUndefined();
+  });
+});
+
+/**
+ * The reported bug, end to end: the real engine, the real jurisdiction, and the preset and edits
+ * it was reported against. Blake earns $10,000/mo, stops in month 6, and is refunded the
+ * withholding that assumed a whole year of it; Alex's $500,000 of cash at 7% throws off interest
+ * nothing withholds against, and settles a bill in the same April.
+ */
+describe("Two incomes, one household — one partner refunded while the other owes", () => {
+  const BLAKE_ENGINE_ID = "person-8";
+  const APRIL = 15;
+
+  function reported(): ProjectionSeries {
+    const p = Projection.fromState(presetState(presetById("partner-proportional")), usJurisdiction);
+    p.updatePlan({ openingBalanceCents: dollarsToCents(500_000), savingsReturnPct: 7 });
+    p.replacePartnerJob("job-9", {
+      startYear: 2009,
+      endYear: 2056,
+      salary: {
+        // Authored annually; $10,000 a month is what the pay editor shows and edits.
+        startingSalaryCents: dollarsToCents(120_000),
+        currentSalaryCents: dollarsToCents(120_000),
+        realGrowthPct: 0,
+      },
+    });
+    p.addJobPayChange("job-9", { month: 6, kind: "setTo", cents: 0 });
+    return p.run(usJurisdiction).series;
+  }
+
+  const series = reported();
+  const data = buildCashFlowChartData(series);
+  const bandsAt = (view: "inflows" | "outflows", ownerId?: string) =>
+    cashFlowBandsForView(data, view, "advanced", NAMES, ownerId).rows.find((r) => r.month === APRIL)!
+      .centsByBand;
+
+  const REFUND = 370_758;
+  const ALEX_SETTLEMENT = 746_010;
+
+  it("shows Blake the refund Blake received", () => {
+    expect(bandsAt("inflows", BLAKE_ENGINE_ID)[refundBandId(BLAKE_ENGINE_ID)]).toBe(REFUND);
+  });
+
+  it("keeps it out of Alex's cut, and out of Alex's April bill", () => {
+    expect(bandsAt("inflows", ALEX)[refundBandId(BLAKE_ENGINE_ID)]).toBeUndefined();
+    expect(bandsAt("outflows", ALEX)[TAX_SETTLEMENT_BAND_ID]).toBe(ALEX_SETTLEMENT);
+    expect(bandsAt("outflows", BLAKE_ENGINE_ID)[TAX_SETTLEMENT_BAND_ID]).toBeUndefined();
+  });
+
+  it("leaves the combined view showing the same refund it always did", () => {
+    expect(bandsAt("inflows")[refundBandId(BLAKE_ENGINE_ID)]).toBe(REFUND);
+    expect(bandsAt("outflows")[TAX_SETTLEMENT_BAND_ID]).toBe(ALEX_SETTLEMENT);
+  });
+
+  it("changes what Going out says when the reader picks a person", () => {
+    // The other half of the report: the outflow view answered every filter with the household's
+    // own stack, so all three cuts drew the same figures.
+    const combined = bandsAt("outflows");
+    expect(bandsAt("outflows", ALEX)).not.toEqual(combined);
+    expect(bandsAt("outflows", BLAKE_ENGINE_ID)).not.toEqual(combined);
+    expect(bandsAt("outflows", ALEX)).not.toEqual(bandsAt("outflows", BLAKE_ENGINE_ID));
+  });
+
+  it("reconciles the two cuts with the household's, every month", () => {
+    const wrong: string[] = [];
+    for (const row of data.rows) {
+      const cuts = Object.values(row.outflowCentsByBandByPerson);
+      const settled = cuts.reduce((s, byBand) => s + (byBand[TAX_SETTLEMENT_BAND_ID] ?? 0), 0);
+      const refunded = Object.entries(row.inflowCentsByBand)
+        .filter(([id]) => id.startsWith("tax-refund"))
+        .reduce((s, [, c]) => s + c, 0);
+      const household = row.outflowCentsByBand[TAX_SETTLEMENT_BAND_ID] ?? 0;
+      if (settled !== household) wrong.push(`month ${row.month}: settled ${settled} vs ${household}`);
+      // The signed household figure is what is left once the gross halves are set against
+      // each other — the netting the person cuts exist to avoid doing first.
+      if (settled - refunded !== (series.months[row.month]?.flows?.taxSettlementCents ?? 0)) {
+        wrong.push(`month ${row.month}: ${settled} − ${refunded} is not the net settlement`);
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it("closes each person's month: what arrived, less what they were charged, is their net", () => {
+    // The identity that makes the toggle safe to read — a person's stack is not a slice of the
+    // household's, it is their own arithmetic, and it lands on the engine's own net figure.
+    //
+    // Asserted on THIS scenario rather than on every preset because the chart deliberately bands
+    // no account withdrawal as an inflow while the engine's take-home counts a person's own
+    // draw: a retiree living off an IRA closes the month by the size of that draw, by design.
+    // Nobody here draws their own account, so the two sides have to meet to the cent.
+    const wrong: string[] = [];
+    for (const row of data.rows) {
+      for (const personId of Object.keys(row.netCentsByPerson)) {
+        const inflow = Object.entries(row.inflowCentsByBand)
+          .filter(([, c]) => c > 0)
+          .reduce((s, [id, c]) => s + (bandOwner(data, id) === personId ? c : 0), 0);
+        const outflow = Object.values(row.outflowCentsByBandByPerson[personId] ?? {}).reduce(
+          (s, c) => s + c,
+          0,
+        );
+        if (inflow - outflow !== row.netCentsByPerson[personId]) {
+          wrong.push(
+            `month ${row.month} · ${personId}: ${inflow} − ${outflow} vs ${row.netCentsByPerson[personId]}`,
+          );
+        }
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+});
+
+/** Which person an inflow band pays, or `undefined` for a household one. */
+function bandOwner(data: ReturnType<typeof buildCashFlowChartData>, bandId: string): string | undefined {
+  return data.inflowBands.find((b) => b.id === bandId)?.ownerId;
+}
+
+describe("a partner who leaves before the filing", () => {
+  it("settles the April they were here for between both, and the next one for Alex alone", () => {
+    // Blake leaves at month 60. The April inside their last full tax year splits two ways; the
+    // one after they are gone is the remaining filer's whole bill, never redistributed.
+    const series = Projection.fromState(presetState(presetById("partner-separation")), usJurisdiction)
+      .run(usJurisdiction).series;
+    const data = buildCashFlowChartData(series);
+    const cut = (month: number, ownerId?: string) =>
+      cashFlowBandsForView(data, "outflows", "advanced", NAMES, ownerId).rows.find(
+        (r) => r.month === month,
+      )!.centsByBand;
+
+    const together = data.rows.find((r) => r.month === 51)!;
+    const settledTogether = Object.values(together.outflowCentsByBandByPerson).filter(
+      (byBand) => (byBand[TAX_SETTLEMENT_BAND_ID] ?? 0) > 0,
+    );
+    expect(settledTogether).toHaveLength(2);
+    expect(cut(51, "p1")[TAX_SETTLEMENT_BAND_ID]! + cut(51, "person-8")[TAX_SETTLEMENT_BAND_ID]!).toBe(
+      together.outflowCentsByBand[TAX_SETTLEMENT_BAND_ID],
+    );
+
+    const alone = data.rows.find((r) => r.month === 63)!;
+    expect(Object.keys(alone.outflowCentsByBandByPerson)).toEqual(["p1"]);
+    expect(cut(63, "p1")[TAX_SETTLEMENT_BAND_ID]).toBe(
+      alone.outflowCentsByBand[TAX_SETTLEMENT_BAND_ID],
+    );
+  });
+});
