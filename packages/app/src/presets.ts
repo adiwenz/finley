@@ -452,9 +452,11 @@ const PARTNER_DEBT = partnerInput({
 });
 
 /**
- * Two unequal paychecks against one shared budget, split PROPORTIONALLY: Alex earns roughly twice
- * Blake, so Alex carries roughly twice the household's bills. Neither person's accounts fund the
- * household merely for being listed first.
+ * Two unequal paychecks against one shared budget, split by what each partner can CONTRIBUTE:
+ * their pay plus a sustainable draw on what they have saved. Alex earns roughly three times
+ * Blake but Blake holds the savings, so Alex carries appreciably less than three times the
+ * household's bills — which is the point beside {@link PARTNER_EVEN_SPLIT}. Neither person's
+ * accounts fund the household merely for being listed first.
  */
 const PARTNER_PROPORTIONAL = partnerInput({
   name: "Alex",
@@ -680,14 +682,15 @@ export const PRESETS: readonly Preset[] = [
   {
     id: "partner-proportional",
     label: "Two incomes, one household",
-    description: "Unequal paychecks against one shared budget, each partner carrying a share proportional to what they earn.",
+    description:
+      "Unequal paychecks and unequal savings against one shared budget, each partner carrying the share they can afford.",
     input: PARTNER_PROPORTIONAL,
   },
   {
     id: "partner-even-split",
     label: "…vs. splitting it evenly",
     description:
-      "The same two paychecks as Two incomes, split down the middle instead — the lower earner gives up far more of their take-home.",
+      "The same two households as Two incomes, split down the middle instead — the partner who can afford less gives up far more of their take-home.",
     input: PARTNER_EVEN_SPLIT,
   },
   {

@@ -1,8 +1,10 @@
 /**
  * What a person's share of the household's spending is weighed by.
  *
- * Proportional sharing asks one question — who can carry this month's rent — and the only honest
- * answer is recurring earning power. April is where that goes wrong if the weight is read off
+ * Proportional sharing asks one question — who can carry this month's rent — and the INCOME half
+ * of the answer is what recurs (the asset half is `contributionCapacity.test.ts`, and every case
+ * here states no assets, so each weight is that person's recurring income alone). April is where
+ * the income half goes wrong if the weight is read off
  * charged take-home: the partner who under-withheld pays a balance and the partner who
  * over-withheld collects a refund, so for one month the earner looks broke and the person with no
  * job at all looks like the household's provider. The budget swings onto them, and swings back in

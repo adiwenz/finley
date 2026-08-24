@@ -363,6 +363,21 @@ export interface Jurisdiction {
   ): Cents;
 
   /**
+   * The age from which retirement savings may be drawn without an early-withdrawal penalty
+   * (US: 59½). A pure fact about the jurisdiction's retirement vehicles, exposed as an age
+   * because the engine attaches only one meaning to it: whether a person's retirement balance
+   * counts toward what they can put toward the household's shared spending this month
+   * ({@link import("../projection/allocationStep").capacityAssetsCentsByPerson}).
+   *
+   * The engine models no early-withdrawal penalty anywhere, so counting locked-up savings as
+   * spendable would assert an accessibility the projection cannot price — and would hand the
+   * whole household budget to whichever partner happened to have the larger 401(k) at 40.
+   * Absent ⇒ retirement savings never count, which is the conservative reading and what
+   * {@link nullJurisdiction} means.
+   */
+  readonly penaltyFreeRetirementAge?: number;
+
+  /**
    * The jurisdiction owns the eligibility age (US: 65) and the two figures it steps between:
    * before it, an unsubsidised self-funded cost (~$1,200/mo/person, conservative); at/after
    * it, a residual (~$500/mo/person — Medicare replaces the insurance but premiums, Part B,

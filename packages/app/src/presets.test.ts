@@ -360,6 +360,31 @@ describe("partner presets", () => {
     expect(gap / householdAt(proportional, 120)).toBeLessThan(0.01);
   });
 
+  it("explains that the proportional lever weighs savings as well as pay", () => {
+    // The pair exists to teach the lever, so the copy has to name what the lever now reads. A
+    // description that still said "proportional to what they earn" would describe an engine that
+    // charged Blake a share their $30,000 of savings had no part in.
+    const proportional = presetById("partner-proportional").description;
+    expect(proportional).toMatch(/savings/i);
+    expect(proportional).not.toMatch(/proportional to what they earn/i);
+    expect(presetById("partner-even-split").description).toMatch(/afford/i);
+  });
+
+  it("charges the partner with savings and no paycheck a share of the household", () => {
+    // The teaching claim under the capacity rule, on the preset that teaches it: Blake earns
+    // roughly a third of Alex but holds savings of their own, so Blake's share is larger than
+    // their paycheck alone would buy — and Alex's is smaller than three times Blake's.
+    const flows = runPreset("partner-proportional").months[12]!.flows!;
+    const alex = flows.obligationChargedByPersonCents["p1"]!;
+    const blake = Object.entries(flows.obligationChargedByPersonCents).find(([id]) =>
+      id.startsWith("person-"),
+    )![1];
+    expect(alex + blake).toBe(flows.totalObligationsCents);
+    const payRatio = 8_000 / 2_400;
+    expect(alex / blake).toBeLessThan(payRatio);
+    expect(alex).toBeGreaterThan(blake);
+  });
+
   it("is identical between the two split presets apart from the lever itself", () => {
     const { sharedScheme: proportionalScheme, ...proportional } = presetById("partner-proportional").input;
     const { sharedScheme: evenScheme, ...even } = presetById("partner-even-split").input;

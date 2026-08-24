@@ -17,6 +17,21 @@ export interface ModelAssumption {
 
 export const MODEL_ASSUMPTIONS: readonly ModelAssumption[] = [
   {
+    id: "sharedSpendingSplitByCapacity",
+    text:
+      "When a household shares its spending, each person's share is worked out from what they " +
+      "could contribute that month: their regular income \u2014 pay, a pension, Social Security " +
+      "\u2014 plus 4% a year of the savings and investments they hold, divided by twelve. The 4% " +
+      "is only a way of comparing savings with a paycheque; nothing is actually withdrawn at that " +
+      "rate. One-offs are left out, because they say nothing about what someone can keep " +
+      "contributing: a bonus, a tax refund or bill, money moved between accounts, and money taken " +
+      "out of savings (the savings themselves already count). Retirement accounts count only once " +
+      "you are old enough to draw on them without a penalty; money set aside for a goal never " +
+      "counts, since it is already committed. Whose money ends up paying is a separate question " +
+      "\u2014 if someone cannot cover their share, their own accounts are used first and their " +
+      "partner's after that, and neither changes whose share it was.",
+  },
+  {
     id: "postTaxOpeningBasis",
     text:
       "Money already in a post-tax account at the start is treated as all principal " +

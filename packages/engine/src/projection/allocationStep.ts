@@ -115,6 +115,64 @@ function surplusAccountIdFor(state: SimState, personId: string): string | null {
   return own?.id ?? null;
 }
 
+/**
+ * The balances that count toward one person's contribution capacity — the asset half of the
+ * shared split's weight (see {@link import("./waterfall").SUSTAINABLE_DRAW_RATE}).
+ *
+ * What counts is what the person could genuinely put toward the household's shared spending:
+ *
+ *  - **Cash and taxable investments they own, in full.** Money that can be spent this month.
+ *  - **Retirement savings only from `jurisdiction.penaltyFreeRetirementAge`.** Before it, drawing
+ *    on them costs a penalty the engine models nowhere, so counting them would assert an
+ *    accessibility the projection cannot price — and would hand a household's whole budget to
+ *    whichever partner had the larger 401(k) at 40. A jurisdiction that states no age (the null
+ *    one) never counts them.
+ *  - **Never a goal's fund account.** An emergency fund and a down-payment fund are money the
+ *    household has already committed elsewhere; the funding rules keep them out of ordinary
+ *    spending, and a capacity that spent them would contradict that. They still back the person
+ *    in a genuine shortfall, where {@link WaterfallInput.eligibleAssetsCentsByPerson} counts every
+ *    balance — being able to survive on a fund is not the same as being free to spend it.
+ *
+ * Balances only; nothing about the accounts themselves is read for the month.
+ */
+export function capacityAssetsCentsByPerson(
+  state: SimState,
+  ctx: JurisdictionContext,
+  jurisdiction: Jurisdiction,
+): Map<string, Cents> {
+  const goalFunds = new Set(state.goals.map((g) => g.fundAccountId));
+  const accessAge = jurisdiction.penaltyFreeRetirementAge;
+  const byPerson = new Map<string, Cents>();
+  for (const account of state.accounts) {
+    if (goalFunds.has(account.id)) continue;
+    const treatment = account.taxProfile.taxTreatment;
+    const isRetirementVehicle = treatment === "taxDeferred" || treatment === "taxExempt";
+    if (isRetirementVehicle) {
+      if (accessAge === undefined) continue;
+      const birthYear = state.personsById.get(account.ownerId)?.birthYear;
+      if (birthYear === undefined || ctx.year - birthYear < accessAge) continue;
+    }
+    const balance = Math.max(0, state.assetBalances.get(account.id) ?? 0);
+    if (balance > 0) byPerson.set(account.ownerId, (byPerson.get(account.ownerId) ?? 0) + balance);
+  }
+  return byPerson;
+}
+
+/**
+ * Take the month's capacity snapshot, once, before anything the month does can move a balance —
+ * see {@link SimState.capacityAssetsByPerson} for why it is taken rather than read live.
+ */
+export function refreshCapacityAssets(
+  state: SimState,
+  ctx: JurisdictionContext,
+  jurisdiction: Jurisdiction,
+): void {
+  state.capacityAssetsByPerson.clear();
+  for (const [pid, cents] of capacityAssetsCentsByPerson(state, ctx, jurisdiction)) {
+    state.capacityAssetsByPerson.set(pid, cents);
+  }
+}
+
 function splitAutomaticObligations(
   obligations: readonly FinancialObligation[],
   personIds: readonly string[],
@@ -223,6 +281,8 @@ function planMonthAllocation(
           acc.ownerId === pid ? sum + Math.max(0, state.assetBalances.get(acc.id) ?? 0) : sum,
         0,
       ),
+    // The asset half of the sharing weight, off the month's opening snapshot.
+    capacityAssetsCentsByPerson: (pid) => state.capacityAssetsByPerson.get(pid) ?? 0,
     // Absent seam → no payroll tax; the waterfall then leaves take-home untouched.
     computePayrollWithholdingCents: jurisdiction.computePayrollWithholdingCents
       ? (earnedByCategory) => jurisdiction.computePayrollWithholdingCents!(earnedByCategory, ctx)

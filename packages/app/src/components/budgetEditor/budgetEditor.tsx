@@ -199,10 +199,14 @@ export function BudgetEditor({ budget, transact }: BudgetEditorProps) {
               updateBudget({ sharedScheme: e.target.value as SharedContributionScheme })
             }
           >
-            <option value="proportional">Proportional to income</option>
+            <option value="proportional">Based on income and savings</option>
             <option value="even">Split evenly</option>
           </select>
         </label>
+        <p className="hint">
+          Shared expenses are divided based on each person’s regular income and available
+          savings.
+        </p>
 
         <label className="field">
           <span className="field-label">Surplus cash goes to</span>

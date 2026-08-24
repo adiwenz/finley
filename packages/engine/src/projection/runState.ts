@@ -74,6 +74,18 @@ export interface SimState {
   readonly goals: readonly SimGoal[];
   /** Standing account-contribution budget lines — resolved & funded each month. */
   readonly contributionLines: readonly BudgetLine[];
+  /**
+   * Each person's capacity assets as the month OPENED, refreshed once per month by
+   * {@link import("./allocationStep").refreshCapacityAssets} before anything is drawn — see
+   * {@link import("./allocationStep").capacityAssetsCentsByPerson} for what qualifies.
+   *
+   * Held on the state rather than passed to the allocation, because the month runs the identical
+   * waterfall twice: once over pre-decumulation income to size the gap, and once for real after
+   * decumulation has sold assets to close it. Read live, the second pass would weigh the split by
+   * balances the split's own outcome had just reduced, and the two passes would disagree about
+   * who owed what. One snapshot, taken before either, makes the answer independent of the order.
+   */
+  readonly capacityAssetsByPerson: Map<string, Cents>;
   readonly sharedScheme: SharedContributionScheme;
   readonly surplusDestination: SurplusDestination;
   /**
@@ -256,6 +268,7 @@ export function initSimState(input: HouseholdSimInput): SimState {
     personIds,
     goals: [...(input.goals ?? [])],
     contributionLines: input.contributionLines ?? [],
+    capacityAssetsByPerson: new Map<string, Cents>(),
     sharedScheme: input.sharedScheme ?? "proportional",
     surplusDestination: input.surplusDestination ?? { kind: "idle" },
     deferredByPersonYear: new Map<string, Cents>(),

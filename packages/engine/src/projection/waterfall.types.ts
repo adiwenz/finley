@@ -194,12 +194,28 @@ export interface WaterfallInput {
   readonly accountBalanceCents: (accountId: string) => Cents;
   /**
    * A person's eligible available assets — the fallback weight a shared obligation splits by
-   * when nobody has recurring take-home to weigh (§ Household funding, step 2). Absent, or every
+   * when nobody has contribution capacity to weigh (§ Household funding, step 2), and always the
+   * weight the shortfall attribution uses. Wider than
+   * {@link capacityAssetsCentsByPerson}: every balance the person owns, reachable or committed,
+   * because the cascade will sell any of them to keep the household solvent. Absent, or every
    * person's weight 0, the split drops to its last rung and shares the obligation equally: a
    * household with nothing to weigh by still spends the money, and leaving it unassigned would
    * report the month as costing nobody anything.
    */
   readonly eligibleAssetsCentsByPerson?: (personId: string) => Cents;
+  /**
+   * The ASSET half of a person's contribution capacity — the balances they could actually put
+   * toward the household's shared spending, snapshotted before the month's own allocation (see
+   * {@link import("./allocationStep").capacityAssetsCentsByPerson} for what qualifies and why the
+   * snapshot matters). Absent, or 0, ⇒ capacity is that person's recurring income alone.
+   *
+   * Deliberately NOT {@link eligibleAssetsCentsByPerson}, which is every balance the person owns
+   * and answers a different question: whose accounts the shortfall cascade should try first. A
+   * locked-up 401(k) is a perfectly good answer to THAT — the engine will sell it to keep the
+   * household solvent — and a poor answer to "what can this person contribute", where counting it
+   * would hand the whole budget to whoever has the larger retirement balance at 40.
+   */
+  readonly capacityAssetsCentsByPerson?: (personId: string) => Cents;
   /**
    * A person's OWN obligations — today, a liability payment they alone are the authored
    * owner of — charged against their own take-home BEFORE the shared split runs (§ Household
@@ -446,8 +462,9 @@ export interface WaterfallResult {
    * the money goals, contributions and the surplus are then funded out of.
    *
    * This is per-person NET CASH FLOW as the household actually funds it: the shared-obligation
-   * share is `sharedScheme`'s split (proportional to recurring take-home — see
-   * `settlementCashCents`, which the weight deliberately excludes — or even), not an attribution of
+   * share is `sharedScheme`'s split (proportional to contribution capacity — recurring income plus
+   * a draw on {@link capacityAssetsCentsByPerson}, excluding what `settlementCashCents` and a
+   * bonus add — or even), not an attribution of
    * who authored which budget line — no budget line HAS an author today. Σ over this map is ≥
    * `totalDiscretionary`, since a negative-take-home deficit the pool absorbs is charged to the
    * household total and to nobody's own figure.
