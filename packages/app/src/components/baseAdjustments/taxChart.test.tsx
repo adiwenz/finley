@@ -86,6 +86,7 @@ describe("TaxTooltipContent — a filing month's readout", () => {
     settlementPaidCents: 0,
     refundCents: 0,
     settlementBySourceCents: {},
+    settlementBySourcePersonCents: {},
     settlementByPersonCents: {},
     settlementByOwnerCents: {},
     refundByOwnerCents: {},
@@ -178,6 +179,142 @@ describe("TaxTooltipContent — a filing month's readout", () => {
 });
 
 /**
+ * Whose settlement the diagnostic explains. The band it sits under is already one person's when a
+ * person's cut is showing, so this section has to be theirs too — the household's sources under
+ * Alex's name are not extra context, they are a different filer's arithmetic and a total Alex
+ * never owed.
+ *
+ * Modelled on the real April this was found in: two members drawing a benefit, an RMD and savings
+ * interest apiece, whose household attribution reads as six lines totalling a figure neither of
+ * them settled.
+ */
+describe("TaxTooltipContent — whose settlement is being explained", () => {
+  const entry = (dataKey: string, value: number) =>
+    ({ dataKey, name: dataKey, value, color: "#000" }) as never;
+
+  const ALEX = { "rmd:p1": 282867, "interest:savings": 168393, "benefit:p1": 686012 };
+  const CASEY = { "benefit:person-11": 134304, "rmd:person-11": 91043, "interest:savings-person-11": 573 };
+  const ALEX_TOTAL = 1137272;
+  const CASEY_TOTAL = 225920;
+
+  const APRIL: TaxMonthRow = {
+    month: 531,
+    taxCents: 1363192,
+    centsBySource: { "tax-settlement": 1363192 },
+    settlementCents: ALEX_TOTAL + CASEY_TOTAL,
+    settlementPaidCents: ALEX_TOTAL + CASEY_TOTAL,
+    refundCents: 0,
+    settlementBySourceCents: { ...ALEX, ...CASEY },
+    settlementBySourcePersonCents: { p1: ALEX, "person-11": CASEY },
+    settlementByPersonCents: { p1: ALEX_TOTAL, "person-11": CASEY_TOTAL },
+    settlementByOwnerCents: { "tax-settlement:p1": ALEX_TOTAL, "tax-settlement:person-11": CASEY_TOTAL },
+    refundByOwnerCents: {},
+  };
+
+  const LABELS = {
+    "rmd:p1": "Required distribution · Alex",
+    "interest:savings": "Cash savings · Alex",
+    "benefit:p1": "Government benefit · Alex",
+    "rmd:person-11": "Required distribution · Casey",
+    "interest:savings-person-11": "Casey — Cash savings",
+    "benefit:person-11": "Government benefit · Casey",
+    "rmd:person-8": "Required distribution · Blake",
+  };
+
+  const hover = (row: TaxMonthRow, ownerId?: string) =>
+    ({
+      active: true,
+      label: 532,
+      payload: [entry("Tax settlement", row.settlementByOwnerCents[`tax-settlement:${ownerId}`] ?? row.settlementPaidCents)],
+      rowsByAxisX: new Map([[532, row]]),
+      sourceLabels: LABELS,
+      ...(ownerId === undefined ? {} : { ownerId }),
+    }) as unknown as Parameters<typeof TaxTooltipContent>[0];
+
+  const diagnostic = () => screen.getByTestId("settlement-attribution").textContent!;
+
+  it("lists every member's sources and the household's total in the combined view", () => {
+    render(<TaxTooltipContent {...hover(APRIL)} />);
+    const text = diagnostic();
+    expect(text).toMatch(/Required distribution · Alex.*\$2,829/);
+    expect(text).toMatch(/Government benefit · Alex.*\$6,860/);
+    expect(text).toMatch(/Government benefit · Casey.*\$1,343/);
+    expect(text).toMatch(/Required distribution · Casey.*\$910/);
+    expect(text).toMatch(/Net.*\$13,632/);
+  });
+
+  it("shows Alex only Alex's sources, totalling what Alex owed", () => {
+    render(<TaxTooltipContent {...hover(APRIL, "p1")} />);
+    const text = diagnostic();
+    expect(text).toMatch(/Required distribution · Alex.*\$2,829/);
+    expect(text).toMatch(/Cash savings · Alex.*\$1,684/);
+    expect(text).toMatch(/Government benefit · Alex.*\$6,860/);
+    expect(text).not.toMatch(/Casey/);
+    expect(text).not.toMatch(/Blake/);
+    expect(text).toMatch(/Net.*\$11,373/);
+    expect(text).not.toMatch(/13,632/);
+  });
+
+  it("shows Casey only Casey's sources, totalling what Casey owed", () => {
+    render(<TaxTooltipContent {...hover(APRIL, "person-11")} />);
+    const text = diagnostic();
+    expect(text).toMatch(/Government benefit · Casey.*\$1,343/);
+    expect(text).toMatch(/Required distribution · Casey.*\$910/);
+    expect(text).toMatch(/Casey — Cash savings.*\$6/);
+    expect(text).not.toMatch(/Alex/);
+    expect(text).not.toMatch(/Blake/);
+    expect(text).toMatch(/Net.*\$2,259/);
+  });
+
+  it("ties each person's Net to the band their own cut draws", () => {
+    for (const [ownerId, band] of Object.entries(APRIL.settlementByOwnerCents)) {
+      const personId = ownerId.slice("tax-settlement:".length);
+      const { unmount } = render(<TaxTooltipContent {...hover(APRIL, personId)} />);
+      const lines = screen.getByTestId("settlement-attribution").textContent!;
+      const net = Number(lines.match(/Net\$([\d,]+)/)?.[1]?.replace(/,/g, ""));
+      expect(net).toBe(Math.round(band / 100));
+      unmount();
+    }
+  });
+
+  it("keeps the two members' totals adding up to the household's", () => {
+    expect(ALEX_TOTAL + CASEY_TOTAL).toBe(APRIL.settlementCents);
+  });
+
+  it("gives a refunded member their own refund while the other is shown their own bill", () => {
+    // Separate single filers: the household nets to −$1,000, and neither person owes or is owed
+    // that. Substituting it would tell Alex they were refunded and Casey they broke even.
+    const row: TaxMonthRow = {
+      ...APRIL,
+      settlementCents: -100000,
+      settlementPaidCents: 200000,
+      refundCents: 300000,
+      settlementBySourceCents: { "rmd:p1": 200000, "benefit:person-11": -300000 },
+      settlementBySourcePersonCents: { p1: { "rmd:p1": 200000 }, "person-11": { "benefit:person-11": -300000 } },
+      settlementByPersonCents: { p1: 200000, "person-11": -300000 },
+      settlementByOwnerCents: { "tax-settlement:p1": 200000 },
+      refundByOwnerCents: { "person-11": 300000 },
+    };
+
+    const alex = render(<TaxTooltipContent {...hover(row, "p1")} />);
+    expect(diagnostic()).toMatch(/Net.*\$2,000/);
+    expect(screen.queryByText("Tax refund")).toBeNull();
+    alex.unmount();
+
+    render(<TaxTooltipContent {...hover(row, "person-11")} />);
+    expect(diagnostic()).toMatch(/Net.*-\$3,000/);
+    expect(screen.getByText("Tax refund").parentElement?.textContent).toMatch(/\$3,000/);
+  });
+
+  it("says nothing about a person who settled nothing this month", () => {
+    // Blake left the household years before this April. The row still carries the members who did
+    // settle, and asking it about Blake must produce silence rather than the household's figures.
+    render(<TaxTooltipContent {...hover(APRIL, "person-8")} />);
+    expect(screen.queryByTestId("settlement-attribution")).toBeNull();
+  });
+});
+
+/**
  * The Combined / per-person toggle. Tax is attributed per SOURCE, and most sources carry the
  * owner the engine assigned them, so a two-earner household can be asked whose tax it is
  * looking at. Three bands cannot be: the April settlement belongs to no source at all, the
@@ -205,6 +342,7 @@ describe("TaxChart — whose tax", () => {
     settlementPaidCents: centsBySource["tax-settlement"] ?? 0,
     refundCents: 0,
     settlementBySourceCents: {},
+    settlementBySourcePersonCents: {},
     settlementByPersonCents: {},
     settlementByOwnerCents: {},
     refundByOwnerCents: {},
@@ -335,6 +473,7 @@ describe("TaxChart — whose April settlement", () => {
         settlementPaidCents: dollarsToCents(400),
         refundCents: 0,
         settlementBySourceCents: {},
+        settlementBySourcePersonCents: {},
         settlementByPersonCents: { p1: dollarsToCents(300), p2: dollarsToCents(100) },
         settlementByOwnerCents: {
           "tax-settlement:p1": dollarsToCents(300),

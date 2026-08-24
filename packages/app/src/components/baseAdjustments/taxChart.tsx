@@ -117,8 +117,10 @@ export interface TaxTooltipExtras {
   /** Engine source id → human label, for naming diagnostic attribution rows. */
   readonly sourceLabels?: Readonly<Record<string, string>>;
   /**
-   * Whose cut is showing, when one person's is. A refund belongs to the member who was owed it,
-   * so a household figure here would tell a partner who owed money that they got some back.
+   * Whose cut is showing, when one person's is. Absent for the combined view, which is the only
+   * one the household's own figures answer for. A refund belongs to the member who was owed it,
+   * and so does the settlement it explains: a household figure here would tell a partner who owed
+   * money that they got some back, or explain their bill with a partner's income.
    */
   readonly ownerId?: string;
 }
@@ -141,13 +143,30 @@ export interface TaxTooltipExtras {
  * A SETTLEMENT of either sign gets its signed per-source attribution, which is the engine's
  * average-rate apportionment and routinely negative for one job at the expense of another; it is
  * shown to explain the settlement band, and the "Net" line is what ties the two together.
+ *
+ * Both sections are scoped to WHOEVER IS SHOWING. The band above them already is — a person's cut
+ * draws their own April slice — so a household-wide explanation underneath it is not extra
+ * context but a different subject: Casey's benefit listed as a reason Alex owes, under a total
+ * that is neither of theirs. Every figure here is the selected filer's own, signed, and never a
+ * share of the household's.
  */
 export function TaxTooltipContent(props: TooltipContentProps<ValueType, NameType> & TaxTooltipExtras) {
   const { active, payload, rowsByAxisX, sourceLabels, ownerId } = props;
   if (!active || !payload) return null;
   const row = rowsByAxisX?.get(Number(props.label));
   const paying = payload.filter((entry) => Number(entry.value) !== 0);
-  const attribution = Object.entries(row?.settlementBySourceCents ?? {}).filter(([, c]) => c !== 0);
+  // Scoped to whoever is showing, because this section explains the settlement BAND above it and
+  // that band is already theirs. The household's map lists every filer's sources and nets to the
+  // household's balance, so under one person's name it answered a question about Alex with
+  // Casey's benefit and a total Alex never owed. The engine keeps the per-filer terms precisely
+  // so this can be one person's own arithmetic rather than a share of somebody's sum.
+  const attribution = Object.entries(
+    (ownerId === undefined ? row?.settlementBySourceCents : row?.settlementBySourcePersonCents[ownerId]) ?? {},
+  ).filter(([, c]) => c !== 0);
+  // Signed, and theirs: a partner refunded in the same April as another owes is shown their own
+  // refund here, never the household's net.
+  const attributionNetCents =
+    ownerId === undefined ? (row?.settlementCents ?? 0) : (row?.settlementByPersonCents[ownerId] ?? 0);
   // Theirs in a person's cut, the household's gross in the combined view. Two single filers can
   // settle in opposite directions in the same April, so this is a real figure either way and not
   // a leftover of the netting.
@@ -189,7 +208,7 @@ export function TaxTooltipContent(props: TooltipContentProps<ValueType, NameType
           {attribution.map(([sourceId, cents]) => (
             <TooltipLine key={sourceId} name={sourceLabels?.[sourceId] ?? sourceId} value={formatDollars(cents)} />
           ))}
-          <TooltipLine name="Net" value={formatDollars(row!.settlementCents)} bold />
+          <TooltipLine name="Net" value={formatDollars(attributionNetCents)} bold />
         </div>
       )}
     </div>
@@ -233,9 +252,14 @@ export interface TaxChartProps {
 
 export function TaxChart({ data, selectedMonth, onSelectMonth, personNames }: TaxChartProps) {
   const names = personNames ?? new Map<string, string>();
-  // Only people we can NAME: an owner the household cannot name is a bookkeeping owner rather
-  // than a person to compare.
-  const owners = data.owners.filter((id) => names.get(id) !== undefined);
+  // Everyone the household HAS, not everyone who happened to carry money. Deriving the list from
+  // drawn bands meant a partner who joined with no job and no balances was never offered a cut of
+  // their own, while a preset partner — who always arrives funded — always was: the same
+  // partnership, registered or not depending on its bank balance. The roster answers for both the
+  // same way, and an empty cut is itself the answer to "what does Blake bring?".
+  // A bookkeeping owner is excluded by construction rather than by filter: the roster holds
+  // people, so the synthetic card's "household" was never in it to begin with.
+  const owners = [...names.keys()];
   const ownerOptions = owners.length > 1 ? [COMBINED, ...owners] : [];
   const [owner, setOwner] = useState<string>(COMBINED);
   const activeOwner = ownerOptions.includes(owner) ? owner : COMBINED;

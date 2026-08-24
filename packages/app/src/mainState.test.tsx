@@ -79,7 +79,10 @@ describe("App — central projection state", () => {
     expect(incomeDollars()).not.toBe(before);
   });
 
-  it("surfaces a refused central write without dropping the existing events", () => {
+  it("refuses a removal the ledger could not replay, at the row it belongs to", () => {
+    // The refusal used to arrive only after a click that did nothing visible near the row, as an
+    // alert below the whole timeline naming both events by id. It is asked before the click now,
+    // so the control that cannot work is the one that explains itself.
     render(<App />);
 
     fireEvent.change(screen.getByLabelText("What happened?"), {
@@ -94,12 +97,40 @@ describe("App — central projection state", () => {
     // from them.
     fireEvent.click(screen.getByText("Add event"));
 
-    expect(screen.getAllByText("Remove")).toHaveLength(2);
+    const removes = screen.getAllByText("Remove") as HTMLButtonElement[];
+    expect(removes).toHaveLength(2);
+    // The partnering cannot go while the separation that ends it is still on the timeline, and
+    // the note names that separation by the label already printed beside it.
+    expect(removes[0].disabled).toBe(true);
+    expect(screen.getByText(/Can.t remove — Separated in .* depends on this\./)).toBeTruthy();
+    // The separation itself is the last thing on the timeline, so nothing stands behind it.
+    expect(removes[1].disabled).toBe(false);
 
-    fireEvent.click(screen.getAllByText("Remove")[0]);
-
-    expect(screen.getByText(/can.t do that yet/i)).toBeTruthy();
+    fireEvent.click(removes[0]);
     expect(screen.getAllByText("Remove")).toHaveLength(2);
+  });
+
+  it("removes the blocked event once what stood in the way is gone", () => {
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText("What happened?"), {
+      target: { value: "RelationshipEvent" },
+    });
+    fireEvent.click(screen.getByText("Add event"));
+    fireEvent.change(screen.getByLabelText("What happened?"), {
+      target: { value: "SeparationEvent" },
+    });
+    fireEvent.click(screen.getByText("Add event"));
+
+    // Drop the separation first — nothing depends on it — and the partnering frees up.
+    fireEvent.click((screen.getAllByText("Remove") as HTMLButtonElement[])[1]);
+    const left = screen.getAllByText("Remove") as HTMLButtonElement[];
+    expect(left).toHaveLength(1);
+    expect(left[0].disabled).toBe(false);
+    expect(screen.queryByText(/Can.t remove/)).toBeNull();
+
+    fireEvent.click(left[0]);
+    expect(screen.queryAllByText("Remove")).toHaveLength(0);
   });
 });
 

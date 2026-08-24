@@ -16,6 +16,7 @@ import { nullJurisdiction } from "../jurisdiction/jurisdiction";
 import { dollarsToCents } from "../money/cashFlowSeries";
 import type { PersonId } from "../job/job";
 import type { ProjectionState } from "../authoring/state";
+import { partnershipConflictReason } from "./partnership";
 
 function fresh(): Projection {
   return Projection.fromState(
@@ -411,5 +412,60 @@ describe("a scenario saved before the split was a number", () => {
       "proportional",
     );
     expect(restored.version).toBe(legacyState("proportional").version);
+  });
+});
+
+/**
+ * Advice that names a date the reader cannot move is worse than no advice.
+ *
+ * Two things were wrong with it. A separation form holds the END of a partnership and nothing
+ * else, and it was told to "choose a later date" — the one change that makes the overlap it is
+ * reporting strictly worse. And in the other direction the same clause was offered to a form
+ * holding the START, where it is equally useless: a partnership runs to death unless a separation
+ * stops it, so moving its beginning later slides the near end of a span whose far end has not
+ * moved, and it collides exactly as before.
+ */
+describe("why an overlap is refused, told to whoever can act on it", () => {
+  const spanOf = (startMonth: number, endMonthExclusive: number, name: string, personId?: string) => ({
+    startMonth,
+    endMonthExclusive,
+    name,
+    ...(personId === undefined ? {} : { personId }),
+  });
+
+  /** The candidate runs into a partnership booked AHEAD of it — the separation-edit case. */
+  const candidate = spanOf(0, Number.POSITIVE_INFINITY, "Sam");
+  const ahead = spanOf(10 * YEAR, Number.POSITIVE_INFINITY, "Kim");
+
+  it("tells a separation to move earlier, never later", () => {
+    const reason = partnershipConflictReason(candidate, ahead, SAMPLE_START_YEAR, "end");
+    expect(reason).toMatch(/would still be running when you partner with Kim in 2036/);
+    expect(reason).toMatch(/Choose an earlier date/);
+    expect(reason).not.toMatch(/later date/);
+  });
+
+  it("does not tell a partnership's start date to move later either", () => {
+    // The default caller — a marry form. Ending it sooner is the only thing that helps.
+    const reason = partnershipConflictReason(candidate, ahead, SAMPLE_START_YEAR);
+    expect(reason).toMatch(/Add a separation before then/);
+    expect(reason).not.toMatch(/later date/);
+  });
+
+  it("still offers a later start when the partnership in the way is the one already running", () => {
+    // Here a later date genuinely resolves it: the conflict has an end, and the candidate can
+    // begin after it.
+    const behind = spanOf(0, 5 * YEAR, "Kim");
+    const later = spanOf(2 * YEAR, Number.POSITIVE_INFINITY, "Sam");
+    expect(partnershipConflictReason(later, behind, SAMPLE_START_YEAR)).toMatch(
+      /already partnered with Kim in 2028\. Add a separation first or choose a later date/,
+    );
+  });
+
+  it("tells a separation to end the earlier partnership instead of re-dating itself", () => {
+    const behind = spanOf(0, 5 * YEAR, "Kim");
+    const later = spanOf(2 * YEAR, Number.POSITIVE_INFINITY, "Sam");
+    expect(partnershipConflictReason(later, behind, SAMPLE_START_YEAR, "end")).toMatch(
+      /already partnered with Kim in 2028\. End that partnership first/,
+    );
   });
 });

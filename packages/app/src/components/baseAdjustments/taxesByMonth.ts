@@ -109,6 +109,18 @@ export interface TaxMonthRow {
    */
   readonly settlementBySourceCents: Readonly<Record<string, number>>;
   /**
+   * The same attribution one filer at a time — person id → source id → signed cents, each inner
+   * map summing to that person's entry in {@link settlementByPersonCents}. The engine's own
+   * per-filer terms, not the household map re-split by whose source is whose: a source key says
+   * what income bore the tax, and two partners' benefits can land under keys that only their
+   * owner tells apart.
+   *
+   * What a person's cut of the chart explains its April band with. The household map above
+   * belongs to the combined view alone — shown under one person's name it would list a partner's
+   * sources and total a balance that person never owed.
+   */
+  readonly settlementBySourcePersonCents: Readonly<Record<string, Readonly<Record<string, number>>>>;
+  /**
    * What each PAYING member owed, keyed by {@link ownerSettlementBandId} — their own balance,
    * never a share of the household's. Σ is {@link settlementPaidCents}.
    *
@@ -300,6 +312,7 @@ export function buildTaxChartData(
     // row so a consumer can still reconcile against `flows.taxCents`.
     const settlementCents = flows.taxSettlementCents ?? 0;
     const settlementBySourceCents = flows.taxSettlementBySourceCents ?? {};
+    const settlementBySourcePersonCents = flows.taxSettlementBySourcePersonCents ?? {};
     // GROSS, per person. A household of one — and any month where every member's balance points
     // the same way — gives the same answer as clamping the net, so the fallback below is the
     // whole of the old behaviour for a projection that predates the per-person report.
@@ -371,6 +384,7 @@ export function buildTaxChartData(
       settlementPaidCents,
       refundCents,
       settlementBySourceCents,
+      settlementBySourcePersonCents,
       settlementByPersonCents,
       settlementByOwnerCents,
       refundByOwnerCents,

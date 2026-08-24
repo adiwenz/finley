@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { MAX_AGE, MAX_LIVED_AGE, minLifeExpectancyFor, dollarsToCents } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
+import { commitFocusedField } from "../numInput/commitFocusedField";
 import type { StartingPositionFormProps } from "./startingPositionFormControls";
 import {
   DEFAULT_PARTNER_SHARE_PERCENT,
@@ -41,6 +42,8 @@ export function ExistingPartnerForm({ onAdd, onDone, primaryName }: StartingPosi
   const [brokerage, setBrokerage] = useState(0);
   // A number, not a mode: the partnership opens on an even split and stays wherever it is put.
   const [sharePercent, setSharePercent] = useState(DEFAULT_PARTNER_SHARE_PERCENT);
+  /** The split is mid-retype: what is on screen is not a split, so there is nothing to add yet. */
+  const [splitIncomplete, setSplitIncomplete] = useState(false);
 
   function submit() {
     // The anchor lands at its true past month, driven by how long the household has been
@@ -126,12 +129,18 @@ export function ExistingPartnerForm({ onAdd, onDone, primaryName }: StartingPosi
         partnerName={name}
         partnerPercent={sharePercent}
         onChange={setSharePercent}
+        onIncompleteChange={setSplitIncomplete}
       />
       <p className="hint">
         Their accounts join the household's net worth and can fund household spending while you are
         together, and leave with them at separation.
       </p>
-      <button className="btn primary" onClick={submit}>
+      <button
+        className="btn primary"
+        disabled={splitIncomplete}
+        onPointerDown={commitFocusedField}
+        onClick={submit}
+      >
         Add
       </button>
     </>

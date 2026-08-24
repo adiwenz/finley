@@ -116,21 +116,35 @@ function when(month: number, nowYear: number | undefined): string {
  * the way, since the two cases are fixed by different edits.
  *
  * A conflict that already started is a partnership the reader is currently in: the fix is to end
- * it. A conflict still ahead is one the candidate would run into: the fix is to end the CANDIDATE
- * before it, or move it. Naming the year of the offending relationship rather than of the
- * candidate is what makes the second sentence actionable.
+ * it, or to begin this one after it. A conflict still AHEAD is one the candidate would run into,
+ * and there the only fix is to end the candidate sooner — a partnership runs to death unless a
+ * separation stops it, so starting it later moves the near end of a span whose far end never
+ * moved, and it collides just the same. Naming the year of the offending relationship rather than
+ * of the candidate is what makes that sentence actionable.
+ *
+ * `moving` is WHICH END of the candidate the reader is holding, because the advice is useless if
+ * it names a date they cannot change. A separation form moves the END: told to "choose a later
+ * date" it was told to do the one thing that makes the overlap worse, when the date it owns has
+ * to come earlier.
  */
 export function partnershipConflictReason(
   candidate: PartnershipSpan,
   conflict: PartnershipSpan,
   nowYear: number | undefined,
+  moving: "start" | "end" = "start",
 ): string {
   const who = conflict.name.trim() || "your partner";
-  return conflict.startMonth <= candidate.startMonth
-    ? `you're already partnered with ${who} in ${when(candidate.startMonth, nowYear)}. ` +
-        `Add a separation first or choose a later date`
-    : `this partnership would still be running when you partner with ${who} in ` +
-        `${when(conflict.startMonth, nowYear)}. Add a separation before then or choose a later date`;
+  if (conflict.startMonth <= candidate.startMonth) {
+    return (
+      `you're already partnered with ${who} in ${when(candidate.startMonth, nowYear)}. ` +
+      (moving === "end" ? "End that partnership first" : "Add a separation first or choose a later date")
+    );
+  }
+  return (
+    `this partnership would still be running when you partner with ${who} in ` +
+    `${when(conflict.startMonth, nowYear)}. ` +
+    (moving === "end" ? "Choose an earlier date" : "Add a separation before then")
+  );
 }
 
 /**

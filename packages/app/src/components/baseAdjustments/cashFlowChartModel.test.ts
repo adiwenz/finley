@@ -352,3 +352,58 @@ describe("buildCashFlowChartModel — one person's cut", () => {
     expect(model.bands.map((b) => b.label)).toEqual(["Software Engineer", "Teacher"]);
   });
 });
+
+/**
+ * Scope, and what happens to the fact that does not fit it.
+ *
+ * The combined view answers a question about the household, so the household's own claim is the
+ * one it leads with — a person-scoped sentence in that slot answers a question nobody asked and
+ * hides the one they did. But a member covering their own share out of savings is still true, and
+ * still invisible in a combined total that may be healthily positive. So it is demoted rather
+ * than dropped: said under the headline, in the one view where nothing else says it.
+ */
+describe("buildCashFlowChartModel — whose claim the summary makes", () => {
+  const NAMES = new Map([
+    ["p1", "Alex"],
+    ["p2", "Blake"],
+  ]);
+  /**
+   * A household living off savings from Year 1, inside which Blake draws on their own from Year
+   * 4. Both gaps are stated outright rather than coaxed out of a hand-built series: what is under
+   * test is which of the two the model says where, not the arithmetic that finds them.
+   */
+  const data = () => ({
+    ...buildCashFlowChartData(seriesOf({ sources: [wages], obligations: [rent] })),
+    firstHouseholdDrawdownMonth: 0,
+    firstDrawdownMonthByPerson: { p2: 36 },
+  });
+
+  it("leads the combined view with the household's own statement", () => {
+    const model = buildCashFlowChartModel(data(), { view: "net", personNames: NAMES });
+    expect(model.gapSummary).toContain("you're living off savings");
+    expect(model.gapSummary).not.toContain("Blake");
+  });
+
+  it("demotes the person's fact to a note beneath it, rather than replacing it", () => {
+    const model = buildCashFlowChartModel(data(), { view: "net", personNames: NAMES });
+    expect(model.gapNote).toContain("Blake from Year 4");
+    // Both are said, and the household's is still the headline.
+    expect(model.accessibleSummary).toContain("you're living off savings");
+    expect(model.accessibleSummary).toContain("Blake from Year 4");
+  });
+
+  it("does not repeat the note in a person's own cut, which already leads with it", () => {
+    const model = buildCashFlowChartModel(data(), {
+      view: "net",
+      personNames: NAMES,
+      ownerId: "p2",
+    });
+    expect(model.gapNote).toBeNull();
+    expect(model.gapSummary).toContain("Blake covers their share from personal savings");
+  });
+
+  it("adds nothing to a household where nobody is drawing on their own savings", () => {
+    const plain = buildCashFlowChartData(seriesOf({ sources: [wages], obligations: [rent] }));
+    expect(buildCashFlowChartModel(plain, { view: "net", personNames: NAMES }).gapNote).toBeNull();
+  });
+});

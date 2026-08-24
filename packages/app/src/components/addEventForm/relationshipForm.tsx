@@ -22,6 +22,7 @@ import {
 import { blankJobDraft, jobInputFromDraft, yearOfMonth, type JobEditDraft } from "../../planPeople";
 import { START_YEAR } from "../../config";
 import { NumInput } from "../numInput/numInput";
+import { commitFocusedField } from "../numInput/commitFocusedField";
 import { formatDollars } from "../../format";
 import { JobForm } from "../jobsPanel/jobForm";
 import { DEFAULT_PARTNER_SHARE_PERCENT, SharedSplitFields } from "./sharedSplitFields";
@@ -125,6 +126,11 @@ export function RelationshipForm({
         },
   );
   const [addingJob, setAddingJob] = useState(false);
+  /**
+   * The split is mid-retype, so the form is not showing one. Saving here would write the
+   * percentage the emptied field is in the middle of replacing — a figure nobody is looking at.
+   */
+  const [splitIncomplete, setSplitIncomplete] = useState(false);
   const patch = (fields: Partial<RelationshipDraft>) => setDraft((d) => ({ ...d, ...fields }));
 
   const joinYear = yearOfMonth(draft.month);
@@ -278,6 +284,7 @@ export function RelationshipForm({
         partnerName={draft.name}
         partnerPercent={draft.sharePercent}
         onChange={(sharePercent) => patch({ sharePercent })}
+        onIncompleteChange={setSplitIncomplete}
       />
 
       {/* The same job model and form the primary earner uses, scoped to the partner. Hidden
@@ -414,7 +421,12 @@ export function RelationshipForm({
           {conflictReason}
         </p>
       )}
-      <button className="btn primary" disabled={conflictReason !== null} onClick={submit}>
+      <button
+        className="btn primary"
+        disabled={conflictReason !== null || splitIncomplete}
+        onPointerDown={commitFocusedField}
+        onClick={submit}
+      >
         {edit ? "Save changes" : "Add event"}
       </button>
     </>

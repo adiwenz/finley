@@ -17,7 +17,7 @@ import { interpretLedger } from "../ledger/interpret";
 import type { Ledger } from "../ledger/ledger";
 import type { Person } from "../plan/person";
 import type { ProjectionSeries } from "./simulate";
-import { personActiveWindow } from "../job/personActiveWindow";
+import { lifeExpectancyEndMonthExclusive, personActiveWindow } from "../job/personActiveWindow";
 
 export interface SnapshotChild extends Child {
   readonly id: ChildId;
@@ -139,10 +139,11 @@ export function buildSnapshot(
   household: Household,
   month: number,
   projection?: ProjectionSeries,
+  nowYear?: number,
 ): HouseholdSnapshot {
   const m = clampMonth(month, projection);
 
-  const persons = membersAt(household, m);
+  const members = membersAt(household, m);
   /**
    * Whose holdings this cross-section is entitled to show. The whole-plan views are deliberately
    * omniscient — a partner still to come appears on the timeline, in the job projections and in
@@ -154,7 +155,23 @@ export function buildSnapshot(
    * departure: a partner who died left their accounts to the household, so they stay in the
    * snapshot exactly as the projection still carries them.
    */
-  const memberIds = new Set(persons.map((p) => p.id));
+  const memberIds = new Set(members.map((p) => p.id));
+  /**
+   * Who the household is composed of at `m` — the roster it READS as, which is not the same
+   * question as whose holdings it may show above. Death closes a life without closing a
+   * membership, so a partner years dead was still listed here as a current member, beside the
+   * accounts they left behind: the panel said the household had two people in it and the money
+   * of two people, when it had the money of two people and one person.
+   *
+   * Filtered here and not in {@link membersAt}, because the estate is exactly what the wider
+   * answer protects — narrowing that one would take the deceased's accounts out of the snapshot
+   * along with their name, which is the opposite of what happens when somebody dies.
+   *
+   * Without a `nowYear` there is no calendar to date a death against, and
+   * {@link lifeExpectancyEndMonthExclusive} answers `Infinity` — every member reads as living,
+   * which is what a caller that never supplied one has always seen.
+   */
+  const persons = members.filter((p) => m < lifeExpectancyEndMonthExclusive(p, nowYear));
   /**
    * Everyone the household has EVER held a membership for. An owner outside it is not a member
    * who has left or not yet arrived — it is a holding whose owner this roster cannot speak for

@@ -180,6 +180,7 @@ export function buildFlows(
   | "obligationChargedByPersonCents"
   | "obligationFundedByPersonCents"
   | "taxSettlementByPersonCents"
+  | "taxSettlementBySourcePersonCents"
 > {
   const cashFlowIncomeByCategoryCents: Record<string, Cents> = {};
   let totalIncomeCents = 0;

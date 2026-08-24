@@ -10,6 +10,7 @@
  * {@link computeDependents}).
  */
 
+import type { LifeEvent } from "./eventTypes";
 import type { Ledger } from "./ledger";
 import type { LedgerBaseConfig } from "./ledgerBase";
 import { computeDependents } from "./dependencies";
@@ -17,7 +18,19 @@ import { validateLedger } from "./validateLedger";
 
 export type RemoveResult =
   | { ok: true; ledger: Ledger }
-  | { ok: false; conflict: string };
+  | {
+      ok: false;
+      conflict: string;
+      /**
+       * The event the removal would strand, when one exists — the same pair {@link conflict}
+       * renders into a sentence, kept apart so a caller can say it in its OWN vocabulary. A
+       * surface that already has a label for every event on the timeline can name the blocker
+       * the way the reader saw it, instead of quoting an id at them.
+       *
+       * Absent when there is nothing to strand (no such event to remove).
+       */
+      stranded?: { readonly event: LifeEvent; readonly reason: string };
+    };
 
 export function removeEvent(
   ledger: Ledger,
@@ -42,6 +55,7 @@ export function removeEvent(
     return {
       ok: false,
       conflict: `Cannot remove event "${id}": removing it causes event "${replay.event.id}" (${replay.event.type}) to fail — ${replay.reason}`,
+      stranded: { event: replay.event, reason: replay.reason },
     };
   }
 

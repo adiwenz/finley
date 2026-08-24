@@ -19,6 +19,9 @@ import { SeparationForm } from "./separationForm";
 import { ChildForm } from "./childForm";
 import { HomePurchaseForm } from "./homePurchaseForm";
 import type { EventOf } from "./formControls";
+import { PLAN_DEFAULTS } from "../../planDefaults";
+import { readerOf } from "../../testing/projectionHarness";
+import { usJurisdiction } from "@finley/rules";
 
 afterEach(cleanup);
 
@@ -51,7 +54,10 @@ const withPartner = {
 } as unknown as ProjectionResult;
 
 /** A household of one — the owner picker hides itself here, as the Jobs panel's does. */
-const soloResult = { membersAt: () => [{ id: "p1", name: "You" }] } as unknown as ProjectionResult;
+const soloResult = {
+  membersAt: () => [{ id: "p1", name: "You" }],
+  household: { memberships: [] },
+} as unknown as ProjectionResult;
 
 const spin = (name: RegExp | string) =>
   screen.getByRole("spinbutton", { name }) as HTMLInputElement;
@@ -170,6 +176,105 @@ describe("SeparationForm — the sole partner is named, never picked", () => {
     expect((screen.getByRole("button", { name: /Add event/i }) as HTMLButtonElement).disabled).toBe(
       true,
     );
+  });
+});
+
+/**
+ * Moving a separation LATER lengthens the partnership it ends, and a partnership already booked
+ * behind it is what that extra length runs into. Same span overlap as the relationship form's,
+ * asked of the date in the field rather than the one on the timeline — the engine refuses the
+ * write regardless, so this only spares a click that could not land.
+ */
+describe("SeparationForm — a separation moved into the next partnership", () => {
+  const SEPARATION_MONTH = 60;
+  const JOIN_MONTH = 84;
+
+  function chain() {
+    const p = readerOf(PLAN_DEFAULTS);
+    p.marry({ month: 0, name: "Blake", birthYear: 1990, lifeExpectancy: 88 });
+    const blake = p.run(usJurisdiction).activePartnerAt(0)!;
+    p.separate({ month: SEPARATION_MONTH, partnerPersonId: blake.id });
+    p.marry({ month: JOIN_MONTH, name: "Casey", birthYear: 1992, lifeExpectancy: 95 });
+    return { run: p.run(usJurisdiction), blake };
+  }
+
+  /** The event as the edit form receives it — only the fields the form reads. */
+  const separationEvent = (blakeId: string) =>
+    ({
+      type: "SeparationEvent",
+      id: "sep-1",
+      sequenceNumber: 2,
+      month: SEPARATION_MONTH,
+      partnerPersonId: blakeId,
+      alimonyMonthlyCents: 0,
+      alimonyDurationMonths: 0,
+    }) as unknown as EventOf<"SeparationEvent">;
+
+  function renderEdit(run: ReturnType<typeof chain>["run"], blakeId: string) {
+    const { p, onRevise } = stubProjection();
+    render(
+      <SeparationForm
+        defaultMonth={0}
+        horizonMonths={660}
+        onAdd={() => {}}
+        result={run}
+        edit={{ event: separationEvent(blakeId), onRevise }}
+      />,
+    );
+    return p;
+  }
+
+  const saveButton = () => screen.getByRole("button", { name: /Save changes/i }) as HTMLButtonElement;
+  const moveTo = (month: number) =>
+    fireEvent.change(screen.getByRole("combobox", { name: /When/i }), {
+      target: { value: String(month) },
+    });
+
+  it("opens on its own date with nothing to say", () => {
+    const { run, blake } = chain();
+    renderEdit(run, blake.id);
+    expect(screen.queryByText(/still be running|already partnered/i)).toBeNull();
+    expect(saveButton().disabled).toBe(false);
+  });
+
+  it("blocks a date that would leave Blake here when Casey arrives", () => {
+    const { run, blake } = chain();
+    renderEdit(run, blake.id);
+    moveTo(JOIN_MONTH + 12);
+    expect(screen.getByText(/would still be running when you partner with Casey/i)).toBeTruthy();
+    expect(saveButton().disabled).toBe(true);
+  });
+
+  it("allows the separation to land on the very month Casey arrives", () => {
+    // Ends are exclusive: separating in the month the next partnership begins is the handoff,
+    // and it is processed first.
+    const { run, blake } = chain();
+    renderEdit(run, blake.id);
+    moveTo(JOIN_MONTH);
+    expect(screen.queryByText(/still be running/i)).toBeNull();
+    expect(saveButton().disabled).toBe(false);
+  });
+
+  it("tells the reader to move the one date they are holding, and which way", () => {
+    // This form owns the END of the partnership and nothing else. Told to "choose a later date"
+    // it was told to do the single thing that makes the overlap it is reporting worse.
+    const { run, blake } = chain();
+    renderEdit(run, blake.id);
+    moveTo(JOIN_MONTH + 12);
+    const warning = screen.getByText(/would still be running when you partner with Casey/i)
+      .textContent ?? "";
+    expect(warning).toMatch(/Choose an earlier date/i);
+    expect(warning).not.toMatch(/later date/i);
+    expect(warning).not.toMatch(/Add a separation/i);
+  });
+
+  it("clears again when the date moves back off the overlap", () => {
+    const { run, blake } = chain();
+    renderEdit(run, blake.id);
+    moveTo(JOIN_MONTH + 12);
+    expect(saveButton().disabled).toBe(true);
+    moveTo(SEPARATION_MONTH);
+    expect(saveButton().disabled).toBe(false);
   });
 });
 

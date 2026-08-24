@@ -353,3 +353,110 @@ describe("a partner who leaves before the filing", () => {
     );
   });
 });
+
+/**
+ * A band nobody can see is not a band. The lists are already cut to what carried something at the
+ * CENT, which left a real preset with a "Tax refund" band peaking at six cents — a legend entry, a
+ * flat-zero area, and a `$0` row under every reading of both the combined table and Blake's. The
+ * test is the rounding the table itself prints with, so a band survives exactly when some month
+ * of it shows a figure.
+ */
+describe("a refund too small to print", () => {
+  const bandsOf = (series: ProjectionSeries, ownerId?: string) =>
+    cashFlowBandsForView(buildCashFlowChartData(series), "inflows", "advanced", NAMES, ownerId).bands;
+
+  it("drops a refund that rounds to $0 in every month it exists", () => {
+    const april = aprilOf({ settlementByPerson: { [BLAKE]: -6 } });
+    expect(bandsOf(april).filter((b) => b.id.startsWith("tax-refund"))).toEqual([]);
+    expect(bandsOf(april, BLAKE).filter((b) => b.id.startsWith("tax-refund"))).toEqual([]);
+    // The cents are still in the row: the money was real, only too small to draw, and taking it
+    // out of the totals would stop the rows adding up to the month.
+    expect(cutOf(april, "inflows", BLAKE)[refundBandId(BLAKE)]).toBe(6);
+  });
+
+  it("keeps a refund of half a dollar, which the table does print", () => {
+    // The threshold is `formatDollars`' own rounding and not a tolerance invented here: 50 cents
+    // prints as $1, so it is a band.
+    const april = aprilOf({ settlementByPerson: { [BLAKE]: -50 } });
+    expect(bandsOf(april).map((b) => b.id)).toContain(refundBandId(BLAKE));
+  });
+
+  it("clears the six-cent refund out of the preset it was reported in", () => {
+    // "Two incomes, one household", where Blake's largest refund across the whole horizon is $0.06
+    // — enough for the band to exist, never enough for a row to show anything.
+    const series = Projection.fromState(
+      presetState(presetById("partner-even-split")),
+      usJurisdiction,
+    ).run(usJurisdiction).series;
+    const names = new Map([
+      ["p1", "Alex"],
+      ["person-8", "Blake"],
+    ]);
+    for (const owner of [undefined, "p1", "person-8"]) {
+      const folded = cashFlowBandsForView(
+        buildCashFlowChartData(series),
+        "inflows",
+        "advanced",
+        names,
+        owner,
+      );
+      expect(folded.bands.filter((b) => b.id.startsWith("tax-refund"))).toEqual([]);
+    }
+  });
+
+  it("still draws a partner's real refund, and still under their own name", () => {
+    const april = aprilOf({
+      settlementByPerson: { [ALEX]: dollarsToCents(7_460), [BLAKE]: -dollarsToCents(3_708) },
+    });
+    // Combined and Blake's cut both carry it; Alex's does not, because it was never Alex's.
+    expect(bandsOf(april).map((b) => b.id)).toContain(refundBandId(BLAKE));
+    expect(bandsOf(april, BLAKE).map((b) => b.id)).toContain(refundBandId(BLAKE));
+    expect(bandsOf(april, ALEX).map((b) => b.id)).not.toContain(refundBandId(BLAKE));
+    expect(cutOf(april, "inflows", BLAKE)[refundBandId(BLAKE)]).toBe(dollarsToCents(3_708));
+  });
+});
+
+/**
+ * The third of the three concepts the engine keeps apart — who FUNDED a bill, as against whose
+ * bill it is. The household helps a member who cannot cover their own month, and the settlement
+ * diagnostic must go on explaining that member's balance with that member's own income: an April
+ * paid for out of a partner's paycheck is still not the partner's April.
+ */
+describe("a bill the household helped pay is still its owner's", () => {
+  const series = Projection.fromState(
+    presetState(presetById("partner-even-split")),
+    usJurisdiction,
+  ).run(usJurisdiction).series;
+  /** The first April: Blake owes $29.14 on a month their own income falls $637.73 short of. */
+  const flows = series.months[15]!.flows!;
+  const ALEX_ID = "p1";
+  const BLAKE_ID = "person-8";
+
+  it("has the household covering part of Blake's month, which is what makes this a test", () => {
+    expect(flows.netCashFlowByPersonCents[BLAKE_ID]).toBeLessThan(0);
+    expect(flows.obligationFundedByPersonCents[BLAKE_ID]).toBeLessThan(
+      flows.obligationChargedByPersonCents[BLAKE_ID]!,
+    );
+  });
+
+  it("still charges Blake's balance to Blake and explains it with Blake's own income", () => {
+    expect(flows.taxSettlementByPersonCents[BLAKE_ID]).toBe(2914);
+    const blake = flows.taxSettlementBySourcePersonCents[BLAKE_ID]!;
+    expect(Object.values(blake).reduce((a, b) => a + b, 0)).toBe(2914);
+    // Blake's own job and Blake's own savings interest — and nothing of Alex's, whose money paid
+    // for it. Source keys carry no owner of their own (`job:job-9` names a job, not a person),
+    // which is why the split has to come from the engine rather than from reading the keys.
+    const alex = flows.taxSettlementBySourcePersonCents[ALEX_ID]!;
+    expect(Object.keys(blake).filter((id) => id in alex)).toEqual([]);
+    expect(blake["job:job-9"]).toBe(1824);
+    expect(blake["interest:savings-person-8"]).toBe(1090);
+  });
+
+  it("leaves Alex's own balance untouched by the help Alex gave", () => {
+    const alex = flows.taxSettlementBySourcePersonCents[ALEX_ID]!;
+    expect(Object.values(alex).reduce((a, b) => a + b, 0)).toBe(
+      flows.taxSettlementByPersonCents[ALEX_ID],
+    );
+    expect(Object.keys(alex).some((id) => id.includes(BLAKE_ID))).toBe(false);
+  });
+});

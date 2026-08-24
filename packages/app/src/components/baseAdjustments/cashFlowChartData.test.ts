@@ -24,6 +24,7 @@ import {
   buildCashFlowChartData,
   cashFlowBandsForView,
   describeCashFlowGap,
+  describePersonalDrawdowns,
 } from "./cashFlowChartData";
 
 interface MonthSpec {
@@ -515,5 +516,49 @@ describe("buildCashFlowChartData — per-person net, against a real projection",
     const [a, b] = Object.values(first.netCentsByPerson);
     expect(a).not.toBe(b);
     expect(a).not.toBe(first.netCents);
+  });
+});
+
+/**
+ * The household's headline is a household claim, and one person's shortfall is not one.
+ *
+ * The combined view answers "how is the household doing", so it cannot be handed a sentence about
+ * Blake — the combined total does not show that fact and can flatly contradict it, since a
+ * household can be comfortably positive while somebody inside it is covering their own share out
+ * of savings. Said BESIDE the headline it adds what the headline could not say; said instead of
+ * it, the reader loses the answer they asked for.
+ */
+describe("describePersonalDrawdowns", () => {
+  const names = new Map([
+    ["p1", "Alex"],
+    ["p2", "Blake"],
+  ]);
+  /** Only the two fields this reads; the rest of the shape is irrelevant to it. */
+  const dataWith = (byPerson: Record<string, number>) =>
+    ({ firstDrawdownMonthByPerson: byPerson }) as unknown as Parameters<
+      typeof describePersonalDrawdowns
+    >[0];
+
+  it("says nothing when nobody is drawing on their own savings", () => {
+    expect(describePersonalDrawdowns(dataWith({}), names)).toBeNull();
+  });
+
+  it("names the one person who is, and the year they start", () => {
+    const note = describePersonalDrawdowns(dataWith({ p2: 36 }), names);
+    expect(note).toContain("Blake from Year 4");
+    expect(note).toContain("covers their");
+    // It stays a claim about them, never a restatement of the household's position.
+    expect(note).not.toContain("you're living off savings");
+  });
+
+  it("names everyone who is, earliest first", () => {
+    const note = describePersonalDrawdowns(dataWith({ p1: 120, p2: 36 }), names);
+    expect(note).toContain("Blake from Year 4 and Alex from Year 11");
+    expect(note).toContain("cover their");
+  });
+
+  it("skips an owner the household cannot name", () => {
+    // A bookkeeping owner is not a person to say this about.
+    expect(describePersonalDrawdowns(dataWith({ household: 12 }), names)).toBeNull();
   });
 });

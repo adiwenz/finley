@@ -826,7 +826,18 @@ export function cashFlowBandsForView(
       spendingNeedCents: spendingNeedFor(r, ownerId, data.netOwners),
     };
   });
-  return { bands, rows };
+  // A band nobody can see is not a band. The lists above drop what carried nothing ANYWHERE, at
+  // the cent — which still leaves a refund of four cents spread over a lifetime with a legend
+  // entry, a flat-zero area, and a "Tax refund $0" row in every reading of the table. The test is
+  // the rounding {@link formatDollars} does, the same one the milestone walk compares on, so a
+  // band survives exactly when some month of it prints a figure.
+  //
+  // The cents stay in `centsByBand` and in `totalCents`: the money was real, it is only too small
+  // to draw, and dropping it from the totals would make the rows stop adding up to the month.
+  const visible = bands.filter((b) =>
+    rows.some((r) => toDisplayCents(r.centsByBand[b.id] ?? 0) !== 0),
+  );
+  return { bands: visible, rows };
 }
 
 /** 1-based, for a human-facing "Year N" label. */
@@ -871,4 +882,35 @@ export function describeCashFlowGap(
     );
   }
   return null;
+}
+
+/**
+ * The household's headline is a household claim, so it cannot also carry "and Blake, personally,
+ * is covering their share out of savings" — a fact about one member that the combined total does
+ * not show and can even contradict, since the household can be comfortably positive while one
+ * person inside it is not.
+ *
+ * Said BESIDE the headline rather than instead of it, and only in the combined view: a person's
+ * own cut already leads with their claim, and repeating it under itself says nothing twice.
+ * `null` when nobody is drawing down, which is the ordinary case.
+ */
+export function describePersonalDrawdowns(
+  data: CashFlowChartData,
+  personNames: ReadonlyMap<string, string>,
+): string | null {
+  const drawing = Object.entries(data.firstDrawdownMonthByPerson)
+    .filter(([id]) => personNames.get(id) !== undefined)
+    .sort((a, b) => a[1] - b[1]);
+  if (drawing.length === 0) return null;
+  const clauses = drawing.map(
+    ([id, month]) => `${personNames.get(id) ?? id} from Year ${yearOf(month)}`,
+  );
+  const who =
+    clauses.length === 1
+      ? clauses[0]
+      : `${clauses.slice(0, -1).join(", ")} and ${clauses[clauses.length - 1]}`;
+  return (
+    `Within it, ${who} ${drawing.length === 1 ? "covers their" : "cover their"} own share from ` +
+    `personal savings — that is theirs alone, not the household's total.`
+  );
 }

@@ -873,3 +873,69 @@ describe("the dated household snapshot holds only the household of that month", 
     }
   });
 });
+
+/**
+ * Whose April a settlement diagnostic explains. Three people file here, never more than two at
+ * once, and the household's per-source attribution is their terms already added together — so the
+ * only honest answer to "why does Alex owe this?" is Alex's own terms, which the engine keeps
+ * separately for exactly that reason.
+ */
+describe("each filer's own settlement attribution", () => {
+  const attributionAt = (month: number) => flowsAt(month).taxSettlementBySourcePersonCents;
+  /** Every April the plan files, so a window claim below is about all of them, not a sample. */
+  const FILING_MONTHS = RUN.series.months
+    .filter((m) => Object.keys(m.flows?.taxSettlementByPersonCents ?? {}).length > 0)
+    .map((m) => m.month);
+
+  it("explains April of Year 44 with each member's own sources, not the household's", () => {
+    // The reported month: a combined $13,632 that neither member settled.
+    const month = 531;
+    const row = buildTaxChartData(RUN.series, NAMES).rows.find((r) => r.month === month)!;
+    expect(row.settlementCents).toBe(1363192);
+
+    const alex = attributionAt(month)[ALEX]!;
+    const casey = attributionAt(month)[CASEY]!;
+    const total = (m: Readonly<Record<string, number>>) => Object.values(m).reduce((a, b) => a + b, 0);
+
+    expect(total(alex)).toBe(1137272);
+    expect(total(casey)).toBe(225920);
+    // Their two lists are disjoint, so neither tooltip can name the other's income.
+    expect(Object.keys(alex).filter((k) => k in casey)).toEqual([]);
+    expect(total(alex) + total(casey)).toBe(row.settlementCents);
+    // And each is exactly the band that person's own cut of the chart draws.
+    expect(row.settlementByOwnerCents[`tax-settlement:${ALEX}`]).toBe(total(alex));
+    expect(row.settlementByOwnerCents[`tax-settlement:${CASEY}`]).toBe(total(casey));
+  });
+
+  it("stops attributing anything to Blake once Blake has left", () => {
+    const blakeMonths = FILING_MONTHS.filter((m) => ALEX in attributionAt(m) && BLAKE in attributionAt(m));
+    // Blake really did file while they were here — otherwise the claim below is vacuous.
+    expect(blakeMonths.length).toBeGreaterThan(0);
+    expect(Math.max(...blakeMonths)).toBeLessThan(SEPARATION);
+    expect(FILING_MONTHS.filter((m) => m >= SEPARATION && BLAKE in attributionAt(m))).toEqual([]);
+  });
+
+  it("attributes nothing to Casey before Casey arrives", () => {
+    const caseyMonths = FILING_MONTHS.filter((m) => CASEY in attributionAt(m));
+    expect(caseyMonths.length).toBeGreaterThan(0);
+    expect(Math.min(...caseyMonths)).toBeGreaterThan(JOIN);
+    expect(FILING_MONTHS.filter((m) => m < JOIN && CASEY in attributionAt(m))).toEqual([]);
+  });
+
+  it("leaves the household alone with Alex's own filing in the gap between partners", () => {
+    const gap = FILING_MONTHS.filter((m) => m >= SEPARATION && m < JOIN);
+    expect(gap.length).toBeGreaterThan(0);
+    for (const month of gap) expect(Object.keys(attributionAt(month))).toEqual([ALEX]);
+  });
+
+  it("still explains the estate settlement filed after Alex dies", () => {
+    // Death is not separation: the final April settles the year Alex lived through, and it is
+    // still Alex's own — with Casey's, filed the same month, still separately Casey's.
+    const month = 663;
+    const alex = attributionAt(month)[ALEX]!;
+    expect(Object.values(alex).reduce((a, b) => a + b, 0)).toBe(
+      flowsAt(month).taxSettlementByPersonCents[ALEX],
+    );
+    expect(Object.keys(attributionAt(month)[CASEY]!).some((k) => k in alex)).toBe(false);
+  });
+});

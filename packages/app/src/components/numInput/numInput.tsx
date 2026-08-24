@@ -42,17 +42,28 @@ export function NumInput({
   value: number;
   onChange: (v: number) => void;
   /**
-   * Fired on every keystroke that already reads as a whole, in-range figure — for the rare field
-   * whose value is not a fact about the plan but half of a pair the form has to keep consistent
-   * while it is being typed (a percentage split's complement). Nothing that re-projects may
-   * subscribe: the commit-on-blur contract above exists because those runs are expensive and
-   * answer questions nobody asked.
+   * Fired on every keystroke, reporting what this field NOW SHOWS — for the rare field whose
+   * value is not a fact about the plan but half of a pair the form has to keep consistent while
+   * it is being typed (a percentage split's complement). `null` means it shows nothing usable
+   * yet: an emptied field, a lone "-". Nothing that re-projects may subscribe — the
+   * commit-on-blur contract above exists because those runs are expensive and answer questions
+   * nobody asked.
    *
-   * Deliberately silent on anything out of bounds or half-entered — "1" on the way to "130", a
-   * lone "-", an emptied field — so a live listener never sees a figure the commit would refuse
-   * and then clamp with an explanation.
+   * Subscribing also moves the CLAMP forward to the keystroke, and the field snaps to the bound
+   * with the usual note. That is the opposite of the "4 on the way to 45" freedom above, and it
+   * has to be: the listener's whole job is to hold the pair at 100, so a live 150 would show
+   * 150 beside a complement of 0 — two figures summing to 150, one of which the commit is about
+   * to refuse. A bounded pair has no half-typed 150 to protect; there is no in-range number it
+   * is on the way to.
+   *
+   * Subscribing FORFEITS the private draft for any keystroke that parses: the figure is handed
+   * up and the field re-renders from `value`, so the caller is the only one holding it. A live
+   * field that kept its own copy went stale the moment its partner was edited — a clamped 150
+   * left "100" showing while the pair moved underneath it, and 70/100 summed to 170 with no
+   * gesture that could talk the field down again. The cost is that a live field cannot show
+   * "007" or a trailing ".", which is why only a bounded whole-number pair subscribes.
    */
-  onLiveChange?: (v: number) => void;
+  onLiveChange?: (v: number | null) => void;
   prefix?: string;
   suffix?: string;
   min?: number;
@@ -76,17 +87,31 @@ export function NumInput({
    * above so intermediate digits are never fought — an age field with `min={18}` must let "4"
    * exist on its way to "45".
    */
+  /** The figure this field will take, given what was typed — the bounds, and nothing else. */
+  function bound(n: number): number {
+    let next = n;
+    if (min !== undefined) next = Math.max(min, next);
+    if (max !== undefined) next = Math.min(max, next);
+    return next;
+  }
+
   function commit() {
     if (draft === null) return;
     const parsed = Number(draft);
     setDraft(null);
     // Nothing usable typed — an emptied field, or text a number input let through. The
     // committed value stands; writing 0 here would author a figure nobody entered.
-    if (draft.trim() === "" || Number.isNaN(parsed)) return;
-    let next = parsed;
-    if (min !== undefined) next = Math.max(min, next);
-    if (max !== undefined) next = Math.min(max, next);
-    setClamped(next === parsed ? null : { typed: parsed, used: next });
+    if (draft.trim() === "" || Number.isNaN(parsed)) {
+      // The abandoned edit is gone and `value` shows through again — a live caller was last
+      // told `null`, so say what the field went back to or it would hold the pair invalid.
+      onLiveChange?.(value);
+      return;
+    }
+    // Only ever SETS the note. A note is answered by the next keystroke, which clears it above —
+    // clearing it here instead would swallow the one a live clamp already put up, since the draft
+    // it left behind is the bounded figure and this commit then has nothing of its own to say.
+    const next = bound(parsed);
+    if (next !== parsed) setClamped({ typed: parsed, used: next });
     if (next !== value) onChange(next);
   }
 
@@ -105,13 +130,24 @@ export function NumInput({
           onChange={(e) => {
             // Typing again is the user answering the note; it has nothing left to say.
             setClamped(null);
-            setDraft(e.target.value);
-            if (onLiveChange === undefined) return;
             const typed = e.target.value.trim();
             const parsed = Number(typed);
-            if (typed === "" || Number.isNaN(parsed)) return;
-            if ((min !== undefined && parsed < min) || (max !== undefined && parsed > max)) return;
-            if (parsed !== value) onLiveChange(parsed);
+            if (onLiveChange === undefined) {
+              setDraft(e.target.value);
+              return;
+            }
+            // Half-entered: there is no figure to hand up or to clamp. The text stays verbatim,
+            // and the caller is told the field is currently showing nothing it can use.
+            if (typed === "" || Number.isNaN(parsed)) {
+              setDraft(e.target.value);
+              onLiveChange(null);
+              return;
+            }
+            // Nothing kept here. The bounded figure goes up and comes back as `value`, so this
+            // field renders what the caller holds and cannot drift from its partner.
+            setDraft(null);
+            if (bound(parsed) !== parsed) setClamped({ typed: parsed, used: bound(parsed) });
+            onLiveChange(bound(parsed));
           }}
           onBlur={commit}
           onKeyDown={(e) => {

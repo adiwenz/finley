@@ -138,19 +138,21 @@ export function CashFlowChart({
   const [view, setView] = useState<CashFlowView>("inflows");
   const [owner, setOwner] = useState<string>(COMBINED);
 
-  // Only people we can NAME. "Coming in" offers whoever draws an inflow band; "Net" and "Going
-  // out" offer whoever the engine reported a figure for, which is the whole roster — a person
-  // who earned nothing this month was still charged their share of what the household spent.
-  const owners = useMemo(() => {
-    const ids =
-      view === "inflows"
-        ? data.inflowBands.map((b) => b.ownerId).filter((id): id is string => id !== undefined)
-        : data.netOwners;
-    return [...new Set(ids.filter((id) => personNames.get(id) !== undefined))];
-  }, [view, data.netOwners, data.inflowBands, personNames]);
+  // Everyone the household HAS, not everyone who happened to carry money. Deriving the list from
+  // drawn bands meant a partner who joined with no job and no balances was never offered a cut of
+  // their own, while a preset partner — who always arrives funded — always was: the same
+  // partnership, registered or not depending on its bank balance. The roster answers for both the
+  // same way, and an empty cut is itself the answer to "what does Blake bring?".
+  //
+  // The same list in every view, too: the cut offered under "Coming in" used to be whoever drew
+  // an inflow band there, so a person the household could compare under "Net" vanished from the
+  // toggle by switching view, which reads as the toggle losing them rather than as their income
+  // being nil.
+  const owners = useMemo(() => [...personNames.keys()], [personNames]);
   const ownerOptions = owners.length > 1 ? [COMBINED, ...owners] : [];
   const activeOwner = ownerOptions.includes(owner) ? owner : COMBINED;
-  const whose = activeOwner === COMBINED ? "" : `${personNames.get(activeOwner) ?? activeOwner}'s `;
+  /** Whose cut is showing, or `null` in Combined — where it is the household's, not a person's. */
+  const whose = activeOwner === COMBINED ? null : (personNames.get(activeOwner) ?? activeOwner);
 
   // None of this depends on `selectedMonth`, so scrubbing the selection — a frequent re-render
   // — doesn't recompute the band collapse or remap every month row.
@@ -174,6 +176,13 @@ export function CashFlowChart({
         <p className="hint" data-testid="income-summary">
           {model.gapSummary ?? "Cash flow continues across the whole horizon."}
         </p>
+        {/* Under the headline, not in place of it: the household's own statement stays the thing
+            the reader is told first, and this adds what it could not say. */}
+        {model.gapNote !== null && (
+          <p className="hint subtle" data-testid="income-summary-note">
+            {model.gapNote}
+          </p>
+        )}
         <div style={{ display: "inline-flex", alignItems: "center", gap: 14 }}>
           {ownerOptions.length > 1 && (
             <div className="seg" role="group" aria-label="Whose cash flow">
@@ -302,7 +311,12 @@ export function CashFlowChart({
         {model.rows[1]?.[model.spendingNeedKey] ?? 0}
       </output>
 
-      <div role="img" aria-label={`${whose}${model.accessibleSummary}`}>
+      {/* Said as its own clause, not as a possessive glued to a title: "Blake's Monthly cash
+          coming in" was not a phrase, and the sentence after it already names them. */}
+      <div
+        role="img"
+        aria-label={whose === null ? model.accessibleSummary : `${whose}'s share. ${model.accessibleSummary}`}
+      >
       <ResponsiveContainer width="100%" height={200}>
         <ComposedChart
           data={model.rows as Record<string, number>[]}

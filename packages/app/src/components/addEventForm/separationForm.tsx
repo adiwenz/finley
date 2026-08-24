@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { dollarsToCents, type ProjectionResult } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
+import { commitFocusedField } from "../numInput/commitFocusedField";
 import { monthLabel } from "../../format";
 import { MonthSelect, type EditProps, type EventOf, type FormProps } from "./formControls";
 
@@ -38,6 +39,24 @@ export function SeparationForm({
   // nobody to separate from and the form says so rather than submitting a refusal.
   const partner = edit ? null : result.activePartnerAt(draft.month);
   const noPartner = !edit && partner === null;
+
+  // Moving a separation LATER lengthens the partnership it ends, which can run it into a
+  // partnership already booked behind it — the same span overlap the ledger refuses on, asked of
+  // the date being typed rather than of the one on the timeline. The relationship this event ends
+  // is identity and never re-pointed, so the span's other end is fixed and only this date moves.
+  const ended = result.household.memberships.find(
+    (m) => m.person.id === (edit ? edit.event.partnerPersonId : partner?.id),
+  );
+  const rawConflict =
+    ended === undefined || !Number.isFinite(ended.startMonth)
+      ? null
+      : result.partnershipConflict({
+          month: ended.startMonth,
+          person: ended.person,
+          separationMonth: draft.month,
+        });
+  const conflictReason =
+    rawConflict === null ? null : `${rawConflict.charAt(0).toUpperCase()}${rawConflict.slice(1)}.`;
 
   function submit() {
     // A revision cannot re-point `partnerPersonId` — who you separated from is identity, not
@@ -101,9 +120,19 @@ export function SeparationForm({
           <p className="hint">Support terms are illustrative and vary by jurisdiction.</p>
         </>
       )}
+      {conflictReason !== null && (
+        <p className="hint warn" role="status">
+          {conflictReason}
+        </p>
+      )}
       {/* In edit mode the partner is fixed, so the no-partner gate (an add-time concern) never
           applies — a month moved before the partnership is a refusal the engine surfaces. */}
-      <button className="btn primary" disabled={noPartner} onClick={submit}>
+      <button
+        className="btn primary"
+        disabled={noPartner || conflictReason !== null}
+        onPointerDown={commitFocusedField}
+        onClick={submit}
+      >
         {edit ? "Save changes" : "Add event"}
       </button>
     </>

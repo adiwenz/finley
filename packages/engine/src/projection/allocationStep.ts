@@ -406,6 +406,19 @@ export function allocateMonth(
    * are three separate questions, and netting answers none of them.
    */
   taxSettlementByPersonCents: Readonly<Record<string, Cents>>;
+  /**
+   * The same attribution as {@link taxSettlementBySourceCents}, but kept per FILER: person id →
+   * source id → signed cents, each person's inner map summing to their own entry in {@link
+   * taxSettlementByPersonCents}.
+   *
+   * A settlement is computed per person and only afterwards added up, so the household map above
+   * is a sum whose terms cannot be recovered from it: two filers can draw a benefit or an RMD
+   * that the jurisdiction keys the same way, and one partner's credit then cancels part of the
+   * other's charge under a single key. Reporting the terms means a reader asking "why does Alex
+   * owe this?" is answered with Alex's own sources rather than the household's, and the answer
+   * adds up to the figure they were shown.
+   */
+  taxSettlementBySourcePersonCents: Readonly<Record<string, Readonly<Record<string, Cents>>>>;
   deferralBySourceCents: Readonly<Record<string, Cents>>;
   contributions: readonly MonthContribution[];
   /** The pre-cascade shortfall this month posted to the liquid account (obligations + contributions). */
@@ -582,6 +595,7 @@ export function allocateMonth(
   let taxSettlementCents: Cents = 0;
   const taxSettlementBySourceCents: Record<string, Cents> = {};
   const taxSettlementByPersonCents: Record<string, Cents> = {};
+  const taxSettlementBySourcePersonCents: Record<string, Record<string, Cents>> = {};
   for (const [personId, payment] of priorYearSettlements) {
     if (payment.totalCents === 0) continue;
     taxSettlementByPersonCents[personId] =
@@ -594,6 +608,8 @@ export function allocateMonth(
       if (cents) taxBySourceCents[source] = (taxBySourceCents[source] ?? 0) + cents;
       if (cents) {
         taxSettlementBySourceCents[source] = (taxSettlementBySourceCents[source] ?? 0) + cents;
+        const mine = (taxSettlementBySourcePersonCents[personId] ??= {});
+        mine[source] = (mine[source] ?? 0) + cents;
       }
     }
   }
@@ -609,6 +625,7 @@ export function allocateMonth(
     taxSettlementCents,
     taxSettlementBySourceCents,
     taxSettlementByPersonCents,
+    taxSettlementBySourcePersonCents,
     deferralBySourceCents: result.deferralBySourceCents,
     contributions,
     shortfallCents: result.shortfallCents,

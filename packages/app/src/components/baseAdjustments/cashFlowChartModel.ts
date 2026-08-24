@@ -18,6 +18,7 @@ import {
   TAX_REFUND_CATEGORY,
   cashFlowBandsForView,
   describeCashFlowGap,
+  describePersonalDrawdowns,
   type CashFlowBand,
   type CashFlowChartData,
   type CashFlowMode,
@@ -311,6 +312,12 @@ export interface CashFlowChartModel {
    * the chart shows as a visible hint. {@link accessibleSummary} wraps it for the a11y label.
    */
   readonly gapSummary: string | null;
+  /**
+   * A secondary claim the headline above cannot make — today, that somebody inside a household
+   * with healthy combined cash flow is covering their own share out of savings. Combined only,
+   * and `null` when there is nothing to add.
+   */
+  readonly gapNote: string | null;
   /** A human-readable sentence for the chart's accessible label. Never empty. */
   readonly accessibleSummary: string;
   /**
@@ -365,6 +372,8 @@ export function buildCashFlowChartModel(
   const lastX = toAxisX(folded.rows[folded.rows.length - 1]?.month ?? 0);
   const brokeMonth = data.firstInsolventMonth;
   const summary = describeCashFlowGap(data, ownerId, ownerId === undefined ? undefined : personNames.get(ownerId));
+  // Combined only — a person's cut leads with their own claim, so the note would restate it.
+  const personalNote = ownerId === undefined ? describePersonalDrawdowns(data, personNames) : null;
   const title = VIEW_TITLES[view];
 
   // Scoped like the summary: a household drawdown is a household fact, and a person's cut names
@@ -400,9 +409,10 @@ export function buildCashFlowChartModel(
     brokeMonth,
     brokeAgeLabel: brokeMonth === null ? null : formatAgeAtMonth(currentAge, brokeMonth),
     gapSummary: summary,
-    accessibleSummary: summary
-      ? `${title}. ${summary}`
-      : `${title} — cash flow continues across the whole horizon.`,
+    gapNote: personalNote,
+    accessibleSummary:
+      (summary ? `${title}. ${summary}` : `${title} — cash flow continues across the whole horizon.`) +
+      (personalNote === null ? "" : ` ${personalNote}`),
     accessibleMoments,
   };
 }

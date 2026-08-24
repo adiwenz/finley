@@ -217,9 +217,14 @@ export function NetWorthBreakdownChart({
   const [mode, setMode] = useState<Mode>("accounts");
   const activeMode = modes.includes(mode) ? mode : "accounts";
 
-  // Only people we can NAME are offered: an owner the household cannot name is the synthetic
-  // card's "household", which is a bookkeeping owner rather than a person to compare.
-  const owners = data.owners.filter((id) => personNames?.get(id) !== undefined);
+  // Everyone the household HAS, not everyone who happened to carry money. Deriving the list from
+  // drawn bands meant a partner who joined with no job and no balances was never offered a cut of
+  // their own, while a preset partner — who always arrives funded — always was: the same
+  // partnership, registered or not depending on its bank balance. The roster answers for both the
+  // same way, and an empty cut is itself the answer to "what does Blake bring?".
+  // A bookkeeping owner is excluded by construction rather than by filter: the roster holds
+  // people, so the synthetic card's "household" was never in it to begin with.
+  const owners = [...(personNames?.keys() ?? [])];
   const ownerOptions = owners.length > 1 ? [COMBINED, ...owners] : [];
   const [owner, setOwner] = useState<string>(COMBINED);
   const activeOwner = ownerOptions.includes(owner) ? owner : COMBINED;
@@ -263,13 +268,20 @@ export function NetWorthBreakdownChart({
   // stop earlier than this whenever the projection did (blocked, or insolvent).
   const lastX = data.xMax;
   const accountCount = visibleBands.filter((b) => b.kind === "account").length;
-  const whose = activeOwner === COMBINED ? "" : `${personNames?.get(activeOwner) ?? activeOwner}'s `;
+  /** Whose balance sheet this is, or `null` in Combined — where it is nobody's in particular. */
+  const whose = activeOwner === COMBINED ? null : (personNames?.get(activeOwner) ?? activeOwner);
+  const holdings =
+    `across ${accountCount} account${accountCount === 1 ? "" : "s"}` +
+    `${data.hasProperties ? ", property" : ""}${data.hasLiabilities ? ", and debt" : ""}.`;
+  // A possessive needs something to possess. Gluing "Blake's " onto a sentence that opens with
+  // its verb read "Blake's Peaks around $371,266 net worth" — so the person's version is its own
+  // sentence, built around the noun, rather than the household's with a name stuck on the front.
   const summary =
     peak === null
       ? "No balances to break down yet."
-      : `${whose}Peaks around ${dollars(peak)} net worth, across ${accountCount} account${
-          accountCount === 1 ? "" : "s"
-        }${data.hasProperties ? ", property" : ""}${data.hasLiabilities ? ", and debt" : ""}.`;
+      : whose === null
+        ? `Peaks around ${dollars(peak)} net worth, ${holdings}`
+        : `${whose}'s net worth peaks around ${dollars(peak)}, ${holdings}`;
 
   return (
     <div role="img" aria-label={`Net-worth breakdown over time. ${summary}`}>

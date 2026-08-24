@@ -134,3 +134,11 @@
   color: var(--color-text-faint);
   background: var(--color-surface-sunken);
 }
+
+/* Why a Remove is disabled, sitting under the row it belongs to rather than beside the controls
+   — the marker list is a grid, so a full-width note explains without displacing any column. */
+.mlBlockedRemove {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 12px;
+}

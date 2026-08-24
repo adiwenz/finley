@@ -99,6 +99,49 @@ describe.each(RUNS)("$preset.id — the tax chart's accounting", ({ preset, seri
     expect(broken).toEqual([]);
   });
 
+  it("keeps each filer's own attribution summing to their own balance", () => {
+    // The invariant the per-person tooltip stands on: what a person is shown as the reason for
+    // their April bill has to add up to the bill they were shown. A household map cannot supply
+    // it — the terms have already been added across filers by then, under source keys that two
+    // partners can share.
+    const broken: string[] = [];
+    for (const m of flowedMonths) {
+      const f = m.flows!;
+      for (const [personId, cents] of Object.entries(f.taxSettlementByPersonCents)) {
+        const mine = f.taxSettlementBySourcePersonCents[personId] ?? {};
+        const net = Object.values(mine).reduce((s, c) => s + c, 0);
+        if (net !== cents) {
+          broken.push(`${where(preset.id, m.month)} · ${personId}: attribution ${net} vs balance ${cents}`);
+        }
+      }
+    }
+    expect(broken).toEqual([]);
+  });
+
+  it("splits the household's attribution across its filers and loses nothing doing it", () => {
+    const broken: string[] = [];
+    for (const m of flowedMonths) {
+      const f = m.flows!;
+      const summed: Record<string, number> = {};
+      for (const mine of Object.values(f.taxSettlementBySourcePersonCents)) {
+        for (const [source, cents] of Object.entries(mine)) {
+          summed[source] = (summed[source] ?? 0) + cents;
+        }
+      }
+      // Entries that cancel to zero across two filers are dropped by the household map, which
+      // only ever records non-zero terms — so compare on the figures, not on the key sets.
+      const keys = new Set([...Object.keys(summed), ...Object.keys(f.taxSettlementBySourceCents)]);
+      for (const key of keys) {
+        if ((summed[key] ?? 0) !== (f.taxSettlementBySourceCents[key] ?? 0)) {
+          broken.push(
+            `${where(preset.id, m.month)} · ${key}: ${summed[key] ?? 0} vs ${f.taxSettlementBySourceCents[key] ?? 0}`,
+          );
+        }
+      }
+    }
+    expect(broken).toEqual([]);
+  });
+
   it("gives a refund month zero settlement band and the full refund as its refund figure", () => {
     const wrong: string[] = [];
     for (const m of flowedMonths) {

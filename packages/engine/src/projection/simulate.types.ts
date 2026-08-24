@@ -216,6 +216,20 @@ export interface ProjectionMonthFlows {
    */
   readonly taxSettlementByPersonCents: Readonly<Record<string, Cents>>;
   /**
+   * Why each person's own balance came out that way: person id → source id → signed cents, each
+   * inner map summing exactly to that person's entry in {@link taxSettlementByPersonCents}.
+   *
+   * The per-source terms BEFORE they are added across the household, which is the only form in
+   * which they can be shown beside one filer's figure. {@link taxSettlementBySourceCents} is
+   * their sum, and a sum cannot be re-split: two filers claiming a benefit report it under keys
+   * the jurisdiction assigns without regard to whose it is, so one partner's average-rate credit
+   * can silently net against the other's charge there. Same signs and the same diagnostic
+   * standing as that map — never a chart band.
+   */
+  readonly taxSettlementBySourcePersonCents: Readonly<
+    Record<string, Readonly<Record<string, Cents>>>
+  >;
+  /**
    * Σ `cashFlowIncomeByCategoryCents` — realized taxable income: includes savings interest,
    * excludes the savings drawdown.
    */

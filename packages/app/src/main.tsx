@@ -122,6 +122,19 @@ export function App() {
     () => timelineMarkers(ledger, series, personNames),
     [ledger, series, personNames],
   );
+  // Which timeline events cannot be dropped, and what stands in the way. Computed once per
+  // authored state rather than per render: each answer is a dry-run replay of the whole ledger,
+  // and scrubbing — which re-renders the timeline constantly — changes none of them.
+  const removalConflicts = useMemo(
+    () =>
+      new Map(
+        markers.flatMap((m) => {
+          const conflict = result.removalConflict(m.id);
+          return conflict === null ? [] : [[m.id, conflict] as const];
+        }),
+      ),
+    [markers, result],
+  );
   // The blocked-projection soft warning, off the AUTHORED run for the same reason the markers are:
   // it names the plan as written, never the retirement preview. `null` until something stops, so
   // its mere presence IS the condition holding — persistence and clearing fall out of the render.
@@ -245,6 +258,7 @@ export function App() {
                 onScrub={setScrubMonth}
                 onEdit={setEditingId}
                 onRemove={removeEvent}
+                removalConflicts={removalConflicts}
               />
             </div>
 
