@@ -116,6 +116,11 @@ export interface TaxTooltipExtras {
   readonly rowsByAxisX?: ReadonlyMap<number, TaxMonthRow>;
   /** Engine source id → human label, for naming diagnostic attribution rows. */
   readonly sourceLabels?: Readonly<Record<string, string>>;
+  /**
+   * Whose cut is showing, when one person's is. A refund belongs to the member who was owed it,
+   * so a household figure here would tell a partner who owed money that they got some back.
+   */
+  readonly ownerId?: string;
 }
 
 /**
@@ -138,14 +143,21 @@ export interface TaxTooltipExtras {
  * shown to explain the settlement band, and the "Net" line is what ties the two together.
  */
 export function TaxTooltipContent(props: TooltipContentProps<ValueType, NameType> & TaxTooltipExtras) {
-  const { active, payload, rowsByAxisX, sourceLabels } = props;
+  const { active, payload, rowsByAxisX, sourceLabels, ownerId } = props;
   if (!active || !payload) return null;
   const row = rowsByAxisX?.get(Number(props.label));
   const paying = payload.filter((entry) => Number(entry.value) !== 0);
   const attribution = Object.entries(row?.settlementBySourceCents ?? {}).filter(([, c]) => c !== 0);
+  // Theirs in a person's cut, the household's gross in the combined view. Two single filers can
+  // settle in opposite directions in the same April, so this is a real figure either way and not
+  // a leftover of the netting.
+  const refundCents =
+    ownerId === undefined
+      ? (row?.refundCents ?? 0)
+      : (row?.refundByOwnerCents[ownerId] ?? 0);
   // A month with neither a band nor a refund has nothing to say. A refund-only month — a retiree
   // filing on a year of withholding-free income — has plenty, and used to draw nothing at all.
-  if (paying.length === 0 && (row?.refundCents ?? 0) === 0) return null;
+  if (paying.length === 0 && refundCents === 0) return null;
   const total = paying.reduce((sum, entry) => sum + (Number(entry.value) || 0), 0);
   return (
     <div style={TOOLTIP_BOX_STYLE}>
@@ -165,9 +177,9 @@ export function TaxTooltipContent(props: TooltipContentProps<ValueType, NameType
           <TooltipLine name="Total taxes paid" value={formatDollars(total)} bold />
         </div>
       )}
-      {(row?.refundCents ?? 0) > 0 && (
+      {refundCents > 0 && (
         <div style={SECTION_STYLE}>
-          <TooltipLine name="Tax refund" value={formatDollars(row!.refundCents)} bold />
+          <TooltipLine name="Tax refund" value={formatDollars(refundCents)} bold />
           <div style={NOTE_STYLE}>Money back — shown as income on the cash-flow chart.</div>
         </div>
       )}
@@ -358,7 +370,12 @@ export function TaxChart({ data, selectedMonth, onSelectMonth, personNames }: Ta
           />
           <Tooltip
             content={(p) => (
-              <TaxTooltipContent {...p} rowsByAxisX={rowsByAxisX} sourceLabels={data.sourceLabels} />
+              <TaxTooltipContent
+              {...p}
+              rowsByAxisX={rowsByAxisX}
+              sourceLabels={data.sourceLabels}
+              {...(activeOwner === COMBINED ? {} : { ownerId: activeOwner })}
+            />
             )}
             // Recharts positions the tooltip and legend as sibling absolutely-positioned
             // wrappers in DOM (not paint) order, so the legend — added after in this

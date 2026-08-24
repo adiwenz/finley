@@ -582,3 +582,91 @@ describe("buildTaxChartData — source labels name their owner", () => {
   });
 });
 
+
+/**
+ * Two members settling in opposite directions in the same April. They file as separate single
+ * filers, so the household's April is $1,000 of tax paid and $300 refunded — not $700 of tax.
+ * Netting first produced a figure neither person ever paid and erased the refund entirely.
+ */
+describe("buildTaxChartData — one partner owes while the other is refunded", () => {
+  const ALEX_BILL = dollarsToCents(1_000);
+  const BLAKE_REFUND = dollarsToCents(300);
+
+  /** An April whose only tax is the two settlements — no withholding to read past. */
+  const aprilSeries = (byPerson: Readonly<Record<string, number>>): ProjectionSeries => {
+    const net = Object.values(byPerson).reduce((s, c) => s + c, 0);
+    return {
+      months: [
+        {
+          month: 15,
+          flows: {
+            incomeSources: [
+              { sourceId: "job-a", label: "Alex's job", category: "wages", ownerId: "alex", cashInflowCents: dollarsToCents(4_000) },
+              { sourceId: "job-b", label: "Blake's job", category: "wages", ownerId: "blake", cashInflowCents: dollarsToCents(2_000) },
+            ],
+            taxCents: net,
+            payrollTaxCents: 0,
+            taxBySourceCents: {},
+            payrollTaxBySourceCents: {},
+            taxSettlementCents: net,
+            taxSettlementBySourceCents: {},
+            taxSettlementByPersonCents: byPerson,
+          },
+        },
+      ],
+    } as unknown as ProjectionSeries;
+  };
+
+  const row = (byPerson: Readonly<Record<string, number>>) =>
+    buildTaxChartData(aprilSeries(byPerson), new Map([["alex", "Alex"], ["blake", "Blake"]])).rows[0]!;
+
+  it("reports the tax actually paid GROSS, not the household net", () => {
+    const r = row({ alex: ALEX_BILL, blake: -BLAKE_REFUND });
+    expect(r.settlementPaidCents).toBe(ALEX_BILL);
+    expect(r.refundCents).toBe(BLAKE_REFUND);
+  });
+
+  it("keeps the net cash effect available without it standing in for either figure", () => {
+    const r = row({ alex: ALEX_BILL, blake: -BLAKE_REFUND });
+    expect(r.settlementCents).toBe(dollarsToCents(700));
+    expect(r.settlementPaidCents - r.refundCents).toBe(r.settlementCents);
+  });
+
+  it("gives the bill to the person who owed it and the refund to the person owed it", () => {
+    const r = row({ alex: ALEX_BILL, blake: -BLAKE_REFUND });
+    expect(r.settlementByOwnerCents).toEqual({ "tax-settlement:alex": ALEX_BILL });
+    expect(r.refundByOwnerCents).toEqual({ blake: BLAKE_REFUND });
+  });
+
+  it("never lets one member's refund shrink the other's bill", () => {
+    // The old behaviour: $700 apportioned across whoever owed, so Alex's $1,000 became $700 and
+    // Blake's $300 vanished. Both people were then shown money neither of them moved.
+    const r = row({ alex: ALEX_BILL, blake: -BLAKE_REFUND });
+    expect(r.settlementByOwnerCents["tax-settlement:alex"]).not.toBe(dollarsToCents(700));
+    expect(Object.values(r.refundByOwnerCents).reduce((s, c) => s + c, 0)).toBe(BLAKE_REFUND);
+  });
+
+  it("bands the gross bill, so the stack still sums to the tax actually paid", () => {
+    const r = row({ alex: ALEX_BILL, blake: -BLAKE_REFUND });
+    const banded = Object.values(r.centsBySource).reduce((s, c) => s + c, 0);
+    expect(banded).toBe(ALEX_BILL);
+    expect(r.taxCents).toBe(ALEX_BILL);
+  });
+
+  it("agrees with the clamped net whenever every member points the same way", () => {
+    const bothOwe = row({ alex: ALEX_BILL, blake: dollarsToCents(500) });
+    expect(bothOwe.settlementPaidCents).toBe(dollarsToCents(1_500));
+    expect(bothOwe.refundCents).toBe(0);
+
+    const bothRefunded = row({ alex: -dollarsToCents(200), blake: -BLAKE_REFUND });
+    expect(bothRefunded.settlementPaidCents).toBe(0);
+    expect(bothRefunded.refundCents).toBe(dollarsToCents(500));
+  });
+
+  it("keeps equal and opposite settlements from cancelling to nothing", () => {
+    const r = row({ alex: ALEX_BILL, blake: -ALEX_BILL });
+    expect(r.settlementCents).toBe(0);
+    expect(r.settlementPaidCents).toBe(ALEX_BILL);
+    expect(r.refundCents).toBe(ALEX_BILL);
+  });
+});

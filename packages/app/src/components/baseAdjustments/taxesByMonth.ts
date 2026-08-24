@@ -27,6 +27,13 @@
  * The signed settlement and its signed attribution ride through on each row for the tooltip and
  * for reconciliation; they never contribute band height.
  *
+ * A two-person household settles as two SEPARATE single filers, so the April figures are GROSS
+ * and never netted. One partner owing $1,000 while the other is refunded $300 is $1,000 of tax
+ * paid and $300 refunded — a net cash effect of −$700, but not $700 of tax. Netting first would
+ * erase both real figures and leave a number neither person ever paid, so `settlementPaidCents`
+ * is Σ of the positive balances and `refundCents` Σ of the negative ones, each taken per person
+ * before anything is added up.
+ *
  * Pure — no charting-library dependency, so unit-testable in node.
  */
 
@@ -82,10 +89,19 @@ export interface TaxMonthRow {
   readonly centsBySource: Readonly<Record<string, number>>;
   /** The prior year's settled balance, SIGNED — negative is a refund. 0 outside a filing month. */
   readonly settlementCents: number;
-  /** `max(0, settlementCents)` — the one settlement band's height, and 0 in a refund month. */
+  /**
+   * The April tax actually PAID — Σ of the members who owed, each taken before any netting, so
+   * one partner's refund never cancels another's bill. The settlement band's height.
+   */
   readonly settlementPaidCents: number;
-  /** `max(0, -settlementCents)` — money coming BACK, banded on the income chart, never here. */
+  /**
+   * Money coming BACK — Σ of the members who were refunded, likewise ungrossed. Banded on the
+   * income chart as the inflow it is, never here. Can be non-zero in the SAME month as
+   * {@link settlementPaidCents}: two single filers settle independently.
+   */
   readonly refundCents: number;
+  /** Per person, signed — positive is their bill, negative is their refund. */
+  readonly settlementByPersonCents: Readonly<Record<string, number>>;
   /**
    * The engine's signed per-source attribution of {@link settlementCents}, keyed by engine source
    * id and summing to it. Diagnostic only — for the tooltip and for reconciliation. Entries go
@@ -93,22 +109,21 @@ export interface TaxMonthRow {
    */
   readonly settlementBySourceCents: Readonly<Record<string, number>>;
   /**
-   * {@link settlementPaidCents} apportioned to the people whose income caused it, keyed by
-   * {@link ownerSettlementBandId}. Σ is `settlementPaidCents` exactly.
+   * What each PAYING member owed, keyed by {@link ownerSettlementBandId} — their own balance,
+   * never a share of the household's. Σ is {@link settlementPaidCents}.
    *
-   * Kept OUT of {@link centsBySource}, which must go on summing to {@link taxCents}: this is
-   * the same April money the household band already carries, said a second way. Read it via
+   * A member who was REFUNDED has no entry here; their money back is in
+   * {@link refundByOwnerCents}, because a refund is not a negative tax paid. Nobody else's bill
+   * absorbs it: the household files as separate single filers, so one partner's refund is theirs
+   * and the other's bill stays whole.
+   *
+   * Kept OUT of {@link centsBySource}, which must go on summing to {@link taxCents}: this is the
+   * same April money the household band already carries, said a second way. Read it via
    * {@link bandCentsAt}, which is what a chart drawing one person's cut needs.
-   *
-   * Apportioned across POSITIVE shares rather than handed out signed. A source the
-   * multiple-jobs correction concentrated withholding on settles as a NEGATIVE — it is owed
-   * money back while the household still owes — and on a joint balance that refund genuinely
-   * offsets what the others owe, so it reduces every payer's slice instead of drawing one
-   * person a band below the axis. A month whose whole balance is attributable to nobody
-   * (every share negative, or no source with an owner) leaves this empty: the household band
-   * still carries it, and no person is charged a bill that was not theirs.
    */
   readonly settlementByOwnerCents: Readonly<Record<string, number>>;
+  /** What each REFUNDED member got back, positive, keyed by person id. Σ is {@link refundCents}. */
+  readonly refundByOwnerCents: Readonly<Record<string, number>>;
 }
 
 /**
@@ -251,29 +266,6 @@ export function ownerQualified(
   return name === undefined || label.includes(name) ? label : `${label} · ${name}`;
 }
 
-/**
- * Split `totalCents` across `weights` proportional to each, cumulative-rounded so the shares
- * sum to `totalCents` exactly — the same technique the engine's own `proportionalSplit` uses,
- * for the same reason: a chart whose parts do not add up to its whole is worse than no split.
- */
-function apportion(
-  totalCents: number,
-  weights: readonly (readonly [string, number])[],
-): Map<string, number> {
-  const shares = new Map<string, number>();
-  const totalWeight = weights.reduce((sum, [, w]) => sum + w, 0);
-  if (totalWeight <= 0 || totalCents <= 0) return shares;
-  let acc = 0;
-  let prevCum = 0;
-  for (const [key, weight] of weights) {
-    acc += weight;
-    const cum = Math.round((totalCents * acc) / totalWeight);
-    shares.set(key, cum - prevCum);
-    prevCum = cum;
-  }
-  return shares;
-}
-
 export function buildTaxChartData(
   series: ProjectionSeries,
   personNames: ReadonlyMap<string, string> = new Map(),
@@ -308,8 +300,19 @@ export function buildTaxChartData(
     // row so a consumer can still reconcile against `flows.taxCents`.
     const settlementCents = flows.taxSettlementCents ?? 0;
     const settlementBySourceCents = flows.taxSettlementBySourceCents ?? {};
-    const settlementPaidCents = Math.max(0, settlementCents);
-    const refundCents = Math.max(0, -settlementCents);
+    // GROSS, per person. A household of one — and any month where every member's balance points
+    // the same way — gives the same answer as clamping the net, so the fallback below is the
+    // whole of the old behaviour for a projection that predates the per-person report.
+    const settlementByPersonCents = flows.taxSettlementByPersonCents ?? {};
+    const settled = Object.values(settlementByPersonCents);
+    const settlementPaidCents =
+      settled.length > 0
+        ? settled.reduce((sum, c) => sum + Math.max(0, c), 0)
+        : Math.max(0, settlementCents);
+    const refundCents =
+      settled.length > 0
+        ? settled.reduce((sum, c) => sum + Math.max(0, -c), 0)
+        : Math.max(0, -settlementCents);
 
     // `flows.taxCents` is withholding PLUS the signed settlement, so removing the settlement
     // leaves the month's own withholding — the figure a refund must not be allowed to erode.
@@ -346,20 +349,17 @@ export function buildTaxChartData(
     // top of the stack, where a once-a-year spike reads as the separate event it is.
     if (settlementPaidCents > 0) addBand(SETTLEMENT_BAND_ID, "settlement", settlementPaidCents);
 
-    // The same balance again, this time attributed — drawn only in a person's cut, so it never
-    // stacks alongside the household band above.
+    // The same balances again, split the way they were actually incurred — each person's own,
+    // drawn only in their cut so they never stack alongside the household band above. A bill and
+    // a refund in the same April stay separate figures belonging to separate filers.
     const settlementByOwnerCents: Record<string, number> = {};
-    if (settlementPaidCents > 0) {
-      const owed = new Map<string, number>();
-      for (const [sourceId, cents] of Object.entries(settlementBySourceCents)) {
-        const owner = registry.get(sourceId)?.ownerId;
-        if (owner === undefined || cents <= 0) continue;
-        owed.set(owner, (owed.get(owner) ?? 0) + cents);
-      }
-      for (const [owner, share] of apportion(settlementPaidCents, [...owed])) {
-        if (share === 0) continue;
-        settlementByOwnerCents[ownerSettlementBandId(owner)] = share;
-        if (!settlementOwners.includes(owner)) settlementOwners.push(owner);
+    const refundByOwnerCents: Record<string, number> = {};
+    for (const [personId, cents] of Object.entries(settlementByPersonCents)) {
+      if (cents > 0) {
+        settlementByOwnerCents[ownerSettlementBandId(personId)] = cents;
+        if (!settlementOwners.includes(personId)) settlementOwners.push(personId);
+      } else if (cents < 0) {
+        refundByOwnerCents[personId] = -cents;
       }
     }
 
@@ -371,7 +371,9 @@ export function buildTaxChartData(
       settlementPaidCents,
       refundCents,
       settlementBySourceCents,
+      settlementByPersonCents,
       settlementByOwnerCents,
+      refundByOwnerCents,
     });
   }
 

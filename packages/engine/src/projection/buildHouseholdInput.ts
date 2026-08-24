@@ -163,9 +163,13 @@ export function buildHouseholdSimInput(
     resolvedMembers.find((r) => r.person.id === PRIMARY_PERSON_ID)?.lifeEnd ??
     Number.POSITIVE_INFINITY;
 
-  const persons: SimPerson[] = resolvedMembers.map((r) =>
-    compilePerson(r.person, nowYear, scope, r.activeWindow),
-  );
+  const persons: SimPerson[] = resolvedMembers.map((r) => ({
+    ...compilePerson(r.person, nowYear, scope, r.activeWindow),
+    // Separation alone, kept apart from the active window for the same reason it is kept apart
+    // above: a departed member and a dead one are treated identically by the window and
+    // oppositely by anything that outlives the month.
+    ...(r.separationMonth !== null ? { separationMonth: r.separationMonth } : {}),
+  }));
 
   // The horizon is the longest-lived member's reach, not the primary's: a member present to their
   // death contributes their expectancy month, covering their tail. Whether a separation takes that

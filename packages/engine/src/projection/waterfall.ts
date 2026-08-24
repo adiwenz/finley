@@ -677,11 +677,15 @@ function splitSharedObligation(
   shareByPerson: Map<string, Cents>;
 } {
   const positiveTakeHome = new Map<string, Cents>();
+  // Whose deduction went unfunded, and by how much — an April balance due is the usual cause,
+  // and it is the person's OWN bill however the household ends up finding the cash.
+  const deficitByPerson = new Map<string, Cents>();
   let totalPositive: Cents = 0;
   let unfundedDeductionsCents: Cents = 0;
   for (const pid of input.personIds) {
     const rawTakeHomeCents = takeHomeByPerson.get(pid) ?? 0;
     positiveTakeHome.set(pid, Math.max(0, rawTakeHomeCents));
+    deficitByPerson.set(pid, Math.max(0, -rawTakeHomeCents));
     totalPositive += Math.max(0, rawTakeHomeCents);
     unfundedDeductionsCents += Math.max(0, -rawTakeHomeCents);
   }
@@ -730,7 +734,13 @@ function splitSharedObligation(
   shortfallCents += Math.max(0, input.sharedObligationCents - assignedShare);
   const coveredByDiscretionary = Math.min(unfundedDeductionsCents, totalDiscretionary);
   totalDiscretionary -= coveredByDiscretionary;
-  shortfallCents += unfundedDeductionsCents - coveredByDiscretionary;
+  // Kept apart from the obligation shortfall above, because the two are attributed by different
+  // weights: an obligation shortfall is asset-weighted across the household (§ Household
+  // funding, step 2), while an unfunded deduction is one person's own charge and prefers their
+  // own accounts before anyone else's. The household pool covers deficits before either is
+  // attributed, shared proportionally across them since the pool is nobody's in particular.
+  const deficitShortfallCents = unfundedDeductionsCents - coveredByDiscretionary;
+  shortfallCents += deficitShortfallCents;
 
   // A SEPARATE, preference-only split of the now-finalized `shortfallCents`, weighted the same
   // way as the real split but independently FLOORED rather than cumulative-rounded: two people
@@ -743,12 +753,20 @@ function splitSharedObligation(
     (sum, pid) => sum + Math.max(0, assetWeightOf(pid)),
     0,
   );
+  // The asset-weighted half covers only what shared OBLIGATIONS left unfunded; the deficit half
+  // is added straight back to whoever bore it.
+  const obligationPartCents = shortfallCents - deficitShortfallCents;
   const obligationShortfallByPersonCents = new Map<string, Cents>(
     input.personIds.map((pid) => [
       pid,
-      totalShortfallWeight > 0
-        ? Math.floor((shortfallCents * Math.max(0, assetWeightOf(pid))) / totalShortfallWeight)
-        : 0,
+      (totalShortfallWeight > 0
+        ? Math.floor((obligationPartCents * Math.max(0, assetWeightOf(pid))) / totalShortfallWeight)
+        : 0) +
+        (unfundedDeductionsCents > 0
+          ? Math.floor(
+              (deficitShortfallCents * (deficitByPerson.get(pid) ?? 0)) / unfundedDeductionsCents,
+            )
+          : 0),
     ]),
   );
 

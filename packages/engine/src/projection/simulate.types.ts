@@ -195,6 +195,17 @@ export interface ProjectionMonthFlows {
    */
   readonly obligationChargedByPersonCents: Readonly<Record<string, Cents>>;
   /**
+   * April's settled balance per PERSON, SIGNED — positive is that person's bill, negative is
+   * their refund. Sums to {@link taxSettlementCents}.
+   *
+   * The household files as separate single filers, so these do not net: one partner owing
+   * $1,000 while the other is refunded $300 is $1,000 of tax paid and $300 refunded, and a
+   * reporter that shows $700 has erased both real figures. Consumers wanting gross paid or gross
+   * refunded take Σ of the positive or the negative entries; `taxSettlementCents` remains the
+   * net cash effect on the household.
+   */
+  readonly taxSettlementByPersonCents: Readonly<Record<string, Cents>>;
+  /**
    * Σ `cashFlowIncomeByCategoryCents` — realized taxable income: includes savings interest,
    * excludes the savings drawdown.
    */
@@ -604,6 +615,21 @@ export interface SimPerson {
     readonly startMonth: number;
     readonly endMonthExclusive: number;
   };
+  /**
+   * The month this person LEFT the household, if they did — separation only, never death.
+   * Absent for a member who is still here and for one who died in it.
+   *
+   * {@link activeWindow} conflates the two, and for money that outlives the month it was earned
+   * they are opposite. A departed partner's parked tax balance leaves with them, exactly as
+   * their accounts and debts do. A deceased member's does not: it is a real claim, settled
+   * against the estate their assets have already merged into.
+   */
+  readonly separationMonth?: number;
+}
+
+/** Has this person left the household by `month` — separated, as distinct from died? */
+export function hasSeparatedBy(person: SimPerson, month: number): boolean {
+  return person.separationMonth !== undefined && month >= person.separationMonth;
 }
 
 /**

@@ -217,17 +217,48 @@ function isReceivedCash(source: {
  * chart makes, and non-negative by construction. A settlement that is a REFUND draws nothing
  * here: it is money arriving, and it bands on the inflow side.
  */
+/**
+ * The three tax outflows a month really pays. The April figures are GROSS across the household's
+ * members, who file as separate single filers: one partner owing $1,000 while the other is
+ * refunded $300 pays $1,000 of tax and receives $300 back, and clamping the −$700 net would draw
+ * $0 leaving and $700 arriving — two figures neither person ever saw. The refund is an inflow of
+ * its own ({@link refundInflowOf}), never a discount on the bill.
+ */
 function taxOutflowsOf(flows: {
   readonly taxCents?: number;
   readonly payrollTaxCents?: number;
   readonly taxSettlementCents?: number;
+  readonly taxSettlementByPersonCents?: Readonly<Record<string, number>>;
 }): { readonly incomeTaxCents: number; readonly payrollTaxCents: number; readonly settlementCents: number } {
   const settlement = flows.taxSettlementCents ?? 0;
   return {
     incomeTaxCents: Math.max(0, (flows.taxCents ?? 0) - settlement),
     payrollTaxCents: Math.max(0, flows.payrollTaxCents ?? 0),
-    settlementCents: Math.max(0, settlement),
+    settlementCents: grossSettlementOf(flows, (c) => c > 0, settlement),
   };
+}
+
+/** Money the filing hands BACK, gross across members — see {@link taxOutflowsOf}. */
+function refundInflowOf(flows: {
+  readonly taxSettlementCents?: number;
+  readonly taxSettlementByPersonCents?: Readonly<Record<string, number>>;
+}): number {
+  return grossSettlementOf(flows, (c) => c < 0, -(flows.taxSettlementCents ?? 0));
+}
+
+/**
+ * Σ of the members' balances pointing one way. Falls back to clamping the household net when no
+ * per-person report is present — identical for a household of one, and for any month whose
+ * members all owe or are all refunded.
+ */
+function grossSettlementOf(
+  flows: { readonly taxSettlementByPersonCents?: Readonly<Record<string, number>> },
+  keep: (cents: number) => boolean,
+  fallbackNetCents: number,
+): number {
+  const byPerson = Object.values(flows.taxSettlementByPersonCents ?? {});
+  if (byPerson.length === 0) return Math.max(0, fallbackNetCents);
+  return byPerson.filter(keep).reduce((sum, c) => sum + Math.abs(c), 0);
 }
 
 /**
@@ -288,7 +319,7 @@ export function buildCashFlowChartData(series: ProjectionSeries): CashFlowChartD
     // room for it: the inflow side is gross, so no source was ever netted against it.
     addInflow(
       { id: TAX_REFUND_BAND_ID, label: TAX_REFUND_LABEL, category: TAX_REFUND_CATEGORY },
-      Math.max(0, -(flows.taxSettlementCents ?? 0)),
+      refundInflowOf(flows),
     );
 
     // ——— outflows ———

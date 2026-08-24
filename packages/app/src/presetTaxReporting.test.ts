@@ -61,7 +61,15 @@ describe.each(RUNS)("$preset.id — the tax chart's accounting", ({ preset, seri
         0,
       );
       const fica = Object.values(f.payrollTaxBySourceCents).reduce((s, c) => s + c, 0);
-      const expected = withholding + fica + Math.max(0, f.taxSettlementCents);
+      // GROSS across the household's members, who settle as separate single filers: a month in
+      // which one owes $1,000 and another is refunded $300 paid $1,000 of tax. Clamping the
+      // −$700 net would assert an invariant against a figure nobody paid.
+      const settled = Object.values(f.taxSettlementByPersonCents ?? {});
+      const settlementPaid =
+        settled.length > 0
+          ? settled.reduce((s, c) => s + Math.max(0, c), 0)
+          : Math.max(0, f.taxSettlementCents);
+      const expected = withholding + fica + settlementPaid;
       if (banded !== expected || row.taxCents !== expected) {
         mismatches.push(`${where(preset.id, m.month)}: banded ${banded}, row ${row.taxCents}, expected ${expected}`);
       }

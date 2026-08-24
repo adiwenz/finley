@@ -35,6 +35,7 @@ import type { Cents } from "../money/money";
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
 import type { TaxCategory } from "../money/cashFlowSeries";
 import type { SimState } from "./runState";
+import { hasSeparatedBy } from "./simulate.types";
 import {
   addCategory,
   attributeTaxToSources,
@@ -228,6 +229,17 @@ export function finalizeTaxYear(
  * returned is deleted from the pending map, so nothing can be charged twice. Empty in every other
  * month, and empty in an April whose prior year came out exactly on estimate.
  *
+ * A person who has SEPARATED by April takes their balance with them — bill and refund alike —
+ * exactly as their accounts and their debts leave with them. It is deleted unread and charged to
+ * nobody. Without this a partner who separated in February had their April bill land on a
+ * household they are no longer part of, funded from the remaining member's accounts because the
+ * departed person had no income left to dock it from; a refund they were owed was likewise
+ * banked by the household they had left. Ownership of a tax liability does not transfer on
+ * separation, and neither does the cash.
+ *
+ * DEATH is the opposite case and deliberately not caught here: a deceased member's balance is a
+ * real claim, and their assets have already merged into the household it is settled against.
+ *
  * Signed, like what it was stored as. The caller charges it through the same channel as the
  * month's own withholding, which is what puts it through the ordinary funding waterfall: a
  * balance due enlarges the month's cash need and may be funded by a taxable withdrawal, and that
@@ -248,7 +260,11 @@ export function dueTaxYearSettlements(
     const key = settlementKey(pid, ctx.year - 1);
     const settlement = state.pendingTaxSettlementsByPersonYear.get(key);
     if (settlement === undefined) continue;
+    // Consumed either way — a departed member's balance is deleted so it cannot resurface in a
+    // later April, and simply not returned, so no one is charged it.
     state.pendingTaxSettlementsByPersonYear.delete(key);
+    const person = state.personsById.get(pid);
+    if (person !== undefined && hasSeparatedBy(person, month)) continue;
     due.set(pid, settlement);
   }
   return due;

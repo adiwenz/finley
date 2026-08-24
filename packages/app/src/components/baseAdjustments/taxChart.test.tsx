@@ -86,7 +86,9 @@ describe("TaxTooltipContent — a filing month's readout", () => {
     settlementPaidCents: 0,
     refundCents: 0,
     settlementBySourceCents: {},
+    settlementByPersonCents: {},
     settlementByOwnerCents: {},
+    refundByOwnerCents: {},
     ...over,
   });
   const hover = (payload: unknown[], r: TaxMonthRow) => ({
@@ -203,7 +205,9 @@ describe("TaxChart — whose tax", () => {
     settlementPaidCents: centsBySource["tax-settlement"] ?? 0,
     refundCents: 0,
     settlementBySourceCents: {},
+    settlementByPersonCents: {},
     settlementByOwnerCents: {},
+    refundByOwnerCents: {},
   });
 
   const data = {
@@ -331,10 +335,12 @@ describe("TaxChart — whose April settlement", () => {
         settlementPaidCents: dollarsToCents(400),
         refundCents: 0,
         settlementBySourceCents: {},
+        settlementByPersonCents: { p1: dollarsToCents(300), p2: dollarsToCents(100) },
         settlementByOwnerCents: {
           "tax-settlement:p1": dollarsToCents(300),
           "tax-settlement:p2": dollarsToCents(100),
         },
+        refundByOwnerCents: {},
       },
     ],
     sources: [

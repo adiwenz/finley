@@ -369,6 +369,17 @@ export function allocateMonth(
   taxSettlementCents: Cents;
   /** Per-source attribution of {@link taxSettlementCents}, signed and summing to it. `{}` when 0. */
   taxSettlementBySourceCents: Readonly<Record<string, Cents>>;
+  /**
+   * The same balance per PERSON, signed and summing to {@link taxSettlementCents} — positive is
+   * that person's bill, negative is their refund.
+   *
+   * Kept per person rather than reported as the household net, because the household files as
+   * separate single filers and the net erases both figures it is made of: one partner owing
+   * $1,000 while the other is refunded $300 is $1,000 of tax paid and $300 refunded, not $700 of
+   * tax. Whose liability it is, whose cash moves, and whose accounts end up funding a shortfall
+   * are three separate questions, and netting answers none of them.
+   */
+  taxSettlementByPersonCents: Readonly<Record<string, Cents>>;
   deferralBySourceCents: Readonly<Record<string, Cents>>;
   contributions: readonly MonthContribution[];
   /** The pre-cascade shortfall this month posted to the liquid account (obligations + contributions). */
@@ -542,8 +553,11 @@ export function allocateMonth(
   // the engine would lose the only record that the filing produced money back.
   let taxSettlementCents: Cents = 0;
   const taxSettlementBySourceCents: Record<string, Cents> = {};
-  for (const payment of priorYearSettlements.values()) {
+  const taxSettlementByPersonCents: Record<string, Cents> = {};
+  for (const [personId, payment] of priorYearSettlements) {
     if (payment.totalCents === 0) continue;
+    taxSettlementByPersonCents[personId] =
+      (taxSettlementByPersonCents[personId] ?? 0) + payment.totalCents;
     taxSettlementCents += payment.totalCents;
     for (const [category, cents] of Object.entries(payment.byCategoryCents)) {
       if (cents) addCategory(taxByCategoryCents, category as TaxCategory, cents);
@@ -566,6 +580,7 @@ export function allocateMonth(
     taxBySourceCents,
     taxSettlementCents,
     taxSettlementBySourceCents,
+    taxSettlementByPersonCents,
     deferralBySourceCents: result.deferralBySourceCents,
     contributions,
     shortfallCents: result.shortfallCents,
