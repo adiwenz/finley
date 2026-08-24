@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { dollarsToCents, type ProjectionResult } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
-import { commitFocusedField } from "../numInput/commitFocusedField";
 import { monthLabel } from "../../format";
 import { MonthSelect, type EditProps, type EventOf, type FormProps } from "./formControls";
 
@@ -130,7 +129,6 @@ export function SeparationForm({
       <button
         className="btn primary"
         disabled={noPartner || conflictReason !== null}
-        onPointerDown={commitFocusedField}
         onClick={submit}
       >
         {edit ? "Save changes" : "Add event"}

@@ -22,7 +22,6 @@ import {
 import { blankJobDraft, jobInputFromDraft, yearOfMonth, type JobEditDraft } from "../../planPeople";
 import { START_YEAR } from "../../config";
 import { NumInput } from "../numInput/numInput";
-import { commitFocusedField } from "../numInput/commitFocusedField";
 import { formatDollars } from "../../format";
 import { JobForm } from "../jobsPanel/jobForm";
 import { DEFAULT_PARTNER_SHARE_PERCENT, SharedSplitFields } from "./sharedSplitFields";
@@ -424,7 +423,6 @@ export function RelationshipForm({
       <button
         className="btn primary"
         disabled={conflictReason !== null || splitIncomplete}
-        onPointerDown={commitFocusedField}
         onClick={submit}
       >
         {edit ? "Save changes" : "Add event"}

@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { MAX_AGE, MAX_LIVED_AGE, minLifeExpectancyFor, dollarsToCents } from "@finley/engine";
 import { NumInput } from "../numInput/numInput";
-import { commitFocusedField } from "../numInput/commitFocusedField";
 import type { StartingPositionFormProps } from "./startingPositionFormControls";
 import {
   DEFAULT_PARTNER_SHARE_PERCENT,
@@ -138,7 +137,6 @@ export function ExistingPartnerForm({ onAdd, onDone, primaryName }: StartingPosi
       <button
         className="btn primary"
         disabled={splitIncomplete}
-        onPointerDown={commitFocusedField}
         onClick={submit}
       >
         Add

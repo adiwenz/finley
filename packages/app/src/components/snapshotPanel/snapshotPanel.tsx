@@ -9,10 +9,17 @@ export function SnapshotPanel({
   ledger,
   result,
   month,
+  accountLabels,
 }: {
   ledger: Ledger;
   result: ProjectionResult;
   month: number;
+  /**
+   * Account id → the name to show for it, owner-qualified where the household has two people —
+   * see `accountLabelsFor`. A dated cross-section is the one place where "whose" is the whole
+   * question, so a row here read as `savings-person-8` was naming a person by their internal id.
+   */
+  accountLabels?: ReadonlyMap<string, string>;
 }) {
   const snap = result.snapshot(month);
   const { passed, upcoming } = splitMarkers(ledger, month);
@@ -26,7 +33,13 @@ export function SnapshotPanel({
         <ul className={styles.snapList}>
           {snap.balances?.accounts.map((b) => (
             <li key={b.id}>
-              <span>{b.id}</span>
+              {/* An estate account is still the household's money and still in the net worth
+                  below it, so it stays on the list — but it is named as what it now is, rather
+                  than as a holding of somebody the Household list has already stopped naming. */}
+              <span>
+                {accountLabels?.get(b.id) ?? b.id}
+                {b.inEstate === true && " (inherited)"}
+              </span>
               <span>{formatDollars(b.balanceCents)}</span>
             </li>
           ))}

@@ -118,12 +118,18 @@ export function Timeline({
                     blocked === undefined
                       ? undefined
                       : markers.find((other) => other.id === blocked.strandedEventId);
+                  // Named from the timeline rather than from the engine's own refusal. That text is
+                  // written for the ADD path it also guards ("Add a separation first or choose a
+                  // later date"), which is advice nobody removing an event can act on, and it names
+                  // people by id. What is actionable is which row to clear first, so that is what
+                  // this says.
                   const why =
                     blocked === undefined
                       ? undefined
                       : blocker === undefined
                         ? "Something later on the timeline depends on this."
-                        : `${blocker.label} in ${monthLabel(blocker.month)} depends on this.`;
+                        : `${blocker.label} in ${monthLabel(blocker.month)} depends on this — ` +
+                          "remove that first.";
                   return (
                     <>
                       <button

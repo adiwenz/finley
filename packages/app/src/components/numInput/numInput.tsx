@@ -23,9 +23,29 @@
  * the user did not type and gives no reason for it — they entered a negative balance, the form
  * accepted their click, and a partner arrived with nothing. The bound is still enforced; it is
  * now stated in the same breath.
+ *
+ * "Blur" is read as POINTER DOWN ANYWHERE ELSE, not as the focus change, because a button is not
+ * required to take focus when it is clicked and on macOS does not. The gesture everyone actually
+ * makes — type the last number, click Save — therefore left the figure sitting uncommitted inside
+ * a still-focused field: the form submitted the value from before the edit, reported success, and
+ * nothing said an edit had been dropped. Every number the app authors comes through here, so the
+ * flush belongs here too; asking each Save button to remember to flush first is a rule that has to
+ * be obeyed in every form that exists now and every one added later, and four of six already
+ * didn't. Anything that can be pointed at is something the field is being left for.
  */
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+
+/**
+ * The figure as a field should SHOW it, which is not always how it is held. Binary floating point
+ * cannot represent most decimal rates exactly, so an APR that made one round trip through the plan
+ * came back as 7.000000000000001 and the field printed all seventeen digits. Twelve significant
+ * figures is far beyond any money or rate this app authors and is exactly where that noise begins,
+ * so trimming to it changes no value anyone entered.
+ */
+function forDisplay(n: number): number {
+  return Number.isFinite(n) ? Number(n.toPrecision(12)) : n;
+}
 
 export function NumInput({
   label,
@@ -72,6 +92,20 @@ export function NumInput({
 }) {
   /** The uncommitted edit, verbatim; `null` when the committed `value` is what's shown. */
   const [draft, setDraft] = useState<string | null>(null);
+  /**
+   * The `value` this field last rendered against, so a change of it can be noticed here.
+   *
+   * A LIVE field's draft is only ever text the caller could not use — anything parsable was handed
+   * up and forfeited on the keystroke — so a caller that has moved to a new value has moved on
+   * from that text, and holding it would leave the field blank forever. This is what refills the
+   * emptied half of a percentage pair when the other half is typed into: the complement arrives as
+   * a new `value`, and the "" it would otherwise still be showing goes.
+   */
+  const [lastValue, setLastValue] = useState(value);
+  if (value !== lastValue) {
+    setLastValue(value);
+    if (onLiveChange !== undefined && draft !== null) setDraft(null);
+  }
   /** What the last commit did to a figure it would not take, or `null` when it took it whole. */
   const [clamped, setClamped] = useState<{ readonly typed: number; readonly used: number } | null>(
     null,
@@ -115,14 +149,45 @@ export function NumInput({
     if (next !== value) onChange(next);
   }
 
+  /**
+   * Always the CURRENT commit. The listener below is installed once per uncommitted edit, but the
+   * figure it has to write is whatever the field holds when the pointer finally goes down.
+   */
+  const commitRef = useRef(commit);
+  useEffect(() => {
+    commitRef.current = commit;
+  });
+
+  /**
+   * Leaving the field, as a pointer gesture rather than a focus change — see the note above on why
+   * blur alone was never the moment. Capture phase, so the commit and its re-render land before the
+   * button's own handler reads the form; pointer down precedes click by a whole event, so what the
+   * click sees is what is on screen.
+   *
+   * Only while there is something uncommitted, and never for a pointer landing inside this field:
+   * clicking one's own spinner or repositioning the caret is not leaving.
+   */
+  const fieldRef = useRef<HTMLLabelElement>(null);
+  const pending = draft !== null;
+  useEffect(() => {
+    if (!pending) return;
+    function flush(e: PointerEvent) {
+      const target = e.target;
+      if (target instanceof Node && fieldRef.current?.contains(target) === true) return;
+      commitRef.current();
+    }
+    document.addEventListener("pointerdown", flush, true);
+    return () => document.removeEventListener("pointerdown", flush, true);
+  }, [pending]);
+
   return (
-    <label className="field">
+    <label className="field" ref={fieldRef}>
       <span className="field-label">{label}</span>
       <span className="field-input-wrap">
         {prefix && <span className="field-affix">{prefix}</span>}
         <input
           type="number"
-          value={draft ?? value}
+          value={draft ?? forDisplay(value)}
           min={min ?? 0}
           max={max}
           step={step ?? 1}

@@ -20,6 +20,7 @@ import { AddEventForm } from "./components/addEventForm/addEventForm";
 import { EDITABLE_EVENT_TYPES } from "./components/addEventForm/editEventForm";
 import { Timeline } from "./components/timeline/timeline";
 import { SnapshotPanel } from "./components/snapshotPanel/snapshotPanel";
+import { accountLabelsFor } from "./accountLabels";
 import { BudgetEditor } from "./components/budgetEditor/budgetEditor";
 import { GoalsPanel } from "./components/goalsPanel/goalsPanel";
 import { CollapsibleCard } from "./components/collapsibleCard/collapsibleCard";
@@ -116,6 +117,11 @@ export function App() {
   const allAccounts = useMemo(
     () => [...projection.accountDescriptors(), ...eventAccountDescriptors(household.eventAccounts)],
     [projection, household],
+  );
+  // What to call each of them, owner-qualified once there is more than one person to own money.
+  const accountLabels = useMemo(
+    () => accountLabelsFor(allAccounts, personNames),
+    [allAccounts, personNames],
   );
 
   const markers = useMemo(
@@ -283,7 +289,12 @@ export function App() {
           </div>
 
           <div className="card">
-            <SnapshotPanel ledger={ledger} result={result} month={scrubMonth} />
+            <SnapshotPanel
+              ledger={ledger}
+              result={result}
+              month={scrubMonth}
+              accountLabels={accountLabels}
+            />
           </div>
         </div>
 

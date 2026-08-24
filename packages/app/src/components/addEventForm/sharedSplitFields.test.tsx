@@ -377,4 +377,55 @@ describe("SharedSplitFields — a share the user has emptied", () => {
     fireEvent.click(save());
     expect(screen.getByTestId("saved").textContent).toBe("30");
   });
+
+  it("lets Save through again, without going back to the field that was cleared", () => {
+    // Blanking a half is a legitimate first move in retyping it, and the other half is a complete
+    // answer on its own — it names both shares. So typing there is a way out of the blank state,
+    // and it was not treated as one: Save stayed refused until the cleared field was retyped.
+    render(<SaveHarness initial={30} />);
+    type(spin(/Alex/), "");
+    expect(save().disabled).toBe(true);
+    type(spin(/Blake/), "45");
+    expect(save().disabled).toBe(false);
+    fireEvent.click(save());
+    expect(screen.getByTestId("saved").textContent).toBe("45");
+  });
+
+  it("still refuses while the half being typed is itself unusable", () => {
+    // "-" is not an answer to either share, so it cannot refill the other one.
+    render(<SaveHarness initial={30} />);
+    type(spin(/Alex/), "");
+    type(spin(/Blake/), "-");
+    expect(save().disabled).toBe(true);
+  });
+});
+
+/**
+ * An emptied half is refilled by typing in the other one.
+ *
+ * Blanking a field is a legitimate first move in retyping it, and the pair correctly refuses to
+ * save while it is showing a figure and a gap. But the other half is a complete answer on its own —
+ * it names both shares — so typing there was a way out of the blank state and was not treated as
+ * one: the emptied field stayed empty, Save stayed refused, and the only remaining fix was to go
+ * back and retype the field the user had deliberately cleared.
+ */
+describe("SharedSplitFields — refilling an emptied half from the other one", () => {
+  const type = (field: HTMLElement, value: string) =>
+    fireEvent.change(field, { target: { value } });
+
+  it("refills the primary's share when the partner's is typed", () => {
+    render(<Harness initial={30} />);
+    type(spin(/Alex/), "");
+    expect(spin(/Alex/).value).toBe("");
+    type(spin(/Blake/), "40");
+    expect(spin(/Alex/).value).toBe("60");
+    expect(Number(spin(/Alex/).value) + Number(spin(/Blake/).value)).toBe(100);
+  });
+
+  it("refills the partner's share when the primary's is typed", () => {
+    render(<Harness initial={30} />);
+    type(spin(/Blake/), "");
+    type(spin(/Alex/), "25");
+    expect(spin(/Blake/).value).toBe("75");
+  });
 });

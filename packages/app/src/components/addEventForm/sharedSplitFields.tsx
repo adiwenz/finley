@@ -68,7 +68,11 @@ export function SharedSplitFields({
    * clamp has already happened by the time it arrives.
    */
   function live(half: "primary" | "partner", shown: number | null) {
-    const next = { ...blank, [half]: shown === null };
+    // A usable figure in EITHER half makes the pair whole again: the other half is refilled from
+    // it, so it can no longer be the one showing nothing. Marking only the half that was typed in
+    // left an emptied field blank while its complement was being typed beside it — the pair was
+    // showing a figure and a gap, and Save stayed refused with nothing left to fix.
+    const next = shown === null ? { ...blank, [half]: true } : { primary: false, partner: false };
     setBlank(next);
     onIncompleteChange?.(next.primary || next.partner);
     if (shown !== null) onChange(half === "primary" ? 100 - shown : shown);

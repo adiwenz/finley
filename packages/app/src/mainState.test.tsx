@@ -102,7 +102,7 @@ describe("App — central projection state", () => {
     // The partnering cannot go while the separation that ends it is still on the timeline, and
     // the note names that separation by the label already printed beside it.
     expect(removes[0].disabled).toBe(true);
-    expect(screen.getByText(/Can.t remove — Separated in .* depends on this\./)).toBeTruthy();
+    expect(screen.getByText(/Can.t remove — Separated in .* depends on this — remove that first\./)).toBeTruthy();
     // The separation itself is the last thing on the timeline, so nothing stands behind it.
     expect(removes[1].disabled).toBe(false);
 

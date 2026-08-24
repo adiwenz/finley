@@ -373,14 +373,18 @@ describe("ProjectionResult reads — the household a dated snapshot belongs to",
   const JOIN = 24;
   const LEAVE = 48;
 
-  function partneredFrom(join: number, lifeExpectancy = samplePlan.primary.lifeExpectancy) {
+  function partneredFrom(
+    join: number,
+    lifeExpectancy = samplePlan.primary.lifeExpectancy,
+    opening = OPENING,
+  ) {
     const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
     p.marry({
       month: join,
       name: "Sam",
       birthYear: SAMPLE_START_YEAR - 38,
       lifeExpectancy,
-      accounts: { savingsBalanceCents: OPENING, retirementBalanceCents: 0, brokerageBalanceCents: 0 },
+      accounts: { savingsBalanceCents: opening, retirementBalanceCents: 0, brokerageBalanceCents: 0 },
     });
     return p;
   }
@@ -439,11 +443,16 @@ describe("ProjectionResult reads — the household a dated snapshot belongs to",
     // took their accounts; a partner who died left theirs behind, and the snapshot goes on
     // holding what the projection goes on carrying.
     // An expectancy of 40 against an age of 38: Sam dies two years in, well inside the horizon.
-    const result = partneredFrom(0, 40).run(nullJurisdiction);
+    // Brought rich enough that the household cannot have spent it all first — an emptied estate
+    // drops off the list, and this is about what happens to one that still holds something.
+    const result = partneredFrom(0, 40, dollarsToCents(5_000_000)).run(nullJurisdiction);
     const partner = result.household.memberships.find((m) => m.person.name === "Sam")!;
     expect(partner.endMonth).toBeNull();
     const last = result.series.months.length - 1;
     expect(accountsOfPartner(result, last).length).toBeGreaterThan(0);
+    // Carried, and named as what it now is rather than as a holding of somebody long gone.
+    const estate = result.snapshot(last).balances!.accounts.filter((a) => a.inEstate === true);
+    expect(estate.length).toBeGreaterThan(0);
   });
 
   it("hands over in a single month when one leaves and the next arrives", () => {

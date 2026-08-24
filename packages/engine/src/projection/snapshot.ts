@@ -49,6 +49,16 @@ export interface SnapshotLiability {
 export interface BalanceEntry {
   readonly id: string;
   readonly balanceCents: Cents;
+  /**
+   * The account's owners are all dead, so what it holds is the ESTATE the household is living on
+   * rather than a member's own holdings. Nothing moves: the simulation never filters the spendable
+   * pool by whether an owner is alive, so this money already funds the household exactly as it did
+   * before — this only stops the panel attributing it to somebody it has just said is not here.
+   *
+   * Never set for an account with no owners the roster knows; an unattributable holding cannot be
+   * declared inherited.
+   */
+  readonly inEstate?: boolean;
 }
 
 /**
@@ -172,6 +182,16 @@ export function buildSnapshot(
    * which is what a caller that never supplied one has always seen.
    */
   const persons = members.filter((p) => m < lifeExpectancyEndMonthExclusive(p, nowYear));
+  const livingIds = new Set(persons.map((p) => p.id));
+  /**
+   * Whether every owner of a holding is a member the roster has just buried. The panel lists the
+   * household and then lists its money, and those two lists have to agree about who is here: an
+   * account tagged to a person the roster no longer names read as a fourth household member made
+   * of accounts. Co-owned money is not the estate while either owner lives.
+   */
+  const allOwnersDead = (owners: readonly string[]): boolean =>
+    owners.length > 0 &&
+    owners.every((id) => memberIds.has(id) && !livingIds.has(id));
   /**
    * Everyone the household has EVER held a membership for. An owner outside it is not a member
    * who has left or not yet arrived — it is a holding whose owner this roster cannot speak for
@@ -256,7 +276,16 @@ export function buildSnapshot(
     balances = {
       accounts: Object.entries(projectionMonth.accountBalancesCents)
         .filter(([id]) => ownedByMember(accountOwners.get(id) ?? []))
-        .map(([id, balanceCents]) => ({ id, balanceCents })),
+        .map(([id, balanceCents]) => {
+          const inEstate = allOwnersDead(accountOwners.get(id) ?? []);
+          return inEstate ? { id, balanceCents, inEstate } : { id, balanceCents };
+        })
+        // An emptied estate account is the one row with nothing left to say: the person is gone
+        // and so is their money, and it sat at $0 under a name the roster above had dropped. A
+        // living member's empty account stays — it is theirs to put money back into. This is the
+        // same rule the liability and property lists already follow, where a debt disappears once
+        // it is paid off and a property once it is sold.
+        .filter((entry) => entry.inEstate !== true || entry.balanceCents !== 0),
       liabilities: Object.entries(projectionMonth.liabilityBalancesCents)
         .filter(([id]) => {
           const owner = liabilityOwner.get(id);

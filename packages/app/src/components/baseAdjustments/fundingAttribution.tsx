@@ -15,7 +15,7 @@
 import { useMemo } from "react";
 import type { FinancialObligation, ResolvedFunding } from "@finley/engine";
 import { formatDollars } from "../../format";
-import { buildFundingAttribution, type FundingSourceLine } from "../../fundingView";
+import { buildFundingAttribution, type FundingNaming, type FundingSourceLine } from "../../fundingView";
 import baseStyles from "./baseAdjustments.module.css";
 import styles from "./fundingAttribution.module.css";
 
@@ -35,7 +35,15 @@ function WithdrawalDetail({ withdrawal }: { readonly withdrawal: NonNullable<Fun
 function SourceRow({ source }: { readonly source: FundingSourceLine }) {
   return (
     <li className={styles.source}>
-      <span>{source.label}</span>
+      <span>
+        {source.label}
+        {/* Said out loud rather than left to be inferred from two names: a partner's account
+            paying a bill that is not theirs is the household's most consequential funding
+            fact, and it is invisible once the row shows only an amount. */}
+        {source.onBehalfOf !== undefined && (
+          <span className={styles.assist}> · covering {source.onBehalfOf}’s share</span>
+        )}
+      </span>
       <span className={styles.sourceAmount}>{formatDollars(source.amountCents)}</span>
       {source.withdrawal !== undefined && <WithdrawalDetail withdrawal={source.withdrawal} />}
     </li>
@@ -47,14 +55,17 @@ export interface FundingAttributionProps {
   readonly resolvedFunding: readonly ResolvedFunding[];
   /** The month's automatic obligations, for their authored labels; explicit draws are absent here. */
   readonly obligations: readonly FinancialObligation[];
-  /** Account id → friendly name, so an account source reads as its label rather than its id. */
-  readonly accountLabels?: ReadonlyMap<string, string>;
+  /**
+   * Whose money each source was — account labels, account owners, and the roster to name them
+   * from. Absent for a household of one, which has nothing to disambiguate.
+   */
+  readonly naming?: FundingNaming;
 }
 
-export function FundingAttribution({ resolvedFunding, obligations, accountLabels }: FundingAttributionProps) {
+export function FundingAttribution({ resolvedFunding, obligations, naming }: FundingAttributionProps) {
   const rows = useMemo(
-    () => buildFundingAttribution(resolvedFunding, obligations, accountLabels),
-    [resolvedFunding, obligations, accountLabels],
+    () => buildFundingAttribution(resolvedFunding, obligations, naming),
+    [resolvedFunding, obligations, naming],
   );
   if (rows.length === 0) return null;
 

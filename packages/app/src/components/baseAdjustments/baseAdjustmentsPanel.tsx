@@ -17,6 +17,7 @@
 import { useCallback, useMemo, useState } from "react";
 import {
   dollarsToCents,
+  eventAccountDescriptors,
   orderedIncomeOverrides,
   type FinancialObligation,
   type Household,
@@ -39,6 +40,7 @@ import {
   type BudgetLineDraft,
 } from "./budgetLines";
 import { jobOwnersOf } from "../../jobOwners";
+import { accountLabelsFor, accountOwnersFor } from "../../accountLabels";
 import { ownedJobsOf } from "../../jobEditing";
 import type { Transact } from "../../hooks/useProjection";
 import {
@@ -153,11 +155,21 @@ export function BaseAdjustmentsPanel({
   // Per-obligation funding attribution: which sources covered each line, in cascade order. Includes
   // explicit draws (a home down payment) that never appear in `obligations`, so it reads its own seam.
   const resolvedFunding = selectedFlows?.resolvedFunding ?? EMPTY_FUNDING;
-  // Account id → authored label, so an account-funded source in "Funded by" reads as its name
-  // rather than its internal id — the same descriptors the net-worth breakdown chart labels by.
-  const accountLabels = useMemo(
-    () => new Map(projection.accountDescriptors().map((a) => [a.id, a.label])),
-    [projection],
+  // Every account the household holds, the primary's from the plan and a partner's from the ledger
+  // — one list, so "Funded by" can name a partner's account at all rather than printing its id.
+  const allAccounts = useMemo(
+    () => [...projection.accountDescriptors(), ...eventAccountDescriptors(household.eventAccounts)],
+    [projection, household],
+  );
+  // Whose money a source was, not only what kind it was — see `accountLabelsFor`. Held together as
+  // one object so the three maps behind a single question travel as one.
+  const naming = useMemo(
+    () => ({
+      accountLabels: accountLabelsFor(allAccounts, personNames),
+      accountOwners: accountOwnersFor(allAccounts),
+      personNames,
+    }),
+    [allAccounts, personNames],
   );
 
   // Structural add/edit/delete, distinct from the inline amount override above. One form
@@ -352,7 +364,7 @@ export function BaseAdjustmentsPanel({
         <FundingAttribution
           resolvedFunding={resolvedFunding}
           obligations={obligations}
-          accountLabels={accountLabels}
+          naming={naming}
         />
 
         {/* Unlike spending, these accumulate in net worth. */}

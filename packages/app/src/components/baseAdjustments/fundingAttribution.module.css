@@ -50,3 +50,9 @@
   color: #8a8570;
   font-variant-numeric: tabular-nums;
 }
+
+/* The assistance note rides beside its source label, muted like the withdrawal breakdown: it
+   qualifies the row rather than competing with the amount. */
+.assist {
+  color: var(--color-text-muted);
+}

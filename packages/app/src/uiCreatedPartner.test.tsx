@@ -71,7 +71,9 @@ describe("a partner added through the UI", () => {
     // Their account is in the dated balances at that month, holding what was typed — not the $0
     // the field's uncommitted edit used to leave behind.
     const balances = within(snapshotSection(/^Balances/));
-    const row = balances.getByText(/savings-person-/).parentElement?.textContent ?? "";
+    // Named by its owner, not by the internal id it used to print: two people in the household
+    // means "Cash savings" no longer says whose.
+    const row = balances.getByText(/Robin’s cash savings/).parentElement?.textContent ?? "";
     // The typed figure, carrying a month of interest — and emphatically not the $0 an
     // uncommitted field used to submit.
     expect(Number(/\$([\d,]+)/.exec(row)?.[1].replace(/,/g, "") ?? 0)).toBeGreaterThanOrEqual(40_000);
