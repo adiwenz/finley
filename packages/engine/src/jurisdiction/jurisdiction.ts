@@ -146,15 +146,13 @@ export interface Jurisdiction {
    * jurisdiction can gate on `category` (US: only an `ordinaryIncome` — i.e. pre-tax — draw is
    * eligible) the same way it decides what portion of a draw is taxable at all.
    *
-   * Charged immediately, in the draw's own month — unlike {@link computeTaxCents}, this needs
-   * no annual reconciliation, because it is a flat rate on an amount already fully known the
-   * moment the draw is priced, not a bracket that depends on the rest of the year's income.
-   * The engine nets it out of what the draw DELIVERS (see {@link
-   * import("../projection/withdrawal").buildWithdrawalSources}), so a household short of what
-   * it asked for pulls more from the next account in line exactly as it would if a balance ran
-   * out early — no separate settlement machinery. Absent → no penalty (also the correct answer
-   * past the access age — a jurisdiction that implements this must return 0 there itself, since
-   * the engine does not gate the call by age).
+   * Priced in the draw's own month, but never netted out of what the draw DELIVERS (see {@link
+   * import("../projection/withdrawal").buildWithdrawalSources}) — the amount is reported
+   * separately and settles the following April alongside the year's bracket-priced income tax
+   * (see {@link import("../projection/taxYearSettlement").finalizeTaxYear}), the same true-up
+   * channel every other federal-tax dollar goes through. Absent → no penalty (also the correct
+   * answer past the access age — a jurisdiction that implements this must return 0 there itself,
+   * since the engine does not gate the call by age).
    */
   earlyWithdrawalPenaltyCents?(basis: WithdrawalTaxBasis, ctx: WithdrawalContext): Cents;
 

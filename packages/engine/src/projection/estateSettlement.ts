@@ -149,12 +149,13 @@ export interface EstateSettlement {
  * Every federal income-tax dollar accrued and unpaid at death, signed positive when owed.
  *
  * Two sources, and both are needed. The final year's own balance is priced off its complete
- * taxable income through the death month, by the SAME annual call the year's close uses, less the
- * tax already withheld against it while the household was alive — the same subtraction {@link
- * import("./taxYearSettlement").finalizeTaxYear} makes, and it can go either way: a wage earner
- * who died in November is owed a refund. Ahead of it sits any balance a completed year parked for
- * an April the run never reached — a death in February leaves the whole prior year unsettled, and
- * that debt is as real as the final year's.
+ * taxable income through the death month, by the SAME annual call the year's close uses, plus that
+ * year's own accrued early-withdrawal penalty (a flat top-up, not part of the bracket-priced
+ * total — the same addition {@link import("./taxYearSettlement").finalizeTaxYear} makes), less the
+ * tax already withheld against it while the household was alive. It can go either way: a wage
+ * earner who died in November is owed a refund. Ahead of it sits any balance a completed year
+ * parked for an April the run never reached — a death in February leaves the whole prior year
+ * unsettled, and that debt is as real as the final year's.
  *
  * The final year's parked balance, if December closed it, is deliberately skipped: it IS the first
  * term, and counting both would charge the estate twice.
@@ -169,6 +170,7 @@ function finalTaxBalanceCents(
     const key = `${pid}|${ctx.year}`;
     const base = state.taxableIncomeByPersonYear.get(key) ?? {};
     balance += annualFederalTax(jurisdiction, ctx, pid, base).totalCents;
+    balance += state.earlyWithdrawalPenaltyByPersonYear.get(key) ?? 0;
     balance -= totalOfCategories(state.federalWithheldByPersonYear.get(key) ?? {});
   }
   return balance;

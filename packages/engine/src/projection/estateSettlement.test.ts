@@ -322,6 +322,33 @@ describe("Estate settlement — final federal income tax", () => {
     expect(dying.months).toEqual(living.months);
     expect(settlementOf(dying).finalTaxDueCents).toBeGreaterThan(0);
   });
+
+  it("adds the death year's own early-withdrawal penalty, dying before the April that would have settled it", () => {
+    // A household dying at month 6 (June 2026) never reaches the April 2027 settlement month that
+    // would otherwise fold the penalty into `finalizeTaxYear`'s flat top-up — so this only passes
+    // if `finalTaxBalanceCents` adds `earlyWithdrawalPenaltyByPersonYear` for the death year itself.
+    const withPenalty: Jurisdiction = {
+      ...flatAnnual(RATE),
+      earlyWithdrawalPenaltyCents: (basis, ctx) =>
+        basis.category === "ordinaryIncome" && ctx.age < 59.5
+          ? Math.round(basis.grossCents * 0.1)
+          : 0,
+    };
+    const overrides = {
+      expenseSeries: [series(4_000)],
+      persons: [{ id: "p1", name: "You", birthYear: 1986 }],
+    };
+    const withDraws = dies(6, [cash(1_000), preTax(500_000)], overrides, withPenalty);
+    const noPenalty = dies(6, [cash(1_000), preTax(500_000)], overrides, flatAnnual(RATE));
+
+    const pretaxDrawnCents = sum(
+      withDraws.months.map((m) => m.flows!.cashFlowIncomeByCategoryCents.ordinaryIncome ?? 0),
+    );
+    expect(pretaxDrawnCents).toBeGreaterThan(0);
+    expect(settlementOf(withDraws).finalTaxDueCents - settlementOf(noPenalty).finalTaxDueCents).toBe(
+      Math.round(pretaxDrawnCents * 0.1),
+    );
+  });
 });
 
 describe("Estate settlement — what the estate holds", () => {
