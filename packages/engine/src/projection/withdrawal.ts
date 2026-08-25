@@ -103,9 +103,10 @@ export function orderedLiquidationAccounts<T extends LiquidationRankable>(
 }
 
 /**
- * Result of the decumulation channel, which runs BEFORE the waterfall alongside {@link
- * import("./rmd").buildRmdSources}: it pulls cash from investment accounts (mutating
- * `assetBalances`) and re-injects it as income.
+ * Result of the decumulation channel, which runs BEFORE the waterfall AND before December's
+ * Required Minimum Distribution true-up ({@link import("./rmd").buildRmdSources}) reads what it
+ * drew: it pulls cash from investment accounts (mutating `assetBalances`) and re-injects it as
+ * income.
  *
  * NEED-based, not a safe-withdrawal rate — and the need is HANDED to it, measured by the very
  * waterfall that will charge the month ({@link

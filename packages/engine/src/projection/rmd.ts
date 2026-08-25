@@ -70,8 +70,8 @@ function balanceOf(state: RmdState, accounts: readonly SimAccount[]): Cents {
  *
  * Eligibility (age, and — see {@link buildRmdSources}'s doc — being alive) is decided HERE and
  * only here: once a requirement is on the books for a person-year, December trues it up
- * regardless of what happens to that person before December, the same "the year's requirement
- * was already theirs, and it stands" rule the old single-pass version encoded.
+ * regardless of what happens to that person before December — the year's requirement was
+ * already theirs, and it stands.
  */
 export function establishRmdRequirements(
   state: RmdState,
@@ -140,10 +140,10 @@ export function recordQualifyingDistributions(
  * nothing carries the excess into a future year: `rmdSatisfiedByPersonYear` is read, never
  * written, here.
  *
- * Re-enters as `ordinaryIncome` with no planDescriptor, same as the old single-pass version:
- * the waterfall is the single tax chokepoint, so the gross is taxed once there, and whatever
- * this month's obligations don't need lands in the surplus (taxable) destination — the forced
- * excess a household never asked for, banked rather than re-spent or re-sold for.
+ * Re-enters as `ordinaryIncome` with no planDescriptor: the waterfall is the single tax
+ * chokepoint, so the gross is taxed once there, and whatever this month's obligations don't
+ * need lands in the surplus (taxable) destination — the forced excess a household never asked
+ * for, banked rather than re-spent or re-sold for.
  *
  * No re-check of eligibility here: {@link establishRmdRequirements} already decided who owes
  * this year, and forces it whether or not they are still active by December — a distribution

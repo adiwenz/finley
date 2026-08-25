@@ -313,11 +313,14 @@ function runMonth(
     priorYearSettlements,
   );
   // Decumulation then operates on the balances the explicit draws left behind: liquidate
-  // investment accounts BEFORE the waterfall — same seam as RMD/benefit — to close that measured
-  // gap, spending the liquid buffer first and spilling whatever the accounts cannot cover to the
-  // credit cascade. No gross-up anywhere: each draw sells exactly the gap, and its realized gain
-  // rides `taxableCents` into THIS year's accumulator. RMD income is already inside the gap (it
-  // was income in the pass that measured it), so the draw never double-withdraws.
+  // investment accounts BEFORE the waterfall — same seam as the government benefit — to close
+  // that measured gap, spending the liquid buffer first and spilling whatever the accounts
+  // cannot cover to the credit cascade. No gross-up anywhere: each draw sells exactly the gap,
+  // and its realized gain rides `taxableCents` into THIS year's accumulator. December's
+  // Required Minimum Distribution true-up (below) is not part of what this gap measured — it
+  // runs after decumulation and only ever ADDS income on top, which is why recording qualifying
+  // distributions before computing it is what keeps it from re-charging a draw decumulation
+  // already made, rather than a shared pre-pass the gap was measured against.
   //
   // `byPersonCents` is a DRAW-ORDER preference, not a second total: whoever's share of the gap
   // this is tries their own accounts first, so a partner's assets are never sold to cover the
