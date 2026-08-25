@@ -261,50 +261,43 @@ describe("Desired-withdrawal decumulation channel", () => {
     }
   });
 
-  it("does not double-withdraw when an RMD is forced: total pre-tax drawn is max(desired, required), not the sum", () => {
-    // A forced RMD draws `required` and re-enters as income, shrinking the desired gap.
+  it("an established RMD requirement forces nothing outside December — decumulation draws exactly its own need", () => {
+    // A Required Minimum Distribution is now an ANNUAL MINIMUM, trued up once in December
+    // (see rmd.ts): establishing a requirement at the year's first month does not by itself
+    // force a withdrawal, so an ordinary month's decumulation channel sells exactly what that
+    // month's spending needs — never `required`, however large — and is not double-charged by
+    // a top-up that has not fired yet.
     const rmdJurisdiction = (requiredDollars: number): Jurisdiction => ({
       id: "rmd-test",
       computeTaxByCategoryCents: () => ({}),
-      computeTaxCents: () => 0, // never charged mid-year regardless; isolates the drawdown arithmetic
+      computeTaxCents: () => 0,
       requiredMinimumDistributionCents: (preTaxBalanceCents, ctx) =>
         ctx.age >= 73 ? Math.min(preTaxBalanceCents, dollarsToCents(requiredDollars)) : 0,
     });
-    // Age 75 in 2026 → past the RMD start age, so the seam fires at month 0.
+    // Age 75 in 2026 → past the RMD start age, so the seam establishes a requirement at month 0.
     const rmdAgePerson: SimPerson = { id: "p1", name: "You", birthYear: 2026 - 75 };
     const accounts = () => [
       account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
       account("pretax", PRE_TAX_TAX_PROFILE, 100_000),
     ];
 
-    // Desired ($2k) > required ($1k): RMD draws $1k, desired tops up $1k → $2k, not $3k.
-    const desiredWins = simulateHousehold(
-      baseInput(accounts(), {
-        persons: [rmdAgePerson],
-        expenseSeries: [expense(2_000)],
-      }),
-      rmdJurisdiction(1_000),
-    );
-    expect(desiredWins.months[0].accountBalancesCents["pretax"]).toBe(dollarsToCents(98_000));
-    // RMD + desired taxed once as ordinaryIncome.
-    expect(desiredWins.months[0].flows?.cashFlowIncomeByCategoryCents["ordinaryIncome"]).toBe(
-      dollarsToCents(2_000),
-    );
-    for (const [, bal] of Object.entries(desiredWins.months[0].liabilityBalancesCents)) {
-      expect(bal).toBe(0);
-    }
-
-    // Required ($5k) > desired ($2k): the desired channel adds nothing → $5k, not $7k.
-    // The $3k of RMD income beyond expenses idles in cash.
-    const requiredWins = simulateHousehold(
+    // Required ($5k) far exceeds desired ($2k) — under the old January-forcing model this drew
+    // the whole $5k in month 0. Now nothing is forced before December, so decumulation draws
+    // only the $2k this month actually needs.
+    const series = simulateHousehold(
       baseInput(accounts(), {
         persons: [rmdAgePerson],
         expenseSeries: [expense(2_000)],
       }),
       rmdJurisdiction(5_000),
     );
-    expect(requiredWins.months[0].accountBalancesCents["pretax"]).toBe(dollarsToCents(95_000));
-    expect(requiredWins.months[0].accountBalancesCents["cash"]).toBe(dollarsToCents(3_000));
+    expect(series.months[0].accountBalancesCents["pretax"]).toBe(dollarsToCents(98_000));
+    expect(series.months[0].accountBalancesCents["cash"]).toBe(0);
+    // Only the $2k drawn is taxed this month; the other $3k of the requirement is not forced
+    // (and so not taxed) until December's true-up.
+    expect(series.months[0].flows?.cashFlowIncomeByCategoryCents["ordinaryIncome"]).toBe(
+      dollarsToCents(2_000),
+    );
   });
 
   it("draws exactly the need — no gross-up, and no tax charged against the draw at all", () => {

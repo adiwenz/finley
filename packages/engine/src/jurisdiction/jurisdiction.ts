@@ -353,9 +353,13 @@ export interface Jurisdiction {
 
   /**
    * `rules` owns the start age (birth-year-dependent, 73 vs. 75) and the life-expectancy
-   * divisor table, returning 0 before the start age. The engine forces the amount out as
-   * taxable ordinary income routed to a taxable destination, binding the withdrawal at
-   * `max(desired, required)`. Absent → no RMD.
+   * divisor table, returning 0 before the start age. An ANNUAL MINIMUM, not a withdrawal: the
+   * engine prices this once, at the year's first month, off the balance the year opens with,
+   * then lets ordinary decumulation draw pre-tax accounts down all year as it normally would.
+   * Only in December does the engine force out `max(0, this amount − qualifying distributions
+   * already taken this year)`, as taxable ordinary income routed to the taxable destination —
+   * so a household whose own withdrawals already covered the year forces nothing further.
+   * Absent → no RMD.
    */
   requiredMinimumDistributionCents?(
     preTaxBalanceCents: Cents,

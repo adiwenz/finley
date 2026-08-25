@@ -3,6 +3,7 @@ import type { SimAccount } from "../plan/simAccount";
 import type { Jurisdiction } from "../jurisdiction/jurisdiction";
 import type { IncomeSourceMonth } from "./waterfall";
 import { isPersonActiveAt, type SimPerson } from "./simulate.types";
+import type { DecumulationDrawResult } from "./withdrawal";
 
 /**
  * A structural view rather than the mutable `SimState`, so that object stays private to the
@@ -11,65 +12,81 @@ import { isPersonActiveAt, type SimPerson } from "./simulate.types";
 export interface RmdState {
   /** Every asset account; filtered here to forced-distribution-eligible holdings. */
   readonly accounts: readonly SimAccount[];
-  /** Authoritative mutable balances; RMD withdrawals reduce pre-tax entries in place. */
+  /** Authoritative mutable balances; a forced withdrawal reduces pre-tax entries in place. */
   readonly assetBalances: Map<string, Cents>;
   /** Read for the holder's birth year (age, start age). */
   readonly personsById: ReadonlyMap<string, SimPerson>;
+  /**
+   * Each eligible person's annual requirement, keyed `${personId}|${year}` — set once, at the
+   * year's first processed month, and read (never recomputed) by December's true-up. Priced off
+   * the balance the year OPENS with, so a mid-year withdrawal that shrinks the balance cannot
+   * shrink what the year already owes.
+   */
+  readonly rmdRequiredByPersonYear: Map<string, Cents>;
+  /**
+   * Each person's qualifying distributions taken so far this year, keyed the same way —
+   * accumulated by {@link recordQualifyingDistributions} as ordinary decumulation draws pre-tax
+   * accounts down, and consumed (never reset mid-year) by December's true-up.
+   */
+  readonly rmdSatisfiedByPersonYear: Map<string, Cents>;
 }
 
-/**
- * The year's single RMD event lands on its first processed month — month 0 for the start
- * year, then every 12th month as a new calendar year opens. Keeps the forced withdrawal
- * annual rather than twelvefold.
- */
-function isRmdTriggerMonth(month: number): boolean {
+function yearKeyOf(personId: string, year: number): string {
+  return `${personId}|${year}`;
+}
+
+/** The year's first processed month — where this year's requirement gets established. */
+function isAnnualEstablishMonth(month: number): boolean {
   return month % 12 === 0;
 }
 
+/** The year's last processed month — December, where the annual requirement is trued up. */
+function isAnnualTrueUpMonth(month: number): boolean {
+  return month % 12 === 11;
+}
+
+function forcedDistributionEligibleAccountsOf(
+  state: RmdState,
+  ownerId: string,
+): readonly SimAccount[] {
+  return state.accounts.filter(
+    (a) => a.ownerId === ownerId && a.taxProfile.forcedDistributionEligible,
+  );
+}
+
+function balanceOf(state: RmdState, accounts: readonly SimAccount[]): Cents {
+  let total = 0;
+  for (const a of accounts) total += state.assetBalances.get(a.id) ?? 0;
+  return total;
+}
+
 /**
- * This year's Required Minimum Distributions — one income source per person with a pre-tax
- * balance who has reached the jurisdiction's start age. The seam prices the requirement off
- * their aggregate pre-tax balance; that amount is forced out of their pre-tax accounts
- * sequentially (`required ≤ balance`, so it always fully draws) and re-enters as
- * `ordinaryIncome` with no planDescriptor: the waterfall is the single tax chokepoint, so the
- * gross is taxed once there and the remainder lands in the surplus (taxable) destination, and
- * entering post-deferral it can never be re-deferred.
+ * Establishes each eligible person's Required Minimum Distribution for the year about to run —
+ * one seam call per person with a pre-tax balance who has reached the jurisdiction's start age,
+ * priced off their aggregate pre-tax balance AS IT STANDS NOW, before anything this year has
+ * touched it. Nothing is withdrawn here: this only fixes the number December's true-up
+ * ({@link buildRmdSources}) works toward, exactly the way the IRS's own divisor divides a
+ * PRIOR year-end balance regardless of what the year does to the account afterward.
  *
- * The withdrawal binds as `max(desired, required)`; the base sim has no desired draw. No seam →
- * no RMD. Mutates `assetBalances`, as `buildGovernmentBenefitSources` does.
- *
- * Clipped to the holder's {@link import("../job/personActiveWindow").personActiveWindow}, like
- * every other person-scoped stream: a distribution is REQUIRED OF SOMEONE, and nothing is required
- * of the dead. Without the gate a partner's account went on distributing for the whole of the
- * survivor's life, and — because the requirement is priced off `year − birthYear` against a table
- * whose divisor shrinks with age — it distributed a rising fraction each year, as though the
- * holder were still aging. Every cent of it was booked as the household's ordinary income and
- * taxed, so a survivor paid real tax on withdrawals nobody was required to make.
- *
- * The account itself is untouched by the gate and stays household wealth to the end: this stops a
- * forced distribution, it does not disinherit anyone. What becomes of an inherited balance — a
- * beneficiary's own distribution schedule, and the ten-year rule behind it — is unmodelled.
+ * Eligibility (age, and — see {@link buildRmdSources}'s doc — being alive) is decided HERE and
+ * only here: once a requirement is on the books for a person-year, December trues it up
+ * regardless of what happens to that person before December, the same "the year's requirement
+ * was already theirs, and it stands" rule the old single-pass version encoded.
  */
-export function buildRmdSources(
+export function establishRmdRequirements(
   state: RmdState,
   jurisdiction: Jurisdiction,
   month: number,
   startYear: number,
-): IncomeSourceMonth[] {
+): void {
   const rmdSeam = jurisdiction.requiredMinimumDistributionCents;
-  if (rmdSeam === undefined || !isRmdTriggerMonth(month)) return [];
+  if (rmdSeam === undefined || !isAnnualEstablishMonth(month)) return;
 
   const year = startYear + Math.floor(month / 12);
-  const sources: IncomeSourceMonth[] = [];
-
   for (const person of state.personsById.values()) {
     if (person.birthYear === undefined || !isPersonActiveAt(person, month)) continue;
 
-    const preTaxAccounts = state.accounts.filter(
-      (a) => a.ownerId === person.id && a.taxProfile.forcedDistributionEligible,
-    );
-    let preTaxBalance = 0;
-    for (const a of preTaxAccounts) preTaxBalance += state.assetBalances.get(a.id) ?? 0;
+    const preTaxBalance = balanceOf(state, forcedDistributionEligibleAccountsOf(state, person.id));
     if (preTaxBalance <= 0) continue;
 
     const required = Math.min(
@@ -78,22 +95,104 @@ export function buildRmdSources(
     );
     if (required <= 0) continue;
 
-    let remaining = required;
+    state.rmdRequiredByPersonYear.set(yearKeyOf(person.id, year), required);
+  }
+}
+
+/**
+ * Folds this month's ordinary decumulation draws into each owner's year-to-date qualifying
+ * total — every dollar a normal withdrawal pulls from a forced-distribution-eligible account
+ * counts toward THEIR annual requirement, whether it lands in January or the same December
+ * {@link buildRmdSources} trues up against. Takes `DecumulationDrawResult`s directly (rather
+ * than re-deriving from reported income sources) so a forced-distribution-eligible account is
+ * identified the same way {@link establishRmdRequirements} aggregates it — by the account's own
+ * `taxProfile`, not by a label on the draw.
+ */
+export function recordQualifyingDistributions(
+  state: RmdState,
+  decumulationDraws: readonly DecumulationDrawResult[],
+  month: number,
+  startYear: number,
+): void {
+  if (decumulationDraws.length === 0) return;
+  const year = startYear + Math.floor(month / 12);
+
+  for (const draw of decumulationDraws) {
+    if (draw.grossWithdrawnCents <= 0) continue;
+    const account = state.accounts.find((a) => a.id === draw.sourceId);
+    if (account === undefined || !account.taxProfile.forcedDistributionEligible) continue;
+
+    const key = yearKeyOf(account.ownerId, year);
+    state.rmdSatisfiedByPersonYear.set(
+      key,
+      (state.rmdSatisfiedByPersonYear.get(key) ?? 0) + draw.grossWithdrawnCents,
+    );
+  }
+}
+
+/**
+ * December's true-up — the ONLY month a Required Minimum Distribution is actually forced.
+ * `remaining = established requirement − qualifying distributions YTD` (this same month's own
+ * ordinary decumulation included, since {@link recordQualifyingDistributions} runs before this
+ * is called); positive, that remainder is forced out of pre-tax accounts sequentially, same
+ * aggregation as {@link establishRmdRequirements} priced it off. Zero or negative — spending
+ * already pulled at least the requirement out of pre-tax this year — forces nothing, and
+ * nothing carries the excess into a future year: `rmdSatisfiedByPersonYear` is read, never
+ * written, here.
+ *
+ * Re-enters as `ordinaryIncome` with no planDescriptor, same as the old single-pass version:
+ * the waterfall is the single tax chokepoint, so the gross is taxed once there, and whatever
+ * this month's obligations don't need lands in the surplus (taxable) destination — the forced
+ * excess a household never asked for, banked rather than re-spent or re-sold for.
+ *
+ * No re-check of eligibility here: {@link establishRmdRequirements} already decided who owes
+ * this year, and forces it whether or not they are still active by December — a distribution
+ * already owed does not un-owe itself because the holder died after owing it. The account
+ * itself is untouched by any death gate — it stays household wealth to the end — this only
+ * stops a distribution from being forced on someone who never owed one to begin with.
+ */
+export function buildRmdSources(
+  state: RmdState,
+  jurisdiction: Jurisdiction,
+  month: number,
+  startYear: number,
+): IncomeSourceMonth[] {
+  if (jurisdiction.requiredMinimumDistributionCents === undefined || !isAnnualTrueUpMonth(month)) {
+    return [];
+  }
+
+  const year = startYear + Math.floor(month / 12);
+  const sources: IncomeSourceMonth[] = [];
+
+  for (const personId of state.personsById.keys()) {
+    const key = yearKeyOf(personId, year);
+    const required = state.rmdRequiredByPersonYear.get(key);
+    if (required === undefined) continue;
+
+    const satisfied = state.rmdSatisfiedByPersonYear.get(key) ?? 0;
+    const preTaxAccounts = forcedDistributionEligibleAccountsOf(state, personId);
+    const remaining = Math.min(
+      Math.max(0, required - satisfied),
+      balanceOf(state, preTaxAccounts),
+    );
+    if (remaining <= 0) continue;
+
+    let toDraw = remaining;
     for (const a of preTaxAccounts) {
-      if (remaining <= 0) break;
+      if (toDraw <= 0) break;
       const bal = state.assetBalances.get(a.id) ?? 0;
-      const take = Math.min(bal, remaining);
+      const take = Math.min(bal, toDraw);
       state.assetBalances.set(a.id, bal - take);
-      remaining -= take;
+      toDraw -= take;
     }
 
     sources.push({
-      ownerId: person.id,
-      waterfallInflowCents: required,
+      ownerId: personId,
+      waterfallInflowCents: remaining,
       taxCategory: "ordinaryIncome",
       // Own id, so a forced distribution reads apart from an elective pre-tax draw even
       // though both are `ordinaryIncome`.
-      sourceId: `rmd:${person.id}`,
+      sourceId: `rmd:${personId}`,
       label: "Required distribution",
       // Forced, but still the household's own money leaving its own account.
       fromAccountWithdrawal: true,

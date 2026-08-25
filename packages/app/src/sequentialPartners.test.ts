@@ -888,17 +888,17 @@ describe("each filer's own settlement attribution", () => {
     .map((m) => m.month);
 
   it("explains April of Year 44 with each member's own sources, not the household's", () => {
-    // The reported month: a combined $13,632 that neither member settled.
+    // The reported month: a combined $14,945.31 that neither member settled.
     const month = 531;
     const row = buildTaxChartData(RUN.series, NAMES).rows.find((r) => r.month === month)!;
-    expect(row.settlementCents).toBe(1363192);
+    expect(row.settlementCents).toBe(1494531);
 
     const alex = attributionAt(month)[ALEX]!;
     const casey = attributionAt(month)[CASEY]!;
     const total = (m: Readonly<Record<string, number>>) => Object.values(m).reduce((a, b) => a + b, 0);
 
-    expect(total(alex)).toBe(1137272);
-    expect(total(casey)).toBe(225920);
+    expect(total(alex)).toBe(1136184);
+    expect(total(casey)).toBe(358347);
     // Their two lists are disjoint, so neither tooltip can name the other's income.
     expect(Object.keys(alex).filter((k) => k in casey)).toEqual([]);
     expect(total(alex) + total(casey)).toBe(row.settlementCents);
