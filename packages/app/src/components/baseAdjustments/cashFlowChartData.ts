@@ -51,6 +51,7 @@
 
 import type { IncomeSourceCategory, ProjectionSeries } from "@finley/engine";
 import { apportionDisplayCents, toDisplayCents } from "./displayShares";
+import { yearOf } from "../../format";
 
 /**
  * The tax refund's band. Not an engine income source: the refund is a settlement, and the engine
@@ -838,11 +839,6 @@ export function cashFlowBandsForView(
     rows.some((r) => toDisplayCents(r.centsByBand[b.id] ?? 0) !== 0),
   );
   return { bands: visible, rows };
-}
-
-/** 1-based, for a human-facing "Year N" label. */
-function yearOf(month: number): number {
-  return Math.floor(month / 12) + 1;
 }
 
 /**

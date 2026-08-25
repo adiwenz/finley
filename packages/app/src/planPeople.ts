@@ -19,10 +19,11 @@ import {
   type Projection,
 } from "@finley/engine";
 import { START_YEAR } from "./config";
+import { yearOf } from "./format";
 
 /** The calendar year a 0-based simulation month falls in. */
 export function yearOfMonth(month: number): number {
-  return START_YEAR + Math.floor(month / 12);
+  return START_YEAR + yearOf(month);
 }
 
 /** The primary person's jobs, in plan order. */

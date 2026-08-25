@@ -386,10 +386,10 @@ describe("buildCashFlowChartModel — whose claim the summary makes", () => {
 
   it("demotes the person's fact to a note beneath it, rather than replacing it", () => {
     const model = buildCashFlowChartModel(data(), { view: "net", personNames: NAMES });
-    expect(model.gapNote).toContain("Blake from Year 4");
+    expect(model.gapNote).toContain("Blake from Year 3");
     // Both are said, and the household's is still the headline.
     expect(model.accessibleSummary).toContain("you're living off savings");
-    expect(model.accessibleSummary).toContain("Blake from Year 4");
+    expect(model.accessibleSummary).toContain("Blake from Year 3");
   });
 
   it("does not repeat the note in a person's own cut, which already leads with it", () => {

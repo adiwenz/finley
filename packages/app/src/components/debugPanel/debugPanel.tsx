@@ -9,7 +9,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { EMPTY_MONTHLY_WAGES, PRIMARY_PERSON_ID } from "@finley/engine";
 import type { Plan, ProjectionMonth, SimulationReport } from "@finley/engine";
-import { formatDollars } from "../../format";
+import { formatDollars, yearOf } from "../../format";
 import { debugExportFilename } from "../../debugExport";
 import styles from "./debugPanel.module.css";
 
@@ -230,7 +230,7 @@ export function DebugPanel({
       </div>
 
       <p className={styles.meta}>
-        {months.length} months · {inputs.startYear}–{inputs.startYear + Math.floor((months.length - 1) / 12)} ·
+        {months.length} months · {inputs.startYear}–{inputs.startYear + yearOf(months.length - 1)} ·
         inflation {(inputs.annualInflationRate * 100).toFixed(1)}% ·{" "}
         {inputs.persons
           .map((p) => `${p.name} (SS claim ${p.benefitClaimingAge ?? "—"})`)

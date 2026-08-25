@@ -472,7 +472,9 @@ describe("describeCashFlowGap", () => {
         },
       ),
     );
-    expect(describeCashFlowGap(data)).toContain("Year 1");
+    // The second flowed month is month 1, which is Year 0 — months 0–11 all are. This module
+    // used to add one and call it Year 1, under a banner that called the same month Year 0.
+    expect(describeCashFlowGap(data)).toContain("From Year 0 ");
     expect(describeCashFlowGap(data)).toContain("living off savings");
   });
 
@@ -545,7 +547,7 @@ describe("describePersonalDrawdowns", () => {
 
   it("names the one person who is, and the year they start", () => {
     const note = describePersonalDrawdowns(dataWith({ p2: 36 }), names);
-    expect(note).toContain("Blake from Year 4");
+    expect(note).toContain("Blake from Year 3");
     expect(note).toContain("covers their");
     // It stays a claim about them, never a restatement of the household's position.
     expect(note).not.toContain("you're living off savings");
@@ -553,7 +555,7 @@ describe("describePersonalDrawdowns", () => {
 
   it("names everyone who is, earliest first", () => {
     const note = describePersonalDrawdowns(dataWith({ p1: 120, p2: 36 }), names);
-    expect(note).toContain("Blake from Year 4 and Alex from Year 11");
+    expect(note).toContain("Blake from Year 3 and Alex from Year 10");
     expect(note).toContain("cover their");
   });
 

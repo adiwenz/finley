@@ -10,7 +10,7 @@
  * pro rata — the one figure allowed to be negative is the net line, which stacks against nothing.
  */
 
-import { formatDollars } from "../../format";
+import { formatDollars, yearOf } from "../../format";
 import { toDisplayCents } from "./displayShares";
 import { toAxisX } from "../monthAxis";
 import {
@@ -91,7 +91,7 @@ function colorsForBands(bands: readonly CashFlowBand[]): Map<string, string> {
 /** The household's age at `month`, to the nearest quarter-year: "69¾". */
 const QUARTERS = ["", "¼", "½", "¾"] as const;
 function formatAgeAtMonth(currentAge: number, month: number): string {
-  const wholeYears = Math.floor(month / 12);
+  const wholeYears = yearOf(month);
   const quarter = Math.round((month - wholeYears * 12) / 3); // 0..4
   const age = currentAge + wholeYears + (quarter === 4 ? 1 : 0);
   return `${age}${quarter === 4 ? "" : QUARTERS[quarter]}`;

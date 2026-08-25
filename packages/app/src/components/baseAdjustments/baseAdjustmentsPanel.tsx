@@ -28,7 +28,7 @@ import {
   type ResolvedFunding,
 } from "@finley/engine";
 import { START_YEAR } from "../../config";
-import { formatDollars } from "../../format";
+import { formatDollars, yearOf } from "../../format";
 import { NumInput } from "../numInput/numInput";
 import { BudgetLineForm } from "./budgetLineForm";
 import { PayChangeEditor } from "./payChangeEditor";
@@ -69,8 +69,8 @@ const EMPTY_BY_PERSON: Readonly<Record<string, number>> = {};
 
 /** "month 180 · 2041 · age 50". */
 function describeMonth(month: number, currentAge: number): string {
-  const year = START_YEAR + Math.floor(month / 12);
-  const age = currentAge + Math.floor(month / 12);
+  const year = START_YEAR + yearOf(month);
+  const age = currentAge + yearOf(month);
   return `month ${month} · ${year} · age ${age}`;
 }
 

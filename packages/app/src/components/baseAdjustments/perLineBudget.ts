@@ -12,6 +12,7 @@
  */
 
 import type { FinancialObligation, ProjectionSeries } from "@finley/engine";
+import { yearOf } from "../../format";
 
 /**
  * A palette-level read of {@link FinancialObligation.sourceKind} — money the user authors as
@@ -111,11 +112,6 @@ export function buildPerLineBudgetData(series: ProjectionSeries): PerLineBudgetD
             ),
           })),
   };
-}
-
-/** 1-based year of an absolute month, for a human-facing "Year N" label. */
-function yearOf(month: number): number {
-  return Math.floor(month / 12) + 1;
 }
 
 /** One-line summary for the a11y label; null when the plan finances the whole budget. */
