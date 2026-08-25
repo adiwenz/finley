@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { dollarParts, formatWholeDollars, monthLabel, yearOf } from "./format";
+import { dollarParts, formatSignedDollars, formatWholeDollars, monthLabel, yearOf } from "./format";
 import { START_YEAR } from "./config";
 
 describe("yearOf / monthLabel — the one year axis every surface shares", () => {
@@ -39,5 +39,23 @@ describe("dollarParts — a breakdown that adds up at the dollar it is printed t
 
   it("formats a whole-dollar figure the way every other amount is formatted", () => {
     expect(formatWholeDollars(2_700)).toBe("$2,700");
+  });
+});
+
+describe("formatSignedDollars — the sign comes from the amount", () => {
+  it("prints nothing as nothing, from either direction", () => {
+    // The regression: a repaid card rendered "−{formatDollars(0)}" and read "−$0". Rounding runs
+    // before the sign, so the last few cents on a card do not resurrect it either.
+    expect(formatSignedDollars(0)).toBe("$0");
+    expect(formatSignedDollars(-0)).toBe("$0");
+    expect(formatSignedDollars(-40)).toBe("$0");
+    expect(formatSignedDollars(40)).toBe("$0");
+  });
+
+  it("keeps the sign, and the unicode minus, for anything that rounds to a figure", () => {
+    expect(formatSignedDollars(123_456)).toBe("$1,235");
+    expect(formatSignedDollars(-123_456)).toBe("−$1,235");
+    // U+2212, the width of a digit — not a hyphen, which would break a column's alignment.
+    expect(formatSignedDollars(-100)).toBe("\u2212$1");
   });
 });

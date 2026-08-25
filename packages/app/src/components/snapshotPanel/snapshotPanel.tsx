@@ -1,7 +1,7 @@
 /** Snapshot panel — the household cross-section at the scrubbed month. */
 
 import type { Ledger, ProjectionResult } from "@finley/engine";
-import { formatDollars, monthLabel } from "../../format";
+import { formatDollars, formatSignedDollars, monthLabel } from "../../format";
 import { seriesLabel, splitMarkers } from "../../ledgerView";
 import styles from "./snapshotPanel.module.css";
 
@@ -55,7 +55,7 @@ export function SnapshotPanel({
           {snap.balances?.liabilities.map((b) => (
             <li key={b.id} className={styles.owed}>
               <span>{liabilityLabels?.get(b.id) ?? b.id} (owed)</span>
-              <span>−{formatDollars(b.balanceCents)}</span>
+              <span>{formatSignedDollars(-b.balanceCents)}</span>
             </li>
           ))}
         </ul>
@@ -90,7 +90,7 @@ export function SnapshotPanel({
           {snap.expenses.map((s) => (
             <li key={s.id}>
               <span>{seriesLabel(s)}</span>
-              <span>−{formatDollars(s.monthlyCents)}/mo</span>
+              <span>{formatSignedDollars(-s.monthlyCents)}/mo</span>
             </li>
           ))}
         </ul>

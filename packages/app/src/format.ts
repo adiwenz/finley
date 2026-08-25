@@ -11,6 +11,23 @@ export function formatDollars(cents: number): string {
 }
 
 /**
+ * A signed amount, with the sign taken from the VALUE — `$0` for anything that rounds to nothing,
+ * however it got there.
+ *
+ * The alternative is a hard-coded minus in the JSX, which is how a fully repaid card came to read
+ * "Credit card (owed) −$0": the row knew it was a debt, so it printed a debt's sign, and a debt of
+ * nothing is the one case where that is wrong. Rounding happens BEFORE the sign for the same
+ * reason — a balance of forty cents left on a card is $0, not −$0.
+ *
+ * The minus is U+2212, not a hyphen: it is the same width as the digits, so a column of figures
+ * stays aligned.
+ */
+export function formatSignedDollars(cents: number): string {
+  const dollars = Math.round(cents / 100);
+  return `${dollars < 0 ? "−" : ""}${formatDollars(Math.abs(dollars) * 100)}`;
+}
+
+/**
  * The plan-year a month falls in, 0-indexed: months 0–11 are Year 0 ("now"). Every surface
  * naming a year MUST go through this — the net-worth chart once did its own
  * `floor(month / 12) + 1` and called the same insolvency month "year 45" while the banner

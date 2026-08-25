@@ -27,7 +27,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { formatDollars, monthLabel, yearOf } from "../../format";
+import { formatDollars, formatSignedDollars, monthLabel, yearOf } from "../../format";
 import { TODAY_X, axisPointLabel, axisYearTickLabel, toAxisX, yearTickXs } from "../monthAxis";
 import { peakNetWorthOf, type BreakdownBand, type NetWorthBreakdownData } from "./netWorthBreakdown";
 import { NotSimulatedHatch, useHatchId } from "./notSimulatedHatch";
@@ -50,12 +50,6 @@ const MODE_LABELS: Readonly<Record<Mode, string>> = {
   assets: "Assets",
   networth: "Net worth",
 };
-
-/** Whole dollars, grouped — for the summary line (the chart axis uses `formatDollars`). */
-function dollars(cents: number): string {
-  const sign = cents < 0 ? "−" : "";
-  return `${sign}$${Math.round(Math.abs(cents) / 100).toLocaleString("en-US")}`;
-}
 
 /** A colour per band, stepping shades within each kind. */
 function colorsForBands(bands: readonly BreakdownBand[]): Map<string, string> {
@@ -280,8 +274,8 @@ export function NetWorthBreakdownChart({
     peak === null
       ? "No balances to break down yet."
       : whose === null
-        ? `Peaks around ${dollars(peak)} net worth, ${holdings}`
-        : `${whose}'s net worth peaks around ${dollars(peak)}, ${holdings}`;
+        ? `Peaks around ${formatSignedDollars(peak)} net worth, ${holdings}`
+        : `${whose}'s net worth peaks around ${formatSignedDollars(peak)}, ${holdings}`;
 
   return (
     <div role="img" aria-label={`Net-worth breakdown over time. ${summary}`}>
