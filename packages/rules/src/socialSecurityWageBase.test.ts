@@ -87,7 +87,6 @@ function run(...jobs: readonly Job[]): ProjectionResult {
     savingsReturnPct: 0,
     retirementReturnPct: 0,
     brokerageReturnPct: 0,
-    sharedScheme: "proportional",
     goals: [],
     inflationPct: 0,
     primary: {

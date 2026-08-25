@@ -21,7 +21,6 @@ const base: ScenarioInput = {
   savingsReturnPct: 2,
   retirementReturnPct: 6,
   brokerageReturnPct: 5,
-  sharedScheme: "proportional",
   inflationPct: 2,
   birthYear: 2026 - 30,
   lifeExpectancy: 90,

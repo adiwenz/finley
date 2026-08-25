@@ -1,4 +1,5 @@
 import type { Cents } from "../money/money";
+import { HOUSEHOLD_OWNER_ID } from "../compile/projectionBase";
 import type { SimAccount } from "../plan/simAccount";
 import { seedEarnings, type EarningsAccumulator } from "../job/earningsRecord";
 import {
@@ -13,7 +14,7 @@ import type { SourceTaxable, TaxableByCategory } from "./taxAttribution";
 import type { FederalTaxPayment } from "./federalIncomeTax";
 import type { BudgetLine } from "../budget/budgetLine";
 import type { SimGoal } from "../goal/goal";
-import type { SharedContributionScheme, SourceYearToDate, SurplusDestination } from "./waterfall";
+import type { SourceYearToDate, SurplusDestination } from "./waterfall";
 import type { HouseholdSimInput, SimPerson, SimProperty } from "./simulate.types";
 import { PRE_NOW_MONTH, isPreExisting } from "./nowMarker";
 import type { FinancialObligation } from "./financialObligation";
@@ -73,7 +74,6 @@ export interface SimState {
   readonly goals: readonly SimGoal[];
   /** Standing account-contribution budget lines — resolved & funded each month. */
   readonly contributionLines: readonly BudgetLine[];
-  readonly sharedScheme: SharedContributionScheme;
   readonly surplusDestination: SurplusDestination;
   /**
    * Cumulative pre-tax deferral per person per calendar year, keyed `${personId}|${year}`.
@@ -194,7 +194,7 @@ export function initSimState(input: HouseholdSimInput): SimState {
     ? null
     : new RevolvingCard({
         id: SYNTHETIC_CARD_ID,
-        ownerId: "household",
+        ownerId: HOUSEHOLD_OWNER_ID,
         openingBalanceCents: 0,
         apr: SYNTHETIC_CREDIT_CARD_APR,
         creditLimitCents: SYNTHETIC_CARD_CREDIT_LIMIT_CENTS,
@@ -255,7 +255,6 @@ export function initSimState(input: HouseholdSimInput): SimState {
     personIds,
     goals: [...(input.goals ?? [])],
     contributionLines: input.contributionLines ?? [],
-    sharedScheme: input.sharedScheme ?? "proportional",
     surplusDestination: input.surplusDestination ?? { kind: "idle" },
     deferredByPersonYear: new Map<string, Cents>(),
     sourceYearToDate: new Map<string, Map<string, SourceYearToDate>>(),

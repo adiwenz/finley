@@ -139,8 +139,6 @@ export interface IncomeSourceMonth {
   readonly fromAccountWithdrawal?: boolean;
 }
 
-/** Lever 2: how much each person contributes to shared obligations (step 3). */
-export type SharedContributionScheme = "proportional" | "even";
 
 /** Lever 4: where leftover cash lands once every goal is funded. */
 export type SurplusDestination =
@@ -149,10 +147,37 @@ export type SurplusDestination =
 
 export interface WaterfallInput {
   readonly personIds: readonly string[];
+  /**
+   * Who is in the household THIS month, when that is narrower than {@link personIds} — which is
+   * the run's whole roster, every person who is ever a member or ever owns income. Absent ⇒ the
+   * roster, which is right for every household nobody joins or leaves.
+   *
+   * Only the SHARED obligation's split reads it, and it has to: a shared expense is the
+   * household's, so a person outside the household has no share of it. The roster is plainly the
+   * wrong denominator — a household of two that once had a third partner would charge each of the
+   * two a THIRD of the rent and the absent partner the rest, which sums to the budget while
+   * attributing part of it to somebody who is not there.
+   *
+   * Nothing else narrows to it. Coverage, leftover and the shortfall attribution still walk the
+   * full roster, because a member's own take-home and their own obligations are theirs to account
+   * for in the month they leave.
+   */
+  readonly householdMemberIds?: readonly string[];
   readonly incomeSources: readonly IncomeSourceMonth[];
   /** Shared obligations this month: expenses + scheduled liability payments. */
   readonly sharedObligationCents: Cents;
-  readonly sharedScheme: SharedContributionScheme;
+  /**
+   * Lever 2: each household member's AUTHORED share of shared spending, a whole number 0–100,
+   * over {@link householdMemberIds}. The user writes it when a partnership begins and it stays
+   * written until they change it: nothing about income, assets, employment, tax or retirement
+   * moves it. Absent ⇒ equal shares, which for the one-partner-at-a-time household this engine
+   * models is the 50/50 a new partnership starts on, and is also what a household of one means.
+   *
+   * An ASSIGNMENT, not a claim about solvency. A person whose income and accounts cannot reach
+   * their share still owns it — see {@link WaterfallResult.obligationChargedByPersonCents} — and
+   * the household covers the rest as assistance, which never edits the authored figure.
+   */
+  readonly sharedSharePercentOf?: (personId: string) => number;
   readonly surplusDestination: SurplusDestination;
   readonly goals: readonly SimGoal[];
   /**
@@ -174,6 +199,46 @@ export interface WaterfallInput {
   readonly goalFundMonthlyRate?: (accountId: string) => number;
   /** Current (beginning-of-step) balance of any account — goal need is target − this. */
   readonly accountBalanceCents: (accountId: string) => Cents;
+  /**
+   * A person's OWN obligations — today, a liability payment they alone are the authored
+   * owner of — charged against their own take-home BEFORE the shared split runs (§ Household
+   * funding, "person-specific obligations should remain assigned entirely to that person").
+   * Floored at that person's own positive take-home: it never pushes them into the household's
+   * shared negative-take-home pool, and what it cannot cover becomes THEIR shortfall in {@link
+   * WaterfallResult.obligationShortfallByPersonCents}, which decumulation reads as "try this
+   * person's own accounts first". Only the other partner's INCOME is out of reach; their
+   * accounts remain a last-resort backstop once the owner's own income and accounts are spent.
+   * Absent → no personal obligations, byte-identical to before this seam existed.
+   */
+  readonly personalObligationCentsByPerson?: (personId: string) => Cents;
+  /**
+   * What this person's OWN accounts could deliver toward their own charge this month — every
+   * balance they hold, whatever its tax treatment, since decumulation will sell any of them
+   * before the household borrows.
+   *
+   * Read for ONE question only: is this person's unfunded share beyond their own reach? That is
+   * the point at which the other partner's unspent pay becomes the next thing to use, and the
+   * order matters because the two are not interchangeable. Selling a partner's holding while
+   * their current-month pay sits idle in a surplus sweep converts an asset into cash the
+   * household already had — it shrinks the balance sheet to pay a bill income could have paid.
+   *
+   * A CAPACITY, not a plan: nothing here decides which account is sold, or sells one. It sizes
+   * the gap that no account of theirs can close, so {@link
+   * WaterfallResult.assistanceReceivedByPersonCents} covers exactly that much and no more.
+   * Absent → no assistance from income at all, byte-identical to before this seam existed.
+   */
+  readonly ownFundingCapacityCents?: (personId: string) => Cents;
+  /**
+   * Where THIS person's surplus lands — their own account of whatever kind {@link
+   * surplusDestination} names, or null when they hold none.
+   *
+   * Surplus is the leftover of each person's own take-home, so pooling it into one account made
+   * a household's savings accrue entirely to whoever happened to own the designated one: two
+   * partners on identical pay ended a decade with $832k and $11k. Absent, or null for a person,
+   * falls back to the single household destination — which is what a one-person household has,
+   * and what every plan authored before this seam existed meant.
+   */
+  readonly surplusAccountIdForPerson?: (personId: string) => string | null;
   /** The default liquid account — the `idle` surplus destination. Null if none. */
   readonly liquidAccountId: string | null;
   /**
@@ -255,6 +320,10 @@ export interface WaterfallInput {
    *
    * A FIXED figure the caller priced from a CLOSED year; the waterfall never derives it. Absent,
    * or in any month but the filing month → 0.
+   *
+   * Excluded from the proportional split's WEIGHT, and only from that: who can carry the rent is
+   * a question about recurring income, and a filing that lands once a year answers it in whichever
+   * direction the withholding happened to miss.
    */
   readonly settlementCashCents?: (personId: string) => Cents;
   /**
@@ -378,4 +447,88 @@ export interface WaterfallResult {
    * ranking debt/needs ahead of a goal.
    */
   readonly obligationShortfallCents: Cents;
+  /**
+   * {@link obligationShortfallCents} broken out by the person whose share of the shared
+   * obligation went unfunded — a PREFERENCE for decumulation (try this person's own accounts
+   * for this much before reaching for anyone else's), never a second total: Σ over this map
+   * is ≤ `obligationShortfallCents`, and the difference (a negative-take-home deficit the
+   * discretionary pool couldn't absorb) is still fully counted in the scalar, just not owed to
+   * any one person.
+   *
+   * Owner-attributed, which is what makes best-effort funding come out right: the gap on Alex's
+   * authored share is Alex's, so the cascade spends Alex's own accounts on it before it reaches
+   * for Blake's, and Blake's money only ever arrives as assistance once Alex's has run out.
+   */
+  readonly obligationShortfallByPersonCents: ReadonlyMap<string, Cents>;
+  /**
+   * What each person had left once their own income had paid their personal obligations, their
+   * share of the shared ones, and whatever of a partner's share their own pay assisted with
+   * ({@link assistanceGivenByPersonCents}) — the per-person counterpart of `totalDiscretionary`,
+   * and the money goals, contributions and the surplus are then funded out of. Help comes out
+   * here and nowhere else, which is what stops the same cent being given away and banked.
+   *
+   * This is per-person NET CASH FLOW as the household actually funds it: the shared-obligation
+   * share is the authored {@link WaterfallInput.sharedSharePercentOf} split, not an attribution of
+   * who authored which budget line — no budget line HAS an author today. Σ over this map is ≥
+   * `totalDiscretionary`, since a negative-take-home deficit the pool absorbs is charged to the
+   * household total and to nobody's own figure.
+   *
+   * POST-deferral, so it is not the cash-flow chart's `netCents` on its own: that figure counts
+   * a pre-tax deferral as money the month kept. `deferredByPersonCents` is the bridge.
+   */
+  readonly leftoverByPersonCents: ReadonlyMap<string, Cents>;
+  /**
+   * Per-person net cash flow, SIGNED — the same three quantities as {@link
+   * leftoverByPersonCents} with none of the flooring: raw take-home, less the person's whole
+   * personal charge, less their whole share of the shared obligation, whether income covered
+   * either or not.
+   *
+   * Report this, allocate with the other. A household spending more than it receives has a
+   * genuinely negative month, and `leftoverByPersonCents` cannot say so — it stops at zero
+   * because nobody funds a goal out of a deficit. Σ over this map is the household's own net,
+   * which is what lets a chart show a person's line and the household's line together.
+   */
+  readonly netCashFlowByPersonCents: ReadonlyMap<string, Cents>;
+  /**
+   * What each person was CHARGED this month — their own obligations in full, plus their share
+   * of the shared ones under their authored percentage. Charged, not paid: an amount their income could
+   * not cover is still theirs here, and the cascade finds the cash elsewhere.
+   *
+   * The per-person counterpart of the household's spending need, and the figure that makes a
+   * person's cut of a cash-flow chart answer "is MY income covering MY share" rather than
+   * "is my income covering everything the household spends".
+   */
+  readonly obligationChargedByPersonCents: ReadonlyMap<string, Cents>;
+  /**
+   * What each person's OWN cash actually covered of {@link obligationChargedByPersonCents} —
+   * their personal obligations first, then as much of their authored share as their take-home
+   * reached. On the month's REAL pass that take-home already includes anything the cascade sold
+   * out of their own accounts, so this is the whole of what their own money paid.
+   *
+   * The second of the three figures a household needs kept apart:
+   *
+   *  1. **Assigned** — `obligationChargedByPersonCents`, the authored percentage. It never moves
+   *     because somebody helped.
+   *  2. **Funded** — this.
+   *  3. **Assistance** — assigned less funded, the part somebody else's money paid for. Negative
+   *     for the person who did the helping, whose own money covered more than their own share.
+   */
+  readonly obligationFundedByPersonCents: ReadonlyMap<string, Cents>;
+  /**
+   * The third figure: what another member's UNSPENT current-month pay covered of this person's
+   * authored share, once their own income and their own accounts ({@link
+   * WaterfallInput.ownFundingCapacityCents}) were both exhausted.
+   *
+   * Reported rather than folded into anything, because every figure it could be folded into
+   * would then say something untrue. Added to `obligationFundedByPersonCents` it would claim
+   * their own money paid; subtracted from `obligationChargedByPersonCents` it would rewrite the
+   * authored split; left inside `obligationShortfallByPersonCents` it would send decumulation
+   * looking for accounts to sell for a bill that has already been paid.
+   *
+   * Σ === Σ {@link assistanceGivenByPersonCents}, and every cent of it has been taken out of the
+   * giver's {@link leftoverByPersonCents} — so it cannot also arrive as their surplus.
+   */
+  readonly assistanceReceivedByPersonCents: ReadonlyMap<string, Cents>;
+  /** The same cents seen from the giver: what this person's own unspent pay covered for others. */
+  readonly assistanceGivenByPersonCents: ReadonlyMap<string, Cents>;
 }

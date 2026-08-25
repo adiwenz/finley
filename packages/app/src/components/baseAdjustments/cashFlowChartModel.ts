@@ -10,13 +10,15 @@
  * pro rata — the one figure allowed to be negative is the net line, which stacks against nothing.
  */
 
-import { formatDollars } from "../../format";
+import { formatDollars, yearOf } from "../../format";
+import { toDisplayCents } from "./displayShares";
 import { toAxisX } from "../monthAxis";
 import {
   TAX_OUTFLOW_CATEGORY,
   TAX_REFUND_CATEGORY,
   cashFlowBandsForView,
   describeCashFlowGap,
+  describePersonalDrawdowns,
   type CashFlowBand,
   type CashFlowChartData,
   type CashFlowMode,
@@ -55,6 +57,9 @@ const SPEND_COLORS: Readonly<Record<string, readonly string[]>> = {
   wants: ["#b5761f", "#c99a3f", "#d9b775"],
   savings: ["#8a8570", "#a39d85"],
   debtService: ["#9c5b39", "#b23a2e", "#7d4a30"],
+  // One person's share of the shared lines — the needs green, since needs are most of what it
+  // stands in for, one step muted so it never reads as the household's own "Needs" band.
+  sharedSpending: ["#2f5c47"],
 };
 const OTHER_OUTFLOW_COLORS = ["#8a8570", "#a39d85", "#6f6b5c"];
 
@@ -86,7 +91,7 @@ function colorsForBands(bands: readonly CashFlowBand[]): Map<string, string> {
 /** The household's age at `month`, to the nearest quarter-year: "69¾". */
 const QUARTERS = ["", "¼", "½", "¾"] as const;
 function formatAgeAtMonth(currentAge: number, month: number): string {
-  const wholeYears = Math.floor(month / 12);
+  const wholeYears = yearOf(month);
   const quarter = Math.round((month - wholeYears * 12) / 3); // 0..4
   const age = currentAge + wholeYears + (quarter === 4 ? 1 : 0);
   return `${age}${quarter === 4 ? "" : QUARTERS[quarter]}`;
@@ -131,14 +136,15 @@ function steps(before: number, after: number): boolean {
  * against the same clamped-at-0 band figures the stacked chart draws, so the moments never
  * quote a value the chart doesn't.
  *
- * A band beginning or ending is structural and always surfaces, however small the amount: those
- * are the transitions the chart's shape is made of.
+ * A band beginning or ending is structural and surfaces whatever the amount — but only once the
+ * amount is one the reader can SEE. A transition invisible in every figure beside it is not a
+ * moment in the plan, it is a moment in the arithmetic.
  */
 function buildAccessibleMoments(
   view: { readonly rows: readonly CashFlowViewRow[] },
   bands: readonly CashFlowChartBand[],
   currentAge: number,
-  firstSavingsDrawdownMonth: number | null,
+  drawdown: { readonly month: number | null; readonly reason: string },
   firstInsolventMonth: number | null,
 ): CashFlowChartAccessibleMoment[] {
   const reasonsByMonth = new Map<number, string[]>();
@@ -175,8 +181,13 @@ function buildAccessibleMoments(
     if (i === 0) addReason(r.month, "Projection starts");
     if (prevDrawn !== null) {
       for (const b of bands) {
-        const before = prevDrawn[b.id] ?? 0;
-        const after = drawn[b.id] ?? 0;
+        // Compared as the table PRINTS them, never as the engine holds them. A band is announced
+        // beside the figures beneath it, and a 4-cent refund beginning is "Tax refund begins" over
+        // a row reading $0 — fifteen of them in one preset, each a transition the reader is told
+        // about and cannot see. The threshold is not a tolerance picked here: it is the rounding
+        // {@link formatDollars} already does, so a moment exists exactly when the numbers move.
+        const before = toDisplayCents(prevDrawn[b.id] ?? 0);
+        const after = toDisplayCents(drawn[b.id] ?? 0);
         if (before === after) continue;
         if (before === 0) addDiscreteReason(r.month, `${b.label} begins`);
         else if (after === 0) addDiscreteReason(r.month, `${b.label} ends`);
@@ -194,9 +205,7 @@ function buildAccessibleMoments(
   }
   // Named explicitly even when a band-begins reason already covers the same month, so the
   // reason a screen-reader user hears never depends on which mode collapsed which band.
-  if (firstSavingsDrawdownMonth !== null) {
-    addDiscreteReason(firstSavingsDrawdownMonth, "First savings withdrawal");
-  }
+  if (drawdown.month !== null) addDiscreteReason(drawdown.month, drawdown.reason);
   if (firstInsolventMonth !== null) addDiscreteReason(firstInsolventMonth, "Plan becomes insolvent");
 
   const rowByMonth = new Map(view.rows.map((r) => [r.month, r]));
@@ -272,8 +281,13 @@ export interface CashFlowChartModelOptions {
   readonly view: CashFlowView;
   /** Ignored by the net view, which has no bands to collapse. */
   readonly mode?: CashFlowMode;
-  /** Names benefit bands by earner when two are on the chart; otherwise a band keeps its label. */
+  /** Names a benefit or refund band by its earner when two are on the chart; otherwise a band keeps its label. */
   readonly personNames?: ReadonlyMap<string, string>;
+  /**
+   * Draw only this person's figures — honoured on all three views, though the two sides are cut
+   * differently; see {@link cashFlowBandsForView}.
+   */
+  readonly ownerId?: string;
   /** The household's age at month 0, which turns the insolvency month into an age. */
   readonly currentAge?: number;
 }
@@ -298,6 +312,12 @@ export interface CashFlowChartModel {
    * the chart shows as a visible hint. {@link accessibleSummary} wraps it for the a11y label.
    */
   readonly gapSummary: string | null;
+  /**
+   * A secondary claim the headline above cannot make — today, that somebody inside a household
+   * with healthy combined cash flow is covering their own share out of savings. Combined only,
+   * and `null` when there is nothing to add.
+   */
+  readonly gapNote: string | null;
   /** A human-readable sentence for the chart's accessible label. Never empty. */
   readonly accessibleSummary: string;
   /**
@@ -324,8 +344,8 @@ export function buildCashFlowChartModel(
   data: CashFlowChartData,
   options: CashFlowChartModelOptions,
 ): CashFlowChartModel {
-  const { view, mode = "simple", personNames = new Map<string, string>(), currentAge = 0 } = options;
-  const folded = cashFlowBandsForView(data, view, mode, personNames);
+  const { view, mode = "simple", personNames = new Map<string, string>(), currentAge = 0, ownerId } = options;
+  const folded = cashFlowBandsForView(data, view, mode, personNames, ownerId);
   const colors = colorsForBands(folded.bands);
   const bands: CashFlowChartBand[] = folded.bands.map((b) => ({
     id: b.id,
@@ -351,14 +371,25 @@ export function buildCashFlowChartModel(
   });
   const lastX = toAxisX(folded.rows[folded.rows.length - 1]?.month ?? 0);
   const brokeMonth = data.firstInsolventMonth;
-  const summary = describeCashFlowGap(data);
+  const summary = describeCashFlowGap(data, ownerId, ownerId === undefined ? undefined : personNames.get(ownerId));
+  // Combined only — a person's cut leads with their own claim, so the note would restate it.
+  const personalNote = ownerId === undefined ? describePersonalDrawdowns(data, personNames) : null;
   const title = VIEW_TITLES[view];
 
+  // Scoped like the summary: a household drawdown is a household fact, and a person's cut names
+  // only their own. The reasons differ because the claims do.
+  const drawdown =
+    ownerId === undefined
+      ? { month: data.firstHouseholdDrawdownMonth, reason: "Household starts living off savings" }
+      : {
+          month: data.firstDrawdownMonthByPerson[ownerId] ?? null,
+          reason: "First personal savings withdrawal",
+        };
   const accessibleMoments = buildAccessibleMoments(
     folded,
     bands,
     currentAge,
-    data.firstSavingsDrawdownMonth,
+    drawdown,
     data.firstInsolventMonth,
   );
 
@@ -369,15 +400,19 @@ export function buildCashFlowChartModel(
     spendingNeedKey: SPENDING_NEED_KEY,
     netKey: NET_KEY,
     // Only the inflow view: on the outflow view the spending IS the bands, and on the net view
-    // spending has already been subtracted, so the reference worth drawing is zero.
+    // spending has already been subtracted, so the reference worth drawing is zero. In a
+    // person's cut the line is THEIR share of the household's spending, not the household's
+    // whole need — held against one earner's pay, the latter reads as a shortfall in a
+    // household that has none.
     showsSpendingNeed: view === "inflows",
     lastX,
     brokeMonth,
     brokeAgeLabel: brokeMonth === null ? null : formatAgeAtMonth(currentAge, brokeMonth),
     gapSummary: summary,
-    accessibleSummary: summary
-      ? `${title}. ${summary}`
-      : `${title} — cash flow continues across the whole horizon.`,
+    gapNote: personalNote,
+    accessibleSummary:
+      (summary ? `${title}. ${summary}` : `${title} — cash flow continues across the whole horizon.`) +
+      (personalNote === null ? "" : ` ${personalNote}`),
     accessibleMoments,
   };
 }

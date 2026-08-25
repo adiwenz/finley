@@ -62,6 +62,7 @@ function householdWith(
     accountTransfers: [],
     fundingDraws: [],
     accounts,
+    eventAccounts: [],
   };
 }
 

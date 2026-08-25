@@ -24,6 +24,7 @@ function series(): ProjectionSeries {
     propertyValuesCents: {},
     isInsolvent: false,
     uncoveredCents: 0,
+    netWorthByPersonCents: {},
   });
   return {
     opening: month(0, 100000),

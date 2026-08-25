@@ -18,7 +18,7 @@ import type {
   LiabilityPaymentRecord,
   ProjectionSeries,
 } from "./simulate.types";
-import type { SharedContributionScheme, SurplusDestination } from "./waterfall";
+import type { SurplusDestination } from "./waterfall";
 
 /** Null fields are unmodelled. */
 export interface ReportPerson {
@@ -111,7 +111,6 @@ export interface ReportInputs {
   readonly benefitColaRate: number;
   /** Whether {@link benefitColaRate} was authored rather than inherited from CPI. */
   readonly benefitColaRateIsExplicit: boolean;
-  readonly sharedScheme: SharedContributionScheme;
   readonly surplusDestination: SurplusDestination;
   readonly persons: readonly ReportPerson[];
   readonly accounts: readonly ReportAccount[];
@@ -237,7 +236,6 @@ function echoInputs(input: HouseholdSimInput): ReportInputs {
     annualInflationRate: input.annualInflationRate,
     benefitColaRate: input.benefitColaRate ?? input.annualInflationRate,
     benefitColaRateIsExplicit: input.benefitColaRate !== undefined,
-    sharedScheme: input.sharedScheme ?? "proportional",
     surplusDestination: input.surplusDestination ?? { kind: "idle" },
     persons: input.persons.map((p) => ({
       id: p.id,

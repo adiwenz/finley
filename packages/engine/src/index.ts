@@ -55,6 +55,7 @@ export type {
   SeparateInput,
   StartPartneredInput,
   HaveExistingChildInput,
+  PartnerAccountsInput,
 } from "./authoring/relationships";
 export type { BuyHomeInput, HomePurchaseInput, HomePurchaseAssessment } from "./authoring/housing";
 export type {
@@ -84,6 +85,7 @@ export {
 // The declarative, id-free authoring input `fromInput` consumes, and the result it answers with —
 // how seed data and presets describe a whole scenario without naming an id.
 export type { ScenarioInput, FromInputResult } from "./input/scenarioInput";
+export type { PartnerJobEntry } from "./input/scenarioInput";
 export type {
   Job,
   JobDeferral,
@@ -132,6 +134,7 @@ export { healthcareMonthlyCents } from "./budget/budgetLine";
 export type { Scenario } from "./plan/scenario";
 export type { Ledger } from "./ledger/ledger";
 export type { LifeEvent, NewLifeEvent, RelationshipEvent } from "./ledger/eventTypes";
+export { DEFAULT_PARTNER_SHARE_PERCENT } from "./ledger/eventTypes";
 export type { Household } from "./ledger/household";
 export { resolvedJobPaySpan } from "./ledger/household";
 export type { FundingLookup } from "./ledger/addEvent";
@@ -146,7 +149,6 @@ export type {
   IncomeSourceCategory,
 } from "./projection/simulate.types";
 export type { EstateSettlement } from "./projection/estateSettlement";
-export type { SharedContributionScheme } from "./projection/waterfall.types";
 // Why a blocked projection fell short, and the engine-owned rule for which accounts may fund a
 // draw — the UI classifies and picks sources through these, never re-implementing eligibility.
 export type { FundingFailure } from "./projection/fundingFailure";
@@ -230,7 +232,12 @@ export { isPreExisting } from "./projection/nowMarker";
 // Ids and thresholds the engine owns and an app has to quote back: the primary person, the
 // standing accounts, the synthetic revolving card, and the DTI guidelines a warning cites.
 export { RETIREMENT_ID } from "./plan/ids";
-export { PRIMARY_PERSON_ID, CONTRIBUTION_TARGETS } from "./compile/projectionBase";
+export {
+  PRIMARY_PERSON_ID,
+  HOUSEHOLD_OWNER_ID,
+  CONTRIBUTION_TARGETS,
+  eventAccountDescriptors,
+} from "./compile/projectionBase";
 export { SYNTHETIC_CARD_ID, SYNTHETIC_CARD_CREDIT_LIMIT_CENTS } from "./liability/liability";
 export { DTI_FRONT_END_THRESHOLD, DTI_BACK_END_THRESHOLD } from "./liability/affordability";
 

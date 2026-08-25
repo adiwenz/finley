@@ -17,6 +17,12 @@ function seriesOf(
     sources?: ProjectionCashFlowIncomeSource[];
     obligations?: { id: string; label: string; category: string; amountCents: number }[];
     taxCents?: number;
+    /** The household's spending need — a flow total of its own, not a sum over `obligations`. */
+    expensesCents?: number;
+    /** The waterfall's signed per-person net, which the net view's per-person cut reads. */
+    netCashFlowByPersonCents?: Record<string, number>;
+  /** Each person's share of the month's spending, which the inflow cut's reference line reads. */
+  obligationChargedByPersonCents?: Record<string, number>;
   }[]
 ): ProjectionSeries {
   const months = [
@@ -29,8 +35,11 @@ function seriesOf(
         taxCents: m.taxCents ?? 0,
         payrollTaxCents: 0,
         taxSettlementCents: 0,
-        expensesCents: 0,
+        expensesCents: m.expensesCents ?? 0,
         liabilityPaymentsCents: 0,
+        netCashFlowByPersonCents: m.netCashFlowByPersonCents ?? {},
+        deferredByPersonCents: {},
+        obligationChargedByPersonCents: m.obligationChargedByPersonCents ?? {},
       },
     })),
   ];
@@ -229,5 +238,191 @@ describe("CashFlowTooltipContent — the hover readout", () => {
   it("draws nothing when nothing is hovered", () => {
     const { container } = render(<CashFlowTooltipContent {...props([])} active={false} />);
     expect(container.firstChild).toBeNull();
+  });
+});
+
+/**
+ * The Combined / per-person toggle, on all three views. Cash ARRIVING carries the owner the
+ * engine attributed it to; cash LEAVING carries the engine's own per-person charge — each
+ * person's tax and their share of what the household spends, which is how the waterfall funded
+ * it rather than a split this chart invents. A shared budget line has no per-person amount, so
+ * a person's cut states their whole share of the shared lines as one band instead.
+ */
+describe("CashFlowChart — whose cash flow", () => {
+  const owned = (
+    sourceId: string,
+    cents: number,
+    category: ProjectionCashFlowIncomeSource["category"],
+    ownerId: string,
+  ): ProjectionCashFlowIncomeSource => ({ ...source(sourceId, cents, category), ownerId }) as ProjectionCashFlowIncomeSource;
+
+  const ALEX_PAY = dollarsToCents(6_000);
+  const BLAKE_PAY = dollarsToCents(2_400);
+
+  const twoEarners = buildCashFlowChartData(
+    seriesOf({
+      sources: [
+        owned("Software Engineer", ALEX_PAY, "wages", "p1"),
+        owned("Teacher", BLAKE_PAY, "wages", "p2"),
+      ],
+      obligations: [{ id: "rent", label: "Rent", category: "needs", amountCents: dollarsToCents(3_000) }],
+      expensesCents: dollarsToCents(3_000),
+      // Proportional to pay: Alex carries $2,142.86 of the $3,000 rent, Blake $857.14.
+      netCashFlowByPersonCents: {
+        p1: ALEX_PAY - 214_286,
+        p2: BLAKE_PAY - 85_700,
+      },
+      obligationChargedByPersonCents: { p1: 214_286, p2: 85_714 },
+    }),
+  );
+
+  const couple = new Map([
+    ["p1", "Alex"],
+    ["p2", "Blake"],
+  ]);
+
+  const renderTwoEarners = (personNames: ReadonlyMap<string, string> = couple) =>
+    render(
+      <CashFlowChart
+        data={twoEarners}
+        currentAge={40}
+        selectedMonth={0}
+        personNames={personNames}
+        onSelectMonth={() => {}}
+      />,
+    );
+
+  const drawnBands = (): string[] =>
+    JSON.parse(screen.getByTestId("income-bands").textContent ?? "[]") as string[];
+  const cut = (name: string) => screen.getByRole("button", { name });
+  const view = (label: string) => screen.getByRole("radio", { name: label });
+
+  it("opens combined, with both earners' income stacked", () => {
+    renderTwoEarners();
+    expect(drawnBands()).toEqual(["Software Engineer", "Teacher"]);
+    expect(cut("Combined").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("cuts the stack to one earner's own income", () => {
+    renderTwoEarners();
+    fireEvent.click(cut("Blake"));
+    expect(drawnBands()).toEqual(["Teacher"]);
+    expect(screen.getByTestId("income-first-row").textContent).toBe(
+      JSON.stringify({ Teacher: BLAKE_PAY }),
+    );
+  });
+
+  it("offers the cut on every view", () => {
+    renderTwoEarners();
+    for (const label of ["Coming in", "Going out", "Net"]) {
+      fireEvent.click(view(label));
+      expect(screen.getByRole("group", { name: "Whose cash flow" })).toBeTruthy();
+    }
+  });
+
+  it("carries the cut across to the outflow view, where it names that person's own share", () => {
+    // The household's whole $3,000 of rent is one band under Combined; Blake's cut states the
+    // $857.14 the waterfall charged Blake, which is a different question about the same money.
+    renderTwoEarners();
+    fireEvent.click(cut("Blake"));
+    fireEvent.click(view("Going out"));
+
+    expect(drawnBands()).toEqual(["Share of shared spending"]);
+    expect(screen.getByTestId("income-first-row").textContent).toBe(
+      JSON.stringify({ "spend:shared": 85_714 }),
+    );
+
+    fireEvent.click(cut("Combined"));
+    expect(drawnBands()).toEqual(["Needs"]);
+    expect(screen.getByTestId("income-first-row").textContent).toBe(
+      JSON.stringify({ "spend:needs": dollarsToCents(3_000) }),
+    );
+  });
+
+  it("offers no cut at all to a household of one", () => {
+    const solo = buildCashFlowChartData(
+      seriesOf({ sources: [owned("Software Engineer", ALEX_PAY, "wages", "p1")] }),
+    );
+    render(
+      <CashFlowChart
+        data={solo}
+        currentAge={40}
+        selectedMonth={0}
+        personNames={new Map([["p1", "Alex"]])}
+        onSelectMonth={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("group", { name: "Whose cash flow" })).toBeNull();
+  });
+});
+
+/**
+ * The Net view's per-person cut. This one is not a filter over bands — the net view has none —
+ * but a lookup of the figure the engine reported for that person, so the cases below pin that
+ * the chart reads it rather than deriving a share of its own.
+ */
+describe("CashFlowChart — whose net", () => {
+  const ALEX_PAY = dollarsToCents(6_000);
+  const BLAKE_PAY = dollarsToCents(2_400);
+  const RENT = dollarsToCents(3_000);
+
+  const owned = (
+    sourceId: string,
+    cents: number,
+    ownerId: string,
+  ): ProjectionCashFlowIncomeSource =>
+    ({ ...source(sourceId, cents, "wages"), ownerId }) as ProjectionCashFlowIncomeSource;
+
+  const data = buildCashFlowChartData(
+    seriesOf({
+      sources: [owned("Software Engineer", ALEX_PAY, "p1"), owned("Teacher", BLAKE_PAY, "p2")],
+      obligations: [{ id: "rent", label: "Rent", category: "needs", amountCents: RENT }],
+      expensesCents: RENT,
+      netCashFlowByPersonCents: { p1: ALEX_PAY - 214_286, p2: BLAKE_PAY - 85_700 },
+    }),
+  );
+
+  const couple = new Map([
+    ["p1", "Alex"],
+    ["p2", "Blake"],
+  ]);
+
+  const renderChart = () =>
+    render(
+      <CashFlowChart
+        data={data}
+        currentAge={40}
+        selectedMonth={0}
+        personNames={couple}
+        onSelectMonth={() => {}}
+      />,
+    );
+
+  const netFigure = () => Number(screen.getByTestId("income-first-net").textContent);
+  const cut = (name: string) => screen.getByRole("button", { name });
+  const view = (label: string) => screen.getByRole("radio", { name: label });
+
+  it("draws the household's net until a person is chosen", () => {
+    renderChart();
+    fireEvent.click(view("Net"));
+    expect(netFigure()).toBe(ALEX_PAY + BLAKE_PAY - RENT);
+  });
+
+  it("draws one person's own net, share of the rent and all", () => {
+    renderChart();
+    fireEvent.click(view("Net"));
+    fireEvent.click(cut("Blake"));
+    // Rounded to the dollar against the household's own rounded total, so the two people's
+    // displayed shares add back to it.
+    // Blake's $2,400 less their $857.14 proportional share — not $2,400 less the whole rent.
+    expect(netFigure()).toBe(BLAKE_PAY - 85_700);
+  });
+
+  it("carries the chosen person across a view change, since both views can honour it", () => {
+    renderChart();
+    fireEvent.click(cut("Blake"));
+    fireEvent.click(view("Net"));
+    expect(cut("Blake").getAttribute("aria-pressed")).toBe("true");
+    expect(netFigure()).toBe(BLAKE_PAY - 85_700);
   });
 });

@@ -172,6 +172,36 @@ export function replaceEvent(
  * Drop an event and, transitively, everything it caused. REFUSED when the remaining ledger
  * would no longer replay, and the conflict names the event that would fail.
  */
+/**
+ * Why `eventId` cannot be dropped, or `null` when it can — the SAME replay {@link dropEvent}
+ * refuses on, asked before the click instead of after it.
+ *
+ * Structured rather than prose: it names the event that would be stranded, so a surface holding
+ * its own label for every transaction can say which one it is in the words the reader already
+ * saw on the timeline. `reason` is the stranded event's own requirement, with the type-and-id
+ * prefix the replay stamps on it removed, since that names the event a second time.
+ *
+ * Pure — the dry run builds a candidate ledger and throws it away.
+ */
+export function removalConflict(
+  state: ProjectionState,
+  jurisdiction: Jurisdiction,
+  eventId: string,
+): { readonly strandedEventId: string; readonly reason: string } | null {
+  const result = removeEvent(
+    state.scenario.ledger,
+    eventId,
+    projectionBaseFor(state, jurisdiction),
+  );
+  if (result.ok) return null;
+  const stranded = result.stranded;
+  if (stranded === undefined) return { strandedEventId: eventId, reason: result.conflict };
+  return {
+    strandedEventId: stranded.event.id,
+    reason: stranded.reason.replace(/^\w+ "[^"]*": /, ""),
+  };
+}
+
 export function dropEvent(
   state: ProjectionState,
   jurisdiction: Jurisdiction,

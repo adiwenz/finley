@@ -80,7 +80,6 @@ export const DEFAULT_INPUT: ScenarioInput = {
   savingsReturnPct: 1,
   retirementReturnPct: 7,
   brokerageReturnPct: 7,
-  sharedScheme: "proportional",
   // Two goals that outrun the surplus, so the priority tradeoff is visible.
   goals: [
     {

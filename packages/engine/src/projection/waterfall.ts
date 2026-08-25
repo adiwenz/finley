@@ -2,8 +2,8 @@
  * Allocation waterfall — pipeline step 3 in detail.
  *
  * ONE fixed-structure waterfall, never user-rearrangeable. Exactly four levers: each
- * person's pre-tax deferral % (per source `planDescriptor`), the shared-contribution
- * scheme, the goal priority order, and the surplus-cash destination.
+ * person's pre-tax deferral % (per source `planDescriptor`), the authored
+ * shared-expense percentages, the goal priority order, and the surplus-cash destination.
  *
  * Per month, in strict order: deferrals → withholding → shared obligations → shared goals →
  * personal goals → surplus. Placement reads `planDescriptor`, taxation reads
@@ -14,7 +14,7 @@
  * The simulator applies the deposits and routes the shortfall through the cascade.
  */
 
-import { splitEven, type Cents } from "../money/money";
+import type { Cents } from "../money/money";
 import type { TaxCategory } from "../money/cashFlowSeries";
 import { addCategory, type SourceTaxable, type TaxableByCategory } from "./taxAttribution";
 import type { SimGoal } from "../goal/goal";
@@ -47,7 +47,6 @@ export {
 export type {
   PlanDescriptor,
   IncomeSourceMonth,
-  SharedContributionScheme,
   SurplusDestination,
   PersonWithholding,
   SourceYearToDate,
@@ -90,6 +89,7 @@ export function taxableAfterDeferralCents(src: IncomeSourceMonth, deferredCents:
 function sourceKeyOf(src: IncomeSourceMonth): string {
   return src.sourceId ?? src.taxCategory;
 }
+
 
 const NO_YEAR_TO_DATE: SourceYearToDate = {
   earnedByCategory: {},
@@ -554,73 +554,325 @@ function computeTakeHome(
 }
 
 /**
- * Step 3 — split shared obligations by the scheme, then take each person's share out of
- * their take-home. Only positive take-home contributes; an uncovered share becomes a
- * household shortfall, never silently absorbed by the other partner.
+ * Split `totalCents` across `personIds` proportional to `weightOf`, cumulative-rounded so the
+ * shares sum to `totalCents` exactly. All-zero weight (nobody to split by — no income, or no
+ * `eligibleAssetsCentsByPerson` seam) leaves every share 0, same as a non-positive `totalCents`:
+ * the caller reads the gap between "assigned" and `totalCents` as unattributed, not lost.
+ */
+function proportionalSplit(
+  totalCents: Cents,
+  personIds: readonly string[],
+  weightOf: (pid: string) => number,
+): Map<string, Cents> {
+  const shareByPerson = new Map<string, Cents>();
+  const totalWeight = personIds.reduce((sum, pid) => sum + Math.max(0, weightOf(pid)), 0);
+  if (totalCents <= 0 || totalWeight <= 0) {
+    for (const pid of personIds) shareByPerson.set(pid, 0);
+    return shareByPerson;
+  }
+  let prevCum = 0;
+  let acc = 0;
+  for (const pid of personIds) {
+    acc += Math.max(0, weightOf(pid));
+    const cum = Math.round((totalCents * acc) / totalWeight);
+    shareByPerson.set(pid, cum - prevCum);
+    prevCum = cum;
+  }
+  return shareByPerson;
+}
+
+/**
+ * Step 2.5 — charge each person's OWN obligations against their OWN take-home, before the
+ * shared split (step 3) ever sees the remainder. Unlike a shared obligation's shortfall (which
+ * the other partner's discretionary leftover may cover, step 3's whole point), a personal
+ * obligation is never charged against the other person's TAKE-HOME: `covered` is floored at this
+ * person's own POSITIVE take-home, so a personal charge can never push an already-non-negative
+ * take-home below 0 (it can only shrink what step 3 later sees as this person's contribution to
+ * the shared pool). Whatever the person's own take-home can't cover is returned as their
+ * shortfall — decumulation reads it as a preference to try their own ACCOUNTS first (see {@link
+ * import("./allocationStep").projectObligationShortfallCents}).
+ *
+ * A preference, not a wall. Income is the only tier reserved to the owner; once their own income
+ * and their own accounts are both exhausted, decumulation's pooled pass funds the remainder from
+ * whoever in the household still has assets (see {@link
+ * import("./withdrawal").buildWithdrawalSources}). Ownership of the debt never moves with that
+ * money — what stays "assigned entirely to that person" is the obligation, not the cash.
+ *
+ * A pre-existing NEGATIVE take-home (deductions exceeding cash, unrelated to this obligation)
+ * passes through untouched — `covered` is 0 whenever `th <= 0`, so that figure still reaches
+ * step 3's household-wide negative-take-home pooling exactly as it did before this step existed.
+ */
+function chargePersonalObligations(
+  input: WaterfallInput,
+  takeHomeByPerson: Map<string, Cents>,
+): {
+  takeHomeByPerson: Map<string, Cents>;
+  shortfallByPerson: Map<string, Cents>;
+  shortfallCents: Cents;
+  /** What each person was CHARGED, covered or not — the reporting figure, unlike `covered`. */
+  chargedByPerson: Map<string, Cents>;
+} {
+  const personalOf = input.personalObligationCentsByPerson;
+  const adjustedTakeHomeByPerson = new Map<string, Cents>();
+  const shortfallByPerson = new Map<string, Cents>();
+  const chargedByPerson = new Map<string, Cents>();
+  let shortfallCents: Cents = 0;
+  for (const pid of input.personIds) {
+    const th = takeHomeByPerson.get(pid) ?? 0;
+    const personal = Math.max(0, personalOf?.(pid) ?? 0);
+    const covered = Math.min(personal, Math.max(0, th));
+    adjustedTakeHomeByPerson.set(pid, th - covered);
+    chargedByPerson.set(pid, personal);
+    const shortfall = personal - covered;
+    shortfallByPerson.set(pid, shortfall);
+    shortfallCents += shortfall;
+  }
+  return {
+    takeHomeByPerson: adjustedTakeHomeByPerson,
+    shortfallByPerson,
+    shortfallCents,
+    chargedByPerson,
+  };
+}
+
+/**
+ * Step 3 — split shared obligations by the household's AUTHORED percentages, then take each
+ * person's share out of their take-home. Only positive take-home contributes; an uncovered share
+ * becomes a household shortfall, never silently absorbed by the other partner.
+ *
+ * The split is a number the user wrote, and nothing else (§ Household funding, step 1). It does
+ * not read income, assets, employment, benefits, tax or retirement status, and it therefore does
+ * not move when any of those do: a raise, a job loss, a bonus, an April bill and an April refund
+ * all leave a 70/30 household at 70/30. See {@link WaterfallInput.sharedSharePercentOf}; absent,
+ * every member shares equally, which is the 50/50 a new partnership defaults to.
+ *
+ * The three figures this keeps apart, because a household that cannot fund what it authored is
+ * the ordinary case rather than the exception:
+ *
+ *  - **Assigned** — `shareByPerson`, the authored percentage of the month's shared spending,
+ *    cumulative-rounded so the shares sum to the budget to the cent.
+ *  - **Funded** — `fundedFromIncomeByPerson`, as much of that as their own take-home reached.
+ *  - **Assisted** — the rest, which reaches `obligationShortfallByPersonCents` under the OWNER's
+ *    name, so decumulation spends that person's own accounts on their own share before it
+ *    reaches for their partner's (§ Household funding, steps 2–3). Only once the owner's money
+ *    is gone does the pooled pass sell somebody else's — which is what "the other partner helps
+ *    if they can" is, and it is assistance, not a retroactive edit to the split.
+ *
+ * The attribution is a PREFERENCE for whose accounts to try first, never the total decumulation
+ * must cover; the scalar `shortfallCents` is that.
  *
  * A NEGATIVE take-home is a real cash need: deductions (`deferralCents + taxCents`)
  * exceeded the cash that reached the waterfall (`waterfallInflowCents`) — usually tax on
  * cash credited OUTSIDE the waterfall, though the treatment is cause-agnostic. It is the
  * HOUSEHOLD's to pay, so the combined discretionary pool covers it first and only the
- * uncoverable part falls to the cascade. Clamping it to 0 overstated the ending balance
- * and kept an unpayable bill from ever surfacing as insolvency.
+ * uncoverable part falls to the cascade — left unattributed to a person for the same reason.
+ * Clamping it to 0 overstated the ending balance and kept an unpayable bill from ever
+ * surfacing as insolvency.
  */
 function splitSharedObligation(
   input: WaterfallInput,
   takeHomeByPerson: Map<string, Cents>,
-): { leftoverByPerson: Map<string, Cents>; totalDiscretionary: Cents; shortfallCents: Cents } {
+): {
+  leftoverByPerson: Map<string, Cents>;
+  totalDiscretionary: Cents;
+  shortfallCents: Cents;
+  obligationShortfallByPersonCents: Map<string, Cents>;
+  /** Each person's share of the shared obligation, whether their income covered it or not. */
+  shareByPerson: Map<string, Cents>;
+  /** How much of that share their own take-home actually paid. */
+  fundedFromIncomeByPerson: Map<string, Cents>;
+} {
   const positiveTakeHome = new Map<string, Cents>();
-  let totalPositive: Cents = 0;
+  // Whose deduction went unfunded, and by how much — an April balance due is the usual cause,
+  // and it is the person's OWN bill however the household ends up finding the cash.
+  const deficitByPerson = new Map<string, Cents>();
+  // Who the shared budget actually belongs to this month — see
+  // {@link WaterfallInput.householdMemberIds}. Coverage and leftovers still walk the full roster:
+  // a leaver's own take-home is still theirs to account for in the month they go.
+  const memberIds = input.householdMemberIds ?? input.personIds;
   let unfundedDeductionsCents: Cents = 0;
   for (const pid of input.personIds) {
     const rawTakeHomeCents = takeHomeByPerson.get(pid) ?? 0;
     positiveTakeHome.set(pid, Math.max(0, rawTakeHomeCents));
-    totalPositive += Math.max(0, rawTakeHomeCents);
+    deficitByPerson.set(pid, Math.max(0, -rawTakeHomeCents));
     unfundedDeductionsCents += Math.max(0, -rawTakeHomeCents);
   }
 
+  // Equal weight when nothing was authored, and equal weight again if what WAS authored sums to
+  // nothing — the alternative to a fallback is not a different answer but no answer: an all-zero
+  // weight assigns nobody anything, so the household's whole budget goes unattributed while still
+  // being spent, and every person's reported net cash flow reads as though the month were free.
+  const authoredPercentOf = input.sharedSharePercentOf;
+  const totalPercent = authoredPercentOf
+    ? memberIds.reduce((sum, pid) => sum + Math.max(0, authoredPercentOf(pid)), 0)
+    : 0;
+  const weightOf =
+    authoredPercentOf !== undefined && totalPercent > 0
+      ? (pid: string) => Math.max(0, authoredPercentOf(pid))
+      : () => 1;
+
   const shareByPerson = new Map<string, Cents>();
-  if (input.sharedObligationCents <= 0) {
-    for (const pid of input.personIds) shareByPerson.set(pid, 0);
-  } else if (input.sharedScheme === "even") {
-    const shares = splitEven(input.sharedObligationCents, Math.max(1, input.personIds.length));
-    input.personIds.forEach((pid, i) => shareByPerson.set(pid, shares[i] ?? 0));
-  } else if (totalPositive <= 0) {
-    // 0/0 guard: nobody can contribute, so the whole obligation is a shortfall.
-    for (const pid of input.personIds) shareByPerson.set(pid, 0);
-  } else {
-    // Cumulative rounding so the shares sum to the obligation exactly.
-    let prevCum = 0;
-    let acc = 0;
-    for (const pid of input.personIds) {
-      acc += positiveTakeHome.get(pid) ?? 0;
-      const cum = Math.round((input.sharedObligationCents * acc) / totalPositive);
-      shareByPerson.set(pid, cum - prevCum);
-      prevCum = cum;
+  for (const pid of input.personIds) shareByPerson.set(pid, 0);
+  if (input.sharedObligationCents > 0) {
+    // Cumulative rounding: the shares sum to the budget EXACTLY, odd cent and all, so a 33/67
+    // split of $1,000.01 leaves nothing unattributed and nothing double-counted.
+    for (const [pid, share] of proportionalSplit(input.sharedObligationCents, memberIds, weightOf)) {
+      shareByPerson.set(pid, share);
     }
   }
 
   let shortfallCents: Cents = 0;
   const leftoverByPerson = new Map<string, Cents>();
+  const fundedFromIncomeByPerson = new Map<string, Cents>();
+  // Best effort, per person: their own income against their own share, and what it cannot reach
+  // stays theirs — the household finds the cash, the responsibility does not move.
+  const unfundedShareByPerson = new Map<string, Cents>();
   let totalDiscretionary: Cents = 0;
   for (const pid of input.personIds) {
     const th = positiveTakeHome.get(pid) ?? 0;
     const share = shareByPerson.get(pid) ?? 0;
     const covered = Math.min(share, th);
+    fundedFromIncomeByPerson.set(pid, covered);
+    unfundedShareByPerson.set(pid, share - covered);
     shortfallCents += share - covered;
     const leftover = th - covered;
     leftoverByPerson.set(pid, leftover);
     totalDiscretionary += leftover;
   }
-  // Unassigned obligation is unmet. Only the zero-income branch leaves any; elsewhere the
-  // shares sum to the obligation and this term is 0.
-  const assignedShare = [...shareByPerson.values()].reduce((s, v) => s + v, 0);
-  shortfallCents += Math.max(0, input.sharedObligationCents - assignedShare);
   const coveredByDiscretionary = Math.min(unfundedDeductionsCents, totalDiscretionary);
   totalDiscretionary -= coveredByDiscretionary;
-  shortfallCents += unfundedDeductionsCents - coveredByDiscretionary;
+  // Kept apart from the obligation shortfall above, because the two are attributed differently:
+  // an obligation shortfall is its owner's (below), while an unfunded deduction is one person's
+  // own charge that the household pool covers first, being nobody's in particular.
+  const deficitShortfallCents = unfundedDeductionsCents - coveredByDiscretionary;
+  shortfallCents += deficitShortfallCents;
 
-  return { leftoverByPerson, totalDiscretionary, shortfallCents };
+  // A SEPARATE, preference-only split of the now-finalized `shortfallCents`. The obligation half
+  // is owner-attributed outright — Alex's unfunded share is Alex's, so Alex's accounts are sold
+  // for it first — and the deficit half is FLOORED back onto whoever bore it, so the sum can only
+  // fall short of `shortfallCents`, never overshoot it; at most one cent per person goes
+  // unattributed, folded into the scalar total same as any other unattributed shortfall.
+  const obligationShortfallByPersonCents = new Map<string, Cents>(
+    input.personIds.map((pid) => [
+      pid,
+      (unfundedShareByPerson.get(pid) ?? 0) +
+        (unfundedDeductionsCents > 0
+          ? Math.floor(
+              (deficitShortfallCents * (deficitByPerson.get(pid) ?? 0)) / unfundedDeductionsCents,
+            )
+          : 0),
+    ]),
+  );
+
+  return {
+    leftoverByPerson,
+    totalDiscretionary,
+    shortfallCents,
+    obligationShortfallByPersonCents,
+    shareByPerson,
+    fundedFromIncomeByPerson,
+  };
+}
+
+/**
+ * Step 3b — one member's unspent current-month pay covers what another member's own income and
+ * own accounts together cannot reach.
+ *
+ * The household's resources are not one pool, and they are not five independent ones either.
+ * They are an ORDER, and each person's share walks it from their own end: their own income,
+ * their own accounts, then a partner's income, and only then a partner's accounts. This step is
+ * the third rung. It exists because the fourth used to run in its place — the shortfall left
+ * after a person's own accounts went to the pooled decumulation pass, which sold whichever
+ * partner's holding ranked first while that partner's own pay for the very same month sat
+ * waiting to be swept into savings. A household with $2,000 of unspent income liquidated a
+ * brokerage position to find $200.
+ *
+ * The gap this closes is deliberately narrow: only the part of an authored share that the
+ * owner's OWN capacity ({@link WaterfallInput.ownFundingCapacityCents}) cannot reach. Above
+ * that, nothing changes — the owner's accounts are still spent first, on their own share, and
+ * a household whose members can each cover themselves never reaches this step at all.
+ *
+ * A personal obligation is out of scope by the same rule that has always governed it (see
+ * {@link WaterfallInput.personalObligationCentsByPerson}): a partner's income is not available
+ * for it, though their accounts remain the household's last-resort backstop. It is netted off
+ * the owner's capacity first for that reason — their own money goes to their own debt, and only
+ * what is left over of it counts toward their share.
+ *
+ * Assistance is taken OUT of the giver's leftover, so the same cent cannot be handed over here
+ * and swept into their surplus below. Nothing about the split moves: the receiver still owes
+ * their whole authored share, and both directions are reported under their own names.
+ */
+function assistFromDiscretionary(
+  input: WaterfallInput,
+  unfundedShareByPerson: ReadonlyMap<string, Cents>,
+  personalShortfallByPerson: ReadonlyMap<string, Cents>,
+  leftoverByPerson: Map<string, Cents>,
+  totalDiscretionary: Cents,
+): {
+  leftoverByPerson: Map<string, Cents>;
+  totalDiscretionary: Cents;
+  assistedCents: Cents;
+  receivedByPerson: Map<string, Cents>;
+  givenByPerson: Map<string, Cents>;
+} {
+  const receivedByPerson = new Map<string, Cents>();
+  const givenByPerson = new Map<string, Cents>();
+  const unchanged = {
+    leftoverByPerson,
+    totalDiscretionary,
+    assistedCents: 0,
+    receivedByPerson,
+    givenByPerson,
+  };
+  const capacityOf = input.ownFundingCapacityCents;
+  if (capacityOf === undefined || totalDiscretionary <= 0) return unchanged;
+
+  const needByPerson = new Map<string, Cents>();
+  let totalNeed: Cents = 0;
+  for (const pid of input.personIds) {
+    // Their own accounts, less whatever their own debt has first claim on.
+    const ownReach = Math.max(
+      0,
+      Math.max(0, capacityOf(pid)) - (personalShortfallByPerson.get(pid) ?? 0),
+    );
+    const need = Math.max(0, (unfundedShareByPerson.get(pid) ?? 0) - ownReach);
+    needByPerson.set(pid, need);
+    totalNeed += need;
+  }
+  if (totalNeed <= 0) return unchanged;
+
+  // Nobody assists and is assisted in the same month: a person with anything left over covered
+  // their own share out of income by definition, so the two sets are already disjoint. Stated
+  // as a weight anyway, because the alternative is a household quietly lending itself money.
+  const givingWeightOf = (pid: string): number =>
+    (needByPerson.get(pid) ?? 0) > 0 ? 0 : Math.max(0, leftoverByPerson.get(pid) ?? 0);
+  const offered = input.personIds.reduce((sum, pid) => sum + givingWeightOf(pid), 0);
+  // Bounded three ways, and each bound is a different fact: what is still needed, what the
+  // household's discretionary pool actually holds (already net of any deduction deficit it
+  // absorbed), and what the people willing to give are individually holding.
+  const assistedCents = Math.min(totalNeed, totalDiscretionary, offered);
+  if (assistedCents <= 0) return unchanged;
+
+  for (const [pid, cents] of proportionalSplit(
+    assistedCents,
+    input.personIds,
+    (id) => needByPerson.get(id) ?? 0,
+  )) {
+    if (cents > 0) receivedByPerson.set(pid, cents);
+  }
+  const nextLeftover = new Map(leftoverByPerson);
+  for (const [pid, cents] of proportionalSplit(assistedCents, input.personIds, givingWeightOf)) {
+    if (cents <= 0) continue;
+    givenByPerson.set(pid, cents);
+    nextLeftover.set(pid, (nextLeftover.get(pid) ?? 0) - cents);
+  }
+  return {
+    leftoverByPerson: nextLeftover,
+    totalDiscretionary: totalDiscretionary - assistedCents,
+    assistedCents,
+    receivedByPerson,
+    givenByPerson,
+  };
 }
 
 /**
@@ -721,11 +973,27 @@ function fundGoalsAndContributions(
   // Surplus destination: the exact leftover after every pace (conservation).
   const surplusCents = totalDiscretionary - goalDepositsTotal;
   if (surplusCents > 0) {
-    const destId =
+    const householdDestId =
       input.surplusDestination.kind === "swept"
         ? input.surplusDestination.accountId
         : input.liquidAccountId;
-    if (destId !== null) addDeposit(deposits, destId, surplusCents);
+    // Split by whose take-home the surplus came from, then land each share in that person's own
+    // account of the same kind. Weighted by each person's leftover BEFORE goals: goals draw from
+    // the shared pool, so charging their cost to one person's share would move money between
+    // partners for a household decision. `proportionalSplit` sums to `surplusCents` exactly, so
+    // conservation holds however the shares round.
+    const shares = proportionalSplit(surplusCents, input.personIds, (pid) => leftoverByPerson.get(pid) ?? 0);
+    let unrouted: Cents = 0;
+    for (const [pid, share] of shares) {
+      if (share <= 0) continue;
+      const own = input.surplusAccountIdForPerson?.(pid) ?? null;
+      if (own === null) unrouted += share;
+      else addDeposit(deposits, own, share);
+    }
+    // Nobody's own account to land in — a person who holds none, or a household with no
+    // per-person seam at all (every plan before it existed). The household destination keeps it.
+    if (unrouted > 0 && householdDestId !== null) addDeposit(deposits, householdDestId, unrouted);
+    // No destination anywhere: the cash idles exactly as it did before, unbanked.
   }
   return contributionShortfall;
 }
@@ -753,15 +1021,85 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     sourceYearToDateDeltas,
     takeHomeByPerson,
   } = computeTakeHome(input, grossByPerson, taxableByPerson, sourceOutcomes, deferredByPerson);
-  const { leftoverByPerson, totalDiscretionary, shortfallCents } = splitSharedObligation(
+  const personalCharge = chargePersonalObligations(input, takeHomeByPerson);
+  const {
+    leftoverByPerson: leftoverBeforeAssistance,
+    totalDiscretionary: discretionaryBeforeAssistance,
+    shortfallCents: sharedShortfallCents,
+    obligationShortfallByPersonCents: sharedObligationShortfallByPersonCents,
+    shareByPerson,
+    fundedFromIncomeByPerson,
+  } = splitSharedObligation(input, personalCharge.takeHomeByPerson);
+  // Between a person's own accounts and their partner's — see `assistFromDiscretionary`. Runs
+  // before goals and the surplus, because the money it hands over is money the giver no longer
+  // has to save.
+  const {
+    leftoverByPerson,
+    totalDiscretionary,
+    assistedCents,
+    receivedByPerson: assistanceReceivedByPersonCents,
+    givenByPerson: assistanceGivenByPersonCents,
+  } = assistFromDiscretionary(
     input,
-    takeHomeByPerson,
+    sharedObligationShortfallByPersonCents,
+    personalCharge.shortfallByPerson,
+    leftoverBeforeAssistance,
+    discretionaryBeforeAssistance,
+  );
+
+  // The SIGNED companion to `leftoverByPerson`, built from the same three quantities but with
+  // none of the flooring the allocation itself needs. `leftoverByPerson` is what a person has
+  // available to SPEND, so it stops at zero — nobody funds a goal out of a deficit. That makes
+  // it the wrong figure to report as net cash flow: a retired household spending $8,900/mo more
+  // than it receives would show both partners flat at $0 and only the household line underwater,
+  // reading as though nobody were losing money. Here the full charge is subtracted from the raw
+  // take-home whether income covered it or not, so a month that overspends says so per person
+  // and the two people's figures still sum to the household's.
+  const obligationChargedByPersonCents = new Map<string, Cents>(
+    input.personIds.map((pid) => [
+      pid,
+      (personalCharge.chargedByPerson.get(pid) ?? 0) + (shareByPerson.get(pid) ?? 0),
+    ]),
+  );
+  // Assigned less what their own cash could not reach: a personal obligation its owner's pay
+  // could not cover is unfunded for exactly the same reason a share is, and both are made good
+  // out of somebody's money further down — whose, is the difference this figure names.
+  const obligationFundedByPersonCents = new Map<string, Cents>(
+    input.personIds.map((pid) => [
+      pid,
+      (personalCharge.chargedByPerson.get(pid) ?? 0) -
+        (personalCharge.shortfallByPerson.get(pid) ?? 0) +
+        (fundedFromIncomeByPerson.get(pid) ?? 0),
+    ]),
+  );
+  const netCashFlowByPersonCents = new Map<string, Cents>(
+    input.personIds.map((pid) => [
+      pid,
+      (takeHomeByPerson.get(pid) ?? 0) - (obligationChargedByPersonCents.get(pid) ?? 0),
+    ]),
   );
   const contributionShortfall = fundGoalsAndContributions(
     input,
     leftoverByPerson,
     totalDiscretionary,
     deposits,
+  );
+
+  // The household total is the shared split's shortfall plus every person's own unfundable
+  // personal obligation; per-person, the two never overlap (one key per person in each map), so
+  // a plain sum keeps the personal shortfall from vanishing into (or double-counting with) the
+  // shared figure.
+  // Net of assistance, on both figures: a share a partner's pay has already covered is not
+  // short, and leaving it here would send decumulation to sell an account for a paid bill.
+  const obligationShortfallCents =
+    sharedShortfallCents + personalCharge.shortfallCents - assistedCents;
+  const obligationShortfallByPersonCents = new Map<string, Cents>(
+    input.personIds.map((pid) => [
+      pid,
+      (sharedObligationShortfallByPersonCents.get(pid) ?? 0) +
+        (personalCharge.shortfallByPerson.get(pid) ?? 0) -
+        (assistanceReceivedByPersonCents.get(pid) ?? 0),
+    ]),
   );
 
   // Payroll tax charged must be fully attributed, or the cash-flow chart overstates take-home.
@@ -786,7 +1124,14 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     deferredByPersonCents: deferredByPerson,
     combinedDepositsByPlanCents: combinedDepositsByPlan,
     accountDepositsCents: deposits,
-    shortfallCents: shortfallCents + contributionShortfall,
-    obligationShortfallCents: shortfallCents,
+    shortfallCents: obligationShortfallCents + contributionShortfall,
+    obligationShortfallCents,
+    obligationShortfallByPersonCents,
+    leftoverByPersonCents: leftoverByPerson,
+    netCashFlowByPersonCents,
+    obligationChargedByPersonCents,
+    obligationFundedByPersonCents,
+    assistanceReceivedByPersonCents,
+    assistanceGivenByPersonCents,
   };
 }

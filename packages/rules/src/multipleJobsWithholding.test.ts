@@ -103,7 +103,6 @@ function planWith(...specs: readonly JobSpec[]): Plan {
     savingsReturnPct: 0,
     retirementReturnPct: 0,
     brokerageReturnPct: 0,
-    sharedScheme: "proportional",
     goals: [],
     inflationPct: 0,
     primary: {

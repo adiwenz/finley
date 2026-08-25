@@ -19,6 +19,9 @@ import { SeparationForm } from "./separationForm";
 import { ChildForm } from "./childForm";
 import { HomePurchaseForm } from "./homePurchaseForm";
 import type { EventOf } from "./formControls";
+import { PLAN_DEFAULTS } from "../../planDefaults";
+import { readerOf } from "../../testing/projectionHarness";
+import { usJurisdiction } from "@finley/rules";
 
 afterEach(cleanup);
 
@@ -39,13 +42,21 @@ function stubProjection() {
   return { p, onAdd, onRevise: onAdd };
 }
 
-/** You plus a partner from month 0 — all the separation form reads of a run
- *  (`membersAt`, and only each person's `{id,name}`). */
+/** You plus a partner from month 0 — all the separation form reads of a run: the one active
+ *  partner (there is never a second), and the roster it names an edited event's partner from. */
 const withPartner = {
   membersAt: () => [
     { id: "p1", name: "You" },
     { id: "p2", name: "Partner" },
   ],
+  activePartnerAt: () => ({ id: "p2", name: "Partner" }),
+  household: { memberships: [{ person: { id: "p2", name: "Partner" } }] },
+} as unknown as ProjectionResult;
+
+/** A household of one — the owner picker hides itself here, as the Jobs panel's does. */
+const soloResult = {
+  membersAt: () => [{ id: "p1", name: "You" }],
+  household: { memberships: [] },
 } as unknown as ProjectionResult;
 
 const spin = (name: RegExp | string) =>
@@ -67,7 +78,8 @@ const fundingStub = {
 
 describe("LoanForm — kind gates the term", () => {
   it("drops the term field for a revolving credit card, and restores the typed term when switched back", () => {
-    render(<LoanForm defaultMonth={0} horizonMonths={660} onAdd={vi.fn()} />);
+    render(<LoanForm result={soloResult}
+        defaultMonth={0} horizonMonths={660} onAdd={vi.fn()} />);
 
     // Type a term that differs from the default so a reset would be visible.
     enterNumber(spin(/Term/i), "7");
@@ -87,7 +99,8 @@ describe("LoanForm — kind gates the term", () => {
 
   it("takes out a credit card with a credit limit and no term; an amortizing loan with a term", () => {
     const { p, onAdd } = stubProjection();
-    render(<LoanForm defaultMonth={0} horizonMonths={660} onAdd={onAdd} />);
+    render(<LoanForm result={soloResult}
+        defaultMonth={0} horizonMonths={660} onAdd={onAdd} />);
 
     enterNumber(spin(/Amount/i), "10000");
     enterNumber(spin(/Term/i), "6");
@@ -134,6 +147,134 @@ describe("SeparationForm — alimony amount gates its duration", () => {
         alimonyDurationMonths: 36,
       }),
     );
+  });
+});
+
+describe("SeparationForm — the sole partner is named, never picked", () => {
+  it("offers no partner picker and separates from the one partner there is", () => {
+    const { p, onAdd } = stubProjection();
+    render(
+      <SeparationForm defaultMonth={0} horizonMonths={660} onAdd={onAdd} result={withPartner} />,
+    );
+
+    // One partnership at a time means there is nothing to choose between.
+    expect(screen.queryByRole("combobox", { name: /From/i })).toBeNull();
+    expect(screen.getByText("Partner")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Add event/i }));
+    expect(p.separate).toHaveBeenCalledWith(
+      expect.objectContaining({ partnerPersonId: "p2" }),
+    );
+  });
+
+  it("says there is nobody to separate from, and blocks, when the household has no partner", () => {
+    const { onAdd } = stubProjection();
+    const solo = { ...soloResult, activePartnerAt: () => null } as unknown as ProjectionResult;
+    render(<SeparationForm defaultMonth={0} horizonMonths={660} onAdd={onAdd} result={solo} />);
+
+    expect(screen.getByText(/No partner in the household/i)).toBeTruthy();
+    expect((screen.getByRole("button", { name: /Add event/i }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+});
+
+/**
+ * Moving a separation LATER lengthens the partnership it ends, and a partnership already booked
+ * behind it is what that extra length runs into. Same span overlap as the relationship form's,
+ * asked of the date in the field rather than the one on the timeline — the engine refuses the
+ * write regardless, so this only spares a click that could not land.
+ */
+describe("SeparationForm — a separation moved into the next partnership", () => {
+  const SEPARATION_MONTH = 60;
+  const JOIN_MONTH = 84;
+
+  function chain() {
+    const p = readerOf(PLAN_DEFAULTS);
+    p.marry({ month: 0, name: "Blake", birthYear: 1990, lifeExpectancy: 88 });
+    const blake = p.run(usJurisdiction).activePartnerAt(0)!;
+    p.separate({ month: SEPARATION_MONTH, partnerPersonId: blake.id });
+    p.marry({ month: JOIN_MONTH, name: "Casey", birthYear: 1992, lifeExpectancy: 95 });
+    return { run: p.run(usJurisdiction), blake };
+  }
+
+  /** The event as the edit form receives it — only the fields the form reads. */
+  const separationEvent = (blakeId: string) =>
+    ({
+      type: "SeparationEvent",
+      id: "sep-1",
+      sequenceNumber: 2,
+      month: SEPARATION_MONTH,
+      partnerPersonId: blakeId,
+      alimonyMonthlyCents: 0,
+      alimonyDurationMonths: 0,
+    }) as unknown as EventOf<"SeparationEvent">;
+
+  function renderEdit(run: ReturnType<typeof chain>["run"], blakeId: string) {
+    const { p, onRevise } = stubProjection();
+    render(
+      <SeparationForm
+        defaultMonth={0}
+        horizonMonths={660}
+        onAdd={() => {}}
+        result={run}
+        edit={{ event: separationEvent(blakeId), onRevise }}
+      />,
+    );
+    return p;
+  }
+
+  const saveButton = () => screen.getByRole("button", { name: /Save changes/i }) as HTMLButtonElement;
+  const moveTo = (month: number) =>
+    fireEvent.change(screen.getByRole("combobox", { name: /When/i }), {
+      target: { value: String(month) },
+    });
+
+  it("opens on its own date with nothing to say", () => {
+    const { run, blake } = chain();
+    renderEdit(run, blake.id);
+    expect(screen.queryByText(/still be running|already partnered/i)).toBeNull();
+    expect(saveButton().disabled).toBe(false);
+  });
+
+  it("blocks a date that would leave Blake here when Casey arrives", () => {
+    const { run, blake } = chain();
+    renderEdit(run, blake.id);
+    moveTo(JOIN_MONTH + 12);
+    expect(screen.getByText(/would still be running when you partner with Casey/i)).toBeTruthy();
+    expect(saveButton().disabled).toBe(true);
+  });
+
+  it("allows the separation to land on the very month Casey arrives", () => {
+    // Ends are exclusive: separating in the month the next partnership begins is the handoff,
+    // and it is processed first.
+    const { run, blake } = chain();
+    renderEdit(run, blake.id);
+    moveTo(JOIN_MONTH);
+    expect(screen.queryByText(/still be running/i)).toBeNull();
+    expect(saveButton().disabled).toBe(false);
+  });
+
+  it("tells the reader to move the one date they are holding, and which way", () => {
+    // This form owns the END of the partnership and nothing else. Told to "choose a later date"
+    // it was told to do the single thing that makes the overlap it is reporting worse.
+    const { run, blake } = chain();
+    renderEdit(run, blake.id);
+    moveTo(JOIN_MONTH + 12);
+    const warning = screen.getByText(/would still be running when you partner with Casey/i)
+      .textContent ?? "";
+    expect(warning).toMatch(/Choose an earlier date/i);
+    expect(warning).not.toMatch(/later date/i);
+    expect(warning).not.toMatch(/Add a separation/i);
+  });
+
+  it("clears again when the date moves back off the overlap", () => {
+    const { run, blake } = chain();
+    renderEdit(run, blake.id);
+    moveTo(JOIN_MONTH + 12);
+    expect(saveButton().disabled).toBe(true);
+    moveTo(SEPARATION_MONTH);
+    expect(saveButton().disabled).toBe(false);
   });
 });
 
@@ -224,7 +365,8 @@ describe("sub-forms — editing an existing event", () => {
 
   it("LoanForm edits an amortizing loan, submitting a term revision with the kind fixed", () => {
     const { p, onRevise } = stubProjection();
-    render(<LoanForm defaultMonth={0} horizonMonths={660} onAdd={vi.fn()} edit={{ event: STUDENT_LOAN, onRevise }} />);
+    render(<LoanForm result={soloResult}
+        defaultMonth={0} horizonMonths={660} onAdd={vi.fn()} edit={{ event: STUDENT_LOAN, onRevise }} />);
 
     // Kind is fixed on a revision, so the type picker is gone.
     expect(screen.queryByRole("combobox", { name: /Type/i })).toBeNull();
@@ -245,7 +387,8 @@ describe("sub-forms — editing an existing event", () => {
 
   it("LoanForm edits a mortgage's rate and term through its own marker (a kind the picker never offers)", () => {
     const { p, onRevise } = stubProjection();
-    render(<LoanForm defaultMonth={0} horizonMonths={660} onAdd={vi.fn()} edit={{ event: MORTGAGE, onRevise }} />);
+    render(<LoanForm result={soloResult}
+        defaultMonth={0} horizonMonths={660} onAdd={vi.fn()} edit={{ event: MORTGAGE, onRevise }} />);
 
     expect(Number(spin(/Term/i).value)).toBe(30);
     enterNumber(spin(/APR/i), "5.5");
@@ -405,7 +548,8 @@ describe("sub-forms — editing something already true on day one", () => {
 
   it("LoanForm states a carried loan's date and names its figures as today's", () => {
     const { p, onRevise } = stubProjection();
-    render(<LoanForm defaultMonth={0} horizonMonths={660} onAdd={vi.fn()} edit={{ event: CARRIED_LOAN, onRevise }} />);
+    render(<LoanForm result={soloResult}
+        defaultMonth={0} horizonMonths={660} onAdd={vi.fn()} edit={{ event: CARRIED_LOAN, onRevise }} />);
 
     // The now marker is the only month a holding may open at, so there is nothing to pick.
     expect(screen.queryByRole("combobox", { name: /When/i })).toBeNull();

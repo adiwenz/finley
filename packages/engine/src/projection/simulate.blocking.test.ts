@@ -50,7 +50,7 @@ function liquidAside(id: string, openingCents: number): SimAccount {
   });
 }
 
-/** An illiquid retirement account — held by the household but never eligible for an asset purchase. */
+/** A retirement account: not a waterfall deposit target, but spendable like any other holding. */
 function retirementAccount(openingCents: number): SimAccount {
   return new SimAccount({
     id: "401k",
@@ -463,11 +463,12 @@ describe("per-obligation resolution — simulateHousehold()'s own obligationOutc
     expect(failure.alternativeSources).toEqual([{ accountId: "brokerage", availableCents: 10_000_000 }]);
   });
 
-  it("classifies as no-eligible-source-suffices when only illiquid retirement wealth remains", () => {
-    // $50k liquid, $2M retirement: obviously wealthy, yet nothing eligible for an asset acquisition
-    // can cover the $80k down payment — and this is NOT insolvency.
+  it("classifies as no-eligible-source-suffices when every account together still falls short", () => {
+    // $50k savings + $10k retirement against an $80k down payment. The retirement balance is
+    // counted — a down payment may draw on any holding of the household's own money — and the
+    // household is still $20k short. Short, not insolvent: this is a fundable-sources problem.
     const series = run({
-      accounts: [savings(5_000_000), retirementAccount(200_000_000)],
+      accounts: [savings(5_000_000), retirementAccount(1_000_000)],
       properties: [house],
       liabilities: [mortgage()],
       fundingDraws: [downPayment(DOWN)],
@@ -476,9 +477,9 @@ describe("per-obligation resolution — simulateHousehold()'s own obligationOutc
     const failure = series.blockingObligation?.fundingFailure;
     expect(failure?.kind).toBe("no-eligible-source-suffices");
     if (failure?.kind !== "no-eligible-source-suffices") throw new Error("expected no-eligible");
-    expect(failure.eligibleAvailableCents).toBe(5_000_000);
+    expect(failure.eligibleAvailableCents).toBe(6_000_000);
     expect(failure.eligibleTaxCents).toBe(0);
-    expect(failure.shortfallCents).toBe(DOWN - 5_000_000);
+    expect(failure.shortfallCents).toBe(DOWN - 6_000_000);
   });
 
   it("never reorders or substitutes the selected sources — the draw's own figures are untouched", () => {

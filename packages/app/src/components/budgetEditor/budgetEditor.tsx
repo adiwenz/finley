@@ -18,60 +18,19 @@ import {
   MAX_LIVED_AGE,
   minLifeExpectancyFor,
   dollarsToCents,
-  type SharedContributionScheme,
   type SurplusCashDestination,
 } from "@finley/engine";
-import type { Household, Plan, PlanAccountDescriptor, PlanPatch, ProjectionSeries } from "@finley/engine";
+import type { Plan, PlanPatch } from "@finley/engine";
 import type { Transact } from "../../hooks/useProjection";
 import { NumInput } from "../numInput/numInput";
 import { START_YEAR } from "../../config";
-import { AccountBalanceChart } from "../accountBalanceChart/accountBalanceChart";
-import { buildAccountBalanceData } from "../accountBalanceChart/accountBalanceSeries";
 
 interface BudgetEditorProps {
   budget: Plan;
   transact: Transact;
-  /** The plan's standing accounts, named — read off {@link Projection.accountDescriptors}
-   * rather than hardcoded, so a chart never invents an id the engine doesn't run. */
-  accounts: readonly PlanAccountDescriptor[];
-  /** The series the rest of the projection charts on this page draw — same source of truth,
-   * so an edit here updates its own balance chart in the same render as the net-worth chart. */
-  series: ProjectionSeries;
-  household: Household;
-  /** Person name by id, for the balance charts' owner label — see {@link household.accounts}. */
-  personNames: ReadonlyMap<string, string>;
-  /** The plan's own span, so every balance chart's axis matches the net-worth chart above it. */
-  horizonMonths: number;
 }
 
-export function BudgetEditor({
-  budget,
-  transact,
-  accounts,
-  series,
-  household,
-  personNames,
-  horizonMonths,
-}: BudgetEditorProps) {
-  const showOwners = household.memberships.length > 1;
-  const ownerLabelFor = (accountId: string): string | null => {
-    if (!showOwners) return null;
-    const owners = household.accounts.find((a) => a.id === accountId)?.owners ?? [];
-    return owners.map((id) => personNames.get(id) ?? id).join(" & ") || null;
-  };
-  // One chart per standing account (cash/retirement/brokerage) beside the balance it charts —
-  // goal fund accounts chart in the Goals panel instead, beside the goal's own progress.
-  const balanceChartFor = (kind: PlanAccountDescriptor["kind"]) => {
-    const descriptor = accounts.find((a) => a.kind === kind);
-    if (!descriptor) return null;
-    return (
-      <AccountBalanceChart
-        label={descriptor.label}
-        ownerLabel={ownerLabelFor(descriptor.id)}
-        data={buildAccountBalanceData(series, descriptor.id, horizonMonths)}
-      />
-    );
-  };
+export function BudgetEditor({ budget, transact }: BudgetEditorProps) {
   /**
    * Every control here writes a standing scalar, which is exactly what `updatePlan` takes —
    * {@link PlanPatch} cannot reach the collections, so no knob on this panel can touch a goal,
@@ -181,7 +140,6 @@ export function BudgetEditor({
           prefix="$"
           step={1000}
         />
-        {balanceChartFor("cash")}
         <NumInput
           label="Retirement opening balance"
           value={(budget.retirementOpeningBalanceCents ?? 0) / 100}
@@ -189,7 +147,6 @@ export function BudgetEditor({
           prefix="$"
           step={1000}
         />
-        {balanceChartFor("retirement")}
         <NumInput
           label="Brokerage opening balance"
           value={(budget.brokerageOpeningBalanceCents ?? 0) / 100}
@@ -197,7 +154,6 @@ export function BudgetEditor({
           prefix="$"
           step={1000}
         />
-        {balanceChartFor("brokerage")}
 
         {/* Plain numbers above; the rate and deferral levers disclose on demand. */}
         <details className="advanced">
@@ -233,19 +189,6 @@ export function BudgetEditor({
 
       <section className="budget-shared" aria-label="Shared">
         <h3>Shared</h3>
-
-        <label className="field">
-          <span className="field-label">Shared expenses split</span>
-          <select
-            value={budget.sharedScheme}
-            onChange={(e) =>
-              updateBudget({ sharedScheme: e.target.value as SharedContributionScheme })
-            }
-          >
-            <option value="proportional">Proportional to income</option>
-            <option value="even">Split evenly</option>
-          </select>
-        </label>
 
         <label className="field">
           <span className="field-label">Surplus cash goes to</span>

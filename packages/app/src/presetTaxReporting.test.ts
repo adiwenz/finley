@@ -21,6 +21,7 @@ import {
   TAX_REFUND_BAND_ID,
   TAX_SETTLEMENT_BAND_ID,
   buildCashFlowChartData,
+  refundBandId,
 } from "./components/baseAdjustments/cashFlowChartData";
 
 /** Each preset projected once, reused by every case below — the runs dominate the file's cost. */
@@ -61,7 +62,15 @@ describe.each(RUNS)("$preset.id — the tax chart's accounting", ({ preset, seri
         0,
       );
       const fica = Object.values(f.payrollTaxBySourceCents).reduce((s, c) => s + c, 0);
-      const expected = withholding + fica + Math.max(0, f.taxSettlementCents);
+      // GROSS across the household's members, who settle as separate single filers: a month in
+      // which one owes $1,000 and another is refunded $300 paid $1,000 of tax. Clamping the
+      // −$700 net would assert an invariant against a figure nobody paid.
+      const settled = Object.values(f.taxSettlementByPersonCents ?? {});
+      const settlementPaid =
+        settled.length > 0
+          ? settled.reduce((s, c) => s + Math.max(0, c), 0)
+          : Math.max(0, f.taxSettlementCents);
+      const expected = withholding + fica + settlementPaid;
       if (banded !== expected || row.taxCents !== expected) {
         mismatches.push(`${where(preset.id, m.month)}: banded ${banded}, row ${row.taxCents}, expected ${expected}`);
       }
@@ -90,6 +99,49 @@ describe.each(RUNS)("$preset.id — the tax chart's accounting", ({ preset, seri
     expect(broken).toEqual([]);
   });
 
+  it("keeps each filer's own attribution summing to their own balance", () => {
+    // The invariant the per-person tooltip stands on: what a person is shown as the reason for
+    // their April bill has to add up to the bill they were shown. A household map cannot supply
+    // it — the terms have already been added across filers by then, under source keys that two
+    // partners can share.
+    const broken: string[] = [];
+    for (const m of flowedMonths) {
+      const f = m.flows!;
+      for (const [personId, cents] of Object.entries(f.taxSettlementByPersonCents)) {
+        const mine = f.taxSettlementBySourcePersonCents[personId] ?? {};
+        const net = Object.values(mine).reduce((s, c) => s + c, 0);
+        if (net !== cents) {
+          broken.push(`${where(preset.id, m.month)} · ${personId}: attribution ${net} vs balance ${cents}`);
+        }
+      }
+    }
+    expect(broken).toEqual([]);
+  });
+
+  it("splits the household's attribution across its filers and loses nothing doing it", () => {
+    const broken: string[] = [];
+    for (const m of flowedMonths) {
+      const f = m.flows!;
+      const summed: Record<string, number> = {};
+      for (const mine of Object.values(f.taxSettlementBySourcePersonCents)) {
+        for (const [source, cents] of Object.entries(mine)) {
+          summed[source] = (summed[source] ?? 0) + cents;
+        }
+      }
+      // Entries that cancel to zero across two filers are dropped by the household map, which
+      // only ever records non-zero terms — so compare on the figures, not on the key sets.
+      const keys = new Set([...Object.keys(summed), ...Object.keys(f.taxSettlementBySourceCents)]);
+      for (const key of keys) {
+        if ((summed[key] ?? 0) !== (f.taxSettlementBySourceCents[key] ?? 0)) {
+          broken.push(
+            `${where(preset.id, m.month)} · ${key}: ${summed[key] ?? 0} vs ${f.taxSettlementBySourceCents[key] ?? 0}`,
+          );
+        }
+      }
+    }
+    expect(broken).toEqual([]);
+  });
+
   it("gives a refund month zero settlement band and the full refund as its refund figure", () => {
     const wrong: string[] = [];
     for (const m of flowedMonths) {
@@ -106,6 +158,26 @@ describe.each(RUNS)("$preset.id — the tax chart's accounting", ({ preset, seri
     expect(wrong).toEqual([]);
   });
 });
+
+/**
+ * The tax a month really PAID, as the chart bands it: gross across the household's members, who
+ * settle as separate single filers. A month in which one owes $1,000 and another is refunded
+ * $0.03 paid $1,000 of tax and received three cents; netting them would assert an identity
+ * against a figure nobody paid, and the refund bands on the other side of the chart.
+ */
+const taxPaidCents = (f: {
+  readonly taxCents: number;
+  readonly payrollTaxCents: number;
+  readonly taxSettlementCents: number;
+  readonly taxSettlementByPersonCents?: Readonly<Record<string, number>>;
+}): number => {
+  const settled = Object.values(f.taxSettlementByPersonCents ?? {});
+  const paid =
+    settled.length > 0
+      ? settled.reduce((s, c) => s + Math.max(0, c), 0)
+      : Math.max(0, f.taxSettlementCents);
+  return f.taxCents - f.taxSettlementCents + f.payrollTaxCents + paid;
+};
 
 /**
  * The cash-flow chart, held to the property the three views exist to guarantee: nothing on
@@ -131,13 +203,43 @@ describe.each(RUNS)("$preset.id — the cash-flow chart's two stacks", ({ preset
     expect(negatives).toEqual([]);
   });
 
-  it("bands the refund exactly once, and only in the months that got one", () => {
+  it("bands each filer's refund to that filer, and nobody's twice", () => {
     const wrong: string[] = [];
     for (const m of flowedMonths) {
-      const refund = Math.max(0, -m.flows!.taxSettlementCents);
-      const banded = rowAt.get(m.month)!.inflowCentsByBand[TAX_REFUND_BAND_ID] ?? 0;
-      if (banded !== refund) {
-        wrong.push(`${where(preset.id, m.month)}: banded ${banded} vs refund ${refund}`);
+      const row = rowAt.get(m.month)!;
+      const byPerson = m.flows!.taxSettlementByPersonCents ?? {};
+      // GROSS: the household's net settlement nets a bill against a refund, and a refund is
+      // the filer's whatever their partner's filing came to.
+      const refunded = Object.entries(byPerson).filter(([, c]) => c < 0);
+      const expected = Object.fromEntries(refunded.map(([pid, c]) => [refundBandId(pid), -c]));
+      const banded = Object.fromEntries(
+        Object.entries(row.inflowCentsByBand).filter(([id]) => id.startsWith(TAX_REFUND_BAND_ID)),
+      );
+      if (JSON.stringify(banded) !== JSON.stringify(expected)) {
+        wrong.push(
+          `${where(preset.id, m.month)}: banded ${JSON.stringify(banded)} vs ${JSON.stringify(expected)}`,
+        );
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it("keeps every person's cut of the settlement summing to the household's", () => {
+    const wrong: string[] = [];
+    for (const m of flowedMonths) {
+      const row = rowAt.get(m.month)!;
+      const cuts = Object.values(row.outflowCentsByBandByPerson);
+      const paid = cuts.reduce((sum, byBand) => sum + (byBand[TAX_SETTLEMENT_BAND_ID] ?? 0), 0);
+      const refunds = Object.entries(row.inflowCentsByBand)
+        .filter(([id]) => id.startsWith(TAX_REFUND_BAND_ID))
+        .reduce((sum, [, c]) => sum + c, 0);
+      const household = row.outflowCentsByBand[TAX_SETTLEMENT_BAND_ID] ?? 0;
+      // The two halves of the same signed figure, each summing to its own household total —
+      // and the difference between them is the household's net settlement.
+      if (paid !== household || paid - refunds !== m.flows!.taxSettlementCents) {
+        wrong.push(
+          `${where(preset.id, m.month)}: paid ${paid} vs ${household}, refunds ${refunds}, net ${m.flows!.taxSettlementCents}`,
+        );
       }
     }
     expect(wrong).toEqual([]);
@@ -166,10 +268,9 @@ describe.each(RUNS)("$preset.id — the cash-flow chart's two stacks", ({ preset
       const out = rowAt.get(m.month)!.outflowCentsByBand;
       const banded =
         (out[TAX_INCOME_BAND_ID] ?? 0) + (out[TAX_PAYROLL_BAND_ID] ?? 0) + (out[TAX_SETTLEMENT_BAND_ID] ?? 0);
-      // Withholding recovered by taking the signed settlement back out, plus FICA, plus a
-      // settlement only where it was a BILL — a refund is money in, and bands on the other side.
-      const expected =
-        f.taxCents - f.taxSettlementCents + f.payrollTaxCents + Math.max(0, f.taxSettlementCents);
+      // Withholding recovered by taking the signed settlement back out, plus FICA, plus each
+      // filer's own bill — a refund is money in, and bands on the other side.
+      const expected = taxPaidCents(f);
       if (banded !== expected) {
         wrong.push(`${where(preset.id, m.month)}: banded ${banded}, expected ${expected}`);
       }
@@ -183,11 +284,27 @@ describe.each(RUNS)("$preset.id — the cash-flow chart's two stacks", ({ preset
       const f = m.flows!;
       const row = rowAt.get(m.month)!;
       const stacked = Object.values(row.outflowCentsByBand).reduce((sum, c) => sum + c, 0);
-      const taxPaid =
-        f.taxCents - f.taxSettlementCents + f.payrollTaxCents + Math.max(0, f.taxSettlementCents);
+      const taxPaid = taxPaidCents(f);
       const owed = f.obligations.reduce((sum, o) => sum + o.amountCents, 0);
       if (stacked !== taxPaid + owed) {
         wrong.push(`${where(preset.id, m.month)}: stacked ${stacked}, expected ${taxPaid + owed}`);
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it("hands every cent of the month's spending to somebody", () => {
+    // The person cuts of "Going out" are the engine's own charge figures, so they are only
+    // trustworthy if the charges account for the whole budget: a month that assigns nobody the
+    // rent still spends it, and would read on every person's chart as though it cost them
+    // nothing. Asserted against the household's obligations rather than against the shares
+    // themselves, so a split that quietly drops a share to an unattributed shortfall fails here.
+    const wrong: string[] = [];
+    for (const m of flowedMonths) {
+      const f = m.flows!;
+      const charged = Object.values(f.obligationChargedByPersonCents).reduce((sum, c) => sum + c, 0);
+      if (charged !== f.totalObligationsCents) {
+        wrong.push(`${where(preset.id, m.month)}: charged ${charged} of ${f.totalObligationsCents}`);
       }
     }
     expect(wrong).toEqual([]);

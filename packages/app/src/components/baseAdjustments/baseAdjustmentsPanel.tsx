@@ -17,6 +17,7 @@
 import { useCallback, useMemo, useState } from "react";
 import {
   dollarsToCents,
+  eventAccountDescriptors,
   orderedIncomeOverrides,
   type FinancialObligation,
   type Household,
@@ -27,7 +28,7 @@ import {
   type ResolvedFunding,
 } from "@finley/engine";
 import { START_YEAR } from "../../config";
-import { formatDollars } from "../../format";
+import { formatDollars, yearOf } from "../../format";
 import { NumInput } from "../numInput/numInput";
 import { BudgetLineForm } from "./budgetLineForm";
 import { PayChangeEditor } from "./payChangeEditor";
@@ -39,6 +40,7 @@ import {
   type BudgetLineDraft,
 } from "./budgetLines";
 import { jobOwnersOf } from "../../jobOwners";
+import { accountLabelsFor, accountOwnersFor } from "../../accountLabels";
 import { ownedJobsOf } from "../../jobEditing";
 import type { Transact } from "../../hooks/useProjection";
 import {
@@ -52,6 +54,8 @@ import { buildPerLineBudgetData } from "./perLineBudget";
 import { buildTaxChartData } from "./taxesByMonth";
 import { ProjectionCharts } from "./projectionCharts";
 import { FundingAttribution } from "./fundingAttribution";
+import { PersonFunding } from "./personFunding";
+import { automaticFundingRecords, isPartneredMonth } from "../../personFundingView";
 import { SpendingEditor, type PendingEdit, type SpendingEditActions } from "./spendingEditor";
 import { ContributionsEditor } from "./contributionsEditor";
 import type { LineAuthoring, LineFormActions } from "./budgetLineAuthoring";
@@ -60,11 +64,13 @@ import styles from "./baseAdjustments.module.css";
 /** Stable empty defaults, hoisted so a flow-free month never mints a fresh array each render. */
 const EMPTY_OBLIGATIONS: readonly FinancialObligation[] = [];
 const EMPTY_FUNDING: readonly ResolvedFunding[] = [];
+/** A month the series does not carry has nobody in it, which is not the same as nobody owing. */
+const EMPTY_BY_PERSON: Readonly<Record<string, number>> = {};
 
 /** "month 180 · 2041 · age 50". */
 function describeMonth(month: number, currentAge: number): string {
-  const year = START_YEAR + Math.floor(month / 12);
-  const age = currentAge + Math.floor(month / 12);
+  const year = START_YEAR + yearOf(month);
+  const age = currentAge + yearOf(month);
   return `month ${month} · ${year} · age ${age}`;
 }
 
@@ -117,7 +123,7 @@ export function BaseAdjustmentsPanel({
 
   const spendingChartData = useMemo(() => buildPerLineBudgetData(series), [series]);
   const incomeChartData = useMemo(() => buildCashFlowChartData(series), [series]);
-  const taxChartData = useMemo(() => buildTaxChartData(series), [series]);
+  const taxChartData = useMemo(() => buildTaxChartData(series, personNames), [series, personNames]);
   /**
    * Wages + government benefit, not the full taxable rollup (`totalIncomeCents`): savings
    * interest and asset drawdowns are cash flow, but not pay.
@@ -153,11 +159,44 @@ export function BaseAdjustmentsPanel({
   // Per-obligation funding attribution: which sources covered each line, in cascade order. Includes
   // explicit draws (a home down payment) that never appear in `obligations`, so it reads its own seam.
   const resolvedFunding = selectedFlows?.resolvedFunding ?? EMPTY_FUNDING;
-  // Account id → authored label, so an account-funded source in "Funded by" reads as its name
-  // rather than its internal id — the same descriptors the net-worth breakdown chart labels by.
-  const accountLabels = useMemo(
-    () => new Map(projection.accountDescriptors().map((a) => [a.id, a.label])),
-    [projection],
+  // Every account the household holds, the primary's from the plan and a partner's from the ledger
+  // — one list, so "Funded by" can name a partner's account at all rather than printing its id.
+  const allAccounts = useMemo(
+    () => [...projection.accountDescriptors(), ...eventAccountDescriptors(household.eventAccounts)],
+    [projection, household],
+  );
+  // The month's per-person figures — an authored share, what each person's own take-home covered
+  // of it, and what they had left. Zeroed for anyone the household does not have this month, which
+  // is what makes `partnered` a DATED question rather than a structural one: a plan with two
+  // relationships in it is a household of one during the years between them.
+  const personFigures = useMemo(
+    () => ({
+      obligationChargedByPersonCents: selectedFlows?.obligationChargedByPersonCents ?? EMPTY_BY_PERSON,
+      obligationFundedByPersonCents: selectedFlows?.obligationFundedByPersonCents ?? EMPTY_BY_PERSON,
+      assistanceReceivedByPersonCents:
+        selectedFlows?.assistanceReceivedByPersonCents ?? EMPTY_BY_PERSON,
+      assistanceGivenByPersonCents: selectedFlows?.assistanceGivenByPersonCents ?? EMPTY_BY_PERSON,
+      netCashFlowByPersonCents: selectedFlows?.netCashFlowByPersonCents ?? EMPTY_BY_PERSON,
+    }),
+    [selectedFlows],
+  );
+  const partnered = isPartneredMonth(personFigures);
+  // The draws that named their own accounts. Split out only when the per-person view has taken the
+  // automatic ones, so a solo month's list stays exactly one list.
+  const explicitFunding = useMemo(() => {
+    if (!partnered) return EMPTY_FUNDING;
+    const automatic = new Set(automaticFundingRecords(resolvedFunding, obligations).map((r) => r.obligationId));
+    return resolvedFunding.filter((r) => !automatic.has(r.obligationId));
+  }, [partnered, resolvedFunding, obligations]);
+  // Whose money a source was, not only what kind it was — see `accountLabelsFor`. Held together as
+  // one object so the three maps behind a single question travel as one.
+  const naming = useMemo(
+    () => ({
+      accountLabels: accountLabelsFor(allAccounts, personNames),
+      accountOwners: accountOwnersFor(allAccounts),
+      personNames,
+    }),
+    [allAccounts, personNames],
   );
 
   // Structural add/edit/delete, distinct from the inline amount override above. One form
@@ -303,11 +342,20 @@ export function BaseAdjustmentsPanel({
           <h3 data-testid="selected-month">Editing {describeMonth(selectedMonth, (START_YEAR - plan.primary.birthYear))}</h3>
           {/* Keyboard/assistive path to the same selection. */}
           <NumInput
-            label="Month"
+            label="Month to edit"
             value={selectedMonth}
             onChange={(m) => selectMonth(Math.max(0, Math.min(lastMonth, Math.round(m))))}
           />
         </div>
+        {/* Two month controls are on screen at once and they are deliberately not joined: this one
+            picks the month being EDITED, and the timeline scrubber picks the month being LOOKED AT.
+            Reading a projection at one month while correcting a budget at another is an ordinary
+            thing to want, and yoking them would make every glance at a future year move the row the
+            user was typing into. Since they can disagree, each says which is which. */}
+        <p className="hint">
+          Set by clicking a point on the charts above. The timeline scrubber is separate — it moves
+          the “As of” snapshot, and the two can sit on different months.
+        </p>
 
         <h4 className={styles.groupHeading}>Income</h4>
         <div className={styles.lineRow}>
@@ -346,14 +394,39 @@ export function BaseAdjustmentsPanel({
           form={lineFormActions}
         />
 
-        {/* What actually covered each obligation this month — savings, liquidation or credit —
-            surfaced so a month quietly running on credit is visible here, not only later in the
-            net-worth line. Includes explicit draws (a home down payment) not in the list above. */}
-        <FundingAttribution
-          resolvedFunding={resolvedFunding}
-          obligations={obligations}
-          accountLabels={accountLabels}
-        />
+        {/* What actually covered the month — savings, liquidation or credit — surfaced so a month
+            quietly running on credit is visible here, not only later in the net-worth line.
+
+            Two shapes, because the honest answer differs with the household. Alone, the question is
+            which LINE the pool financed, and the per-line walk answers it with its own caveat about
+            priority order. Partnered, the accounts are personally owned and the split is authored,
+            so the per-line reading would put a NAME on an ordering the engine never decided — the
+            per-person view answers "who owed what, and whose money covered it" instead, which is
+            what the engine actually decided. Explicitly funded draws stay per-line either way: the
+            user named those accounts themselves, so nothing about them is derived. */}
+        {partnered ? (
+          <>
+            <PersonFunding
+              figures={personFigures}
+              resolvedFunding={resolvedFunding}
+              obligations={obligations}
+              naming={naming}
+            />
+            <FundingAttribution
+              resolvedFunding={explicitFunding}
+              obligations={obligations}
+              naming={naming}
+              heading="Paid from the accounts you chose"
+              hint="Authored, not derived: these draws name their own accounts, in the order you listed them."
+            />
+          </>
+        ) : (
+          <FundingAttribution
+            resolvedFunding={resolvedFunding}
+            obligations={obligations}
+            naming={naming}
+          />
+        )}
 
         {/* Unlike spending, these accumulate in net worth. */}
         <ContributionsEditor

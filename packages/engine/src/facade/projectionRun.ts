@@ -24,13 +24,20 @@ import {
 import { projectScenarioParts } from "../retirement/retirementSolver";
 import { summarizeSimulation } from "../projection/report";
 import type { SimulationReport } from "../projection/report";
-import { buildSnapshot, membersAt } from "../projection/snapshot";
+import { activePartnerAt, buildSnapshot, membersAt } from "../projection/snapshot";
+import {
+  householdPartnershipSpans,
+  overlappingPartnership,
+  partnershipConflictReason,
+  partnershipSpan,
+} from "../ledger/partnership";
 import type { HouseholdSnapshot } from "../projection/snapshot";
 import type { Household } from "../ledger/household";
 import type { Person } from "../plan/person";
 import { buildPlanAccounts, buildPlanGoals, firstInsolventMonth } from "../compile/projectionBase";
 import { computeGoalProgress } from "../goal/goal";
 import type { GoalProgress, SimGoal } from "../goal/goal";
+import { removalConflict as removalConflictOf } from "../authoring/eventWrite";
 import { assessHomePurchase } from "../authoring/housing";
 import type { HomePurchaseAssessment, HomePurchaseInput } from "../authoring/housing";
 
@@ -59,6 +66,49 @@ export interface ProjectionResult {
   readonly snapshot: (month: number) => HouseholdSnapshot;
   /** Who is in the household at `month`; a partner joins and leaves on their own dates. */
   readonly membersAt: (month: number) => Person[];
+  /**
+   * The one partner the household has at `month`, or `null` — see
+   * {@link import("../projection/snapshot").activePartnerAt}. There is never a second, so every
+   * surface that used to ask which partner a change was about now asks this instead.
+   */
+  readonly activePartnerAt: (month: number) => Person | null;
+  /**
+   * Why partnering on `month` would collide with a partnership already on the timeline, in the
+   * reader's own words, or `null` when it sits clear — the SAME span overlap the ledger refuses
+   * on, asked before the write instead of after it.
+   *
+   * A span, not a moment: a partnership being authored has no separation yet, so it runs from
+   * `month` to its own death and a date that merely looks free still collides with a partner
+   * booked years ahead of it. `personId` names the partnership being re-dated, which never
+   * conflicts with itself — and whose end is the separation ALREADY on the timeline rather than
+   * that same open horizon, or every relationship with a successor would report a collision with
+   * it the moment its own form was opened.
+   *
+   * `separationMonth` overrides that lookup, for the form that is moving the separation itself:
+   * the question there is what the partnership would become, not what it currently is.
+   */
+  readonly partnershipConflict: (candidate: {
+    readonly month: number;
+    readonly person: Pick<Person, "name" | "birthYear" | "lifeExpectancy"> & {
+      readonly id?: string;
+    };
+    readonly separationMonth?: number | null;
+  }) => string | null;
+  /**
+   * Why the transaction `id` cannot be removed, or `null` when it can — the SAME replay the
+   * ledger refuses on, asked before the click instead of after it.
+   *
+   * Removal is the one authoring gesture with nothing to fill in beforehand, so a refusal used to
+   * arrive only after the click, as an alert away from the row that was clicked. Asked here, the
+   * control that cannot work can say so where it sits.
+   *
+   * `strandedEventId` names the transaction that would stop replaying — never the one being
+   * removed — so a surface holding its own label for every event can name the blocker in the
+   * words the reader already saw on the timeline rather than quoting an id at them.
+   */
+  readonly removalConflict: (
+    id: string,
+  ) => { readonly strandedEventId: string; readonly reason: string } | null;
   /**
    * Every plan goal beside how it is tracking against THIS run, in funding-priority order.
    * Paired, because a row needs both and the two lists are index-aligned only by construction.
@@ -136,8 +186,45 @@ export function runProjection(
     firstInsolventMonth: firstInsolventMonth(series),
     household,
     report,
-    snapshot: (month: number) => buildSnapshot(household, month, series),
+    snapshot: (month: number) => buildSnapshot(household, month, series, state.startYear),
     membersAt: (month: number) => membersAt(household, month),
+    activePartnerAt: (month: number) => activePartnerAt(household, month, state.startYear),
+    partnershipConflict: (candidate: {
+      readonly month: number;
+      readonly person: Pick<Person, "name" | "birthYear" | "lifeExpectancy"> & { readonly id?: string };
+      readonly separationMonth?: number | null;
+    }) => {
+      // An existing partnership is asked about as it STANDS: its separation is a fact on the
+      // timeline, and treating it as open-ended made every relationship followed by another one
+      // report a collision with its own successor — on a form the reader had not yet changed.
+      const existing = household.memberships.find((m) => m.person.id === candidate.person.id);
+      const separationMonth =
+        candidate.separationMonth !== undefined
+          ? candidate.separationMonth
+          : (existing?.endMonth ?? null);
+      const span = partnershipSpan(
+        candidate.person,
+        candidate.month,
+        separationMonth,
+        state.startYear,
+      );
+      const conflict = overlappingPartnership(
+        householdPartnershipSpans(household, state.startYear),
+        span,
+      );
+      return conflict === null
+        ? null
+        : // Naming `separationMonth` is what a separation form does, and it is the only caller
+          // holding the span's far end — so it is told how to move THAT, not the start date it
+          // cannot reach.
+          partnershipConflictReason(
+            span,
+            conflict,
+            state.startYear,
+            candidate.separationMonth === undefined ? "start" : "end",
+          );
+    },
+    removalConflict: (id: string) => removalConflictOf(state, jurisdiction, id),
     goalProgress: () => {
       const accounts = buildPlanAccounts(plan);
       return buildPlanGoals(plan).map((goal) => ({

@@ -4,7 +4,6 @@
  */
 
 import type { GoalDisposal } from "../goal/goal";
-import type { SharedContributionScheme } from "../projection/waterfall";
 import type { BudgetLine } from "../budget/budgetLine";
 import type { Person } from "./person";
 import { withBirthYear } from "./person";
@@ -67,7 +66,6 @@ export interface Plan {
   readonly savingsReturnPct: number;
   readonly retirementReturnPct: number;
   readonly brokerageReturnPct: number;
-  readonly sharedScheme: SharedContributionScheme;
   /** Defaults to `"savings"`. */
   readonly surplusCashTo?: SurplusCashDestination;
   readonly goals: readonly GoalPlan[];

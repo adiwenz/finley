@@ -22,6 +22,8 @@ export type BreakdownBandKind = "account" | "property" | "liability";
 export interface BandMeta {
   readonly id: string;
   readonly label: string;
+  /** Whose holding this is. Absent → unattributed, and shown only in the combined view. */
+  readonly ownerId?: string;
 }
 
 /**
@@ -33,12 +35,20 @@ export interface BreakdownMeta {
   readonly accounts: readonly BandMeta[];
   readonly liabilityLabels?: Readonly<Record<string, string>>;
   readonly propertyLabels?: Readonly<Record<string, string>>;
+  /**
+   * Owner by liability/property id — the account side carries its own on {@link BandMeta}.
+   * An id absent here is unattributed, which is not the same as unowned: the engine's synthetic
+   * last-resort card is owned by the household rather than by either person, and belongs in the
+   * combined view alone.
+   */
+  readonly ownerById?: Readonly<Record<string, string>>;
 }
 
 export interface BreakdownBand {
   readonly id: string;
   readonly label: string;
   readonly kind: BreakdownBandKind;
+  readonly ownerId?: string;
 }
 
 export interface BreakdownMonthRow {
@@ -69,6 +79,11 @@ export interface NetWorthBreakdownData {
   readonly hasProperties: boolean;
   /** True when any liability is ever owed — gates the "net worth" view/button. */
   readonly hasLiabilities: boolean;
+  /**
+   * The distinct people holding a drawn band, in stacking order — the owner cuts the chart can
+   * offer. Fewer than two means there is nothing to compare and no owner toggle to show.
+   */
+  readonly owners: readonly string[];
   /** Nominal net worth (assets − liabilities) at the last charted month; null if no rows. */
   readonly terminalNetWorthCents: number | null;
   /**
@@ -115,6 +130,25 @@ function netWorthOf(row: BreakdownMonthRow, bands: readonly BreakdownBand[]): nu
  * charts below zero as debt, including the engine's synthetic last-resort borrowing once the
  * caller labels it.
  */
+/**
+ * The highest nominal net worth a given set of bands ever reaches. Pass every band for the
+ * household's figure, or one person's for theirs — the whole point of taking bands rather than
+ * reading a precomputed total is that a person's cut has a peak of its own, and printing the
+ * household's under their name claims a partner peaked at a figure their own chart never
+ * reaches.
+ *
+ * Today is a charted point, so it competes for the peak — for a plan that decumulates from day
+ * one, "now" IS the high-water mark, and reporting month 0's slightly lower figure would be a
+ * number the chart visibly contradicts.
+ */
+export function peakNetWorthOf(
+  data: { readonly opening: BreakdownMonthRow; readonly rows: readonly BreakdownMonthRow[] },
+  bands: readonly BreakdownBand[],
+): number | null {
+  if (data.rows.length === 0) return null;
+  return Math.max(netWorthOf(data.opening, bands), ...data.rows.map((r) => netWorthOf(r, bands)));
+}
+
 export function buildNetWorthBreakdown(
   series: ProjectionSeries,
   meta: BreakdownMeta,
@@ -122,6 +156,15 @@ export function buildNetWorthBreakdown(
 ): NetWorthBreakdownData {
   const accountOrder = meta.accounts.map((a) => a.id);
   const accountLabel = new Map(meta.accounts.map((a) => [a.id, a.label]));
+  const accountOwner = new Map(
+    meta.accounts.flatMap((a) => (a.ownerId === undefined ? [] : [[a.id, a.ownerId] as const])),
+  );
+  /** Undefined rather than a placeholder, so an unattributed band is filtered out, not mis-filed. */
+  const ownerOf = (id: string): string | undefined => accountOwner.get(id) ?? meta.ownerById?.[id];
+  const withOwner = <T extends { readonly id: string }>(band: T) => {
+    const ownerId = ownerOf(band.id);
+    return ownerId === undefined ? band : { ...band, ownerId };
+  };
 
   const rows: BreakdownMonthRow[] = [];
   const accountIds = new Set<string>();
@@ -162,26 +205,19 @@ export function buildNetWorthBreakdown(
     ...accountOrder.filter((id) => accountIds.has(id) && nonZero.has(id)),
     ...[...accountIds].filter((id) => !accountOrder.includes(id) && nonZero.has(id)),
   ];
-  const accountBands: BreakdownBand[] = orderedAccountIds.map((id) => ({
-    id,
-    label: accountLabel.get(id) ?? humanizeId(id),
-    kind: "account",
-  }));
+  const accountBands: BreakdownBand[] = orderedAccountIds.map((id) =>
+    withOwner({ id, label: accountLabel.get(id) ?? humanizeId(id), kind: "account" as const }),
+  );
   const propertyBands: BreakdownBand[] = [...propertyIds]
     .filter((id) => nonZero.has(id))
-    .map((id) => ({ id, label: meta.propertyLabels?.[id] ?? humanizeId(id), kind: "property" }));
+    .map((id) => withOwner({ id, label: meta.propertyLabels?.[id] ?? humanizeId(id), kind: "property" as const }));
   const liabilityBands: BreakdownBand[] = [...liabilityIds]
     .filter((id) => nonZero.has(id))
-    .map((id) => ({ id, label: meta.liabilityLabels?.[id] ?? humanizeId(id), kind: "liability" }));
+    .map((id) => withOwner({ id, label: meta.liabilityLabels?.[id] ?? humanizeId(id), kind: "liability" as const }));
 
   const bands = [...accountBands, ...propertyBands, ...liabilityBands];
   const lastRow = rows[rows.length - 1];
-  // Today is a charted point, so it competes for the peak — for a plan that decumulates from
-  // day one, "now" IS the high-water mark, and reporting month 0's slightly lower figure
-  // would be a number the chart visibly contradicts.
-  const peakNetWorthCents = rows.length
-    ? Math.max(netWorthOf(opening, bands), ...rows.map((r) => netWorthOf(r, bands)))
-    : null;
+  const peakNetWorthCents = peakNetWorthOf({ opening, rows }, bands);
 
   // The axis spans the plan, not the rows — which stop early at a block (the series is truncated)
   // and at insolvency (dropped above). Same span and same shaded tail as the chart above it.
@@ -193,6 +229,9 @@ export function buildNetWorthBreakdown(
     bands,
     hasProperties: propertyBands.length > 0,
     hasLiabilities: liabilityBands.length > 0,
+    // In band order, so the owner toggle lists people the way the stack reads. Distinct, and
+    // only those actually holding a drawn band — a partner who brought nothing offers no cut.
+    owners: [...new Set(bands.flatMap((b) => (b.ownerId === undefined ? [] : [b.ownerId])))],
     terminalNetWorthCents: lastRow ? netWorthOf(lastRow, bands) : null,
     peakNetWorthCents,
     xMax,

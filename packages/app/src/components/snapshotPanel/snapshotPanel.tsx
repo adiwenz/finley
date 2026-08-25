@@ -1,7 +1,7 @@
 /** Snapshot panel — the household cross-section at the scrubbed month. */
 
 import type { Ledger, ProjectionResult } from "@finley/engine";
-import { formatDollars, monthLabel } from "../../format";
+import { formatDollars, formatSignedDollars, monthLabel } from "../../format";
 import { seriesLabel, splitMarkers } from "../../ledgerView";
 import styles from "./snapshotPanel.module.css";
 
@@ -9,10 +9,24 @@ export function SnapshotPanel({
   ledger,
   result,
   month,
+  accountLabels,
+  liabilityLabels,
 }: {
   ledger: Ledger;
   result: ProjectionResult;
   month: number;
+  /**
+   * Account id → the name to show for it, owner-qualified where the household has two people —
+   * see `accountLabelsFor`. A dated cross-section is the one place where "whose" is the whole
+   * question, so a row here read as `savings-person-8` was naming a person by their internal id.
+   */
+  accountLabels?: ReadonlyMap<string, string>;
+  /**
+   * Liability id → the name to show for it — see `liabilityLabelsFor`. Same reason as above, plus
+   * one this list has of its own: the engine's own last-resort borrowing is authored by nobody, so
+   * without a label it printed `synthetic-credit-card` at the reader.
+   */
+  liabilityLabels?: ReadonlyMap<string, string>;
 }) {
   const snap = result.snapshot(month);
   const { passed, upcoming } = splitMarkers(ledger, month);
@@ -20,20 +34,28 @@ export function SnapshotPanel({
   return (
     <div className={styles.snapshot}>
       <h2>As of {monthLabel(month)}</h2>
+      {/* Which of the two month controls this one follows — see the note beside the other. */}
+      <p className="hint">Moved by the timeline scrubber, not by the budget editor’s own month.</p>
 
       <div className={styles.snapSection}>
         <h3>Balances <span className={`${styles.tag} ${styles.stock}`}>stock</span></h3>
         <ul className={styles.snapList}>
           {snap.balances?.accounts.map((b) => (
             <li key={b.id}>
-              <span>{b.id}</span>
+              {/* An estate account is still the household's money and still in the net worth
+                  below it, so it stays on the list — but it is named as what it now is, rather
+                  than as a holding of somebody the Household list has already stopped naming. */}
+              <span>
+                {accountLabels?.get(b.id) ?? b.id}
+                {b.inEstate === true && " (inherited)"}
+              </span>
               <span>{formatDollars(b.balanceCents)}</span>
             </li>
           ))}
           {snap.balances?.liabilities.map((b) => (
             <li key={b.id} className={styles.owed}>
-              <span>{b.id} (owed)</span>
-              <span>−{formatDollars(b.balanceCents)}</span>
+              <span>{liabilityLabels?.get(b.id) ?? b.id} (owed)</span>
+              <span>{formatSignedDollars(-b.balanceCents)}</span>
             </li>
           ))}
         </ul>
@@ -68,7 +90,7 @@ export function SnapshotPanel({
           {snap.expenses.map((s) => (
             <li key={s.id}>
               <span>{seriesLabel(s)}</span>
-              <span>−{formatDollars(s.monthlyCents)}/mo</span>
+              <span>{formatSignedDollars(-s.monthlyCents)}/mo</span>
             </li>
           ))}
         </ul>

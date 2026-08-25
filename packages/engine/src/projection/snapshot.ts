@@ -17,6 +17,7 @@ import { interpretLedger } from "../ledger/interpret";
 import type { Ledger } from "../ledger/ledger";
 import type { Person } from "../plan/person";
 import type { ProjectionSeries } from "./simulate";
+import { lifeExpectancyEndMonthExclusive, personActiveWindow } from "../job/personActiveWindow";
 
 export interface SnapshotChild extends Child {
   readonly id: ChildId;
@@ -48,6 +49,16 @@ export interface SnapshotLiability {
 export interface BalanceEntry {
   readonly id: string;
   readonly balanceCents: Cents;
+  /**
+   * The account's owners are all dead, so what it holds is the ESTATE the household is living on
+   * rather than a member's own holdings. Nothing moves: the simulation never filters the spendable
+   * pool by whether an owner is alive, so this money already funds the household exactly as it did
+   * before — this only stops the panel attributing it to somebody it has just said is not here.
+   *
+   * Never set for an account with no owners the roster knows; an unattributable holding cannot be
+   * declared inherited.
+   */
+  readonly inEstate?: boolean;
 }
 
 /**
@@ -104,6 +115,54 @@ export function membersAt(household: Household, month: number): Person[] {
 }
 
 /**
+ * The partner the household has at `month`, or `null` when it has none — the single answer every
+ * partner-offering surface reads, now that there can only ever be one.
+ *
+ * Death-aware, which is what separates it from {@link membersAt}: a membership's `endMonth`
+ * records a separation and nothing else, so a partner who died years ago is still "a member" by
+ * that reckoning. Asking through {@link personActiveWindow} composes the two the way every
+ * person-scoped rule in the simulation already does, so a form cannot offer to separate from
+ * somebody the projection has already buried.
+ *
+ * Base members are excluded by their infinite start: the primary is not somebody the primary is
+ * partnered with.
+ */
+export function activePartnerAt(
+  household: Household,
+  month: number,
+  nowYear: number | undefined,
+): Person | null {
+  for (const membership of household.memberships) {
+    if (!Number.isFinite(membership.startMonth)) continue;
+    const active = personActiveWindow(membership, nowYear);
+    if (active.startMonth <= month && month < active.endMonthExclusive) return membership.person;
+  }
+  return null;
+}
+
+/**
+ * Whether a holding's owner is somebody this household HAS at `month` — the one presence rule
+ * every dated surface asks, so a cross-section and an authoring picker cannot disagree about who
+ * is here.
+ *
+ * Membership, not life: {@link membersAt} closes a membership on separation alone, because a
+ * partner who died left their accounts to the household and those accounts stay. What leaves is
+ * a partner who LEFT, and what has not arrived is a partner still to come.
+ *
+ * An owner the roster has never held a membership for is present. That is not a member who has
+ * gone or not yet come — it is a holding whose owner this roster cannot speak for (a ledger read
+ * without its people), and hiding it would be inventing an absence.
+ */
+export function householdPresenceAt(
+  household: Household,
+  month: number,
+): (ownerId: string) => boolean {
+  const memberIds = new Set(membersAt(household, month).map((p) => p.id));
+  const knownIds = new Set(household.memberships.map((mem) => mem.person.id));
+  return (ownerId: string): boolean => memberIds.has(ownerId) || !knownIds.has(ownerId);
+}
+
+/**
  * Household cross-section as of `month` (end-of-month convention: an event at month M is
  * applied at M). Presence is derived from `household`; balances (stocks) are read from
  * `projection` when supplied.
@@ -112,10 +171,54 @@ export function buildSnapshot(
   household: Household,
   month: number,
   projection?: ProjectionSeries,
+  nowYear?: number,
 ): HouseholdSnapshot {
   const m = clampMonth(month, projection);
 
-  const persons = membersAt(household, m);
+  const members = membersAt(household, m);
+  /**
+   * Whose holdings this cross-section is entitled to show. The whole-plan views are deliberately
+   * omniscient — a partner still to come appears on the timeline, in the job projections and in
+   * every chart drawn over the horizon — but a DATED snapshot answers "who is in this household
+   * now", so a future partner's accounts must not sit in it at $0 years before they arrive, and a
+   * separated partner's must leave with them.
+   *
+   * Read from {@link membersAt}, which closes a membership on SEPARATION alone. Death is not a
+   * departure: a partner who died left their accounts to the household, so they stay in the
+   * snapshot exactly as the projection still carries them.
+   */
+  const memberIds = new Set(members.map((p) => p.id));
+  /**
+   * Who the household is composed of at `m` — the roster it READS as, which is not the same
+   * question as whose holdings it may show above. Death closes a life without closing a
+   * membership, so a partner years dead was still listed here as a current member, beside the
+   * accounts they left behind: the panel said the household had two people in it and the money
+   * of two people, when it had the money of two people and one person.
+   *
+   * Filtered here and not in {@link membersAt}, because the estate is exactly what the wider
+   * answer protects — narrowing that one would take the deceased's accounts out of the snapshot
+   * along with their name, which is the opposite of what happens when somebody dies.
+   *
+   * Without a `nowYear` there is no calendar to date a death against, and
+   * {@link lifeExpectancyEndMonthExclusive} answers `Infinity` — every member reads as living,
+   * which is what a caller that never supplied one has always seen.
+   */
+  const persons = members.filter((p) => m < lifeExpectancyEndMonthExclusive(p, nowYear));
+  const livingIds = new Set(persons.map((p) => p.id));
+  /**
+   * Whether every owner of a holding is a member the roster has just buried. The panel lists the
+   * household and then lists its money, and those two lists have to agree about who is here: an
+   * account tagged to a person the roster no longer names read as a fourth household member made
+   * of accounts. Co-owned money is not the estate while either owner lives.
+   */
+  const allOwnersDead = (owners: readonly string[]): boolean =>
+    owners.length > 0 &&
+    owners.every((id) => memberIds.has(id) && !livingIds.has(id));
+  const present = householdPresenceAt(household, m);
+  const ownedByMember = (owners: readonly string[]): boolean =>
+    owners.length === 0 || owners.some(present);
+  const accountOwners = new Map(household.accounts.map((a) => [a.id, a.owners as readonly string[]]));
+  const liabilityOwner = new Map(household.liabilities.map((l) => [l.id as string, l.ownerId as string]));
 
   const children: SnapshotChild[] = household.children
     .filter((c) => c.birthMonth <= m)
@@ -144,6 +247,7 @@ export function buildSnapshot(
   const projectionMonth = projection?.months[m];
   const liabilities: SnapshotLiability[] = household.liabilities
     .filter((l) => {
+      if (!present(l.ownerId)) return false;
       // With a projection, "active" means a positive balance at the month, so a paid-off
       // liability disappears. Without one, fall back to the contractual origination month.
       if (projectionMonth) return (projectionMonth.liabilityBalancesCents[l.id] ?? 0) > 0;
@@ -162,7 +266,7 @@ export function buildSnapshot(
   const properties: SnapshotProperty[] = household.properties
     .filter((p) => {
       const active = p.startMonth <= m && (p.endMonth === null || m <= p.endMonth);
-      if (!active) return false;
+      if (!active || !present(p.ownerId)) return false;
       if (projectionMonth) return (projectionMonth.propertyValuesCents[p.id] ?? 0) > 0;
       return true;
     })
@@ -186,12 +290,24 @@ export function buildSnapshot(
   let balances: SnapshotBalances | null = null;
   if (projectionMonth) {
     balances = {
-      accounts: Object.entries(projectionMonth.accountBalancesCents).map(
-        ([id, balanceCents]) => ({ id, balanceCents }),
-      ),
-      liabilities: Object.entries(projectionMonth.liabilityBalancesCents).map(
-        ([id, balanceCents]) => ({ id, balanceCents }),
-      ),
+      accounts: Object.entries(projectionMonth.accountBalancesCents)
+        .filter(([id]) => ownedByMember(accountOwners.get(id) ?? []))
+        .map(([id, balanceCents]) => {
+          const inEstate = allOwnersDead(accountOwners.get(id) ?? []);
+          return inEstate ? { id, balanceCents, inEstate } : { id, balanceCents };
+        })
+        // An emptied estate account is the one row with nothing left to say: the person is gone
+        // and so is their money, and it sat at $0 under a name the roster above had dropped. A
+        // living member's empty account stays — it is theirs to put money back into. This is the
+        // same rule the liability and property lists already follow, where a debt disappears once
+        // it is paid off and a property once it is sold.
+        .filter((entry) => entry.inEstate !== true || entry.balanceCents !== 0),
+      liabilities: Object.entries(projectionMonth.liabilityBalancesCents)
+        .filter(([id]) => {
+          const owner = liabilityOwner.get(id);
+          return owner === undefined || present(owner);
+        })
+        .map(([id, balanceCents]) => ({ id, balanceCents })),
       netWorthNominalCents: projectionMonth.netWorthNominalCents,
       isInsolvent: projectionMonth.isInsolvent,
     };

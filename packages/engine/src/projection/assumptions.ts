@@ -17,6 +17,18 @@ export interface ModelAssumption {
 
 export const MODEL_ASSUMPTIONS: readonly ModelAssumption[] = [
   {
+    id: "sharedSpendingSplitIsAuthored",
+    text:
+      "When a household shares its spending, each person's share is the percentage you set for " +
+      "that partnership — 50/50 unless you change it. Nothing recalculates it: a raise, a job " +
+      "loss, retirement, a bonus, a tax bill or refund, or a change in savings all leave the " +
+      "split exactly where you put it. While there is no partner, the primary person carries " +
+      "100%, and a later partner starts at 50/50 again rather than inheriting an earlier " +
+      "partner's percentage. Whose money ends up paying is a separate question — if someone " +
+      "cannot cover their share, their own accounts are used first and their partner's after " +
+      "that, and neither changes whose share it was.",
+  },
+  {
     id: "postTaxOpeningBasis",
     text:
       "Money already in a post-tax account at the start is treated as all principal " +

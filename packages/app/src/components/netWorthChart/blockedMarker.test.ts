@@ -20,6 +20,7 @@ function month(m: number, netWorthNominalCents: number): ProjectionMonth {
     month: m,
     netWorthNominalCents,
     netWorthRealCents: netWorthNominalCents,
+    netWorthByPersonCents: {},
     accountBalancesCents: {},
     accountBasisCents: {},
     liabilityBalancesCents: {},

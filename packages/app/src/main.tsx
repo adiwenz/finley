@@ -1,9 +1,14 @@
 import { StrictMode, useCallback, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Projection, liabilityKindLabel, planHorizonMonths, SYNTHETIC_CARD_ID } from "@finley/engine";
+import {
+  Projection,
+  planHorizonMonths,
+  eventAccountDescriptors,
+} from "@finley/engine";
 import { usJurisdiction } from "@finley/rules";
 import { NetWorthChart } from "./components/netWorthChart/netWorthChart";
 import { NetWorthBreakdownChart } from "./components/netWorthChart/netWorthBreakdownChart";
+import { AccountBalancesPanel } from "./components/accountBalanceChart/accountBalancesPanel";
 import { buildNetWorthBreakdown } from "./components/netWorthChart/netWorthBreakdown";
 import { timelineMarkers, blockedWarning } from "./ledgerView";
 import { BlockedWarning } from "./components/blockedWarning/blockedWarning";
@@ -13,6 +18,7 @@ import { AddEventForm } from "./components/addEventForm/addEventForm";
 import { EDITABLE_EVENT_TYPES } from "./components/addEventForm/editEventForm";
 import { Timeline } from "./components/timeline/timeline";
 import { SnapshotPanel } from "./components/snapshotPanel/snapshotPanel";
+import { accountLabelsFor, liabilityLabelsFor } from "./accountLabels";
 import { BudgetEditor } from "./components/budgetEditor/budgetEditor";
 import { GoalsPanel } from "./components/goalsPanel/goalsPanel";
 import { CollapsibleCard } from "./components/collapsibleCard/collapsibleCard";
@@ -46,7 +52,8 @@ export function App() {
   // it. Held by id, not by value, so it always resolves against the live ledger and a revision
   // that moved the event is reflected without re-seeding.
   const [editingId, setEditingId] = useState<string | null>(null);
-  const { state, conflict, transact, removeEvent, loadState } = useProjection(INITIAL_STATE);
+  const { state, conflict, transact, removeEvent, loadState, conflictOf } =
+    useProjection(INITIAL_STATE);
   const budget = state.scenario.plan;
   const ledger = state.scenario.ledger;
 
@@ -103,7 +110,42 @@ export function App() {
   );
   // Markers carry per-event outcomes off the AUTHORED run, not the retirement preview: the timeline
   // is an authoring surface, so a blocked/not-reached indicator must reflect the plan as written.
-  const markers = useMemo(() => timelineMarkers(ledger, series), [ledger, series]);
+  // Every account the household holds — the primary's from the plan, a partner's from the ledger.
+  // One list, so the net-worth bands and the per-account charts can never describe different
+  // holdings.
+  const allAccounts = useMemo(
+    () => [...projection.accountDescriptors(), ...eventAccountDescriptors(household.eventAccounts)],
+    [projection, household],
+  );
+  // What to call each of them, owner-qualified once there is more than one person to own money.
+  const accountLabels = useMemo(
+    () => accountLabelsFor(allAccounts, personNames),
+    [allAccounts, personNames],
+  );
+  // The debts, named by the same rule — read by the net-worth breakdown below and by the dated
+  // balances list, which used to print a liability's internal id.
+  const liabilityLabels = useMemo(
+    () => liabilityLabelsFor(household, personNames),
+    [household, personNames],
+  );
+
+  const markers = useMemo(
+    () => timelineMarkers(ledger, series, personNames),
+    [ledger, series, personNames],
+  );
+  // Which timeline events cannot be dropped, and what stands in the way. Computed once per
+  // authored state rather than per render: each answer is a dry-run replay of the whole ledger,
+  // and scrubbing — which re-renders the timeline constantly — changes none of them.
+  const removalConflicts = useMemo(
+    () =>
+      new Map(
+        markers.flatMap((m) => {
+          const conflict = result.removalConflict(m.id);
+          return conflict === null ? [] : [[m.id, conflict] as const];
+        }),
+      ),
+    [markers, result],
+  );
   // The blocked-projection soft warning, off the AUTHORED run for the same reason the markers are:
   // it names the plan as written, never the retirement preview. `null` until something stops, so
   // its mere presence IS the condition holding — persistence and clearing fall out of the render.
@@ -151,22 +193,24 @@ export function App() {
   // — account descriptors and the household's liabilities, labelled by kind — never the
   // SimAccount class, so presentation stays off the sim-construction path.
   const breakdown = useMemo(() => {
-    // The engine's synthetic last-resort borrowing is a revolving credit card in the model,
-    // so it charts as "Credit card" debt below zero: a plan living on borrowed money (or one
-    // running dry in late retirement) shows that debt rather than the composition stopping.
-    const liabilityLabels: Record<string, string> = {
-      [SYNTHETIC_CARD_ID]: liabilityKindLabel("creditCard"),
-    };
+    // Owners for the non-account bands. The synthetic card is deliberately absent: it belongs to
+    // the household rather than to a person, so it stays out of every per-person cut.
+    const ownerById: Record<string, string> = {};
     for (const liability of household.liabilities) {
-      liabilityLabels[liability.id] = liabilityKindLabel(liability.kind);
+      ownerById[liability.id] = liability.ownerId;
+    }
+    for (const property of household.properties) {
+      ownerById[property.id] = property.ownerId;
     }
     return buildNetWorthBreakdown(
       chartSeries,
-      { accounts: projection.accountDescriptors(), liabilityLabels },
+      // Both account lists. `accountDescriptors()` is derived from the PLAN, which holds only
+      // the primary's accounts, so a partner's band would otherwise be labelled off its id.
+      { accounts: allAccounts, liabilityLabels: Object.fromEntries(liabilityLabels), ownerById },
       // The plan's own span, so this chart ends at the same year as the total above it.
       horizonMonths,
     );
-  }, [chartSeries, projection, household, horizonMonths]);
+  }, [chartSeries, allAccounts, liabilityLabels, household, horizonMonths]);
 
   return (
     <>
@@ -213,6 +257,7 @@ export function App() {
                 onScrub={setScrubMonth}
                 onEdit={setEditingId}
                 onRemove={removeEvent}
+                removalConflicts={removalConflicts}
               />
             </div>
 
@@ -237,7 +282,13 @@ export function App() {
           </div>
 
           <div className="card">
-            <SnapshotPanel ledger={ledger} result={result} month={scrubMonth} />
+            <SnapshotPanel
+              ledger={ledger}
+              result={result}
+              month={scrubMonth}
+              accountLabels={accountLabels}
+              liabilityLabels={liabilityLabels}
+            />
           </div>
         </div>
 
@@ -246,33 +297,31 @@ export function App() {
             <AddEventForm
               result={result}
               funding={formFunding}
+              accountLabels={accountLabels}
               defaultMonth={Math.floor(scrubMonth / 12) * 12}
               horizonMonths={horizonMonths}
               onAdd={transact}
               editing={
                 editingEvent
-                  ? { event: editingEvent, onRevise: reviseEvent, onCancel: () => setEditingId(null) }
+                  ? {
+                      event: editingEvent,
+                      onRevise: reviseEvent,
+                      conflictOf,
+                      onCancel: () => setEditingId(null),
+                    }
                   : undefined
               }
             />
           </div>
 
           <div className="card">
-            <StartingPositionPanel onAdd={transact} />
+            <StartingPositionPanel result={result} onAdd={transact} />
           </div>
 
           {/* Standing settings rather than a live readout: both start collapsed, so the
               panels that answer "what is happening" keep the column. */}
           <CollapsibleCard title="Budget & accounts" className="inputs">
-            <BudgetEditor
-              budget={budget}
-              transact={transact}
-              accounts={projection.accountDescriptors()}
-              series={chartSeries}
-              household={household}
-              personNames={personNames}
-              horizonMonths={horizonMonths}
-            />
+            <BudgetEditor budget={budget} transact={transact} />
           </CollapsibleCard>
 
           <CollapsibleCard title="Goals">
@@ -311,7 +360,14 @@ export function App() {
             — so its spending need counts loan payments and every other event, not just the
             standing budget. Everything rides on that one series (the engine itemizes the
             spending), so there is nothing else to pass. */}
+        {/* Keyed by scenario, so loading one remounts the panel and its editing month snaps
+            back to "now" along with the scrub cursor. The month is a position in a plan; carried
+            into a different plan it points somewhere the summary above is not looking, and the
+            two headers disagree about which moment is on screen. The panel's other local state
+            — a half-finished month edit, the last route taken — belongs to the replaced timeline
+            for the same reason `editingId` is cleared above. */}
         <BaseAdjustmentsPanel
+          key={presetId}
           plan={budget}
           transact={transact}
           series={chartSeries}
@@ -329,7 +385,16 @@ export function App() {
       </div>
 
       <div className="card">
-        <NetWorthBreakdownChart data={breakdown} />
+        <NetWorthBreakdownChart data={breakdown} personNames={personNames} />
+      </div>
+
+      <div className="card">
+        <AccountBalancesPanel
+          accounts={allAccounts}
+          series={chartSeries}
+          horizonMonths={horizonMonths}
+          personNames={personNames}
+        />
       </div>
     </>
   );

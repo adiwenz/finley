@@ -54,12 +54,15 @@ export function HomePurchaseForm({
   onAdd,
   result,
   funding,
+  accountLabels,
   edit,
 }: FormProps & {
   /** The live run — the DTI advisory is read off it, never re-simulated here. */
   result: ProjectionResult;
   /** The engine's funding questions — the same pair `addEvent`'s §4.5 gate answers with. */
   funding: FundingLookup;
+  /** Owner-qualified account names, so this list reads as the dated snapshot's does. */
+  accountLabels?: ReadonlyMap<string, string>;
   edit?: EditProps<EventOf<"HomePurchaseEvent">>;
 }) {
   // Accounts that can actually pay at `month`, largest-first (drain-order friendly); the
@@ -226,6 +229,7 @@ export function HomePurchaseForm({
           availability={availability}
           onChange={(sourceIds) => patch({ sourceIds })}
           label="Down payment paid from"
+          accountLabels={accountLabels}
         />
       )}
       <button className="btn primary" onClick={submit}>
@@ -237,7 +241,7 @@ export function HomePurchaseForm({
       <p className="hint">
         {holding
           ? "Opens at today's value — no down payment, no affordability gate."
-          : "Accounts are drained in the order you pick them, and only cash and investment accounts can pay — retirement savings and credit can’t."}
+          : "Accounts are drained in the order you pick them. The list is the household as it stands on that date — yours and, while you are partnered, your partner’s — retirement included; credit can’t."}
       </p>
     </>
   );

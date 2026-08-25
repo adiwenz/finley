@@ -86,7 +86,7 @@ describe("buildFundingAttribution — source labels", () => {
 
   it("uses the account's friendly label when one is supplied, else the account id", () => {
     const labels = new Map([["brokerage", "Vanguard brokerage"]]);
-    const rows = buildFundingAttribution(TWO_DOWN_PAYMENTS, [], labels);
+    const rows = buildFundingAttribution(TWO_DOWN_PAYMENTS, [], { accountLabels: labels });
     expect(rows[0].sources[0].label).toBe("Vanguard brokerage");
     // No label for "savings" → falls back to the account id rather than inventing one.
     expect(rows[1].sources[0].label).toBe("savings");
@@ -153,5 +153,128 @@ describe("buildFundingAttribution — withdrawal breakdown", () => {
     expect(appreciated.amountCents).toBe(appreciated.withdrawal!.netDeliveredCents);
     // The cash savings draw passed no withdrawal resolver, so it carries no breakdown.
     expect(rows[1].sources[0].withdrawal).toBeUndefined();
+  });
+});
+
+/**
+ * Whose money paid, in a household that has more than one person's.
+ *
+ * With two people there are two of every kind of account, so a row reading "Cash savings $900" is
+ * the same sentence whether a partner covered their own share, the household drew on its shared
+ * pot, or one partner quietly paid the other's bill. The last of those is the household's most
+ * consequential funding fact and it was completely invisible — and it is not recoverable from the
+ * amounts, because an assisted payment and a self-funded one look identical once the owner is
+ * dropped from both.
+ */
+describe("buildFundingAttribution — whose money paid", () => {
+  const NAMING = {
+    accountLabels: new Map([
+      ["savings", "Alex’s cash savings"],
+      ["savings-p2", "Blake’s cash savings"],
+    ]),
+    accountOwners: new Map([
+      ["savings", "p1"],
+      ["savings-p2", "p2"],
+    ]),
+    personNames: new Map([
+      ["p1", "Alex"],
+      ["p2", "Blake"],
+    ]),
+  };
+
+  /** One person-owned obligation — Blake's car loan — paid from `from`. */
+  const carLoanPaidFrom = (from: string): ResolvedFunding[] => [
+    {
+      obligationId: "debt:loan-1",
+      sourceId: "loan-1",
+      month: 12,
+      requestedCents: 40_000,
+      fundedCents: 40_000,
+      shortfallCents: 0,
+      sources: [{ kind: "account", sourceId: from, amountCents: 40_000 }],
+    },
+  ];
+
+  const CAR_LOAN = [
+    { id: "debt:loan-1", label: "Auto loan payment", ownerId: "p2" },
+  ] as unknown as FinancialObligation[];
+
+  it("names the owner of the account the money came from", () => {
+    const rows = buildFundingAttribution(carLoanPaidFrom("savings-p2"), CAR_LOAN, NAMING);
+    expect(rows[0].sources[0].label).toBe("Blake’s cash savings");
+  });
+
+  it("says nothing extra when a person covers their own obligation", () => {
+    const rows = buildFundingAttribution(carLoanPaidFrom("savings-p2"), CAR_LOAN, NAMING);
+    expect(rows[0].sources[0].onBehalfOf).toBeUndefined();
+  });
+
+  it("names who is being helped when the money came from the other partner", () => {
+    // Blake's own savings ran dry, so Alex's covered the rest — help, not a shared pot.
+    const rows = buildFundingAttribution(carLoanPaidFrom("savings"), CAR_LOAN, NAMING);
+    expect(rows[0].sources[0].label).toBe("Alex’s cash savings");
+    expect(rows[0].sources[0].onBehalfOf).toBe("Blake");
+  });
+
+  it("shows the handover within one obligation, own money first then the partner's", () => {
+    const rows = buildFundingAttribution(
+      [
+        {
+          ...carLoanPaidFrom("savings-p2")[0],
+          sources: [
+            { kind: "account", sourceId: "savings-p2", amountCents: 10_000 },
+            { kind: "account", sourceId: "savings", amountCents: 30_000 },
+          ],
+        },
+      ],
+      CAR_LOAN,
+      NAMING,
+    );
+    expect(rows[0].sources.map((s) => s.onBehalfOf)).toEqual([undefined, "Blake"]);
+  });
+
+  it("calls nothing assistance when the obligation is the household's own", () => {
+    // A shared credit card belongs to everyone, so no account can be paying it for somebody else.
+    const shared = [
+      { id: "debt:card", label: "Credit card payment", ownerId: "household" },
+    ] as unknown as FinancialObligation[];
+    const rows = buildFundingAttribution(
+      [{ ...carLoanPaidFrom("savings")[0], obligationId: "debt:card", sourceId: "card" }],
+      shared,
+      NAMING,
+    );
+    expect(rows[0].sources[0].onBehalfOf).toBeUndefined();
+  });
+
+  it("leaves income and credit alone — neither has an owner to compare", () => {
+    const rows = buildFundingAttribution(
+      [
+        {
+          ...carLoanPaidFrom("savings")[0],
+          sources: [
+            { kind: "income", sourceId: "income", amountCents: 20_000 },
+            { kind: "credit", sourceId: "credit", amountCents: 20_000 },
+          ],
+        },
+      ],
+      CAR_LOAN,
+      NAMING,
+    );
+    expect(rows[0].sources.map((s) => s.onBehalfOf)).toEqual([undefined, undefined]);
+    expect(rows[0].sources.map((s) => s.label)).toEqual(["Income", "Credit"]);
+  });
+
+  it("reads exactly as it always did for a household of one", () => {
+    // Nothing to disambiguate, so nothing is added: no possessive, and no assistance to report.
+    const solo = [
+      { id: "debt:loan-1", label: "Auto loan payment", ownerId: "p1" },
+    ] as unknown as FinancialObligation[];
+    const rows = buildFundingAttribution(carLoanPaidFrom("savings"), solo, {
+      accountLabels: new Map([["savings", "Cash savings"]]),
+      accountOwners: new Map([["savings", "p1"]]),
+      personNames: new Map([["p1", "Alex"]]),
+    });
+    expect(rows[0].sources[0].label).toBe("Cash savings");
+    expect(rows[0].sources[0].onBehalfOf).toBeUndefined();
   });
 });

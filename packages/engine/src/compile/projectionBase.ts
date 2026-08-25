@@ -31,6 +31,8 @@ import {
 import { compileExpenseBudgetLines } from "./compileBudget";
 import type { BudgetLine, TaxTreatment } from "../budget/budgetLine";
 import { RETIREMENT_ID } from "../plan/ids";
+import type { PartnerStandingAccounts } from "../ledger/eventTypes";
+import type { Cents } from "../money/money";
 
 export interface ProjectionContext {
   readonly jurisdiction: Jurisdiction;
@@ -40,6 +42,17 @@ export interface ProjectionContext {
 
 /** The primary (and, in this slice, only) household member. */
 export const PRIMARY_PERSON_ID = "p1";
+
+/**
+ * The owner the engine's own synthetic last-resort card carries — borrowing the household did as
+ * a whole, belonging to no member in particular. NOT an owner authoring can name: every authored
+ * account and liability belongs to exactly one person, so that separation has a single answer for
+ * where it goes.
+ *
+ * Deliberately absent from `personsById`, so it earns no income, holds no take-home, and never
+ * appears as a person in a per-person cut of net worth.
+ */
+export const HOUSEHOLD_OWNER_ID = "household";
 export const SAVINGS_ID = "savings";
 // RETIREMENT_ID — the account this module mints for a job's 401(k) deferral to fund — lives
 // in `ids` so `job` can name the same default without importing this module (which would
@@ -47,11 +60,11 @@ export const SAVINGS_ID = "savings";
 // exactly one source for it.
 export const BROKERAGE_ID = "brokerage";
 
-// Shared by {@link buildPlanAccounts} and {@link planAccountDescriptors} so a label
-// can't drift between the two.
-const SAVINGS_LABEL = "Cash savings";
-const RETIREMENT_LABEL = "Retirement account";
-const BROKERAGE_LABEL = "Brokerage";
+// Shared by {@link buildPlanAccounts}, {@link buildPartnerAccounts} and
+// {@link planAccountDescriptors} so a label can't drift between them.
+export const SAVINGS_LABEL = "Cash savings";
+export const RETIREMENT_LABEL = "Retirement account";
+export const BROKERAGE_LABEL = "Brokerage";
 
 /**
  * Standing accounts a budget contribution line may pay into. **Post-tax only**:
@@ -180,6 +193,72 @@ export function buildPlanAccounts(budget: Plan): PlanAccount[] {
   return accounts;
 }
 
+/** The three standing account kinds a partner, like the primary, is minted with. */
+type StandingAccountKind = "savings" | "retirement" | "brokerage";
+
+/**
+ * Suffixed by owner so a partner's standing accounts never collide with the primary's fixed
+ * `SAVINGS_ID`/`RETIREMENT_ID`/`BROKERAGE_ID`, or with an earlier partner's if the household
+ * has had more than one over time.
+ */
+export function partnerAccountId(kind: StandingAccountKind, ownerId: PersonId): string {
+  return `${kind}-${ownerId}`;
+}
+
+/**
+ * The partner's three standing accounts — savings, retirement, brokerage — mirroring
+ * {@link buildPlanAccounts}'s three for the primary, minted at `marry`/`startPartnered`
+ * ({@link import("../ledger/eventHandlers").applyEvent}'s `RelationshipEvent` handler).
+ *
+ * Opens every account at `openingCents` (0 unless the caller is reconstructing a
+ * past-anchored `startPartnered`, whose join month is negative and so unreachable by a
+ * simulated transfer — see the handler for why the two paths open differently). A
+ * forward-dated join instead opens at 0 and lands the authored balance as a one-time
+ * transfer AT the join month, so it is never mistaken for month-0 opening wealth, income, or
+ * a contribution.
+ */
+export function buildPartnerAccounts(
+  ownerId: PersonId,
+  name: string,
+  standing: PartnerStandingAccounts,
+  openingCents: { savings: Cents; retirement: Cents; brokerage: Cents } = {
+    savings: 0,
+    retirement: 0,
+    brokerage: 0,
+  },
+): Record<StandingAccountKind, PlanAccount> {
+  return {
+    savings: planAccount({
+      id: partnerAccountId("savings", ownerId),
+      owners: [ownerId],
+      label: `${name} — ${SAVINGS_LABEL}`,
+      liquid: true,
+      taxProfile: CASH_INTEREST_TAX_PROFILE,
+      balanceCents: openingCents.savings,
+      initialAnnualRate: standing.savingsReturnPct / 100,
+    }),
+    retirement: planAccount({
+      id: partnerAccountId("retirement", ownerId),
+      owners: [ownerId],
+      label: `${name} — ${RETIREMENT_LABEL}`,
+      liquid: false,
+      beneficiaryDesignated: true,
+      taxProfile: PRE_TAX_TAX_PROFILE,
+      balanceCents: openingCents.retirement,
+      initialAnnualRate: standing.retirementReturnPct / 100,
+    }),
+    brokerage: planAccount({
+      id: partnerAccountId("brokerage", ownerId),
+      owners: [ownerId],
+      label: `${name} — ${BROKERAGE_LABEL}`,
+      liquid: false,
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
+      balanceCents: openingCents.brokerage,
+      initialAnnualRate: standing.brokerageReturnPct / 100,
+    }),
+  };
+}
+
 /** Presentation grouping, not tax shape. */
 export type PlanAccountKind = "cash" | "retirement" | "brokerage" | "goal";
 
@@ -187,6 +266,8 @@ export interface PlanAccountDescriptor {
   readonly id: string;
   readonly label: string;
   readonly kind: PlanAccountKind;
+  /** Whose account it is — what lets a surface cut a household's holdings by person. */
+  readonly ownerId: string;
 }
 
 /**
@@ -196,15 +277,48 @@ export interface PlanAccountDescriptor {
  * sim-construction path and account ids are never hardcoded in the app.
  */
 export function planAccountDescriptors(budget: Plan): PlanAccountDescriptor[] {
+  // Every plan-level account is the primary's — `buildPlanAccounts` mints them that way, and a
+  // partner's ride on the ledger instead (see `eventAccountDescriptors`).
   const descriptors: PlanAccountDescriptor[] = [
-    { id: SAVINGS_ID, label: SAVINGS_LABEL, kind: "cash" },
-    { id: RETIREMENT_ID, label: RETIREMENT_LABEL, kind: "retirement" },
-    { id: BROKERAGE_ID, label: BROKERAGE_LABEL, kind: "brokerage" },
+    { id: SAVINGS_ID, label: SAVINGS_LABEL, kind: "cash", ownerId: PRIMARY_PERSON_ID },
+    { id: RETIREMENT_ID, label: RETIREMENT_LABEL, kind: "retirement", ownerId: PRIMARY_PERSON_ID },
+    { id: BROKERAGE_ID, label: BROKERAGE_LABEL, kind: "brokerage", ownerId: PRIMARY_PERSON_ID },
   ];
   for (const goal of budget.goals) {
-    descriptors.push({ id: goalFundAccountId(goal), label: goal.name, kind: "goal" });
+    descriptors.push({
+      id: goalFundAccountId(goal),
+      label: goal.name,
+      kind: "goal",
+      ownerId: PRIMARY_PERSON_ID,
+    });
   }
   return descriptors;
+}
+
+/**
+ * Presentation metadata for the accounts an EVENT minted — today, a partner's three standing
+ * ones. The companion to {@link planAccountDescriptors}, which can only see the plan and so only
+ * ever describes the primary's; a surface that shows one list without the other labels a
+ * partner's band off a humanized id ("Savings") beside the primary's real label ("Cash savings").
+ *
+ * The kind is read back off the id rather than the tax profile: {@link partnerAccountId} is what
+ * assigns it, so this stays correct if a kind's tax treatment is ever retuned.
+ */
+export function eventAccountDescriptors(
+  eventAccounts: readonly PlanAccount[],
+): PlanAccountDescriptor[] {
+  const kindOf = (id: string): PlanAccountKind => {
+    const head = id.split("-")[0];
+    return head === "savings" ? "cash" : head === "retirement" ? "retirement" : "brokerage";
+  };
+  return eventAccounts.map((a) => ({
+    id: a.account.id,
+    ownerId: a.sim.ownerId,
+    // The label rides on the compiled side, which is what the simulator and every reporting
+    // surface already read; `account` carries only the authored holding.
+    label: a.sim.label ?? a.account.id,
+    kind: kindOf(a.account.id),
+  }));
 }
 
 /** The plan's goals as engine `SimGoal`s. Array order is priority (index 0 first). */
@@ -259,7 +373,7 @@ export function createProjectionBase(
     (l) => l.target.kind === "account",
   );
   // The owner tag is inert today: the simulator sums all expense series into one household
-  // obligation and splits it by `sharedScheme`, never reading an expense's ownerId. It
+  // obligation and splits it by the authored percentages, never reading an expense's ownerId. It
   // starts doing work once a line can be *personal* (charged against that person's
   // take-home first).
   const generalExpenseSeries: readonly SimOwnedSeries[] = compileExpenseBudgetLines(
@@ -312,7 +426,6 @@ export function createProjectionBase(
     initialExpenseSeries: generalExpenseSeries,
     goals: buildPlanGoals(budget),
     contributionLines,
-    sharedScheme: budget.sharedScheme,
     surplusDestination,
     // Carried through so `interpret` caps a partner's jobs at the same boundary this call just
     // capped the primary's at.

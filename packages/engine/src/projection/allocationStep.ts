@@ -1,4 +1,4 @@
-import type { Cents } from "../money/money";
+import { apportionInOrder, type Cents } from "../money/money";
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
 import type { TaxCategory } from "../money/cashFlowSeries";
 import { orderBudgetLines, resolveBudgetLineMonthlyCents } from "../budget/budgetLine";
@@ -12,7 +12,8 @@ import {
   type FederalTaxPayment,
 } from "./federalIncomeTax";
 import type { SimState } from "./runState";
-import type { SimOwnedSeries } from "./simulate.types";
+import { isPersonActiveAt, type SimOwnedSeries } from "./simulate.types";
+import type { FinancialObligation } from "./financialObligation";
 
 export function buildIncomeSources(
   incomeSeries: readonly SimOwnedSeries[],
@@ -76,6 +77,90 @@ interface MonthContribution {
 }
 
 /**
+ * The month's automatic obligations, split into the shared pool and each person's own —
+ * {@link FinancialObligation.ownerId} is the single source of truth for which is which, so the
+ * two totals can never drift apart from a parallel scalar. An obligation with no owner (every
+ * expense series today, plus a liability owned by nobody on the roster) is shared; only a
+ * liability whose owner IS a household member is personal.
+ */
+/**
+ * The account a person's own surplus lands in: theirs, of the same KIND as the household's
+ * chosen destination.
+ *
+ * Kind is matched on the destination account's own shape — whether it takes the waterfall's
+ * deposits (`liquid`) and how a withdrawal from it is taxed — rather than on an id convention,
+ * so it keeps working for accounts this module never names. The household's choice is a kind
+ * ("savings" or "brokerage"), resolved to the primary's concrete id at the plan boundary; this
+ * resolves the same kind for everyone else.
+ *
+ * Null when the person holds no account of that kind, which the waterfall reads as "leave this
+ * share to the household destination" rather than as an error.
+ */
+function surplusAccountIdFor(state: SimState, personId: string): string | null {
+  const destId =
+    state.surplusDestination.kind === "swept"
+      ? state.surplusDestination.accountId
+      : (state.liquidAccount?.id ?? null);
+  if (destId === null) return null;
+  const dest = state.accounts.find((a) => a.id === destId);
+  if (dest === undefined) return null;
+  if (dest.ownerId === personId) return destId;
+  const own = state.accounts.find(
+    (a) =>
+      a.ownerId === personId &&
+      a.liquid === dest.liquid &&
+      a.taxProfile.withdrawalCategory === dest.taxProfile.withdrawalCategory &&
+      a.taxProfile.forcedDistributionEligible === dest.taxProfile.forcedDistributionEligible,
+  );
+  return own?.id ?? null;
+}
+
+/**
+ * The month's authored shared-expense percentages, over the members `householdMemberIds` names.
+ *
+ * The split rides on the RELATIONSHIP, so it is stored on the partner and the primary takes what
+ * is left: while a partnership is running the partner has their authored percent and the primary
+ * the remainder, and the moment nobody is partnered the primary has all of it. Sequential
+ * partners are therefore independent by construction — Casey's percent is Casey's own, and
+ * Blake's leaving takes Blake's with it.
+ *
+ * Nothing here reads a balance, a paycheck, or an age. That is the whole point.
+ */
+function sharedSharePercentOf(
+  state: SimState,
+  memberIds: readonly string[],
+): (personId: string) => number {
+  let partnerTotal = 0;
+  for (const pid of memberIds) {
+    const percent = state.personsById.get(pid)?.sharedExpensePercent;
+    if (percent !== undefined) partnerTotal += Math.max(0, Math.min(100, percent));
+  }
+  const primaryShare = Math.max(0, 100 - partnerTotal);
+  return (pid) => {
+    const percent = state.personsById.get(pid)?.sharedExpensePercent;
+    return percent === undefined ? primaryShare : Math.max(0, Math.min(100, percent));
+  };
+}
+
+function splitAutomaticObligations(
+  obligations: readonly FinancialObligation[],
+  personIds: readonly string[],
+): { sharedObligationCents: Cents; personalCentsByPerson: Map<string, Cents> } {
+  const personIdSet = new Set(personIds);
+  const personalCentsByPerson = new Map<string, Cents>();
+  let sharedObligationCents: Cents = 0;
+  for (const o of obligations) {
+    if (o.funding.kind !== "automatic") continue;
+    if (o.ownerId !== undefined && personIdSet.has(o.ownerId)) {
+      personalCentsByPerson.set(o.ownerId, (personalCentsByPerson.get(o.ownerId) ?? 0) + o.amountCents);
+    } else {
+      sharedObligationCents += o.amountCents;
+    }
+  }
+  return { sharedObligationCents, personalCentsByPerson };
+}
+
+/**
  * Everything the month's waterfall runs on, assembled from `state` but writing NOTHING to it —
  * every closure here reads. Split out from {@link allocateMonth} so the month's cash shortfall can
  * be MEASURED before decumulation ({@link projectObligationShortfallCents}) with the identical
@@ -89,10 +174,14 @@ function planMonthAllocation(
   incomeSources: readonly IncomeSourceMonth[],
   ctx: JurisdictionContext,
   jurisdiction: Jurisdiction,
-  sharedObligationCents: Cents,
+  obligations: readonly FinancialObligation[],
   month: number,
   priorYearSettlements: PriorYearSettlements,
 ): { input: WaterfallInput; contributions: readonly MonthContribution[] } {
+  const { sharedObligationCents, personalCentsByPerson } = splitAutomaticObligations(
+    obligations,
+    state.personIds,
+  );
   // Per plan, but banded on the individual's age — the jurisdiction may raise the limit with
   // it. No birth year → the un-banded limit.
   const combinedLimit = jurisdiction.combinedPlanDepositLimitCents;
@@ -117,11 +206,20 @@ function planMonthAllocation(
     return monthlyCents > 0 ? [{ accountId, monthlyCents }] : [];
   });
 
+  const memberIds = state.personIds.filter((pid) => {
+    const person = state.personsById.get(pid);
+    return person === undefined || isPersonActiveAt(person, month);
+  });
   const input: WaterfallInput = {
     personIds: state.personIds,
+    // The shared budget is split across the household as it stands this month, not across every
+    // person the run has ever known — see {@link WaterfallInput.householdMemberIds}. Someone with
+    // income but no roster entry counts: they are being paid into this household.
+    householdMemberIds: memberIds,
     incomeSources,
     sharedObligationCents,
-    sharedScheme: state.sharedScheme,
+    personalObligationCentsByPerson: (pid) => personalCentsByPerson.get(pid) ?? 0,
+    sharedSharePercentOf: sharedSharePercentOf(state, memberIds),
     surplusDestination: state.surplusDestination,
     goals: state.goals,
     contributions,
@@ -129,6 +227,22 @@ function planMonthAllocation(
     goalFundMonthlyRate: (id) => accountsById.get(id)?.getMonthlyRateAt(month) ?? 0,
     accountBalanceCents: (id) => state.assetBalances.get(id) ?? 0,
     liquidAccountId: state.liquidAccount?.id ?? null,
+    surplusAccountIdForPerson: (pid) => surplusAccountIdFor(state, pid),
+    // Every balance this person holds, at the top of the step. Read only to decide whether their
+    // unfunded share is beyond their own reach, which is the point a partner's unspent pay
+    // becomes the next thing to spend — see {@link WaterfallInput.ownFundingCapacityCents}.
+    // Deliberately unfiltered: decumulation will sell any account of theirs before the household
+    // borrows, so any narrower reading here would understate what they can cover themselves and
+    // call for help that is not needed.
+    //
+    // Live, not frozen: on the month's real pass, whatever decumulation already sold out of
+    // their accounts has left this figure and arrived in their take-home, so the gap and the
+    // capacity fall by the same cents and the answer is the one the sizing pass reached.
+    ownFundingCapacityCents: (pid) =>
+      state.accounts.reduce(
+        (sum, a) => (a.ownerId === pid ? sum + Math.max(0, state.assetBalances.get(a.id) ?? 0) : sum),
+        0,
+      ),
     // Income-tax withholding, computed by the waterfall per WAGE SOURCE from that source's own
     // pay. The waterfall never prices a year; this seam prices one paycheck.
     computeWageWithholdingCents: jurisdiction.computeWageWithholdingCents
@@ -217,20 +331,28 @@ export function projectObligationShortfallCents(
   incomeSources: readonly IncomeSourceMonth[],
   ctx: JurisdictionContext,
   jurisdiction: Jurisdiction,
-  sharedObligationCents: Cents,
+  obligations: readonly FinancialObligation[],
   month: number,
   priorYearSettlements: PriorYearSettlements,
-): Cents {
+): {
+  totalCents: Cents;
+  /** See {@link import("./waterfall").WaterfallResult.obligationShortfallByPersonCents}. */
+  byPersonCents: ReadonlyMap<string, Cents>;
+} {
   const { input } = planMonthAllocation(
     state,
     incomeSources,
     ctx,
     jurisdiction,
-    sharedObligationCents,
+    obligations,
     month,
     priorYearSettlements,
   );
-  return runWaterfall(input).obligationShortfallCents;
+  const result = runWaterfall(input);
+  return {
+    totalCents: result.obligationShortfallCents,
+    byPersonCents: result.obligationShortfallByPersonCents,
+  };
 }
 
 /**
@@ -252,9 +374,20 @@ export function allocateMonth(
   incomeSources: readonly IncomeSourceMonth[],
   ctx: JurisdictionContext,
   jurisdiction: Jurisdiction,
-  sharedObligationCents: Cents,
+  obligations: readonly FinancialObligation[],
   month: number,
   priorYearSettlements: PriorYearSettlements,
+  /**
+   * {@link import("./withdrawal").WithdrawalPlan.liquidDrawdownByAccountCents} — the OWNER-AWARE
+   * prediction of which liquid accounts absorb this month's residual, in what proportion.
+   * `result.shortfallCents` below is charged across exactly these accounts in that same
+   * proportion (cumulative-rounded to land on the real total to the cent), rather than dumped
+   * onto one arbitrarily-first liquid account regardless of whose it is. Absent, or every
+   * predicted share 0 (no liquid account exists, or decumulation was never run — e.g. the
+   * pre-decumulation sizing pass, which never charges anything), falls back to {@link
+   * SimState.liquidAccount} — the household's single designated buffer, if it has one at all.
+   */
+  liquidDrawdownByAccountCents?: ReadonlyMap<string, Cents>,
 ): {
   taxCents: Cents;
   payrollTaxCents: Cents;
@@ -277,19 +410,57 @@ export function allocateMonth(
   taxSettlementCents: Cents;
   /** Per-source attribution of {@link taxSettlementCents}, signed and summing to it. `{}` when 0. */
   taxSettlementBySourceCents: Readonly<Record<string, Cents>>;
+  /**
+   * The same balance per PERSON, signed and summing to {@link taxSettlementCents} — positive is
+   * that person's bill, negative is their refund.
+   *
+   * Kept per person rather than reported as the household net, because the household files as
+   * separate single filers and the net erases both figures it is made of: one partner owing
+   * $1,000 while the other is refunded $300 is $1,000 of tax paid and $300 refunded, not $700 of
+   * tax. Whose liability it is, whose cash moves, and whose accounts end up funding a shortfall
+   * are three separate questions, and netting answers none of them.
+   */
+  taxSettlementByPersonCents: Readonly<Record<string, Cents>>;
+  /**
+   * The same attribution as {@link taxSettlementBySourceCents}, but kept per FILER: person id →
+   * source id → signed cents, each person's inner map summing to their own entry in {@link
+   * taxSettlementByPersonCents}.
+   *
+   * A settlement is computed per person and only afterwards added up, so the household map above
+   * is a sum whose terms cannot be recovered from it: two filers can draw a benefit or an RMD
+   * that the jurisdiction keys the same way, and one partner's credit then cancels part of the
+   * other's charge under a single key. Reporting the terms means a reader asking "why does Alex
+   * owe this?" is answered with Alex's own sources rather than the household's, and the answer
+   * adds up to the figure they were shown.
+   */
+  taxSettlementBySourcePersonCents: Readonly<Record<string, Readonly<Record<string, Cents>>>>;
   deferralBySourceCents: Readonly<Record<string, Cents>>;
   contributions: readonly MonthContribution[];
   /** The pre-cascade shortfall this month posted to the liquid account (obligations + contributions). */
   shortfallCents: Cents;
   /** The obligation-only slice of `shortfallCents` — see {@link WaterfallResult.obligationShortfallCents}. */
   obligationShortfallCents: Cents;
+  /** See {@link WaterfallResult.leftoverByPersonCents}. */
+  leftoverByPersonCents: Readonly<Record<string, Cents>>;
+  /** Each person's pre-tax deferral — what {@link leftoverByPersonCents} has already put away. */
+  deferredByPersonCents: Readonly<Record<string, Cents>>;
+  /** See {@link WaterfallResult.netCashFlowByPersonCents}. */
+  netCashFlowByPersonCents: Readonly<Record<string, Cents>>;
+  /** See {@link WaterfallResult.obligationChargedByPersonCents}. */
+  obligationChargedByPersonCents: Readonly<Record<string, Cents>>;
+  /** See {@link WaterfallResult.obligationFundedByPersonCents}. */
+  obligationFundedByPersonCents: Readonly<Record<string, Cents>>;
+  /** See {@link WaterfallResult.assistanceReceivedByPersonCents}. */
+  assistanceReceivedByPersonCents: Readonly<Record<string, Cents>>;
+  /** See {@link WaterfallResult.assistanceGivenByPersonCents}. */
+  assistanceGivenByPersonCents: Readonly<Record<string, Cents>>;
 } {
   const { input, contributions } = planMonthAllocation(
     state,
     incomeSources,
     ctx,
     jurisdiction,
-    sharedObligationCents,
+    obligations,
     month,
     priorYearSettlements,
   );
@@ -306,9 +477,21 @@ export function allocateMonth(
     }
   }
 
-  if (result.shortfallCents > 0 && state.liquidAccount !== null) {
-    const id = state.liquidAccount.id;
-    state.assetBalances.set(id, (state.assetBalances.get(id) ?? 0) - result.shortfallCents);
+  if (result.shortfallCents > 0) {
+    // Cumulative-rounded to the real total: every account's share is a whole-cent slice of
+    // `result.shortfallCents`, and the shares sum to it exactly regardless of any rounding-sized
+    // gap between the prediction and the real waterfall's own figure. The SAME rule the funding
+    // attribution divides its own slice of this draw by, so the account a "Funded by" row names
+    // is the account whose balance moved here.
+    const debits = apportionInOrder(result.shortfallCents, [...(liquidDrawdownByAccountCents ?? [])]);
+    if (debits.size > 0) {
+      for (const [id, share] of debits) {
+        state.assetBalances.set(id, (state.assetBalances.get(id) ?? 0) - share);
+      }
+    } else if (state.liquidAccount !== null) {
+      const id = state.liquidAccount.id;
+      state.assetBalances.set(id, (state.assetBalances.get(id) ?? 0) - result.shortfallCents);
+    }
   }
 
   for (const [pid, amount] of result.deferredByPersonCents) {
@@ -423,8 +606,12 @@ export function allocateMonth(
   // the engine would lose the only record that the filing produced money back.
   let taxSettlementCents: Cents = 0;
   const taxSettlementBySourceCents: Record<string, Cents> = {};
-  for (const payment of priorYearSettlements.values()) {
+  const taxSettlementByPersonCents: Record<string, Cents> = {};
+  const taxSettlementBySourcePersonCents: Record<string, Record<string, Cents>> = {};
+  for (const [personId, payment] of priorYearSettlements) {
     if (payment.totalCents === 0) continue;
+    taxSettlementByPersonCents[personId] =
+      (taxSettlementByPersonCents[personId] ?? 0) + payment.totalCents;
     taxSettlementCents += payment.totalCents;
     for (const [category, cents] of Object.entries(payment.byCategoryCents)) {
       if (cents) addCategory(taxByCategoryCents, category as TaxCategory, cents);
@@ -433,6 +620,8 @@ export function allocateMonth(
       if (cents) taxBySourceCents[source] = (taxBySourceCents[source] ?? 0) + cents;
       if (cents) {
         taxSettlementBySourceCents[source] = (taxSettlementBySourceCents[source] ?? 0) + cents;
+        const mine = (taxSettlementBySourcePersonCents[personId] ??= {});
+        mine[source] = (mine[source] ?? 0) + cents;
       }
     }
   }
@@ -447,10 +636,19 @@ export function allocateMonth(
     taxBySourceCents,
     taxSettlementCents,
     taxSettlementBySourceCents,
+    taxSettlementByPersonCents,
+    taxSettlementBySourcePersonCents,
     deferralBySourceCents: result.deferralBySourceCents,
     contributions,
     shortfallCents: result.shortfallCents,
     obligationShortfallCents: result.obligationShortfallCents,
+    leftoverByPersonCents: Object.fromEntries(result.leftoverByPersonCents),
+    deferredByPersonCents: Object.fromEntries(result.deferredByPersonCents),
+    netCashFlowByPersonCents: Object.fromEntries(result.netCashFlowByPersonCents),
+    obligationChargedByPersonCents: Object.fromEntries(result.obligationChargedByPersonCents),
+    obligationFundedByPersonCents: Object.fromEntries(result.obligationFundedByPersonCents),
+    assistanceReceivedByPersonCents: Object.fromEntries(result.assistanceReceivedByPersonCents),
+    assistanceGivenByPersonCents: Object.fromEntries(result.assistanceGivenByPersonCents),
   };
 }
 

@@ -11,6 +11,23 @@ export function formatDollars(cents: number): string {
 }
 
 /**
+ * A signed amount, with the sign taken from the VALUE — `$0` for anything that rounds to nothing,
+ * however it got there.
+ *
+ * The alternative is a hard-coded minus in the JSX, which is how a fully repaid card came to read
+ * "Credit card (owed) −$0": the row knew it was a debt, so it printed a debt's sign, and a debt of
+ * nothing is the one case where that is wrong. Rounding happens BEFORE the sign for the same
+ * reason — a balance of forty cents left on a card is $0, not −$0.
+ *
+ * The minus is U+2212, not a hyphen: it is the same width as the digits, so a column of figures
+ * stays aligned.
+ */
+export function formatSignedDollars(cents: number): string {
+  const dollars = Math.round(cents / 100);
+  return `${dollars < 0 ? "−" : ""}${formatDollars(Math.abs(dollars) * 100)}`;
+}
+
+/**
  * The plan-year a month falls in, 0-indexed: months 0–11 are Year 0 ("now"). Every surface
  * naming a year MUST go through this — the net-worth chart once did its own
  * `floor(month / 12) + 1` and called the same insolvency month "year 45" while the banner
@@ -24,4 +41,37 @@ export function yearOf(month: number): number {
 export function monthLabel(month: number): string {
   const year = yearOf(month);
   return `Year ${year} (${START_YEAR + year})`;
+}
+
+/**
+ * `partsCents` as whole dollars summing to EXACTLY `totalDollars`.
+ *
+ * Every amount on a surface is rounded to the dollar ({@link formatDollars}), and rounding each
+ * part on its own is what makes a breakdown read as though it did not add up: two shares of
+ * $2,700.005 each print as $2,700 beside a household total of $5,400.01 printed as $5,400 — or,
+ * one cent later, as $5,401. Cumulative rounding takes each part as the difference between two
+ * rounded running totals instead, so the printed parts sum to the printed total by construction
+ * and the last one absorbs whatever the rounding left.
+ *
+ * `totalDollars` is passed in rather than derived, so a nested breakdown can be rounded against
+ * the figure its own parent row already printed.
+ */
+export function dollarParts(partsCents: readonly number[], totalDollars: number): number[] {
+  const totalCents = partsCents.reduce((sum, cents) => sum + cents, 0);
+  if (totalCents === 0) return partsCents.map(() => 0);
+  const out: number[] = [];
+  let prevCum = 0;
+  let acc = 0;
+  for (const cents of partsCents) {
+    acc += cents;
+    const cum = Math.round((totalDollars * acc) / totalCents);
+    out.push(cum - prevCum);
+    prevCum = cum;
+  }
+  return out;
+}
+
+/** A whole-dollar figure, formatted the same way {@link formatDollars} formats cents. */
+export function formatWholeDollars(dollars: number): string {
+  return formatDollars(dollars * 100);
 }

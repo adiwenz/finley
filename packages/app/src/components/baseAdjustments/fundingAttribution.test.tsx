@@ -82,7 +82,7 @@ describe("FundingAttribution", () => {
       <FundingAttribution
         resolvedFunding={[TWO_DOWN_PAYMENTS[0]]}
         obligations={[]}
-        accountLabels={labels}
+        naming={{ accountLabels: labels }}
       />,
     );
     expect(html).toContain("Vanguard brokerage");
@@ -108,10 +108,43 @@ describe("FundingAttribution", () => {
     };
     const obligations = [{ id: "line:rent", label: "Rent" } as unknown as FinancialObligation];
     const html = renderToStaticMarkup(
-      <FundingAttribution resolvedFunding={[record]} obligations={obligations} accountLabels={labels} />,
+      <FundingAttribution resolvedFunding={[record]} obligations={obligations} naming={{ accountLabels: labels }} />,
     );
     expect(html).toContain("Household reserve");
     expect(html).not.toContain(">savings<");
+  });
+
+  it("says out loud when one partner's account covered the other's obligation", () => {
+    // The one funding fact two amounts cannot carry: without it, a partner being helped and a
+    // partner paying their own way render as exactly the same row.
+    const record: ResolvedFunding = {
+      obligationId: "debt:loan-1",
+      sourceId: "loan-1",
+      month: 0,
+      requestedCents: 40_000,
+      fundedCents: 40_000,
+      shortfallCents: 0,
+      sources: [{ kind: "account", sourceId: "savings", amountCents: 40_000 }],
+    };
+    const obligations = [
+      { id: "debt:loan-1", label: "Auto loan payment", ownerId: "p2" } as unknown as FinancialObligation,
+    ];
+    const html = renderToStaticMarkup(
+      <FundingAttribution
+        resolvedFunding={[record]}
+        obligations={obligations}
+        naming={{
+          accountLabels: new Map([["savings", "Alex’s cash savings"]]),
+          accountOwners: new Map([["savings", "p1"]]),
+          personNames: new Map([
+            ["p1", "Alex"],
+            ["p2", "Blake"],
+          ]),
+        }}
+      />,
+    );
+    expect(html).toContain("Alex’s cash savings");
+    expect(html).toContain("covering Blake’s share");
   });
 
   it("renders nothing when the month funded no obligations", () => {

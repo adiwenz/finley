@@ -22,6 +22,7 @@ import type { AccountTransfer, LiabilityTransfer } from "./transfers";
 import type { FinancialObligation } from "../projection/financialObligation";
 import type { FundingFailure } from "../projection/fundingFailure";
 import type { FundingTreatment } from "../projection/fundingEligibility";
+import type { PlanAccount } from "../plan/planAccount";
 
 export interface PersonMembership {
   readonly person: Person;
@@ -29,6 +30,13 @@ export interface PersonMembership {
   startMonth: number;
   /** Month membership ended (separation), or `null` while still a member. */
   endMonth: number | null;
+  /**
+   * A PARTNER's authored share of shared spending, 0–100 — see
+   * {@link import("./eventTypes").RelationshipEvent.partnerSharePercent}. Absent on the primary,
+   * whose share is whatever the current partnership leaves: they are one side of every split and
+   * are never the side that states a number.
+   */
+  readonly sharedExpensePercent?: number;
 }
 
 export interface SeriesDef {
@@ -46,6 +54,9 @@ export interface SeriesDef {
 }
 
 interface LiabilityDefCommon {
+  /** The month it leaves the household with its departing owner; `null` = never. Mutated by
+   * a later `SeparationEvent`, the same way {@link SeriesDef.endMonth} is. */
+  endMonth?: number | null;
   readonly id: LiabilityId;
   readonly causedByEventId: string;
   readonly ownerId: PersonId;
@@ -92,6 +103,13 @@ export interface InterpretState {
   readonly seriesById: Map<SeriesId, SeriesDef>;
   readonly liabilitiesById: Map<LiabilityId, LiabilityDef>;
   readonly propertiesById: Map<PropertyId, PropertyDef>;
+  /**
+   * Accounts minted by an event — today, exactly a partner's three standing accounts, minted
+   * by the `RelationshipEvent` handler. The primary's accounts never appear here: they arrive
+   * on the base, unconditionally, from month 0. Merged with the base's at both the household
+   * (`interpret.ts`) and simulator (`buildHouseholdInput.ts`) boundaries.
+   */
+  readonly accountsById: Map<AccountId, PlanAccount>;
   readonly accountTransfersByAccountId: Map<AccountId, AccountTransfer[]>;
   /**
    * Explicitly-funded obligations — cross-account down-payment / spend draws, appended in event
@@ -108,6 +126,7 @@ export function freshState(): InterpretState {
     seriesById: new Map(),
     liabilitiesById: new Map(),
     propertiesById: new Map(),
+    accountsById: new Map(),
     accountTransfersByAccountId: new Map(),
     fundingDraws: [],
   };
@@ -160,6 +179,13 @@ export interface InterpretContext {
   readonly accountIds: ReadonlySet<AccountId>;
   /** The default rate for `inflationLinked` growth. */
   readonly annualInflationRate: number;
+  /**
+   * The plan's frozen "now", for the one precondition that reckons a death: a partnership ends
+   * when a partner dies, so whether two of them overlap depends on placing an expectancy on the
+   * calendar. Absent on a hand-built base with no start year, which makes every death unreckonable
+   * and so unbounded — see {@link import("../job/personActiveWindow").lifeExpectancyEndMonthExclusive}.
+   */
+  readonly startYear?: number;
   /**
    * The shared funding-availability calculation, resolved against a projection of the ledger *so
    * far* by the SAME ordered draw resolution the simulator runs ({@link

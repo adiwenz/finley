@@ -36,6 +36,34 @@ import {
 import { PRE_NOW_MONTH, isPreExisting } from "../projection/nowMarker";
 import { explicitObligation } from "../projection/financialObligation";
 import type { FundingFailure } from "../projection/fundingFailure";
+import { buildPartnerAccounts } from "../compile/projectionBase";
+import { DEFAULT_PARTNER_SHARE_PERCENT, ZERO_PARTNER_ACCOUNTS } from "./eventTypes";
+import {
+  overlappingPartnership,
+  partnershipConflictReason,
+  partnershipSpan,
+  partnershipSpans,
+} from "./partnership";
+import type { PlanAccount } from "../plan/planAccount";
+
+/**
+ * Whether `id` names an account the household holds AT THIS POINT IN THE REPLAY: the base's own,
+ * plus any an earlier event minted — today, a partner's three standing accounts from their
+ * `RelationshipEvent`.
+ *
+ * `context.accountIds` is built from `base.initialAccounts` before a single event is applied, so
+ * reading it alone refuses to spend a partner's savings that the picker offers and the simulator
+ * would drain. Consulting `state` rather than the finished household keeps the ordering honest:
+ * a source still cannot be named before the event that creates it.
+ */
+function accountExistsNow(
+  sourceId: string,
+  state: InterpretState,
+  context: InterpretContext,
+): boolean {
+  const id = asAccountId(sourceId);
+  return context.accountIds.has(id) || state.accountsById.has(id);
+}
 
 export interface EventHandler<E extends LifeEvent> {
   check(event: E, state: InterpretState, context: InterpretContext): ValidationResult;
@@ -60,9 +88,30 @@ function holdingMonthFault(month: number): string | null {
     : null;
 }
 
-/** Owner must be a known household member (present at some point). */
-function ownerExists(state: InterpretState, ownerId: string): boolean {
-  return state.personsById.has(asPersonId(ownerId));
+/**
+ * What is wrong with owning this at this month, or `null`. Owner must be a known household member
+ * (present at some point) AND actually in the household when the thing is owned. Deliberately no
+ * household-wide owner: every authored holding belongs to exactly one person, which is what lets
+ * separation decide where it goes. {@link HOUSEHOLD_OWNER_ID} exists for the engine's own
+ * synthetic card and is not an owner authoring can name.
+ *
+ * The window matters because nothing downstream re-checks it. Separation clips what a departing
+ * member already held, but a holding created OUTSIDE their window is never clipped at all: a
+ * loan authored at the now marker for a partner who joins in year 7 charges the household from
+ * month 0, and the payment reaches the shared cascade — so the household spends, for seven
+ * years, on a debt belonging to someone who is not in it. Refused here, where the month and the
+ * owner are both still in front of the author, rather than silently dropped or silently charged.
+ */
+function ownerFault(state: InterpretState, ownerId: string, month: number): string | null {
+  const membership = state.personsById.get(asPersonId(ownerId));
+  if (membership === undefined) return `owner "${ownerId}" not found`;
+  if (month < membership.startMonth) {
+    return `owner "${ownerId}" is not in the household at month ${month}; they join at month ${membership.startMonth}`;
+  }
+  if (membership.endMonth !== null && month >= membership.endMonth) {
+    return `owner "${ownerId}" is not in the household at month ${month}; they left at month ${membership.endMonth}`;
+  }
+  return null;
 }
 
 /** Whole dollars for a conflict message — conflicts are read by a person, not the engine. */
@@ -114,9 +163,36 @@ function fundingFailureMessage(
 }
 
 const relationship: EventHandler<RelationshipEvent> = {
-  check(event, state) {
+  check(event, state, context) {
     if (state.personsById.has(asPersonId(event.person.id))) {
       return fail(event, `person "${event.person.id}" already exists`);
+    }
+    // The hard half of "one partnership at a time" — see {@link partnershipSpans}. Enforced on
+    // the REPLAY state rather than beside each verb, so it holds for every path that can produce
+    // an overlap and not only the ones that obviously do: adding a partner, re-dating one,
+    // removing or moving the separation between two, raising an expectancy so the first
+    // partnership outlives the gap, and a whole ledger arriving from an import.
+    //
+    // The candidate carries no separation of its own: replay reaches this event before any
+    // separation dated after it, and a brand-new partnering has none. Its own death still bounds
+    // it, so a partner who does not live to reach a partnership already booked ahead is no
+    // conflict with it.
+    const candidate = partnershipSpan(event.person, event.month, null, context.startYear);
+    const conflict = overlappingPartnership(
+      partnershipSpans(state, context.startYear),
+      candidate,
+    );
+    if (conflict) {
+      return fail(event, partnershipConflictReason(candidate, conflict, context.startYear));
+    }
+    const share = event.partnerSharePercent;
+    if (share !== undefined && (!Number.isInteger(share) || share < 0 || share > 100)) {
+      // Refused, never clamped: a split is a statement the household made, and quietly turning
+      // 130 into 100 (or 12.5 into 12) would put a number nobody chose behind the projection.
+      return fail(
+        event,
+        `shared-expense share ${share}% must be a whole number from 0 to 100`,
+      );
     }
     return ok;
   },
@@ -125,7 +201,49 @@ const relationship: EventHandler<RelationshipEvent> = {
       person: event.person,
       startMonth: event.month,
       endMonth: null,
+      sharedExpensePercent: event.partnerSharePercent ?? DEFAULT_PARTNER_SHARE_PERCENT,
     });
+
+    // A negative month is `startPartnered`'s true-past anchor — unreachable by a simulated
+    // transfer, since the sim never processes a month before 0 — so that path opens each
+    // account directly at its authored balance, the same way a pre-existing home or loan
+    // holding opens at its current value with no reconstruction. A month ≥ 0 is a processed
+    // month, so it opens at 0 and the balance lands as a one-time transfer AT that month:
+    // present in every later net-worth snapshot, absent from every earlier one, and never
+    // routed through the waterfall as income, a contribution, or a transfer of cash flow.
+    const ownerId = asPersonId(event.person.id);
+    const standing = event.accounts ?? ZERO_PARTNER_ACCOUNTS;
+    const isPastAnchored = event.month < 0;
+    const accounts = buildPartnerAccounts(
+      ownerId,
+      event.person.name,
+      standing,
+      isPastAnchored
+        ? {
+            savings: standing.savingsBalanceCents,
+            retirement: standing.retirementBalanceCents,
+            brokerage: standing.brokerageBalanceCents,
+          }
+        : undefined,
+    );
+    for (const planAcct of Object.values(accounts)) {
+      state.accountsById.set(asAccountId(planAcct.account.id), planAcct);
+    }
+    if (!isPastAnchored) {
+      const balances: readonly [PlanAccount, Cents][] = [
+        [accounts.savings, standing.savingsBalanceCents],
+        [accounts.retirement, standing.retirementBalanceCents],
+        [accounts.brokerage, standing.brokerageBalanceCents],
+      ];
+      for (const [planAcct, amountCents] of balances) {
+        if (amountCents === 0) continue;
+        pushAccountTransfer(state, {
+          accountId: asAccountId(planAcct.account.id),
+          month: event.month,
+          amountCents,
+        });
+      }
+    }
   },
 };
 
@@ -218,6 +336,32 @@ const separation: EventHandler<SeparationEvent> = {
         growthMode: { type: "fixed" },
       });
     }
+
+    // Their debts leave too, on the same principle and by the same test — sole ownership. The
+    // household stops paying it and stops counting it against net worth from this month; the debt
+    // is not settled or forgiven, it simply goes where its owner goes. Without this the household
+    // kept amortizing a departed partner's loan to term, charging it against take-home that ended
+    // at this very month, and eventually borrowing to cover it.
+    for (const def of state.liabilitiesById.values()) {
+      if (def.ownerId === event.partnerPersonId) def.endMonth = event.month;
+    }
+
+    // The departing partner's INDIVIDUALLY-owned accounts leave with them: drained to zero at
+    // this month by a full proportional transfer, exactly as `applyAssetTransfers` drains any
+    // other one-time outflow — not a sale (no gain, no tax), and not the account ceasing to
+    // exist, just leaving this household's books. A joint account is untouched: dividing it is
+    // the separation model's job, not this one's.
+    for (const [id, planAcct] of state.accountsById) {
+      const owners = planAcct.account.owners;
+      if (owners.length === 1 && owners[0] === event.partnerPersonId) {
+        pushAccountTransfer(state, {
+          accountId: id,
+          month: event.month,
+          amountCents: 0,
+          proportionalFraction: -1,
+        });
+      }
+    }
   },
 };
 
@@ -269,11 +413,10 @@ const loan: EventHandler<LoanEvent> = {
     if (state.liabilitiesById.has(asLiabilityId(event.liabilityId))) {
       return fail(event, `liability "${event.liabilityId}" already exists`);
     }
-    if (!ownerExists(state, event.ownerId)) {
-      return fail(event, `owner "${event.ownerId}" not found`);
-    }
     const misdated = holdingMonthFault(event.month);
     if (misdated) return fail(event, misdated);
+    const unowned = ownerFault(state, event.ownerId, event.month);
+    if (unowned) return fail(event, unowned);
     return ok;
   },
   apply(event, state) {
@@ -307,9 +450,8 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
     }
     const misdated = holdingMonthFault(event.month);
     if (misdated) return fail(event, misdated);
-    if (!ownerExists(state, event.ownerId)) {
-      return fail(event, `owner "${event.ownerId}" not found`);
-    }
+    const unowned = ownerFault(state, event.ownerId, event.month);
+    if (unowned) return fail(event, unowned);
     if (event.purchasePriceCents <= 0) {
       return fail(event, `purchase price must be positive`);
     }
@@ -334,7 +476,7 @@ const homePurchase: EventHandler<HomePurchaseEvent> = {
       return fail(event, `at least one down-payment source is required`);
     }
     for (const sourceId of event.downPaymentSourceIds) {
-      if (!context.accountIds.has(asAccountId(sourceId))) {
+      if (!accountExistsNow(sourceId, state, context)) {
         return fail(event, `down-payment source "${sourceId}" not found`);
       }
     }
@@ -459,7 +601,7 @@ const debtPayoff: EventHandler<DebtPayoffEvent> = {
     if (!state.liabilitiesById.has(asLiabilityId(event.liabilityId))) {
       return fail(event, `liability "${event.liabilityId}" not found for payoff`);
     }
-    if (!context.accountIds.has(asAccountId(event.accountId))) {
+    if (!accountExistsNow(event.accountId, state, context)) {
       return fail(event, `account "${event.accountId}" not found for payoff`);
     }
     return ok;
@@ -517,8 +659,8 @@ function oneTimeSpendFundingFailureMessage(
 
 /**
  * A dated, source-directed spend: names the accounts (and, eligibly, credit cards) to drain and
- * in what order. `check` validates that each named source exists, as either a liquid account or
- * a credit-card liability, then — mirroring Home Purchase's own §4.5 down-payment gate — HARD
+ * in what order. `check` validates that each named source exists, as either an account the
+ * household holds by then (a partner's included) or a credit-card liability, then — mirroring Home Purchase's own §4.5 down-payment gate — HARD
  * BLOCKS when the selected sources cannot fully cover the spend at its month. `fundingAvailabilityAt`
  * runs the SAME ordered draw resolution the simulator does ({@link
  * import("../projection/fundingDrawStep").resolveFundingDraws}) — no gross-up, no tax priced
@@ -530,7 +672,7 @@ function oneTimeSpendFundingFailureMessage(
 const oneTimeSpend: EventHandler<OneTimeSpendEvent> = {
   check(event, state, context) {
     for (const sourceId of event.fundingSourceIds) {
-      const isAccount = context.accountIds.has(asAccountId(sourceId));
+      const isAccount = accountExistsNow(sourceId, state, context);
       const isCreditCard = state.liabilitiesById.get(asLiabilityId(sourceId))?.kind === "creditCard";
       if (!isAccount && !isCreditCard) {
         return fail(event, `funding source "${sourceId}" not found`);

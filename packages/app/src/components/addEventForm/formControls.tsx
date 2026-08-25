@@ -30,6 +30,15 @@ export type EventOf<T extends LifeEvent["type"]> = Extract<LifeEvent, { type: T 
 export interface EditProps<E extends LifeEvent> {
   readonly event: E;
   readonly onRevise: (write: (projection: Projection) => void) => void;
+  /**
+   * Why that same revision would be refused, or `null` when it would be taken — asked before the
+   * click rather than after it, so Save can be disabled with the reason beside it instead of
+   * doing nothing visible. The pattern the timeline's blocked Remove already uses.
+   *
+   * Optional, and a form that does not ask keeps the old behaviour: the refusal still arrives
+   * from {@link onRevise}, as a banner elsewhere on the page.
+   */
+  readonly conflictOf?: (write: (projection: Projection) => void) => string | null;
 }
 
 /**
@@ -86,3 +95,40 @@ export function MonthSelect({
     </label>
   );
 }
+
+/**
+ * Who a debt or holding belongs to — always exactly one person. A debt is not co-owned here even
+ * when both partners benefit from it: ownership is what decides who funds it first and what
+ * happens to it at separation, and a jointly-owned liability has no answer to the second
+ * question that the engine could act on (there is no half-loan to divide).
+ *
+ * Hidden entirely for a one-person household: with a single member and no partner to distinguish
+ * them from, "whose is it" is not a question worth asking, and the answer is the primary either
+ * way. Mirrors the Jobs panel's owner select, which hides itself on the same rule.
+ */
+export function OwnerPicker({
+  label = "Whose is it?",
+  people,
+  value,
+  onChange,
+}: {
+  label?: string;
+  people: readonly { readonly id: string; readonly name: string }[];
+  value: string;
+  onChange: (ownerId: string) => void;
+}) {
+  if (people.length < 2) return null;
+  return (
+    <label className="field">
+      <span className="field-label">{label}</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        {people.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+

@@ -70,7 +70,12 @@ export function AccountBalanceChart({ label, ownerLabel, data }: AccountBalanceC
   const summary = last ? `${formatDollars(last.balanceCents)} projected` : "No balance to project yet.";
 
   return (
-    <div role="img" aria-label={`${label} projected balance over time. ${summary}`}>
+    <div
+      role="img"
+      // The owner rides the accessible name, not just the tooltip: two partners' accounts can
+      // share a label, and a screen reader gets no hover.
+      aria-label={`${label} projected balance over time.${ownerLabel ? ` ${ownerLabel}.` : ""} ${summary}`}
+    >
       <ResponsiveContainer width="100%" height={120}>
         <ComposedChart data={[...data.points]} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
           <defs>

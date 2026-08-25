@@ -322,7 +322,6 @@ describe("Projection root — patching the plan's standing scalars", () => {
       lifeExpectancy: 90,
       benefitClaimingAge: 70,
       surplusCashTo: "brokerage",
-      sharedScheme: "even",
     });
 
     expect(p.plan).toMatchObject({
@@ -330,7 +329,6 @@ describe("Projection root — patching the plan's standing scalars", () => {
       savingsReturnPct: 2,
       inflationPct: 4,
       surplusCashTo: "brokerage",
-      sharedScheme: "even",
       // Unnamed scalars keep their authored values.
       brokerageReturnPct: samplePlan.brokerageReturnPct,
       primary: {

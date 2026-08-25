@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import {
   Area,
   CartesianGrid,
@@ -16,7 +16,10 @@ import type { NameType, ValueType } from "recharts/types/component/DefaultToolti
 import { formatDollars, monthLabel, yearOf } from "../../format";
 import { TODAY_X, axisPointLabel, axisYearTickLabel, fromAxisX, toAxisX, yearTickXs } from "../monthAxis";
 import {
+  bandCentsAt,
   describeTaxes,
+  ownerQualified,
+  taxTotalsForBands,
   type TaxMonthRow,
   type TaxSourceBand,
   type TaxChartData,
@@ -113,6 +116,13 @@ export interface TaxTooltipExtras {
   readonly rowsByAxisX?: ReadonlyMap<number, TaxMonthRow>;
   /** Engine source id → human label, for naming diagnostic attribution rows. */
   readonly sourceLabels?: Readonly<Record<string, string>>;
+  /**
+   * Whose cut is showing, when one person's is. Absent for the combined view, which is the only
+   * one the household's own figures answer for. A refund belongs to the member who was owed it,
+   * and so does the settlement it explains: a household figure here would tell a partner who owed
+   * money that they got some back, or explain their bill with a partner's income.
+   */
+  readonly ownerId?: string;
 }
 
 /**
@@ -133,16 +143,40 @@ export interface TaxTooltipExtras {
  * A SETTLEMENT of either sign gets its signed per-source attribution, which is the engine's
  * average-rate apportionment and routinely negative for one job at the expense of another; it is
  * shown to explain the settlement band, and the "Net" line is what ties the two together.
+ *
+ * Both sections are scoped to WHOEVER IS SHOWING. The band above them already is — a person's cut
+ * draws their own April slice — so a household-wide explanation underneath it is not extra
+ * context but a different subject: Casey's benefit listed as a reason Alex owes, under a total
+ * that is neither of theirs. Every figure here is the selected filer's own, signed, and never a
+ * share of the household's.
  */
 export function TaxTooltipContent(props: TooltipContentProps<ValueType, NameType> & TaxTooltipExtras) {
-  const { active, payload, rowsByAxisX, sourceLabels } = props;
+  const { active, payload, rowsByAxisX, sourceLabels, ownerId } = props;
   if (!active || !payload) return null;
   const row = rowsByAxisX?.get(Number(props.label));
   const paying = payload.filter((entry) => Number(entry.value) !== 0);
-  const attribution = Object.entries(row?.settlementBySourceCents ?? {}).filter(([, c]) => c !== 0);
+  // Scoped to whoever is showing, because this section explains the settlement BAND above it and
+  // that band is already theirs. The household's map lists every filer's sources and nets to the
+  // household's balance, so under one person's name it answered a question about Alex with
+  // Casey's benefit and a total Alex never owed. The engine keeps the per-filer terms precisely
+  // so this can be one person's own arithmetic rather than a share of somebody's sum.
+  const attribution = Object.entries(
+    (ownerId === undefined ? row?.settlementBySourceCents : row?.settlementBySourcePersonCents[ownerId]) ?? {},
+  ).filter(([, c]) => c !== 0);
+  // Signed, and theirs: a partner refunded in the same April as another owes is shown their own
+  // refund here, never the household's net.
+  const attributionNetCents =
+    ownerId === undefined ? (row?.settlementCents ?? 0) : (row?.settlementByPersonCents[ownerId] ?? 0);
+  // Theirs in a person's cut, the household's gross in the combined view. Two single filers can
+  // settle in opposite directions in the same April, so this is a real figure either way and not
+  // a leftover of the netting.
+  const refundCents =
+    ownerId === undefined
+      ? (row?.refundCents ?? 0)
+      : (row?.refundByOwnerCents[ownerId] ?? 0);
   // A month with neither a band nor a refund has nothing to say. A refund-only month — a retiree
   // filing on a year of withholding-free income — has plenty, and used to draw nothing at all.
-  if (paying.length === 0 && (row?.refundCents ?? 0) === 0) return null;
+  if (paying.length === 0 && refundCents === 0) return null;
   const total = paying.reduce((sum, entry) => sum + (Number(entry.value) || 0), 0);
   return (
     <div style={TOOLTIP_BOX_STYLE}>
@@ -162,9 +196,9 @@ export function TaxTooltipContent(props: TooltipContentProps<ValueType, NameType
           <TooltipLine name="Total taxes paid" value={formatDollars(total)} bold />
         </div>
       )}
-      {(row?.refundCents ?? 0) > 0 && (
+      {refundCents > 0 && (
         <div style={SECTION_STYLE}>
-          <TooltipLine name="Tax refund" value={formatDollars(row!.refundCents)} bold />
+          <TooltipLine name="Tax refund" value={formatDollars(refundCents)} bold />
           <div style={NOTE_STYLE}>Money back — shown as income on the cash-flow chart.</div>
         </div>
       )}
@@ -174,11 +208,33 @@ export function TaxTooltipContent(props: TooltipContentProps<ValueType, NameType
           {attribution.map(([sourceId, cents]) => (
             <TooltipLine key={sourceId} name={sourceLabels?.[sourceId] ?? sourceId} value={formatDollars(cents)} />
           ))}
-          <TooltipLine name="Net" value={formatDollars(row!.settlementCents)} bold />
+          <TooltipLine name="Net" value={formatDollars(attributionNetCents)} bold />
         </div>
       )}
     </div>
   );
+}
+
+/** Every owner cut, plus the combined household the chart opens on. */
+const COMBINED = "__combined__";
+
+/**
+ * The bands one cut draws. Combined gets the household's own list, whose April band is the
+ * whole balance due. A person gets the bands attributed to them, plus THEIR slice of that
+ * balance in place of the household's — the two never appear together, or the same April
+ * money would be drawn twice.
+ *
+ * A band with no owner — the shared buffer drawdown, a source the engine keyed by bare tax
+ * category — belongs to the combined view only, so a person's cut is never charged with tax
+ * that was not attributed to them.
+ */
+function bandsForOwner(data: TaxChartData, owner: string): TaxSourceBand[] {
+  if (owner === COMBINED) return [...data.sources];
+  return [
+    ...data.sources.filter((b) => b.ownerId === owner),
+    // Last, so the once-a-year spike sits on top of the stack exactly as the household's does.
+    ...data.settlementBands.filter((b) => b.ownerId === owner),
+  ];
 }
 
 export interface TaxChartProps {
@@ -187,16 +243,60 @@ export interface TaxChartProps {
   readonly selectedMonth: number;
   /** Called with the clicked month, so the panel can move the editor there. */
   readonly onSelectMonth: (month: number) => void;
+  /**
+   * Names the owner toggle reads, and the names the combined view qualifies bands with. A
+   * person absent from it is not offered a cut of their own.
+   */
+  readonly personNames?: ReadonlyMap<string, string>;
 }
 
-export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) {
-  const summary = describeTaxes(data);
+export function TaxChart({ data, selectedMonth, onSelectMonth, personNames }: TaxChartProps) {
+  const names = personNames ?? new Map<string, string>();
+  // Everyone the household HAS, not everyone who happened to carry money. Deriving the list from
+  // drawn bands meant a partner who joined with no job and no balances was never offered a cut of
+  // their own, while a preset partner — who always arrives funded — always was: the same
+  // partnership, registered or not depending on its bank balance. The roster answers for both the
+  // same way, and an empty cut is itself the answer to "what does Blake bring?".
+  // A bookkeeping owner is excluded by construction rather than by filter: the roster holds
+  // people, so the synthetic card's "household" was never in it to begin with.
+  const owners = [...names.keys()];
+  const ownerOptions = owners.length > 1 ? [COMBINED, ...owners] : [];
+  const [owner, setOwner] = useState<string>(COMBINED);
+  const activeOwner = ownerOptions.includes(owner) ? owner : COMBINED;
+
+  // Bands the active cut draws. A name is added ONLY where it settles an ambiguity: on the
+  // combined view, to labels two bands share — the engine names a benefit the same for whoever
+  // claims it, so two claimants read as one legend entry repeated. A label that already stands
+  // alone ("Software engineer", "Teacher") is left as authored; qualifying every owned band
+  // would put a name on every row and disambiguate nothing. Under a person's own button the
+  // name is stated once by the button, so nothing is qualified at all.
+  const visibleBands = useMemo(() => {
+    const cut = bandsForOwner(data, activeOwner);
+    if (activeOwner !== COMBINED) return cut;
+    const seen = new Map<string, number>();
+    for (const b of cut) seen.set(b.label, (seen.get(b.label) ?? 0) + 1);
+    return cut.map((b) =>
+      (seen.get(b.label) ?? 0) > 1 ? { ...b, label: ownerQualified(b.label, b.ownerId, names) } : b,
+    );
+  }, [data, activeOwner, names]);
+
+  // The household's whole burden, or just this person's — summed over the bands actually drawn.
+  const totals = useMemo(
+    () => (activeOwner === COMBINED ? data : taxTotalsForBands(data.rows, visibleBands)),
+    [data, activeOwner, visibleBands],
+  );
+  const whose = activeOwner === COMBINED ? "" : `${names.get(activeOwner) ?? activeOwner}'s `;
+  const summary = describeTaxes(totals);
   // Stacked whenever the plan pays tax (attribution is always reported); a zero-tax plan
   // has no sources, so the row carries the lone `taxCents`.
-  const stacked = data.hasSourceBreakdown && data.sources.length > 0;
-  // Geometry depends only on `data`, stable while scrubbing — memoized so moving
-  // `selectedMonth` doesn't rebuild the colour map or remap every row.
-  const colors = useMemo(() => colorsForBands(data.sources), [data.sources]);
+  const stacked = data.hasSourceBreakdown && visibleBands.length > 0;
+  // Coloured off the FULL band list, not the visible cut, so a band keeps its colour when the
+  // reader toggles between combined and their own — and a person's April band takes the same
+  // settlement tone as the household's, since it is the same event.
+  const colors = useMemo(
+    () => colorsForBands([...data.sources, ...data.settlementBands]),
+    [data.sources, data.settlementBands],
+  );
   // On the shared months-from-now axis; a flow chart, so the today slot stays empty (no tax is
   // paid at "now") and the bands start at end-of-month-0, aligned with the charts above.
   //
@@ -211,10 +311,10 @@ export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) 
         const x = toAxisX(r.month);
         if (!stacked) return { month: x, taxCents: r.taxCents };
         const zeroed: Record<string, number> = {};
-        for (const band of data.sources) zeroed[band.id] = r.centsBySource[band.id] ?? 0;
+        for (const band of visibleBands) zeroed[band.id] = bandCentsAt(r, band.id);
         return { month: x, ...zeroed };
       }),
-    [data.rows, data.sources, stacked],
+    [data.rows, visibleBands, stacked],
   );
   // Keyed by AXIS x, because that is the only month identity Recharts hands the tooltip back.
   const rowsByAxisX = useMemo(
@@ -228,20 +328,41 @@ export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) 
       role="img"
       aria-label={
         summary
-          ? `Monthly tax paid. ${summary}`
-          : "Monthly tax paid — this plan pays no income tax over the horizon."
+          ? `Monthly tax paid. ${whose}${summary}`
+          : `Monthly tax paid — ${whose === "" ? "this plan pays" : `${whose}income pays`} no income tax over the horizon.`
       }
     >
-      <p className="hint" data-testid="tax-summary">
-        {summary ?? "No income tax is paid over the horizon."}
-      </p>
+      <div className="row-between">
+        <p className="hint" data-testid="tax-summary">
+          {summary
+            ? `${whose}${summary}`
+            : whose === ""
+              ? "No income tax is paid over the horizon."
+              : `${whose}income pays no tax over the horizon.`}
+        </p>
+        {ownerOptions.length > 1 && (
+          <div className="seg" role="group" aria-label="Whose tax">
+            {ownerOptions.map((o) => (
+              <button
+                key={o}
+                type="button"
+                className="seg-btn"
+                aria-pressed={o === activeOwner}
+                onClick={() => setOwner(o)}
+              >
+                {o === COMBINED ? "Combined" : (names.get(o) ?? o)}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       {/* Hidden data mirror for tests / screen readers: the first row's tax (total plus
           any per-source split) and the stacked band labels. */}
       <output data-testid="tax-first-row" hidden>
         {JSON.stringify(data.rows[0] ?? {})}
       </output>
       <output data-testid="tax-bands" hidden>
-        {JSON.stringify(data.sources.map((s) => s.label))}
+        {JSON.stringify(visibleBands.map((s) => s.label))}
       </output>
 
       <ResponsiveContainer width="100%" height={180}>
@@ -273,7 +394,12 @@ export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) 
           />
           <Tooltip
             content={(p) => (
-              <TaxTooltipContent {...p} rowsByAxisX={rowsByAxisX} sourceLabels={data.sourceLabels} />
+              <TaxTooltipContent
+              {...p}
+              rowsByAxisX={rowsByAxisX}
+              sourceLabels={data.sourceLabels}
+              {...(activeOwner === COMBINED ? {} : { ownerId: activeOwner })}
+            />
             )}
             // Recharts positions the tooltip and legend as sibling absolutely-positioned
             // wrappers in DOM (not paint) order, so the legend — added after in this
@@ -285,7 +411,7 @@ export function TaxChart({ data, selectedMonth, onSelectMonth }: TaxChartProps) 
           {stacked && <Legend wrapperStyle={{ fontSize: 12 }} />}
           <ReferenceLine x={toAxisX(selectedMonth)} stroke={MARKER} strokeWidth={2} />
           {stacked ? (
-            data.sources.map((band) => (
+            visibleBands.map((band) => (
               <Area
                 key={band.id}
                 type="monotone"

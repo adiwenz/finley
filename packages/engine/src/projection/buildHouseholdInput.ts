@@ -76,6 +76,7 @@ export function buildHouseholdSimInput(
             ownerId: def.ownerId,
             openingBalanceCents: def.openingBalanceCents,
             startMonth: def.startMonth,
+            endMonth: def.endMonth ?? null,
             apr: def.apr,
             creditLimitCents: def.creditLimitCents,
           })
@@ -85,6 +86,7 @@ export function buildHouseholdSimInput(
             kind: def.kind,
             openingBalanceCents: def.openingBalanceCents,
             startMonth: def.startMonth,
+            endMonth: def.endMonth ?? null,
             apr: def.apr,
             termMonths: def.termMonths,
           });
@@ -94,13 +96,22 @@ export function buildHouseholdSimInput(
     return liab;
   });
 
-  // Attach payoff outflows to their accounts without discarding account state.
-  const accounts = (base.initialAccounts ?? []).map(({ sim: acc }) => {
-    const transfers = household.accountTransfers
-      .filter((t) => t.accountId === acc.id)
-      .map((t) => ({ month: t.month, amountCents: t.amountCents }));
-    return transfers.length > 0 ? acc.withAdditionalTransfers(transfers) : acc;
-  });
+  // The primary's accounts (fixed, from the base) plus any an event minted (a partner's, from
+  // `household.eventAccounts`) — one list, so a partner's balance compounds and reports
+  // exactly like the primary's. Attach payoff/join/separation outflows to their accounts
+  // without discarding account state.
+  const accounts = [...(base.initialAccounts ?? []), ...household.eventAccounts].map(
+    ({ sim: acc }) => {
+      const transfers = household.accountTransfers
+        .filter((t) => t.accountId === acc.id)
+        .map((t) => ({
+          month: t.month,
+          amountCents: t.amountCents,
+          proportionalFraction: t.proportionalFraction,
+        }));
+      return transfers.length > 0 ? acc.withAdditionalTransfers(transfers) : acc;
+    },
+  );
 
   // Resolve each growth mode to its annual rate here, at the sim boundary; the simulator
   // compounds property value as it compounds accounts.
@@ -144,6 +155,7 @@ export function buildHouseholdSimInput(
     activeWindow: personActiveWindow(m, base.startYear),
     lifeEnd: lifeExpectancyEndMonthExclusive(m.person, base.startYear),
     separationMonth: m.endMonth,
+    sharedExpensePercent: m.sharedExpensePercent,
     person: m.person,
   }));
   // The other half of "while both are alive" — see {@link memberHorizonReach}. Absent only for a
@@ -152,9 +164,16 @@ export function buildHouseholdSimInput(
     resolvedMembers.find((r) => r.person.id === PRIMARY_PERSON_ID)?.lifeEnd ??
     Number.POSITIVE_INFINITY;
 
-  const persons: SimPerson[] = resolvedMembers.map((r) =>
-    compilePerson(r.person, nowYear, scope, r.activeWindow),
-  );
+  const persons: SimPerson[] = resolvedMembers.map((r) => ({
+    ...compilePerson(r.person, nowYear, scope, r.activeWindow),
+    // Separation alone, kept apart from the active window for the same reason it is kept apart
+    // above: a departed member and a dead one are treated identically by the window and
+    // oppositely by anything that outlives the month.
+    ...(r.separationMonth !== null ? { separationMonth: r.separationMonth } : {}),
+    // The authored split rides across with them: it is a fact about this partnership, and the
+    // month's shared obligation is divided by it and by nothing else.
+    ...(r.sharedExpensePercent !== undefined ? { sharedExpensePercent: r.sharedExpensePercent } : {}),
+  }));
 
   // The horizon is the longest-lived member's reach, not the primary's: a member present to their
   // death contributes their expectancy month, covering their tail. Whether a separation takes that
@@ -198,7 +217,6 @@ export function buildHouseholdSimInput(
     goals: base.goals,
     // Rides on the base like goals, and funds its accounts in the waterfall each month.
     contributionLines: base.contributionLines,
-    sharedScheme: base.sharedScheme,
     surplusDestination: base.surplusDestination,
   };
 }

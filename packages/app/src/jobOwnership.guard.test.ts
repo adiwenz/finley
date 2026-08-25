@@ -67,10 +67,19 @@ describe("no reassignment path survives in the app", () => {
     expect(offenders.map((m) => m.name)).toEqual([]);
   });
 
-  it("looks up no owner from an edit draft", () => {
-    // The shape of the old bug: `owners.find(o => o.id === draft.ownerId)`. An edit draft has no
-    // `ownerId` to find anyone by, so any such expression means the type split has been undone.
-    const offenders = modules.filter((m) => /draft\.ownerId/.test(m.source) && !/NewJobDraft/.test(m.source));
+  it("looks up no owner from a job edit draft", () => {
+    // The shape of the old bug: `owners.find(o => o.id === draft.ownerId)`. A job edit draft has
+    // no `ownerId` to find anyone by, so any such expression means the type split has been undone.
+    //
+    // Scoped to modules that speak the job-draft vocabulary. Other entities may legitimately
+    // carry an owner on their draft — a LOAN is authored to a person or to the household, and
+    // its form reads `draft.ownerId` for that. The distinction this guard protects is narrower
+    // than "nothing has an owner": a job's owner cannot be RESTATED after it exists, and neither
+    // can a loan's (its form renders the owner read-only on edit, and the engine's revision seam
+    // has no owner field to carry one).
+    const offenders = modules
+      .filter((m) => /JobDraft|jobOwnersOf/.test(m.source))
+      .filter((m) => /draft\.ownerId/.test(m.source) && !/NewJobDraft/.test(m.source));
     expect(offenders.map((m) => m.name)).toEqual([]);
   });
 });

@@ -27,9 +27,9 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { formatDollars, monthLabel, yearOf } from "../../format";
+import { formatDollars, formatSignedDollars, monthLabel, yearOf } from "../../format";
 import { TODAY_X, axisPointLabel, axisYearTickLabel, toAxisX, yearTickXs } from "../monthAxis";
-import type { BreakdownBand, NetWorthBreakdownData } from "./netWorthBreakdown";
+import { peakNetWorthOf, type BreakdownBand, type NetWorthBreakdownData } from "./netWorthBreakdown";
 import { NotSimulatedHatch, useHatchId } from "./notSimulatedHatch";
 
 const AXIS = "#6b6552";
@@ -51,12 +51,6 @@ const MODE_LABELS: Readonly<Record<Mode, string>> = {
   networth: "Net worth",
 };
 
-/** Whole dollars, grouped — for the summary line (the chart axis uses `formatDollars`). */
-function dollars(cents: number): string {
-  const sign = cents < 0 ? "−" : "";
-  return `${sign}$${Math.round(Math.abs(cents) / 100).toLocaleString("en-US")}`;
-}
-
 /** A colour per band, stepping shades within each kind. */
 function colorsForBands(bands: readonly BreakdownBand[]): Map<string, string> {
   const colors = new Map<string, string>();
@@ -77,6 +71,18 @@ function bandsForMode(bands: readonly BreakdownBand[], mode: Mode): BreakdownBan
   if (mode === "accounts") return bands.filter((b) => b.kind === "account");
   if (mode === "assets") return bands.filter((b) => b.kind !== "liability");
   return [...bands]; // networth: everything, liabilities signed negative below
+}
+
+/** Every owner cut, plus the combined household the chart opens on. */
+const COMBINED = "__combined__";
+
+/**
+ * The bands one person holds. An unattributed band — the engine's synthetic last-resort card is
+ * owned by the household rather than by either partner — belongs to the combined view only, so
+ * a person's cut never charges them with debt that is not theirs.
+ */
+function bandsForOwner(bands: readonly BreakdownBand[], owner: string): BreakdownBand[] {
+  return owner === COMBINED ? [...bands] : bands.filter((b) => b.ownerId === owner);
 }
 
 /** One entry Recharts hands a tooltip: a band's id and its (possibly signed) value. */
@@ -188,7 +194,14 @@ function BreakdownTooltip({
   );
 }
 
-export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }) {
+export function NetWorthBreakdownChart({
+  data,
+  personNames,
+}: {
+  data: NetWorthBreakdownData;
+  /** Names the owner toggle reads. A person absent from it is not offered a cut of their own. */
+  personNames?: ReadonlyMap<string, string>;
+}) {
   // Only offer a view that shows something the previous one doesn't: Assets adds property,
   // Net worth adds debt (or property, when there's no debt but the total still differs).
   const modes: Mode[] = ["accounts"];
@@ -198,8 +211,31 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
   const [mode, setMode] = useState<Mode>("accounts");
   const activeMode = modes.includes(mode) ? mode : "accounts";
 
+  // Everyone the household HAS, not everyone who happened to carry money. Deriving the list from
+  // drawn bands meant a partner who joined with no job and no balances was never offered a cut of
+  // their own, while a preset partner — who always arrives funded — always was: the same
+  // partnership, registered or not depending on its bank balance. The roster answers for both the
+  // same way, and an empty cut is itself the answer to "what does Blake bring?".
+  // A bookkeeping owner is excluded by construction rather than by filter: the roster holds
+  // people, so the synthetic card's "household" was never in it to begin with.
+  const owners = [...(personNames?.keys() ?? [])];
+  const ownerOptions = owners.length > 1 ? [COMBINED, ...owners] : [];
+  const [owner, setOwner] = useState<string>(COMBINED);
+  const activeOwner = ownerOptions.includes(owner) ? owner : COMBINED;
+
   const colors = useMemo(() => colorsForBands(data.bands), [data.bands]);
-  const visibleBands = bandsForMode(data.bands, activeMode);
+  // Owner first, then view: the cut decides WHOSE balance sheet, the view decides how much of it.
+  const ownedBands = bandsForOwner(data.bands, activeOwner);
+  const visibleBands = bandsForMode(ownedBands, activeMode);
+
+  // Recomputed over the cut's OWN bands. `data.peakNetWorthCents` is the household's, and
+  // printing it under a person's name claimed a partner peaked at a figure their own chart
+  // never reaches — the axis and the sentence disagreed on the same screen. Mode-independent,
+  // like the household figure: the headline is a balance sheet, whichever view is drawn.
+  const peak = useMemo(
+    () => (activeOwner === COMBINED ? data.peakNetWorthCents : peakNetWorthOf(data, ownedBands)),
+    [activeOwner, data, ownedBands],
+  );
 
   const hatchId = useHatchId("nwb");
 
@@ -225,34 +261,58 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
   // The axis spans the whole plan, matching the total chart above — see `./chartSpan`. The rows
   // stop earlier than this whenever the projection did (blocked, or insolvent).
   const lastX = data.xMax;
-  const accountCount = data.bands.filter((b) => b.kind === "account").length;
-  const peak = data.peakNetWorthCents;
+  const accountCount = visibleBands.filter((b) => b.kind === "account").length;
+  /** Whose balance sheet this is, or `null` in Combined — where it is nobody's in particular. */
+  const whose = activeOwner === COMBINED ? null : (personNames?.get(activeOwner) ?? activeOwner);
+  const holdings =
+    `across ${accountCount} account${accountCount === 1 ? "" : "s"}` +
+    `${data.hasProperties ? ", property" : ""}${data.hasLiabilities ? ", and debt" : ""}.`;
+  // A possessive needs something to possess. Gluing "Blake's " onto a sentence that opens with
+  // its verb read "Blake's Peaks around $371,266 net worth" — so the person's version is its own
+  // sentence, built around the noun, rather than the household's with a name stuck on the front.
   const summary =
     peak === null
       ? "No balances to break down yet."
-      : `Peaks around ${dollars(peak)} net worth, across ${accountCount} account${
-          accountCount === 1 ? "" : "s"
-        }${data.hasProperties ? ", property" : ""}${data.hasLiabilities ? ", and debt" : ""}.`;
+      : whose === null
+        ? `Peaks around ${formatSignedDollars(peak)} net worth, ${holdings}`
+        : `${whose}'s net worth peaks around ${formatSignedDollars(peak)}, ${holdings}`;
 
   return (
     <div role="img" aria-label={`Net-worth breakdown over time. ${summary}`}>
       <div className="row-between">
         <h3>Net worth breakdown</h3>
-        {modes.length > 1 && (
-          <div className="seg" role="group" aria-label="Breakdown view">
-            {modes.map((m) => (
-              <button
-                key={m}
-                type="button"
-                className="seg-btn"
-                aria-pressed={m === activeMode}
-                onClick={() => setMode(m)}
-              >
-                {MODE_LABELS[m]}
-              </button>
-            ))}
-          </div>
-        )}
+        <div className="row-between-controls">
+          {ownerOptions.length > 1 && (
+            <div className="seg" role="group" aria-label="Whose net worth">
+              {ownerOptions.map((o) => (
+                <button
+                  key={o}
+                  type="button"
+                  className="seg-btn"
+                  aria-pressed={o === activeOwner}
+                  onClick={() => setOwner(o)}
+                >
+                  {o === COMBINED ? "Combined" : (personNames?.get(o) ?? o)}
+                </button>
+              ))}
+            </div>
+          )}
+          {modes.length > 1 && (
+            <div className="seg" role="group" aria-label="Breakdown view">
+              {modes.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  className="seg-btn"
+                  aria-pressed={m === activeMode}
+                  onClick={() => setMode(m)}
+                >
+                  {MODE_LABELS[m]}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
       <p className="hint" data-testid="breakdown-summary">
         {summary}
@@ -265,7 +325,7 @@ export function NetWorthBreakdownChart({ data }: { data: NetWorthBreakdownData }
         {JSON.stringify(rows[0] ?? {})}
       </output>
 
-      {data.bands.length === 0 ? null : (
+      {visibleBands.length === 0 ? null : (
         <ResponsiveContainer width="100%" height={220}>
           <ComposedChart data={rows} margin={{ top: 12, right: 16, bottom: 8, left: 16 }}>
             <defs>

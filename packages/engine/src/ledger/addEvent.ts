@@ -24,6 +24,7 @@ import { getEligibleFundingSources, type FundingTreatment } from "../projection/
 import { nullJurisdiction, type Jurisdiction, type JurisdictionContext } from "../jurisdiction/jurisdiction";
 import type { HouseholdLiability } from "./household";
 import { isPreExisting } from "../projection/nowMarker";
+import { householdPresenceAt } from "../projection/snapshot";
 
 // simulate.ts / report.ts hold the same local constant. Only bracket indexing reads it, so
 // an off-by-a-year is immaterial.
@@ -179,12 +180,19 @@ export function fundingLookup(
   // each sale's tax under its own provenance (a tax-exempt cash reserve untaxed; a taxable
   // brokerage bears its gain). Every account, not just the liquid ones — `getEligibleFundingSources`
   // is what narrows this to a treatment's own eligible subset, downstream in `sourcesAt`/`failureAt`.
-  const assetAccounts = (base.initialAccounts ?? []).map((a) => a.sim);
+  const household = interpretLedger(ledger, base);
+  // Both account lists, exactly as {@link
+  // import("../projection/buildHouseholdInput").buildHouseholdSimInput} merges them: the primary's
+  // ride on `base.initialAccounts`, a partner's are minted by their `RelationshipEvent` into
+  // `household.eventAccounts`. Reading only the base here would let the simulator spend a
+  // partner's brokerage that this gate could not even offer — gate and sim must see one household.
+  const assetAccounts = [...(base.initialAccounts ?? []), ...household.eventAccounts].map(
+    (a) => a.sim,
+  );
   const labelById = new Map(assetAccounts.map((a) => [a.id, a.label || a.id]));
   const ownerById = new Map(assetAccounts.map((a) => [a.id, a.ownerId]));
   const categoryById = new Map(assetAccounts.map((a) => [a.id, a.taxProfile.withdrawalCategory]));
   const liquidById = new Map(assetAccounts.map((a) => [a.id, a.liquid]));
-  const household = interpretLedger(ledger, base);
   // A card the household has already taken (via a LoanEvent), keyed for the credit-aware source
   // resolution below. Its `creditLimitCents` is authored, never `null` — a null limit (zero usable
   // headroom) can only arise from the primitive's own defensive default, never from data this seam
@@ -286,14 +294,26 @@ export function fundingLookup(
     // One eligibility pass over every asset account plus every card the household has taken —
     // {@link getEligibleFundingSources} is the sole arbiter of which of them `treatment` admits,
     // so the picker's pool can never diverge from the engine's own rule.
+    // Whose money the household actually HAS at this month. A partner still to come, and one who
+    // has already left, both own accounts the whole-plan views carry — the picker offering them
+    // listed a future partner's savings at $0 years before they arrive and a departed partner's
+    // at $0 forever after. Asked through the same rule the dated snapshot's balances use, so the
+    // list of accounts and the list of people can never describe different households.
+    //
+    // Membership, not life: a partner who died left their accounts here, and the sim still spends
+    // them, so an offer to fund from them is an offer the sim will honour.
+    const present = householdPresenceAt(household, month);
     const candidates = [
-      ...assetAccounts.map((a) => ({ kind: "account" as const, id: a.id, liquid: a.liquid })),
-      ...[...cardById.values()].map((c) => ({
-        kind: "credit" as const,
-        id: c.id,
-        liquid: false,
-        credit: true as const,
-      })),
+      ...assetAccounts
+        .filter((a) => present(a.ownerId))
+        .map((a) => ({ kind: "account" as const, id: a.id, credit: false })),
+      ...[...cardById.values()]
+        .filter((c) => present(c.ownerId))
+        .map((c) => ({
+          kind: "credit" as const,
+          id: c.id,
+          credit: true as const,
+        })),
     ];
     const pool: FundingSourceBalance[] = getEligibleFundingSources(treatment, candidates).map((c) => {
       if (c.kind === "credit") {
@@ -363,8 +383,8 @@ export function fundingLookup(
   ) => {
     const eligibleIds = new Set(
       getEligibleFundingSources(treatment, [
-        ...assetAccounts.map((a) => ({ id: a.id, liquid: a.liquid })),
-        ...[...cardById.values()].map((c) => ({ id: c.id, liquid: false, credit: true as const })),
+        ...assetAccounts.map((a) => ({ id: a.id, credit: false })),
+        ...[...cardById.values()].map((c) => ({ id: c.id, credit: true as const })),
       ]).map((c) => c.id),
     );
     const named: FundingSourceBalance[] = [];

@@ -3,6 +3,7 @@
  * the result, and `ProjectionResult` reads over one run.
  */
 import { describe, it, expect } from "vitest";
+import { PRIMARY_PERSON_ID } from "../compile/projectionBase";
 import { Projection } from "../index";
 import { samplePlan, salariedJob, spendLine, stateOf, SAMPLE_START_YEAR } from "../testing/samplePlan";
 import { nullJurisdiction } from "../jurisdiction/jurisdiction";
@@ -144,7 +145,9 @@ describe("Projection reads — over authored state", () => {
       .accountDescriptors()
       .filter((d) => !before.some((b) => b.id === d.id));
     const goal = p.plan.goals.find((g) => g.id === goalId)!;
-    expect(added).toEqual([{ id: goalFundAccountId(goal), label: "Car", kind: "goal" }]);
+    expect(added).toEqual([
+      { id: goalFundAccountId(goal), label: "Car", kind: "goal", ownerId: PRIMARY_PERSON_ID },
+    ]);
   });
 
   it("names the events a goal's fund account pays for, and nothing else", () => {
@@ -356,3 +359,192 @@ describe("ProjectionResult reads — a plan's authored opening balances open the
  * arithmetic is `affordability`'s; these pin the DERIVATION — that the household's real gross
  * income and its already-serviced debt are what the guidelines are measured against.
  */
+
+/**
+ * The dated snapshot is a cross-section, not a view of the plan.
+ *
+ * Every other read here is deliberately omniscient — the timeline, the job projections and the
+ * whole-horizon charts all know about a partner years before they arrive, and should. The
+ * snapshot answers "who is in this household at month M, and what does it hold", so a partner
+ * still to come has no accounts in it and one who has left took theirs with them.
+ */
+describe("ProjectionResult reads — the household a dated snapshot belongs to", () => {
+  const OPENING = dollarsToCents(20_000);
+  const JOIN = 24;
+  const LEAVE = 48;
+
+  function partneredFrom(
+    join: number,
+    lifeExpectancy = samplePlan.primary.lifeExpectancy,
+    opening = OPENING,
+  ) {
+    const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
+    p.marry({
+      month: join,
+      name: "Sam",
+      birthYear: SAMPLE_START_YEAR - 38,
+      lifeExpectancy,
+      accounts: { savingsBalanceCents: opening, retirementBalanceCents: 0, brokerageBalanceCents: 0 },
+    });
+    return p;
+  }
+
+  /** Ids are the engine's to mint, so a partner's accounts are found through their ownership. */
+  function accountsOfPartner(result: ReturnType<Projection["run"]>, month: number): string[] {
+    const partner = result.household.memberships.find((m) => m.person.name === "Sam")!.person;
+    const theirs = new Set(
+      result.household.accounts.filter((a) => a.owners.includes(partner.id)).map((a) => a.id),
+    );
+    expect(theirs.size).toBeGreaterThan(0);
+    return result.snapshot(month).balances!.accounts.map((a) => a.id).filter((id) => theirs.has(id));
+  }
+
+  it("keeps a future partner's accounts out of every month before they join", () => {
+    const result = partneredFrom(JOIN).run(nullJurisdiction);
+    expect(accountsOfPartner(result, 0)).toEqual([]);
+    expect(accountsOfPartner(result, JOIN - 1)).toEqual([]);
+    expect(result.snapshot(0).persons.map((m) => m.name)).not.toContain("Sam");
+  });
+
+  it("shows them from the month they join, carrying the balance they brought", () => {
+    const result = partneredFrom(JOIN).run(nullJurisdiction);
+    expect(accountsOfPartner(result, JOIN).length).toBeGreaterThan(0);
+    const shown = result.snapshot(JOIN).balances!.accounts;
+    expect(shown.some((a) => a.balanceCents >= OPENING)).toBe(true);
+  });
+
+  it("hides a future partner whose opening balances are zero for the same reason", () => {
+    // The reported symptom was three $0 rows, but the fix is not about the figure: an account
+    // nobody in this household holds does not belong in a list of what it holds.
+    const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
+    p.marry({
+      month: JOIN,
+      name: "Sam",
+      birthYear: SAMPLE_START_YEAR - 38,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
+      accounts: { savingsBalanceCents: 0, retirementBalanceCents: 0, brokerageBalanceCents: 0 },
+    });
+    const result = p.run(nullJurisdiction);
+    expect(accountsOfPartner(result, 0)).toEqual([]);
+    expect(accountsOfPartner(result, JOIN).length).toBeGreaterThan(0);
+  });
+
+  it("takes a separating partner's accounts out of the snapshot with them", () => {
+    const p = partneredFrom(JOIN);
+    p.separate({ month: LEAVE, partnerPersonId: p.run(nullJurisdiction).activePartnerAt(JOIN)!.id });
+    const result = p.run(nullJurisdiction);
+    expect(accountsOfPartner(result, LEAVE - 1).length).toBeGreaterThan(0);
+    expect(accountsOfPartner(result, LEAVE)).toEqual([]);
+    expect(result.snapshot(LEAVE).persons.map((m) => m.name)).not.toContain("Sam");
+  });
+
+  it("does NOT treat a death as a departure — the estate is still the household's", () => {
+    // Separation and death end a partnership alike, and end it differently. A partner who left
+    // took their accounts; a partner who died left theirs behind, and the snapshot goes on
+    // holding what the projection goes on carrying.
+    // An expectancy of 40 against an age of 38: Sam dies two years in, well inside the horizon.
+    // Brought rich enough that the household cannot have spent it all first — an emptied estate
+    // drops off the list, and this is about what happens to one that still holds something.
+    const result = partneredFrom(0, 40, dollarsToCents(5_000_000)).run(nullJurisdiction);
+    const partner = result.household.memberships.find((m) => m.person.name === "Sam")!;
+    expect(partner.endMonth).toBeNull();
+    const last = result.series.months.length - 1;
+    expect(accountsOfPartner(result, last).length).toBeGreaterThan(0);
+    // Carried, and named as what it now is rather than as a holding of somebody long gone.
+    const estate = result.snapshot(last).balances!.accounts.filter((a) => a.inEstate === true);
+    expect(estate.length).toBeGreaterThan(0);
+  });
+
+  it("hands over in a single month when one leaves and the next arrives", () => {
+    const p = partneredFrom(JOIN);
+    p.separate({ month: LEAVE, partnerPersonId: p.run(nullJurisdiction).activePartnerAt(JOIN)!.id });
+    p.marry({
+      month: LEAVE,
+      name: "Rowan",
+      birthYear: SAMPLE_START_YEAR - 36,
+      lifeExpectancy: samplePlan.primary.lifeExpectancy,
+      accounts: { savingsBalanceCents: OPENING, retirementBalanceCents: 0, brokerageBalanceCents: 0 },
+    });
+    const result = p.run(nullJurisdiction);
+    const names = (month: number) => result.snapshot(month).persons.map((m) => m.name).sort();
+    expect(names(LEAVE - 1)).toContain("Sam");
+    expect(names(LEAVE)).toContain("Rowan");
+    expect(names(LEAVE)).not.toContain("Sam");
+    expect(accountsOfPartner(result, LEAVE)).toEqual([]);
+  });
+});
+
+/**
+ * The overlap the ledger refuses, asked BEFORE the write — the same span, the same conflict, the
+ * same sentence, so a form can block a click that could only fail and the two can never disagree
+ * about why.
+ */
+describe("ProjectionResult reads — would this partnership collide?", () => {
+  const partner = (name: string) => ({
+    name,
+    birthYear: SAMPLE_START_YEAR - 38,
+    lifeExpectancy: samplePlan.primary.lifeExpectancy,
+  });
+
+  function withPartnerAt(month: number) {
+    const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
+    p.marry({ month, ...partner("Sam") });
+    return p;
+  }
+
+  it("says nothing about a household that has never been partnered", () => {
+    const result = Projection.fromState(stateOf(samplePlan), nullJurisdiction).run(nullJurisdiction);
+    expect(result.partnershipConflict({ month: 24, person: partner("Rowan") })).toBeNull();
+  });
+
+  it("names the partnership a date already sits inside", () => {
+    const result = withPartnerAt(24).run(nullJurisdiction);
+    expect(result.partnershipConflict({ month: 36, person: partner("Rowan") })).toMatch(
+      /already partnered with Sam/,
+    );
+  });
+
+  it("names the partnership a date sits BEFORE and would run into", () => {
+    // The half a date check cannot see: month 12 is occupied by nobody, and a partnership
+    // authored there has no separation to end it before Sam arrives.
+    const result = withPartnerAt(24).run(nullJurisdiction);
+    expect(result.partnershipConflict({ month: 12, person: partner("Rowan") })).toMatch(
+      /still be running when you partner with Sam/,
+    );
+  });
+
+  it("lets a partnership begin the month the last one ended", () => {
+    const p = withPartnerAt(24);
+    p.separate({ month: 48, partnerPersonId: p.run(nullJurisdiction).activePartnerAt(24)!.id });
+    expect(
+      p.run(nullJurisdiction).partnershipConflict({ month: 48, person: partner("Rowan") }),
+    ).toBeNull();
+  });
+
+  it("never conflicts a partnership with itself", () => {
+    const result = withPartnerAt(24).run(nullJurisdiction);
+    const sam = result.activePartnerAt(24)!;
+    expect(
+      result.partnershipConflict({ month: 24, person: { ...partner("Sam"), id: sam.id } }),
+    ).toBeNull();
+  });
+
+  it("agrees with the write it is guarding, in both directions", () => {
+    // The point of asking twice. If the read said yes where the write says no, a form would
+    // offer a click that throws; if it said no where the write says yes, it would block a legal
+    // plan the engine was happy to record.
+    const result = withPartnerAt(24).run(nullJurisdiction);
+    for (const month of [0, 12, 24, 36]) {
+      const said = result.partnershipConflict({ month, person: partner("Rowan") });
+      const p = Projection.fromState(stateOf(samplePlan), nullJurisdiction);
+      p.marry({ month: 24, ...partner("Sam") });
+      let threw = false;
+      try {
+        p.marry({ month, ...partner("Rowan") });
+      } catch {
+        threw = true;
+      }
+      expect(threw).toBe(said !== null);
+    }
+  });
+});

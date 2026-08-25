@@ -8,4 +8,6 @@ export interface StartingPositionFormProps {
   onAdd: (write: (projection: Projection) => void) => void;
   /** Called after a successful submit, so the panel can collapse the open form. */
   onDone: () => void;
+  /** The household's own person, for forms that describe a second one beside them. */
+  primaryName?: string;
 }

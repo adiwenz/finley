@@ -44,9 +44,67 @@ export interface CausedByFields {
 
 // Event types
 
+/**
+ * A partner's three standing accounts (mirroring what {@link
+ * import("../compile/projectionBase").buildPlanAccounts} gives the primary), fully resolved —
+ * balances default to 0 and return rates to the primary's own at authoring time
+ * ({@link import("../authoring/relationships").applyMarriage}), so replay never needs the plan
+ * to reconstruct them.
+ */
+export interface PartnerStandingAccounts {
+  readonly savingsBalanceCents: Cents;
+  readonly savingsReturnPct: number;
+  readonly retirementBalanceCents: Cents;
+  readonly retirementReturnPct: number;
+  readonly brokerageBalanceCents: Cents;
+  readonly brokerageReturnPct: number;
+}
+
+/** A partner joining with none of their own money — the default when `accounts` is omitted. */
+export const ZERO_PARTNER_ACCOUNTS: PartnerStandingAccounts = {
+  savingsBalanceCents: 0,
+  savingsReturnPct: 0,
+  retirementBalanceCents: 0,
+  retirementReturnPct: 0,
+  brokerageBalanceCents: 0,
+  brokerageReturnPct: 0,
+};
+
+/**
+ * The share of shared household spending a partnership starts on, absent an authored one: half.
+ *
+ * A default, not a mode. Every partnership carries a percentage, and 50 is simply the number a
+ * new one opens with — so there is no "even split" setting to be in, and no rule that infers a
+ * number from what either person earns or holds. It is also what a ledger written before the
+ * field existed means, which is the whole of the migration: a scenario saved under the old
+ * proportional or even scheme replays at 50/50, never at a percentage back-computed from history.
+ */
+export const DEFAULT_PARTNER_SHARE_PERCENT = 50;
+
 export interface RelationshipEvent extends EventBase {
   readonly type: "RelationshipEvent";
   readonly person: Person;
+  /**
+   * The partner's three standing accounts. Absent ⇒ {@link ZERO_PARTNER_ACCOUNTS} — a partner
+   * with no accounts field contributes nothing, so every fixture written before this field
+   * existed replays unchanged.
+   */
+  readonly accounts?: PartnerStandingAccounts;
+  /**
+   * This partner's authored share of shared household spending, as a whole-number percentage
+   * 0–100. The primary's share is the remainder, so the two always sum to 100 and there is
+   * nothing to keep in step — one number, stated once, on the partnership it belongs to.
+   *
+   * Fixed until the user changes it. Nothing in the projection recomputes it: not a raise, a job
+   * loss, a retirement, a benefit, a bonus, an April bill or refund, nor any account balance.
+   * The percentage is a statement about how the household has agreed to divide its costs, and
+   * none of those is evidence about that.
+   *
+   * Absent ⇒ {@link DEFAULT_PARTNER_SHARE_PERCENT}. It rides on the RELATIONSHIP, so sequential
+   * partners are independent: a partner who joins after a separation opens at the default and
+   * inherits nothing from the partnership before them.
+   */
+  readonly partnerSharePercent?: number;
 }
 
 /**

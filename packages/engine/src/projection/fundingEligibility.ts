@@ -14,13 +14,16 @@
 export type FundingTreatment = "expense" | "asset-acquisition";
 
 /**
- * The two account facts eligibility reads: whether it is a liquid asset account, and whether it is
- * a revolving credit line. A credit card is never `liquid` (it is a liability, not a spendable
- * asset), so `credit` is the separate flag that admits it to the `expense` branch. Absent → an
- * ordinary asset account, so existing asset-only candidates need no `credit` field.
+ * The one account fact eligibility reads: whether the source is a revolving credit line rather
+ * than a holding of the household's own money. Absent → an ordinary asset account, so existing
+ * asset-only candidates need no `credit` field.
+ *
+ * Deliberately NOT `liquid`. That flag means "eligible to receive net cash flow from the
+ * allocation waterfall" ({@link import("../plan/simAccount").SimAccount.liquid}) — a
+ * deposit-destination fact, unrelated to whether a holding can be converted to cash for a
+ * purchase. Brokerage and retirement are both `liquid: false` yet both are perfectly spendable.
  */
 export interface EligibilityCandidate {
-  readonly liquid: boolean;
   readonly credit?: boolean;
 }
 
@@ -31,11 +34,16 @@ export interface EligibilityCandidate {
  * actually cover a draw is a headroom/balance question the picker greys out on, never an
  * eligibility one.
  *
- * An `expense` admits every account the household owns, illiquid ones (retirement, brokerage)
- * included, plus every credit card — a one-time spend can be paid from wherever the money sits.
- * An `asset-acquisition` is narrower: no bank funds a down payment on a card, and a lender wants
- * liquid, verifiable funds, so it admits only liquid, non-credit accounts. Retirement stays out of
- * an asset acquisition's pool for that reason.
+ * An `expense` admits every account the household owns plus every credit card — a one-time spend
+ * can be paid from wherever the money sits. An `asset-acquisition` differs in exactly one respect:
+ * no bank funds a down payment on a card, so credit is barred. Every account holding the
+ * household's OWN money qualifies, brokerage and retirement included — a lender cares that funds
+ * exist and can be traced, not that they were already sitting in cash.
+ *
+ * The tax on getting the money out is priced by {@link
+ * import("./fundingDrawStep").resolveOrderedFundingDraw} per source, so a brokerage draw bears its
+ * gain. An early-withdrawal PENALTY on a retirement draw is not modelled anywhere in the engine,
+ * so a retirement-funded down payment reads slightly cheaper than it would really be.
  */
 export function getEligibleFundingSources<A extends EligibilityCandidate>(
   treatment: FundingTreatment,
@@ -45,6 +53,6 @@ export function getEligibleFundingSources<A extends EligibilityCandidate>(
     case "expense":
       return accounts;
     case "asset-acquisition":
-      return accounts.filter((a) => a.liquid && a.credit !== true);
+      return accounts.filter((a) => a.credit !== true);
   }
 }

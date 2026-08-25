@@ -23,6 +23,9 @@ function scheduledPaymentsAgainst(
 ): Map<string, Cents> {
   const payments = new Map<string, Cents>();
   for (const liab of liabilities) {
+    // A debt that left with a departing partner is not the household's to pay, however much of
+    // it is still outstanding on their side of the split.
+    if (!liab.heldAt(month)) continue;
     const bal = balances.get(liab.id) ?? 0;
     if (bal <= 0) continue;
     payments.set(liab.id, liab.monthlyPaymentCents(bal, month));
@@ -69,10 +72,13 @@ export function buildLiabilityPaymentRecords(
 }
 
 /**
- * Step 7: shortfall cascade. If the liquid account went negative, zero it and route the
- * deficit onto credit cards lowest-APR-first, each up to its limit (a null limit is
+ * Step 7: shortfall cascade. Any liquid account that went negative — {@link
+ * import("./allocationStep").allocateMonth} may post the month's residual against several,
+ * owner-aware, not just {@link SimState.liquidAccount} — is zeroed, and the SUM of every such
+ * deficit routes onto credit cards lowest-APR-first, each up to its limit (a null limit is
  * unbounded; the synthetic shortfall card has a finite default limit, so it too can be
- * exhausted).
+ * exhausted). A household borrows once ANY of its own liquid buffers runs dry, never only once
+ * one arbitrarily-designated account does.
  *
  * Returns the deficit still UNCOVERED once savings and every card are exhausted — the
  * terminal failure condition, surfaced as `isInsolvent` and a null net worth. This function
@@ -83,12 +89,16 @@ export function buildLiabilityPaymentRecords(
  * import("./financialObligation").fundedLiabilityPayments}).
  */
 export function applyShortfallCascade(state: SimState, month: number): Cents {
-  if (state.liquidAccount === null) return 0;
-  const liquidBal = state.assetBalances.get(state.liquidAccount.id) ?? 0;
-  if (liquidBal >= 0) return 0;
+  let deficit: Cents = 0;
+  for (const account of state.accounts) {
+    if (!account.liquid) continue;
+    const balance = state.assetBalances.get(account.id) ?? 0;
+    if (balance >= 0) continue;
+    deficit += -balance;
+    state.assetBalances.set(account.id, 0);
+  }
+  if (deficit <= 0) return 0;
 
-  let deficit = -liquidBal;
-  state.assetBalances.set(state.liquidAccount.id, 0);
   for (const card of state.cascadeCards) {
     if (deficit <= 0) break;
     // A card not yet originated can't absorb a shortfall — borrowing onto it would be lost.
@@ -155,6 +165,10 @@ export function advancedLiabilityBalanceCents(
   appliedPaymentCents: Cents,
 ): Cents {
   if (month < liability.startMonth) return balanceCents; // not originated yet — stays at 0
+  // Gone with its owner: zeroed on the household's books from the separation month, never
+  // amortized further here. Zeroing rather than freezing is what keeps it out of net worth — the
+  // debt still exists, just not as this household's.
+  if (!liability.heldAt(month)) return 0;
   // Origination: balance appears with no interest or payment, mirroring an account's opening
   // balance at month 0.
   if (month === liability.startMonth) return liability.openingBalanceCents;

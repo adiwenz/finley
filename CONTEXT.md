@@ -163,6 +163,26 @@ reassigns it. Presented as a stated-rule reading, in the spirit of a **Nudge** �
 something the user authored or the ledger observed.
 _Avoid_: stating it as an observed or authored fact.
 
+**Per-person funding**:
+What a **household** of more than one is shown instead of the per-line attribution above: each
+member's authored **share**, what their own take-home reached, which of their own accounts
+covered the rest, and what a partner's covered as **assistance**. Every figure is one the
+engine decided, so this is *not* a derived interpretation and carries no such caveat. The
+distinction matters because accounts are personally owned: an arbitrary line-to-source
+assignment becomes a claim about an owner, and a claim about an owner can be simply wrong.
+_Avoid_: applying it to a household of one, which has no owner to disambiguate and keeps the
+per-line reading.
+
+**Funding order**:
+The sequence a household spends itself in, for one member's authored **share**: their own
+income, their own accounts, the other member's *unspent current-month income*, the other
+member's accounts, then credit. The third rung is the one that is easy to leave out, and
+leaving it out costs real money — selling a partner's holding while that partner's pay for the
+same month is on its way to a surplus sweep converts an asset into cash the household already
+had. Everything from the third rung on is **assistance**, and none of it edits the **share**.
+_Avoid_: reading it as a pooling rule. The first two rungs are exhausted per person before the
+household is asked for anything, which is what keeps an authored 70/30 from behaving as 50/50.
+
 **One-Time Spend**:
 A dated, source-directed cash outflow funded from named accounts in a chosen order.
 Distinguished from a dated expense override by exactly one thing: the user names *which*
@@ -232,16 +252,16 @@ _Avoid_: error, alert, dismissible warning.
 **Allocation waterfall**:
 The fixed, opinionated per-month order that routes net cash flow to the month's
 **automatically-funded obligations**: per-income-source pre-tax deductions → personal cash
-pool → shared pool (proportional-to-income by default) → shared goals in priority order →
-personal goals → shortfall cascade. Not user-configurable except for four named levers
-(contribution %, shared-contribution scheme, goal priority order, surplus-cash
+pool → shared pool (each partner's authored percentage, 50/50 by default) → shared goals in
+priority order → personal goals → shortfall cascade. Not user-configurable except for four
+named levers (contribution %, shared-expense split, goal priority order, surplus-cash
 destination). The ordering is fixed plumbing, never user-configurable.
 _Avoid_: budget rules, allocation policy (waterfall is the precise term; "policy" is used
 loosely, but "waterfall" names the specific fixed sequence).
 
 **Lever**:
 One of the (now four) user-exposed choices *within* the fixed waterfall: per-person 401(k)
-%, shared-contribution scheme (proportional vs. even), goal priority order, and default
+%, the shared-expense split (a percentage per partnership), goal priority order, and default
 surplus-cash destination (idle-in-liquid vs. swept-to-investment). Everything else about the
 waterfall is under the hood.
 _Avoid_: knob, setting, option ("lever" is the precise word, and it is deliberately a

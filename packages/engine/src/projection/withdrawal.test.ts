@@ -27,6 +27,7 @@ import {
   DEFAULT_LIQUIDATION_ORDER,
   type WithdrawalState,
 } from "./withdrawal";
+import { runWaterfall, type WaterfallInput } from "./waterfall";
 
 /** Non-compounding by default (rate 0) so balances move only by withdrawal/deposit. */
 function account(
@@ -897,5 +898,421 @@ describe("Liquid-buffer drawdown reporting", () => {
     const { sources } = buildWithdrawalSources(st, nullJurisdiction, dollarsToCents(5_000), ctx);
     expect(sources[0].sourceId).toBe("brokerage");
     expect(sources[0].label).toBe("Brokerage draw");
+  });
+});
+
+describe("Person-aware decumulation — fund each person's share from accounts available to them", () => {
+  const ctx = { year: 2026 };
+
+  function ownedAccount(id: string, ownerId: string, dollars: number): SimAccount {
+    return new SimAccount({
+      id,
+      ownerId,
+      liquid: false,
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
+      openingBalanceCents: dollarsToCents(dollars),
+      initialAnnualRate: 0,
+    });
+  }
+
+  function twoOwnerState(dollarsById: Record<string, number>): WithdrawalState {
+    const accounts = [
+      ownedAccount("p1-brokerage", "p1", dollarsById["p1-brokerage"] ?? 0),
+      ownedAccount("p2-brokerage", "p2", dollarsById["p2-brokerage"] ?? 0),
+    ];
+    const assetBalances = new Map<string, Cents>();
+    for (const a of accounts) assetBalances.set(a.id, dollarsToCents(dollarsById[a.id] ?? 0));
+    return { accounts, assetBalances, basisByAccount: new Map(), liquidAccount: null };
+  }
+
+  it("draws each person's share from their OWN account, not the other's", () => {
+    const st = twoOwnerState({ "p1-brokerage": 10_000, "p2-brokerage": 10_000 });
+    const byPersonCents = new Map([
+      ["p1", dollarsToCents(3_000)],
+      ["p2", dollarsToCents(2_000)],
+    ]);
+    buildWithdrawalSources(st, nullJurisdiction, dollarsToCents(5_000), ctx, DEFAULT_LIQUIDATION_ORDER, byPersonCents);
+    expect(st.assetBalances.get("p1-brokerage")).toBe(dollarsToCents(7_000));
+    expect(st.assetBalances.get("p2-brokerage")).toBe(dollarsToCents(8_000));
+  });
+
+  it("crosses over to the other person's accounts once their own share is exhausted", () => {
+    // p1 owes $3,000 but only has $1,000 of their own; the remaining $2,000 of the $5,000 gap
+    // falls to p2's account once the person-aware pass cannot find it in p1's.
+    const st = twoOwnerState({ "p1-brokerage": 1_000, "p2-brokerage": 10_000 });
+    const byPersonCents = new Map([
+      ["p1", dollarsToCents(3_000)],
+      ["p2", dollarsToCents(2_000)],
+    ]);
+    buildWithdrawalSources(st, nullJurisdiction, dollarsToCents(5_000), ctx, DEFAULT_LIQUIDATION_ORDER, byPersonCents);
+    expect(st.assetBalances.get("p1-brokerage")).toBe(0);
+    expect(st.assetBalances.get("p2-brokerage")).toBe(dollarsToCents(6_000));
+  });
+
+  it("never drives an account negative to preserve the split", () => {
+    // Neither person's own account, nor the two combined, can cover the $5,000 gap: both drain
+    // to exactly 0, never below, and the shortfall the household still could not raise is simply
+    // left unmet (the credit cascade's job, not this one's).
+    const st = twoOwnerState({ "p1-brokerage": 1_000, "p2-brokerage": 1_000 });
+    const byPersonCents = new Map([
+      ["p1", dollarsToCents(3_000)],
+      ["p2", dollarsToCents(2_000)],
+    ]);
+    buildWithdrawalSources(st, nullJurisdiction, dollarsToCents(5_000), ctx, DEFAULT_LIQUIDATION_ORDER, byPersonCents);
+    expect(st.assetBalances.get("p1-brokerage")).toBe(0);
+    expect(st.assetBalances.get("p2-brokerage")).toBe(0);
+  });
+
+  it("draws only the owing person's own account when they are the sole positive share (#160)", () => {
+    // A personal obligation routinely attributes the WHOLE gap to exactly one person — unlike a
+    // shared obligation's proportional split, which usually leaves both with something. That
+    // single-entry case must still prefer the owing person's own accounts, not fall through to
+    // the ownership-blind pooled pass and reach into the other partner's untouched assets.
+    const st = twoOwnerState({ "p1-brokerage": 10_000, "p2-brokerage": 10_000 });
+    const byPersonCents = new Map([
+      ["p1", 0],
+      ["p2", dollarsToCents(800)],
+    ]);
+    buildWithdrawalSources(st, nullJurisdiction, dollarsToCents(800), ctx, DEFAULT_LIQUIDATION_ORDER, byPersonCents);
+    expect(st.assetBalances.get("p2-brokerage")).toBe(dollarsToCents(9_200));
+    expect(st.assetBalances.get("p1-brokerage")).toBe(dollarsToCents(10_000));
+  });
+
+  it("falls back to the pooled order, unchanged, when no per-person split is given", () => {
+    const st = twoOwnerState({ "p1-brokerage": 10_000, "p2-brokerage": 10_000 });
+    buildWithdrawalSources(st, nullJurisdiction, dollarsToCents(5_000), ctx);
+    // p1's account is first in `state.accounts`, so the pooled order (unaware of ownership)
+    // drains it first — exactly the "first eligible account in a global waterfall" behavior
+    // this module had before a per-person hint existed.
+    expect(st.assetBalances.get("p1-brokerage")).toBe(dollarsToCents(5_000));
+    expect(st.assetBalances.get("p2-brokerage")).toBe(dollarsToCents(10_000));
+  });
+
+  it("assigns the whole budget by the authored split even when nobody has income", () => {
+    // Integration-level: with no income at all, every cent of the shared obligation is still
+    // somebody's — the authored percentages decide whose, and the shortfall map hands each
+    // person's own gap back to them so their own accounts are sold for it first.
+    const base: WaterfallInput = {
+      personIds: ["p1", "p2"],
+      incomeSources: [],
+      sharedObligationCents: dollarsToCents(3_000),
+      surplusDestination: { kind: "idle" },
+      goals: [],
+      accountBalanceCents: () => 0,
+      liquidAccountId: null,
+      remainingDeferralRoomCents: () => Infinity,
+      remainingCombinedDepositRoomCents: () => Infinity,
+      payPeriodsPerYear: 12,
+      periodsRemainingInTaxYear: 12,
+    };
+    const even = runWaterfall(base);
+    expect(even.obligationShortfallByPersonCents.get("p1")).toBe(dollarsToCents(1_500));
+    expect(even.obligationShortfallByPersonCents.get("p2")).toBe(dollarsToCents(1_500));
+    expect(even.shortfallCents).toBe(dollarsToCents(3_000));
+
+    const authored = runWaterfall({
+      ...base,
+      sharedSharePercentOf: (pid) => (pid === "p1" ? 70 : 30),
+    });
+    expect(authored.obligationShortfallByPersonCents.get("p1")).toBe(dollarsToCents(2_100));
+    expect(authored.obligationShortfallByPersonCents.get("p2")).toBe(dollarsToCents(900));
+    expect(authored.shortfallCents).toBe(dollarsToCents(3_000));
+  });
+
+  it("end to end: a big month draws each partner's own brokerage EVENLY on the default split, despite unequal income", () => {
+    // p1 earns 3x p2's wage and it buys p1 no smaller a share: the split is the authored 50/50,
+    // and neither partner's account stays untouched while the other's alone covers the household.
+    const wage = (ownerId: string, monthlyDollars: number): SimOwnedSeries => ({
+      series: new SimCashFlowSeries(0, dollarsToCents(monthlyDollars), { type: "fixed" }, {
+        baselineUnit: "monthly",
+        taxCategory: "wages",
+      }),
+      ownerId,
+    });
+    const p1: SimPerson = { id: "p1", name: "Alice" };
+    const p2: SimPerson = { id: "p2", name: "Bob" };
+    const series = simulateHousehold(
+      {
+        horizonMonths: 1,
+        annualInflationRate: 0,
+        startYear: 2026,
+        persons: [p1, p2],
+        accounts: [
+          ownedAccount("p1-brokerage", "p1", 100_000),
+          ownedAccount("p2-brokerage", "p2", 100_000),
+        ],
+        incomeSeries: [wage("p1", 3_000), wage("p2", 1_000)],
+        expenseSeries: [expense(20_000)],
+      },
+      nullJurisdiction,
+    );
+    const month0 = series.months[0];
+    expect(month0.isInsolvent).toBe(false);
+    const p1Drawn = 100_000 - month0.accountBalancesCents["p1-brokerage"]! / 100;
+    const p2Drawn = 100_000 - month0.accountBalancesCents["p2-brokerage"]! / 100;
+    // p1 has more income to put against the identical share, so p1 sells LESS — the difference
+    // is exactly the $2,000 of extra pay, not a difference in what either was assigned.
+    expect(p2Drawn - p1Drawn).toBeCloseTo(2_000, 0);
+  });
+
+  it("end to end: an authored 75/25 draws 75/25 out of identical accounts", () => {
+    // Neither assets nor income decide this: both partners hold the same $60k and neither earns
+    // anything, so the only thing left to explain a 3:1 draw is the number the household wrote.
+    const p1: SimPerson = { id: "p1", name: "Alice" };
+    const p2: SimPerson = { id: "p2", name: "Bob", sharedExpensePercent: 25 };
+    const series = simulateHousehold(
+      {
+        horizonMonths: 1,
+        annualInflationRate: 0,
+        startYear: 2026,
+        persons: [p1, p2],
+        accounts: [
+          ownedAccount("p1-brokerage", "p1", 60_000),
+          ownedAccount("p2-brokerage", "p2", 60_000),
+        ],
+        incomeSeries: [],
+        expenseSeries: [expense(20_000)],
+      },
+      nullJurisdiction,
+    );
+    const month0 = series.months[0];
+    expect(month0.isInsolvent).toBe(false);
+    expect(60_000 - month0.accountBalancesCents["p1-brokerage"]! / 100).toBeCloseTo(15_000, 0);
+    expect(60_000 - month0.accountBalancesCents["p2-brokerage"]! / 100).toBeCloseTo(5_000, 0);
+  });
+
+  it("swapping which partner carries the larger percentage swaps the draw with it", () => {
+    const p1: SimPerson = { id: "p1", name: "Alice" };
+    const p2: SimPerson = { id: "p2", name: "Bob", sharedExpensePercent: 75 };
+    const series = simulateHousehold(
+      {
+        horizonMonths: 1,
+        annualInflationRate: 0,
+        startYear: 2026,
+        persons: [p1, p2],
+        accounts: [
+          ownedAccount("p1-brokerage", "p1", 60_000),
+          ownedAccount("p2-brokerage", "p2", 60_000),
+        ],
+        incomeSeries: [],
+        expenseSeries: [expense(20_000)],
+      },
+      nullJurisdiction,
+    );
+    const month0 = series.months[0];
+    expect(month0.isInsolvent).toBe(false);
+    expect(60_000 - month0.accountBalancesCents["p1-brokerage"]! / 100).toBeCloseTo(5_000, 0);
+    expect(60_000 - month0.accountBalancesCents["p2-brokerage"]! / 100).toBeCloseTo(15_000, 0);
+  });
+
+  it("end to end: a partner's own loan payment draws only their own brokerage while it can cover it (#160)", () => {
+    // p2's income can't cover their own $1,000 loan payment, but p2's own brokerage can; p1
+    // earns plenty and has no obligation of their own. The owner's own accounts are exhausted
+    // before anyone else's are touched, so p1 is untouched here — not because p1's assets are
+    // out of bounds (see the backstop test below), but because p2 never needed them.
+    const wage = (ownerId: string, monthlyDollars: number): SimOwnedSeries => ({
+      series: new SimCashFlowSeries(0, dollarsToCents(monthlyDollars), { type: "fixed" }, {
+        baselineUnit: "monthly",
+        taxCategory: "wages",
+      }),
+      ownerId,
+    });
+    const p1: SimPerson = { id: "p1", name: "Alice" };
+    const p2: SimPerson = { id: "p2", name: "Bob" };
+    // 0% APR, $12k over 12 months → a flat $1,000 payment, first due at month 1.
+    const loan = new AmortizingLoan({
+      id: "p2-auto",
+      ownerId: "p2",
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(12_000),
+      apr: 0,
+      termMonths: 12,
+    });
+    const series = simulateHousehold(
+      {
+        horizonMonths: 2,
+        annualInflationRate: 0,
+        startYear: 2026,
+        persons: [p1, p2],
+        accounts: [
+          ownedAccount("p1-brokerage", "p1", 100_000),
+          ownedAccount("p2-brokerage", "p2", 100_000),
+        ],
+        incomeSeries: [wage("p1", 5_000), wage("p2", 200)],
+        expenseSeries: [],
+        liabilities: [loan],
+      },
+      nullJurisdiction,
+    );
+    const month1 = series.months[1]!;
+    expect(month1.isInsolvent).toBe(false);
+    // p2's own $200 covers part of their $1,000 payment; the $800 gap comes out of p2's own
+    // brokerage.
+    expect(month1.accountBalancesCents["p2-brokerage"]).toBe(dollarsToCents(100_000 - 800));
+    // p1 has no obligation of their own and no shared obligation exists — p1's brokerage is
+    // untouched.
+    expect(month1.accountBalancesCents["p1-brokerage"]).toBe(dollarsToCents(100_000));
+  });
+
+  it("end to end: p1 backstops p2's personal debt once p2's own resources run out (#160)", () => {
+    // p2's income and own brokerage together cannot cover their $1,000 loan payment — p1, the
+    // other active partner, backstops the remainder from THEIR OWN resources. The household
+    // stays solvent even though p2 alone could never have made this payment; the debt itself
+    // stays p2's (see financialObligation.test.ts) even though p1's cash covered it.
+    const wage = (ownerId: string, monthlyDollars: number): SimOwnedSeries => ({
+      series: new SimCashFlowSeries(0, dollarsToCents(monthlyDollars), { type: "fixed" }, {
+        baselineUnit: "monthly",
+        taxCategory: "wages",
+      }),
+      ownerId,
+    });
+    const p1: SimPerson = { id: "p1", name: "Alice" };
+    const p2: SimPerson = { id: "p2", name: "Bob" };
+    const loan = new AmortizingLoan({
+      id: "p2-auto",
+      ownerId: "p2",
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(12_000),
+      apr: 0,
+      termMonths: 12,
+    });
+    const series = simulateHousehold(
+      {
+        horizonMonths: 2,
+        annualInflationRate: 0,
+        startYear: 2026,
+        persons: [p1, p2],
+        accounts: [
+          ownedAccount("p1-brokerage", "p1", 100_000),
+          ownedAccount("p2-brokerage", "p2", 100),
+        ],
+        incomeSeries: [wage("p1", 5_000), wage("p2", 100)],
+        expenseSeries: [],
+        liabilities: [loan],
+      },
+      nullJurisdiction,
+    );
+    const month1 = series.months[1]!;
+    // Solvent — the household as a whole could pay even though p2 alone could not.
+    expect(month1.isInsolvent).toBe(false);
+    // p2's own brokerage is exhausted trying to cover their own debt first.
+    expect(month1.accountBalancesCents["p2-brokerage"]).toBe(0);
+    // p1's brokerage covers the rest, as the backstop.
+    expect(month1.accountBalancesCents["p1-brokerage"]).toBeLessThan(dollarsToCents(100_000));
+  });
+
+  it("pins the whole owner-first cascade for a personal debt: own income, then own accounts, then the partner's", () => {
+    // The three funding tiers in one scenario, every balance pinned rather than merely
+    // "solvent": p2 owes $1,000/mo, earns $300, and holds $500. Their income covers $300 and
+    // their own account the next $500 — exhausted, not merely preferred — leaving exactly $200
+    // for p1, the other active partner, to backstop from THEIR account. Ownership does not move
+    // with the money: the debt stays p2's, which is what the issue's "assigned entirely to that
+    // person" governs.
+    const wage = (ownerId: string, monthlyDollars: number): SimOwnedSeries => ({
+      series: new SimCashFlowSeries(0, dollarsToCents(monthlyDollars), { type: "fixed" }, {
+        baselineUnit: "monthly",
+        taxCategory: "wages",
+      }),
+      ownerId,
+    });
+    const p1: SimPerson = { id: "p1", name: "Alice" };
+    const p2: SimPerson = { id: "p2", name: "Bob" };
+    // 0% APR, $12k over 12 months → a flat $1,000 payment, first due at month 1.
+    const loan = new AmortizingLoan({
+      id: "p2-auto",
+      ownerId: "p2",
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(12_000),
+      apr: 0,
+      termMonths: 12,
+    });
+    const series = simulateHousehold(
+      {
+        horizonMonths: 2,
+        annualInflationRate: 0,
+        startYear: 2026,
+        persons: [p1, p2],
+        accounts: [
+          ownedAccount("p1-brokerage", "p1", 50_000),
+          ownedAccount("p2-brokerage", "p2", 500),
+        ],
+        incomeSeries: [wage("p1", 4_000), wage("p2", 300)],
+        expenseSeries: [],
+        liabilities: [loan],
+      },
+      nullJurisdiction,
+    );
+
+    // Opening balances, so the deltas below are read against a pinned start, not an assumed one.
+    const month0 = series.months[0]!;
+    expect(month0.accountBalancesCents["p1-brokerage"]).toBe(dollarsToCents(50_000));
+    expect(month0.accountBalancesCents["p2-brokerage"]).toBe(dollarsToCents(500));
+
+    const month1 = series.months[1]!;
+    // The household could pay, so it did — p2 alone never could have.
+    expect(month1.isInsolvent).toBe(false);
+    // Tier 2: p2's own account funds their share until it is EMPTY. Pinned at 0, so this cannot
+    // pass on a merely-proportional draw that happened to leave something behind.
+    expect(month1.accountBalancesCents["p2-brokerage"]).toBe(0);
+    // Tier 3: exactly the $200 p2's own income and account could not reach — no more, so p1 is a
+    // backstop for the true remainder rather than a co-payer of the whole obligation.
+    expect(month1.accountBalancesCents["p1-brokerage"]).toBe(dollarsToCents(50_000 - 200));
+    // Owner-first ordering is never bought with an overdraft.
+    for (const balance of Object.values(month1.accountBalancesCents)) {
+      expect(balance).toBeGreaterThanOrEqual(0);
+    }
+    // The debt is p2's before and after p1's money touched it. Paying is not assuming.
+    expect(loan.ownerId).toBe("p2");
+    expect(month1.liabilityBalancesCents["p2-auto"]).toBe(dollarsToCents(11_000));
+  });
+});
+
+describe("Individually-owned liquid/cash accounts fund fairly — not one household-wide buffer drained first (#160)", () => {
+  const ctx = { year: 2026 };
+
+  function ownedCashAccount(id: string, ownerId: string, dollars: number): SimAccount {
+    return new SimAccount({
+      id,
+      ownerId,
+      liquid: true,
+      taxProfile: CASH_INTEREST_TAX_PROFILE,
+      openingBalanceCents: dollarsToCents(dollars),
+      initialAnnualRate: 0,
+    });
+  }
+
+  function twoOwnerCashState(dollarsById: Record<string, number>): WithdrawalState {
+    const accounts = [
+      ownedCashAccount("p1-cash", "p1", dollarsById["p1-cash"] ?? 0),
+      ownedCashAccount("p2-cash", "p2", dollarsById["p2-cash"] ?? 0),
+    ];
+    const assetBalances = new Map<string, Cents>();
+    for (const a of accounts) assetBalances.set(a.id, dollarsToCents(dollarsById[a.id] ?? 0));
+    return { accounts, assetBalances, basisByAccount: new Map(), liquidAccount: accounts[0]! };
+  }
+
+  it("predicts BOTH partners' own cash accounts proportionally, not p1's whole buffer first merely because it is listed first", () => {
+    // Equal shares of a $5,000 gap. Old positional behavior would have exhausted whichever
+    // account happened to be `state.liquidAccount` (here, p1's, listed first) before ever
+    // touching p2's. Neither balance actually changes here — the buffer is only PREDICTED, not
+    // drained, by `buildWithdrawalSources` — but the PREDICTION itself must already be fair.
+    const st = twoOwnerCashState({ "p1-cash": 10_000, "p2-cash": 10_000 });
+    const byPersonCents = new Map([
+      ["p1", dollarsToCents(2_500)],
+      ["p2", dollarsToCents(2_500)],
+    ]);
+    const { liquidDrawdownByAccountCents } = buildWithdrawalSources(
+      st,
+      nullJurisdiction,
+      dollarsToCents(5_000),
+      ctx,
+      DEFAULT_LIQUIDATION_ORDER,
+      byPersonCents,
+    );
+    expect(liquidDrawdownByAccountCents.get("p1-cash")).toBe(dollarsToCents(2_500));
+    expect(liquidDrawdownByAccountCents.get("p2-cash")).toBe(dollarsToCents(2_500));
+    // No balance is mutated yet — the real debit happens once, later, in `allocateMonth`.
+    expect(st.assetBalances.get("p1-cash")).toBe(dollarsToCents(10_000));
+    expect(st.assetBalances.get("p2-cash")).toBe(dollarsToCents(10_000));
   });
 });

@@ -15,7 +15,6 @@ import type { EstateSettlement } from "./estateSettlement";
 import type { FundingFailure } from "./fundingFailure";
 import type {
   PlanDescriptor,
-  SharedContributionScheme,
   SurplusDestination,
 } from "./waterfall";
 
@@ -82,6 +81,16 @@ export interface ProjectionMonth {
   readonly month: number;
   readonly netWorthNominalCents: Cents | null;
   readonly netWorthRealCents: Cents | null;
+  /**
+   * `netWorthNominalCents` broken out by owner — accounts, properties and liabilities each
+   * attributed to the person who owns them, so the app can chart primary, partner and
+   * combined net worth over time without re-deriving ownership itself. A joint account's
+   * balance is NOT split across its owners; it rides on whichever single `ownerId` the
+   * compiled {@link import("../plan/simAccount").SimAccount} carries (joint ownership is
+   * unrepresentable in the compiled shape — see `plan/planAccount.ts`). `null` exactly where
+   * `netWorthNominalCents` is `null`, for the same reason.
+   */
+  readonly netWorthByPersonCents: Readonly<Record<string, Cents>> | null;
   /**
    * Present on the FIRST insolvent month and no other — the one month where "how far short did
    * this plan fall, and what would that have cost?" has a defined answer. Absent everywhere
@@ -158,6 +167,80 @@ export interface ProjectionMonthFlows {
    * regrouping of {@link incomeSources}, which the waterfall already banded.
    */
   readonly wagesByOwner: Readonly<Record<string, MonthlyWages>>;
+  /**
+   * Per-person net cash flow — what each member had left after their own obligations and their
+   * share of the household's, before goals, contributions and the surplus sweep. See {@link
+   * import("./waterfall.types").WaterfallResult.leftoverByPersonCents} for what the split does
+   * and does not claim: it is how the household FUNDS its spending, not who authored it.
+   *
+   * POST-deferral. {@link deferredByPersonCents} is what a consumer adds back to reconcile with
+   * the household's `totalIncomeCents − taxCents − expenses` figure, which counts a pre-tax
+   * deferral as money the month kept.
+   */
+  readonly leftoverByPersonCents: Readonly<Record<string, Cents>>;
+  /** Each person's pre-tax deferral this month — the bridge described above. */
+  readonly deferredByPersonCents: Readonly<Record<string, Cents>>;
+  /**
+   * Per-person net cash flow, SIGNED — see {@link
+   * import("./waterfall.types").WaterfallResult.netCashFlowByPersonCents}. This is the figure to
+   * DRAW; {@link leftoverByPersonCents} is the figure the allocation spends, and it floors at
+   * zero, so a household living beyond its income shows every member flat at $0 there.
+   */
+  readonly netCashFlowByPersonCents: Readonly<Record<string, Cents>>;
+  /**
+   * Each person's share of the month's spending — see {@link
+   * import("./waterfall.types").WaterfallResult.obligationChargedByPersonCents}. The per-person
+   * counterpart of the household's spending need.
+   */
+  readonly obligationChargedByPersonCents: Readonly<Record<string, Cents>>;
+  /**
+   * What each person's OWN money covered of that share — see {@link
+   * import("./waterfall.types").WaterfallResult.obligationFundedByPersonCents}. Charged less
+   * funded is the assistance they received; funded less charged is the assistance they gave.
+   *
+   * Kept as a separate figure rather than folded into the share, because the two answer different
+   * questions and a household needs both: a partner who could only pay $900 of their $1,500 still
+   * OWES $1,500, and saying otherwise would rewrite an authored 70/30 as 82/18 every month one
+   * person happened to help the other.
+   */
+  readonly obligationFundedByPersonCents: Readonly<Record<string, Cents>>;
+  /**
+   * What another member's unspent current-month pay covered of this person's share, once their
+   * own income and own accounts were both spent — see {@link
+   * import("./waterfall.types").WaterfallResult.assistanceReceivedByPersonCents}.
+   *
+   * The separate figure "charged less funded" cannot give you: that difference is everything
+   * somebody else's money paid for, whether it came from a partner's paycheck or from selling a
+   * partner's holdings, and those are the two things the funding order exists to keep apart.
+   */
+  readonly assistanceReceivedByPersonCents: Readonly<Record<string, Cents>>;
+  /** The giver's side of the same cents — see {@link assistanceReceivedByPersonCents}. */
+  readonly assistanceGivenByPersonCents: Readonly<Record<string, Cents>>;
+  /**
+   * April's settled balance per PERSON, SIGNED — positive is that person's bill, negative is
+   * their refund. Sums to {@link taxSettlementCents}.
+   *
+   * The household files as separate single filers, so these do not net: one partner owing
+   * $1,000 while the other is refunded $300 is $1,000 of tax paid and $300 refunded, and a
+   * reporter that shows $700 has erased both real figures. Consumers wanting gross paid or gross
+   * refunded take Σ of the positive or the negative entries; `taxSettlementCents` remains the
+   * net cash effect on the household.
+   */
+  readonly taxSettlementByPersonCents: Readonly<Record<string, Cents>>;
+  /**
+   * Why each person's own balance came out that way: person id → source id → signed cents, each
+   * inner map summing exactly to that person's entry in {@link taxSettlementByPersonCents}.
+   *
+   * The per-source terms BEFORE they are added across the household, which is the only form in
+   * which they can be shown beside one filer's figure. {@link taxSettlementBySourceCents} is
+   * their sum, and a sum cannot be re-split: two filers claiming a benefit report it under keys
+   * the jurisdiction assigns without regard to whose it is, so one partner's average-rate credit
+   * can silently net against the other's charge there. Same signs and the same diagnostic
+   * standing as that map — never a chart band.
+   */
+  readonly taxSettlementBySourcePersonCents: Readonly<
+    Record<string, Readonly<Record<string, Cents>>>
+  >;
   /**
    * Σ `cashFlowIncomeByCategoryCents` — realized taxable income: includes savings interest,
    * excludes the savings drawdown.
@@ -568,6 +651,28 @@ export interface SimPerson {
     readonly startMonth: number;
     readonly endMonthExclusive: number;
   };
+  /**
+   * A PARTNER's authored share of shared household spending, 0–100 — see
+   * {@link import("../ledger/eventTypes").RelationshipEvent.partnerSharePercent}. Absent on the
+   * primary and on anyone who is not a partner, who between them take the remainder: 100 while
+   * unpartnered, `100 − this` while a partnership is running.
+   */
+  readonly sharedExpensePercent?: number;
+  /**
+   * The month this person LEFT the household, if they did — separation only, never death.
+   * Absent for a member who is still here and for one who died in it.
+   *
+   * {@link activeWindow} conflates the two, and for money that outlives the month it was earned
+   * they are opposite. A departed partner's parked tax balance leaves with them, exactly as
+   * their accounts and debts do. A deceased member's does not: it is a real claim, settled
+   * against the estate their assets have already merged into.
+   */
+  readonly separationMonth?: number;
+}
+
+/** Has this person left the household by `month` — separated, as distinct from died? */
+export function hasSeparatedBy(person: SimPerson, month: number): boolean {
+  return person.separationMonth !== undefined && month >= person.separationMonth;
 }
 
 /**
@@ -705,11 +810,6 @@ export interface HouseholdSimInput {
    * lines arrive precompiled in `expenseSeries`.
    */
   readonly contributionLines?: readonly BudgetLine[];
-  /**
-   * Lever 2: how partners split shared obligations. Defaults to `"proportional"` (to
-   * take-home), which degrades gracefully under unequal or zero incomes.
-   */
-  readonly sharedScheme?: SharedContributionScheme;
   /**
    * Lever 4: where leftover cash lands once every goal is funded. Defaults to `{ kind:
    * "idle" }` — the first liquid account.

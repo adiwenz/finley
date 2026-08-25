@@ -80,13 +80,13 @@ describe("HomePurchaseForm — down-payment source picker", () => {
   });
 
   it("offers a goal fund by name once it holds money, largest first", () => {
-    // By month 60 both savings goals have accumulated, so all three liquid accounts can
-    // pay — a cash goal fund included, since it is genuinely reachable.
+    // By month 60 both savings goals have accumulated. Every account holding the household's
+    // own money is offered — goal funds and retirement included, since all are reachable.
     const html = render(PLAN_DEFAULTS, 60);
     expect(html).toContain("Emergency fund");
     expect(html).toContain("Home down payment");
-    // Retirement is not liquid and never appears as a way to pay for a house.
-    expect(html).not.toContain("Retirement account");
+    // Retirement is the household's money too; a down payment may draw on it. Credit may not.
+    expect(html).toContain("Retirement account");
   });
 
   it("states the shortfall against the SELECTED accounts, not total net worth", () => {

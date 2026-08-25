@@ -13,6 +13,7 @@ import {
   PRIMARY_PERSON_REF,
   type BudgetLine,
   type JobIncomeOverrideInput,
+  type PartnerJobEntry,
   type ScenarioInput,
   type ProjectionState,
 } from "@finley/engine";
@@ -362,6 +363,259 @@ const CAREER_BREAK_UNPAID_MONTHS = [6, 7, 8, 9, 10, 11];
  */
 const DEFAULT_SCENARIO: ScenarioInput = DEFAULT_INPUT;
 
+/**
+ * The partner presets share one household shape: two earners, one budget, and the partner's own
+ * money held in their own accounts. Each preset then varies exactly one thing — who owes a debt,
+ * how the shared bill is split, or whether the couple stays together — so the pair-wise
+ * comparisons the app offers are genuinely one-variable comparisons.
+ *
+ * The partner is anchored with `startPartnered`, not `marry`: these are households as they
+ * already are, so a reader lands on the two-earner projection rather than watching it begin.
+ */
+const PARTNER_TOGETHER_YEARS = 8;
+const PARTNER_BIRTH_YEAR = DEFAULT_INPUT.startYear - 37;
+const PARTNER_LIFE_EXPECTANCY = 90;
+
+/** $5,400/mo — a two-earner household's bills, larger than the single-earner budgets above. */
+const HOUSEHOLD_BUDGET = [
+  expenseLine("Housing", "needs", 2_400),
+  expenseLine("Groceries", "needs", 950),
+  expenseLine("Transportation", "needs", 600),
+  expenseLine("Dining & fun", "wants", 900),
+  expenseLine("Subscriptions", "wants", 250),
+  expenseLine("Healthcare", "healthcare", 300),
+];
+
+/**
+ * A partner already in the household, with their own paycheck and their own accounts. Their
+ * accounts are theirs throughout: they count toward household net worth and may fund household
+ * spending while the couple is together, and leave with them at separation.
+ */
+function partnerEntry(over: {
+  readonly name: string;
+  readonly monthlyDollars: number;
+  readonly savingsDollars?: number;
+  readonly brokerageDollars?: number;
+  readonly retirementDollars?: number;
+  /** The partner's authored share of shared spending. Omitted ⇒ the engine's 50/50 default. */
+  readonly sharePercent?: number;
+}) {
+  return {
+    type: "startPartnered" as const,
+    ref: ref("partner"),
+    partneredForMonths: PARTNER_TOGETHER_YEARS * 12,
+    name: over.name,
+    birthYear: PARTNER_BIRTH_YEAR,
+    lifeExpectancy: PARTNER_LIFE_EXPECTANCY,
+    // Typed as the partner entry's own job shape, which FORBIDS an `ownerRef`: a job authored
+    // inside `startPartnered` belongs to the partner by position, and naming an owner could only
+    // contradict that.
+    jobs: [salariedJob(dollarsToCents(over.monthlyDollars))] as readonly PartnerJobEntry[],
+    accounts: {
+      savingsBalanceCents: dollarsToCents(over.savingsDollars ?? 0),
+      brokerageBalanceCents: dollarsToCents(over.brokerageDollars ?? 0),
+      retirementBalanceCents: dollarsToCents(over.retirementDollars ?? 0),
+    },
+    ...(over.sharePercent !== undefined ? { partnerSharePercent: over.sharePercent } : {}),
+  };
+}
+
+/** The two-earner base every partner preset varies from. Goals dropped, as the teaching presets do. */
+function partnerInput(over: Partial<ScenarioInput>): ScenarioInput {
+  return {
+    ...DEFAULT_INPUT,
+    goals: [],
+    budgetLines: HOUSEHOLD_BUDGET,
+    ...over,
+  };
+}
+
+/**
+ * A debt that belongs to ONE person. Blake earns $1,800 against a car loan of their own and holds
+ * only a small brokerage, so the payment walks the three funding tiers in order: Blake's income,
+ * then Blake's own accounts, and only once those run dry does Alex's money backstop the rest.
+ * The debt stays Blake's throughout — paying it is not assuming it.
+ */
+const PARTNER_DEBT = partnerInput({
+  name: "Alex",
+  jobs: [salariedJob(dollarsToCents(7_000))],
+  openingBalanceCents: dollarsToCents(40_000),
+  events: [
+    // An authored 80/20: Blake's paycheck covers their share of the household with a little to
+    // spare, so the only thing their brokerage is ever drawn for is the car loan — which is what
+    // this preset is about. A 50/50 here would empty it in the first month on the rent alone.
+    partnerEntry({ name: "Blake", monthlyDollars: 1_200, brokerageDollars: 6_000, sharePercent: 20 }),
+    {
+      type: "carryLoan",
+      ref: ref("blakeCar"),
+      ownerRef: ref("partner"),
+      kind: "auto",
+      balanceCents: dollarsToCents(60_000),
+      apr: 0.07,
+      remainingTermMonths: 12 * 4,
+    },
+  ],
+});
+
+/**
+ * Two unequal paychecks against one shared budget, split the way every new partnership starts:
+ * down the middle. Alex earns roughly three times Blake and the household still charges each of
+ * them half the bills, so Blake gives up far more of their own take-home than Alex does — which
+ * is the point beside {@link PARTNER_UNEVEN_SPLIT}. Nothing recalculates it; 50/50 is a number
+ * the household chose (by not changing it), not a reading of the two paychecks.
+ */
+const PARTNER_EVEN_SPLIT = partnerInput({
+  name: "Alex",
+  jobs: [salariedJob(dollarsToCents(8_000))],
+  openingBalanceCents: dollarsToCents(30_000),
+  events: [partnerEntry({ name: "Blake", monthlyDollars: 2_400, savingsDollars: 30_000 })],
+});
+
+/**
+ * The same two paychecks under an authored 70/30. Identical in every other respect, so the pair
+ * isolates the only lever there is: Alex carries 70% of the household's bills because somebody
+ * typed 70, and it stays 70 through every raise, bonus, tax bill and refund the run contains.
+ */
+const PARTNER_UNEVEN_SPLIT = partnerInput({
+  name: "Alex",
+  jobs: [salariedJob(dollarsToCents(8_000))],
+  openingBalanceCents: dollarsToCents(30_000),
+  events: [
+    partnerEntry({
+      name: "Blake",
+      monthlyDollars: 2_400,
+      savingsDollars: 30_000,
+      sharePercent: 30,
+    }),
+  ],
+});
+
+/**
+ * Blake arrives with substantial money of their own and leaves with it. Household net worth steps
+ * DOWN at the separation month by Blake's own balances — ownership was never pooled, so nothing
+ * of Blake's stays behind and nothing of Alex's departs.
+ */
+const PARTNER_SEPARATION = partnerInput({
+  name: "Alex",
+  jobs: [salariedJob(dollarsToCents(7_000))],
+  openingBalanceCents: dollarsToCents(25_000),
+  events: [
+    partnerEntry({
+      name: "Blake",
+      monthlyDollars: 5_000,
+      savingsDollars: 20_000,
+      brokerageDollars: 90_000,
+      retirementDollars: 40_000,
+    }),
+    { type: "separate", ref: ref("split"), month: 60, partnerRef: ref("partner") },
+  ],
+});
+
+/**
+ * Two relationships end to end, with a deliberate gap between them: Blake leaves in year 5, Alex
+ * runs the household alone for two years, and Casey joins in year 7 with money, a paycheck and a
+ * career of their own.
+ *
+ * The gap is the whole design. A household that swapped partners in a single month would agree,
+ * month for month, with an engine that models "the partner" as a fixed slot rather than as two
+ * distinct people with their own windows — every wrong answer would coincide with the right one.
+ * Two years of Alex alone separate them: whatever is Blake's has to be gone by month 60, and
+ * whatever is Casey's must not appear until month 84.
+ *
+ * The split is authored per relationship and never inherited: Alex and Blake run at 70/30, Alex
+ * carries 100% of the two years alone, and Casey's partnership opens at the 50/50 default.
+ *
+ * Every figure differs across the three so ownership is readable off the number alone — ages 35 /
+ * 37 / 32, pay $7,000 / $5,000 / $4,000, savings $25k / $20k / $15k, retirement $50k / $40k /
+ * $60k, brokerage $30k / $90k / $45k, work ending at 65 / 67 / 62, living to 90 / 88 / 95. Casey
+ * is 32 when the projection opens and 39 when they join, which is the seven elapsed years and not
+ * a second birth year.
+ */
+export const SEQUENTIAL_SEPARATION_MONTH = 60;
+export const SEQUENTIAL_JOIN_MONTH = 84;
+
+const ALEX_BIRTH_YEAR = DEFAULT_INPUT.startYear - 35;
+const BLAKE_BIRTH_YEAR = DEFAULT_INPUT.startYear - 37;
+const CASEY_BIRTH_YEAR = DEFAULT_INPUT.startYear - 32;
+
+/**
+ * A salaried job dated against ITS OWN owner's life: work from 18 to the age that person plans to
+ * stop. {@link salariedJob} bakes in the primary's birth year, so handing it to a partner would
+ * quietly give them Alex's career — Casey stopping at 62 has to mean Casey's 62, in Casey's
+ * calendar year, while the chart axis stays the household's shared timeline.
+ */
+function personSalariedJob(over: {
+  readonly monthlyDollars: number;
+  readonly birthYear: number;
+  readonly stopWorkingAge: number;
+}): JobEntry {
+  return {
+    startYear: over.birthYear + DEFAULT_WORK_START_AGE,
+    endYear: over.birthYear + over.stopWorkingAge,
+    salary: {
+      startingSalaryCents: dollarsToCents(over.monthlyDollars) * 12,
+      currentSalaryCents: dollarsToCents(over.monthlyDollars) * 12,
+      realGrowthPct: 0,
+    },
+  };
+}
+
+const SEQUENTIAL_PARTNERS = partnerInput({
+  name: "Alex",
+  jobs: [
+    personSalariedJob({ monthlyDollars: 7_000, birthYear: ALEX_BIRTH_YEAR, stopWorkingAge: 65 }),
+  ],
+  birthYear: ALEX_BIRTH_YEAR,
+  lifeExpectancy: 90,
+  openingBalanceCents: dollarsToCents(25_000),
+  retirementOpeningBalanceCents: dollarsToCents(50_000),
+  brokerageOpeningBalanceCents: dollarsToCents(30_000),
+  events: [
+    {
+      type: "startPartnered",
+      ref: ref("blake"),
+      partneredForMonths: PARTNER_TOGETHER_YEARS * 12,
+      name: "Blake",
+      birthYear: BLAKE_BIRTH_YEAR,
+      lifeExpectancy: 88,
+      jobs: [
+        personSalariedJob({ monthlyDollars: 5_000, birthYear: BLAKE_BIRTH_YEAR, stopWorkingAge: 67 }),
+      ] as readonly PartnerJobEntry[],
+      accounts: {
+        savingsBalanceCents: dollarsToCents(20_000),
+        retirementBalanceCents: dollarsToCents(40_000),
+        brokerageBalanceCents: dollarsToCents(90_000),
+      },
+      // Authored, not derived: Alex 70 / Blake 30. Casey below states nothing and therefore gets
+      // the 50/50 default — the split rides on the relationship, so it leaves with Blake.
+      partnerSharePercent: 30,
+    },
+    {
+      type: "separate",
+      ref: ref("blakeLeaves"),
+      month: SEQUENTIAL_SEPARATION_MONTH,
+      partnerRef: ref("blake"),
+    },
+    {
+      type: "marry",
+      ref: ref("casey"),
+      month: SEQUENTIAL_JOIN_MONTH,
+      name: "Casey",
+      birthYear: CASEY_BIRTH_YEAR,
+      lifeExpectancy: 95,
+      jobs: [
+        personSalariedJob({ monthlyDollars: 4_000, birthYear: CASEY_BIRTH_YEAR, stopWorkingAge: 62 }),
+      ] as readonly PartnerJobEntry[],
+      accounts: {
+        savingsBalanceCents: dollarsToCents(15_000),
+        retirementBalanceCents: dollarsToCents(60_000),
+        brokerageBalanceCents: dollarsToCents(45_000),
+      },
+    },
+  ],
+});
+
+
 /** In picker order; the first is the healthy default a fresh plan already opens with. */
 export const PRESETS: readonly Preset[] = [
   {
@@ -433,6 +687,40 @@ export const PRESETS: readonly Preset[] = [
     description:
       "The same household as Taxed in retirement, saving after tax instead of into a 401(k) — nothing it withdraws is taxed, and it has less to withdraw.",
     input: CASH_IN_RETIREMENT,
+  },
+  {
+    id: "partner-debt",
+    label: "A partner's own debt",
+    description:
+      "Blake's car loan is Blake's — paid from their paycheck, then their accounts, and only then backstopped by Alex.",
+    input: PARTNER_DEBT,
+  },
+  {
+    id: "partner-even-split",
+    label: "Two incomes, one household",
+    description:
+      "Unequal paychecks against one shared budget, split 50/50 — the default every partnership starts on.",
+    input: PARTNER_EVEN_SPLIT,
+  },
+  {
+    id: "partner-uneven-split",
+    label: "…vs. an authored 70/30",
+    description:
+      "The same two paychecks with Alex carrying 70% because the household said so — and it stays 70% whatever either of them earns.",
+    input: PARTNER_UNEVEN_SPLIT,
+  },
+  {
+    id: "partner-separation",
+    label: "When a partner leaves",
+    description: "Blake's accounts were always Blake's, and household net worth steps down by exactly them at separation.",
+    input: PARTNER_SEPARATION,
+  },
+  {
+    id: "partner-sequential",
+    label: "A new partner after separation",
+    description:
+      "Alex and Blake split the bills 70/30 until Blake leaves in Year 5; Alex carries all of it alone for two years, and Casey joins in Year 7 at the default 50/50.",
+    input: SEQUENTIAL_PARTNERS,
   },
 ];
 

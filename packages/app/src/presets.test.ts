@@ -27,6 +27,11 @@ describe("presets", () => {
       "bonus",
       "taxed-in-retirement",
       "cash-in-retirement",
+      "partner-debt",
+      "partner-even-split",
+      "partner-uneven-split",
+      "partner-separation",
+      "partner-sequential",
     ]);
     for (const preset of PRESETS) {
       expect(preset.label).not.toBe("");
@@ -46,10 +51,17 @@ describe("presets", () => {
     }
   });
 
-  it("authors only the student-loan preset with a seed timeline event", () => {
+  it("authors a seed timeline only for the student loan and the partner households", () => {
     const withEvents = PRESETS.filter((preset) => (preset.input.events?.length ?? 0) > 0);
-    expect(withEvents.map((preset) => preset.id)).toEqual(["student-loan"]);
-    expect(withEvents[0].input.events?.[0]).toMatchObject({
+    expect(withEvents.map((preset) => preset.id)).toEqual([
+      "student-loan",
+      "partner-debt",
+      "partner-even-split",
+      "partner-uneven-split",
+      "partner-separation",
+      "partner-sequential",
+    ]);
+    expect(presetById("student-loan").input.events?.[0]).toMatchObject({
       type: "takeLoan",
       kind: "studentLoan",
       month: 0,
@@ -259,5 +271,160 @@ describe("presets", () => {
 
   it("falls back to the default preset for an unknown id", () => {
     expect(presetById("missing")).toBe(PRESETS[0]);
+  });
+});
+
+/**
+ * The partner presets, pinned end to end against the live engine.
+ *
+ * Each claims something about WHOSE money pays, which is exactly what the household funding
+ * model decides — so each is asserted on per-account balances rather than on household net
+ * worth, the one figure that cannot tell two owners apart.
+ */
+describe("partner presets", () => {
+  const runPreset = (id: string) =>
+    Projection.fromState(presetState(presetById(id)), usJurisdiction).run(usJurisdiction).series;
+
+  /** The partner's account ids are minted, so they are found by owner rather than written down. */
+  const partnerAccount = (
+    balances: Readonly<Record<string, number>>,
+    kind: "savings" | "brokerage" | "retirement",
+  ) => {
+    const entry = Object.entries(balances).find(([id]) => id.startsWith(`${kind}-person-`));
+    if (entry === undefined) throw new Error(`no partner ${kind} account among ${Object.keys(balances)}`);
+    return entry[1];
+  };
+
+  it("gives every partner preset a second earner with accounts of their own", () => {
+    for (const id of ["partner-debt", "partner-even-split", "partner-uneven-split", "partner-separation"]) {
+      const months = runPreset(id).months;
+      const owners = Object.keys(months[1]!.netWorthByPersonCents ?? {});
+      // Two people, reported apart — the whole point of partner-owned accounts.
+      expect(owners).toContain("p1");
+      expect(owners.some((o) => o.startsWith("person-"))).toBe(true);
+    }
+  });
+
+  it("drains the debtor's own account before the other partner backstops it", () => {
+    const months = runPreset("partner-debt").months;
+    // Blake owes the car loan and earns too little to cover it, so their own brokerage funds the
+    // gap month after month until it is empty — never Alex's account while Blake still has one.
+    expect(partnerAccount(months[1]!.accountBalancesCents, "brokerage")).toBeGreaterThan(0);
+    expect(partnerAccount(months[12]!.accountBalancesCents, "brokerage")).toBeLessThan(
+      partnerAccount(months[1]!.accountBalancesCents, "brokerage"),
+    );
+    expect(partnerAccount(months[24]!.accountBalancesCents, "brokerage")).toBe(0);
+
+    // Once Blake's own money is gone, Alex carries the remainder: Alex's savings climbed while
+    // Blake's brokerage was still paying the car, and flatten out once it is Alex paying it.
+    const alexAt = (m: number) => months[m]!.accountBalancesCents["savings"]!;
+    const whileBlakeCouldPay = alexAt(6) - alexAt(1);
+    const onceAlexBackstops = alexAt(18) - alexAt(12);
+    expect(onceAlexBackstops).toBeLessThan(whileBlakeCouldPay);
+    // Solvent right through the loan and long after: the household together could always pay it,
+    // even across the years Blake alone could not. (The run still ends in insolvency in extreme
+    // old age, which is the retirement trajectory, not this preset's claim.)
+    expect(months.slice(0, 240).every((m) => !m.isInsolvent)).toBe(true);
+  });
+
+  it("keeps the debt assigned to its owner even once the other partner is paying it", () => {
+    const events = presetState(presetById("partner-debt")).scenario.ledger.events;
+    const partnering = events.find((e) => e.type === "RelationshipEvent");
+    const loans = events.filter((e) => e.type === "LoanEvent");
+    expect(loans).toHaveLength(1);
+    // Authored to the partner the relationship event minted, and nothing in the projection moves
+    // it to the person whose cash ends up covering it.
+    const partnerId = (partnering as { person?: { id?: string } } | undefined)?.person?.id;
+    expect(partnerId).toBeDefined();
+    expect((loans[0] as { ownerId?: string }).ownerId).toBe(partnerId);
+  });
+
+  it("moves who pays on the authored percentage alone, leaving the household total alone", () => {
+    const even = runPreset("partner-even-split").months;
+    const uneven = runPreset("partner-uneven-split").months;
+    const blake = (months: typeof even, m: number) =>
+      partnerAccount(months[m]!.accountBalancesCents, "savings");
+
+    // Blake earns far less than Alex. A 30% share fits inside Blake's take-home, so their
+    // savings GROW; a 50% share does not, so the difference comes out of those savings.
+    expect(blake(uneven, 120)).toBeGreaterThan(blake(uneven, 1));
+    expect(blake(even, 120)).toBeLessThan(blake(even, 1));
+
+    // The household spends the same either way — only WHO paid moved, so the totals stay within
+    // a fraction of a percent of each other after a decade. Not identical: surplus banks to
+    // whoever earned it, so the split decides which accounts hold the money, and accounts of
+    // different kinds earn different returns.
+    const householdAt = (months: typeof even, m: number) =>
+      months[m]!.netWorthNominalCents ?? 0;
+    const gap = Math.abs(householdAt(uneven, 120) - householdAt(even, 120));
+    expect(gap / householdAt(uneven, 120)).toBeLessThan(0.01);
+  });
+
+  it("says in its copy that the unequal split is a number somebody chose", () => {
+    // The pair exists to teach the only lever there is, so the copy has to name it as authored
+    // rather than as a reading of the two paychecks.
+    const uneven = presetById("partner-uneven-split").description;
+    expect(uneven).toMatch(/70/);
+    expect(presetById("partner-even-split").description).toMatch(/50\/50|default/i);
+  });
+
+  it("charges exactly the authored 70/30, whatever the two paychecks say", () => {
+    const flows = runPreset("partner-uneven-split").months[12]!.flows!;
+    const alex = flows.obligationChargedByPersonCents["p1"]!;
+    const blake = Object.entries(flows.obligationChargedByPersonCents).find(([id]) =>
+      id.startsWith("person-"),
+    )![1];
+    expect(alex + blake).toBe(flows.totalObligationsCents);
+    // 8,000 against 2,400 would be 77/23 on pay alone; it is 70/30 because somebody typed it.
+    expect(alex / (alex + blake)).toBeCloseTo(0.7, 3);
+  });
+
+  it("is identical between the two split presets apart from the percentage itself", () => {
+    const strip = (id: string) => {
+      const input = presetById(id).input;
+      return {
+        ...input,
+        events: input.events?.map((e) => {
+          const { partnerSharePercent: _authored, ...rest } = e as { partnerSharePercent?: number };
+          return rest;
+        }),
+      };
+    };
+    expect(presetById("partner-even-split").input.events?.[0]).not.toHaveProperty(
+      "partnerSharePercent",
+    );
+    expect(
+      (presetById("partner-uneven-split").input.events?.[0] as { partnerSharePercent?: number })
+        .partnerSharePercent,
+    ).toBe(30);
+    // Everything else byte-identical, so the comparison the pair invites is genuinely one-variable.
+    expect(strip("partner-even-split")).toEqual(strip("partner-uneven-split"));
+  });
+
+  it("takes the partner's accounts out of the household when they leave", () => {
+    const months = runPreset("partner-separation").months;
+    const SEPARATION_MONTH = 60;
+    const before = months[SEPARATION_MONTH - 1]!;
+    const after = months[SEPARATION_MONTH + 1]!;
+
+    const blakeHeld =
+      partnerAccount(before.accountBalancesCents, "savings") +
+      partnerAccount(before.accountBalancesCents, "brokerage") +
+      partnerAccount(before.accountBalancesCents, "retirement");
+    expect(blakeHeld).toBeGreaterThan(dollarsToCents(150_000));
+
+    // Every one of Blake's accounts leaves with Blake.
+    expect(partnerAccount(after.accountBalancesCents, "savings")).toBe(0);
+    expect(partnerAccount(after.accountBalancesCents, "brokerage")).toBe(0);
+    expect(partnerAccount(after.accountBalancesCents, "retirement")).toBe(0);
+
+    // Alex's own savings do not: nothing of theirs departs with the partner.
+    expect(after.accountBalancesCents["savings"]!).toBeGreaterThan(
+      before.accountBalancesCents["savings"]! * 0.9,
+    );
+    // Household net worth steps down by what Blake held, not by some pooled fraction of both.
+    expect((before.netWorthNominalCents ?? 0) - (after.netWorthNominalCents ?? 0)).toBeGreaterThan(
+      dollarsToCents(150_000),
+    );
   });
 });

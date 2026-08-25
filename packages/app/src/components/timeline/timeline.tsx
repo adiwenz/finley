@@ -30,6 +30,7 @@ export function Timeline({
   onScrub,
   onEdit,
   onRemove,
+  removalConflicts,
 }: {
   markers: readonly TimelineMarker[];
   scrubMonth: number;
@@ -43,6 +44,17 @@ export function Timeline({
   onScrub: (month: number) => void;
   onEdit: (id: string) => void;
   onRemove: (id: string) => void;
+  /**
+   * Which markers cannot be dropped, by id, and which OTHER event stands in the way — the
+   * ledger's own replay, asked before the click rather than after it.
+   *
+   * Removal is the one gesture with no form to fill in first, so its refusal used to arrive as an
+   * alert below the whole timeline, naming the events by id: the row that was clicked said
+   * nothing, and the row responsible was not the one the reader was looking at. Answered here,
+   * the control that cannot work is the one that explains itself, and it names the blocker with
+   * the label already printed beside it.
+   */
+  removalConflicts?: ReadonlyMap<string, { readonly strandedEventId: string }>;
 }) {
   // Position markers/handle as a fraction of the plan's horizon (to life expectancy).
   const pct = (month: number): string => `${(month / horizonMonths) * 100}%`;
@@ -98,9 +110,44 @@ export function Timeline({
                     Edit
                   </button>
                 )}
-                <button className="btn link" onClick={() => onRemove(m.id)}>
-                  Remove
-                </button>
+                {(() => {
+                  const blocked = removalConflicts?.get(m.id);
+                  // Named by its own marker where there is one, so the blocker is identified by
+                  // the words already on this list rather than by an id from the ledger.
+                  const blocker =
+                    blocked === undefined
+                      ? undefined
+                      : markers.find((other) => other.id === blocked.strandedEventId);
+                  // Named from the timeline rather than from the engine's own refusal. That text is
+                  // written for the ADD path it also guards ("Add a separation first or choose a
+                  // later date"), which is advice nobody removing an event can act on, and it names
+                  // people by id. What is actionable is which row to clear first, so that is what
+                  // this says.
+                  const why =
+                    blocked === undefined
+                      ? undefined
+                      : blocker === undefined
+                        ? "Something later on the timeline depends on this."
+                        : `${blocker.label} in ${monthLabel(blocker.month)} depends on this — ` +
+                          "remove that first.";
+                  return (
+                    <>
+                      <button
+                        className="btn link"
+                        disabled={blocked !== undefined}
+                        title={why}
+                        onClick={() => onRemove(m.id)}
+                      >
+                        Remove
+                      </button>
+                      {why !== undefined && (
+                        <span className={`hint warn ${styles.mlBlockedRemove}`} role="status">
+                          Can’t remove — {why}
+                        </span>
+                      )}
+                    </>
+                  );
+                })()}
               </li>
             );
           })}

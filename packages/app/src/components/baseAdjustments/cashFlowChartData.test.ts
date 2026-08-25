@@ -8,7 +8,14 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { dollarsToCents, type ProjectionCashFlowIncomeSource, type ProjectionSeries } from "@finley/engine";
+import {
+  Projection,
+  dollarsToCents,
+  type ProjectionCashFlowIncomeSource,
+  type ProjectionSeries,
+} from "@finley/engine";
+import { usJurisdiction } from "@finley/rules";
+import { presetById, presetState } from "../../presets";
 import {
   TAX_INCOME_BAND_ID,
   TAX_PAYROLL_BAND_ID,
@@ -17,6 +24,7 @@ import {
   buildCashFlowChartData,
   cashFlowBandsForView,
   describeCashFlowGap,
+  describePersonalDrawdowns,
 } from "./cashFlowChartData";
 
 interface MonthSpec {
@@ -147,14 +155,17 @@ describe("buildCashFlowChartData — what arrives", () => {
     expect(data.rows[0]!.inflowTotalCents).toBe(dollarsToCents(1_200));
   });
 
-  it("still records the month savings first opened, so the gap summary can name it", () => {
+  it("still records the month the household first lived off savings, so the summary can name it", () => {
     const data = buildCashFlowChartData(
       seriesOf(
-        { sources: [JOB] },
-        { sources: [withdrawal("cash", dollarsToCents(3_000), "savingsDrawdown", "Cash savings")] },
+        { sources: [JOB], obligations: [bill("rent", "Rent", "needs", 3_000)] },
+        {
+          sources: [withdrawal("cash", dollarsToCents(3_000), "savingsDrawdown", "Cash savings")],
+          obligations: [bill("rent", "Rent", "needs", 3_000)],
+        },
       ),
     );
-    expect(data.firstSavingsDrawdownMonth).toBe(2);
+    expect(data.firstHouseholdDrawdownMonth).toBe(2);
     expect(data.firstMonthWithNoIncome).toBeNull();
   });
 
@@ -454,15 +465,102 @@ describe("describeCashFlowGap", () => {
   it("names the year savings start covering the gap", () => {
     const data = buildCashFlowChartData(
       seriesOf(
-        { sources: [JOB] },
-        { sources: [withdrawal("cash", dollarsToCents(3_000), "savingsDrawdown", "Cash savings")] },
+        { sources: [JOB], obligations: [bill("rent", "Rent", "needs", 3_000)] },
+        {
+          sources: [withdrawal("cash", dollarsToCents(3_000), "savingsDrawdown", "Cash savings")],
+          obligations: [bill("rent", "Rent", "needs", 3_000)],
+        },
       ),
     );
-    expect(describeCashFlowGap(data)).toContain("Year 1");
+    // The second flowed month is month 1, which is Year 0 — months 0–11 all are. This module
+    // used to add one and call it Year 1, under a banner that called the same month Year 0.
+    expect(describeCashFlowGap(data)).toContain("From Year 0 ");
     expect(describeCashFlowGap(data)).toContain("living off savings");
   });
 
   it("says nothing at all when income covers spending throughout", () => {
     expect(describeCashFlowGap(buildCashFlowChartData(seriesOf({ sources: [JOB] })))).toBeNull();
+  });
+});
+
+/**
+ * The per-person net figure, end to end against the real engine rather than a hand-built series.
+ * The toggle it feeds rests on one promise — the two partners' lines add up to the household
+ * line above them — and that promise spans the waterfall, the flows record and this data layer,
+ * so only a real projection can hold it.
+ */
+describe("buildCashFlowChartData — per-person net, against a real projection", () => {
+  const series = Projection.fromState(
+    presetState(presetById("partner-uneven-split")),
+    usJurisdiction,
+  ).run(usJurisdiction).series;
+  const data = buildCashFlowChartData(series);
+
+  it("reports a figure for both partners", () => {
+    expect(data.netOwners).toHaveLength(2);
+  });
+
+  it("sums both partners' net to the household's, to the cent, in every month", () => {
+    // Not a spot check: the deferral bridge and the shared-obligation split both move month to
+    // month, and a discrepancy that only opens in year 12 is exactly the kind a spot check
+    // misses. Every flowed month, or the toggle is showing money that appears or vanishes.
+    const off = data.rows.filter((r) => {
+      const parts = Object.values(r.netCentsByPerson).reduce((sum, cents) => sum + cents, 0);
+      return parts !== r.netCents;
+    });
+    expect(off).toEqual([]);
+  });
+
+  it("gives the partners genuinely different figures, not one household number twice", () => {
+    // The preset is two unequal paychecks against one shared budget. If the split were ever
+    // reduced to halves — or to the household total repeated — this is what would catch it.
+    const first = data.rows[0]!;
+    const [a, b] = Object.values(first.netCentsByPerson);
+    expect(a).not.toBe(b);
+    expect(a).not.toBe(first.netCents);
+  });
+});
+
+/**
+ * The household's headline is a household claim, and one person's shortfall is not one.
+ *
+ * The combined view answers "how is the household doing", so it cannot be handed a sentence about
+ * Blake — the combined total does not show that fact and can flatly contradict it, since a
+ * household can be comfortably positive while somebody inside it is covering their own share out
+ * of savings. Said BESIDE the headline it adds what the headline could not say; said instead of
+ * it, the reader loses the answer they asked for.
+ */
+describe("describePersonalDrawdowns", () => {
+  const names = new Map([
+    ["p1", "Alex"],
+    ["p2", "Blake"],
+  ]);
+  /** Only the two fields this reads; the rest of the shape is irrelevant to it. */
+  const dataWith = (byPerson: Record<string, number>) =>
+    ({ firstDrawdownMonthByPerson: byPerson }) as unknown as Parameters<
+      typeof describePersonalDrawdowns
+    >[0];
+
+  it("says nothing when nobody is drawing on their own savings", () => {
+    expect(describePersonalDrawdowns(dataWith({}), names)).toBeNull();
+  });
+
+  it("names the one person who is, and the year they start", () => {
+    const note = describePersonalDrawdowns(dataWith({ p2: 36 }), names);
+    expect(note).toContain("Blake from Year 3");
+    expect(note).toContain("covers their");
+    // It stays a claim about them, never a restatement of the household's position.
+    expect(note).not.toContain("you're living off savings");
+  });
+
+  it("names everyone who is, earliest first", () => {
+    const note = describePersonalDrawdowns(dataWith({ p1: 120, p2: 36 }), names);
+    expect(note).toContain("Blake from Year 3 and Alex from Year 10");
+    expect(note).toContain("cover their");
+  });
+
+  it("skips an owner the household cannot name", () => {
+    // A bookkeeping owner is not a person to say this about.
+    expect(describePersonalDrawdowns(dataWith({ household: 12 }), names)).toBeNull();
   });
 });

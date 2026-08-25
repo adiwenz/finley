@@ -193,3 +193,144 @@ describe("fundingLookup — credit sources", () => {
     expect(series.months[MONTH].liabilityBalancesCents[CARD_ID]).toBe(AMOUNT - OPENING_CASH);
   });
 });
+
+/**
+ * A partner's accounts are minted by their `RelationshipEvent` into `household.eventAccounts`,
+ * not `base.initialAccounts`. `buildHouseholdSimInput` merges the two lists, so the simulator has
+ * always been able to spend them; this seam once read the base alone and so could not even offer
+ * them. Gate and sim must see one household, or the picker hides money the projection will spend.
+ */
+describe("fundingLookup — a partner's own accounts", () => {
+  const partnered = (brokerageDollars: number): Ledger =>
+    addWithBase(
+      emptyLedger,
+      baseWithAccounts([liquidAcct("savings", 100_000, 0, "Cash savings")]),
+      {
+        id: "partner1",
+        type: "RelationshipEvent",
+        month: PRE_NOW_MONTH,
+        person: personLit("p2", "Bob"),
+        accounts: {
+          savingsBalanceCents: 0,
+          savingsReturnPct: 0,
+          retirementBalanceCents: 0,
+          retirementReturnPct: 0,
+          brokerageBalanceCents: brokerageDollars * 100,
+          brokerageReturnPct: 0,
+        },
+      } as NewLifeEvent,
+    );
+
+  const base = baseWithAccounts([liquidAcct("savings", 100_000, 0, "Cash savings")]);
+
+  it("offers the partner's brokerage for a one-time spend, named for its owner", () => {
+    const pool = fundingLookup(partnered(200_000), base, nullJurisdiction).sourcesAt(3, "expense");
+    const partnerBrokerage = pool.find((s) => s.balanceCents === 20_000_000);
+    expect(partnerBrokerage).toBeDefined();
+    // Two accounts could both be "Brokerage"; the partner's carries their name, so the picker
+    // shows a row the user can tell apart without an owner column.
+    expect(partnerBrokerage!.label).toContain("Bob");
+    // The primary's account is still there — the merge adds, it does not replace.
+    expect(pool.some((s) => s.label === "Cash savings")).toBe(true);
+  });
+
+  it("offers the partner's accounts for a down payment too", () => {
+    const pool = fundingLookup(partnered(200_000), base, nullJurisdiction).sourcesAt(
+      3,
+      "asset-acquisition",
+    );
+    expect(pool.some((s) => s.label.includes("Bob"))).toBe(true);
+  });
+
+  it("prices a draw against the partner's account instead of reporting it unavailable", () => {
+    // Not merely un-offered before this: an id the pool did not know priced at zero, so naming
+    // one by hand still failed the gate. The availability seam must reach the same accounts.
+    const lookup = fundingLookup(partnered(200_000), base, nullJurisdiction);
+    const partnerId = lookup
+      .sourcesAt(3, "expense")
+      .find((s) => s.label.includes("Bob") && s.balanceCents > 0)!.id;
+    const availability = lookup.availabilityAt("expense", [partnerId], 5_000_000, 3);
+    expect(availability.shortfallCents).toBe(0);
+    expect(availability.availableCents).toBe(5_000_000);
+  });
+});
+
+/**
+ * Whose accounts the pool may offer at a given month.
+ *
+ * The whole-plan views are deliberately omniscient — a partner still to come already draws bands
+ * across the charts — but a funding pool is DATED: it answers "what can pay for this, on this
+ * date". A partner who has not arrived and one who has left both owned accounts the picker listed
+ * anyway, at $0, so the list of accounts described a household the list of people did not.
+ */
+describe("fundingLookup — whose accounts are offered at a month", () => {
+  const base = baseWithAccounts([liquidAcct("savings", 100_000, 0, "Cash savings")]);
+
+  /** Partner joins at `joinMonth`; if `leaveMonth` is given, the household separates there. */
+  function sequential(joinMonth: number, leaveMonth?: number): Ledger {
+    let ledger = addWithBase(emptyLedger, base, {
+      id: "partner1",
+      type: "RelationshipEvent",
+      month: joinMonth,
+      person: personLit("p2", "Bob"),
+      accounts: {
+        savingsBalanceCents: 5_000_00,
+        savingsReturnPct: 0,
+        retirementBalanceCents: 0,
+        retirementReturnPct: 0,
+        brokerageBalanceCents: 0,
+        brokerageReturnPct: 0,
+      },
+    } as NewLifeEvent);
+    if (leaveMonth !== undefined) {
+      ledger = addWithBase(ledger, base, {
+        id: "split1",
+        type: "SeparationEvent",
+        month: leaveMonth,
+        partnerPersonId: "p2",
+        alimonyMonthlyCents: 0,
+        alimonyDurationMonths: 0,
+        childSupportMonthlyCents: 0,
+      } as NewLifeEvent);
+    }
+    return ledger;
+  }
+
+  const bobsAccounts = (ledger: Ledger, month: number) =>
+    fundingLookup(ledger, base, nullJurisdiction)
+      .sourcesAt(month, "expense")
+      .filter((s) => s.label.includes("Bob"));
+
+  it("does not offer a partner's accounts before they join", () => {
+    const ledger = sequential(12);
+    expect(bobsAccounts(ledger, 6)).toHaveLength(0);
+    expect(bobsAccounts(ledger, 12).length).toBeGreaterThan(0);
+  });
+
+  it("stops offering them at the separation, not merely at $0", () => {
+    // The distinction the old pool could not draw: a departed partner's accounts read exactly
+    // like a member's spent-out ones, so the picker showed rows for somebody who had left.
+    const ledger = sequential(0, 12);
+    expect(bobsAccounts(ledger, 11).length).toBeGreaterThan(0);
+    expect(bobsAccounts(ledger, 12)).toHaveLength(0);
+    expect(bobsAccounts(ledger, 18)).toHaveLength(0);
+  });
+
+  it("leaves a one-person household's pool exactly as it was", () => {
+    const pool = fundingLookup(emptyLedger, base, nullJurisdiction).sourcesAt(6, "expense");
+    expect(pool.map((s) => s.label)).toEqual(["Cash savings"]);
+  });
+
+  it("keeps the primary's own accounts through both partnerships", () => {
+    // The filter is about who owns an account, never about how many people are in the household:
+    // whoever comes and goes, the plan's own accounts are always on offer.
+    const ledger = sequential(0, 12);
+    for (const month of [0, 11, 12, 18]) {
+      expect(
+        fundingLookup(ledger, base, nullJurisdiction)
+          .sourcesAt(month, "expense")
+          .some((s) => s.label === "Cash savings"),
+      ).toBe(true);
+    }
+  });
+});

@@ -44,12 +44,15 @@ const EVENT_KINDS: readonly { value: EventKind; label: string }[] = [
 export interface EditingEvent {
   readonly event: LifeEvent;
   readonly onRevise: (write: (projection: Projection) => void) => void;
+  /** Why that revision would be refused — see {@link EditProps.conflictOf}. */
+  readonly conflictOf?: (write: (projection: Projection) => void) => string | null;
   readonly onCancel: () => void;
 }
 
 export function AddEventForm({
   result,
   funding,
+  accountLabels,
   defaultMonth,
   horizonMonths,
   onAdd,
@@ -66,6 +69,12 @@ export function AddEventForm({
    * home-purchase form's source picker.
    */
   funding: FundingLookup;
+  /**
+   * Account id → the name to show for it, owner-qualified where the household has two people.
+   * Passed through to the funding pickers so an account is named the same here as in the dated
+   * snapshot beside them.
+   */
+  accountLabels?: ReadonlyMap<string, string>;
   defaultMonth: number;
   horizonMonths: number;
   onAdd: (write: (projection: Projection) => void) => void;
@@ -95,6 +104,7 @@ export function AddEventForm({
         editing={editing}
         result={result}
         funding={funding}
+        accountLabels={accountLabels}
         defaultMonth={defaultMonth}
         horizonMonths={horizonMonths}
         onAdd={onAdd}
@@ -120,12 +130,14 @@ export function AddEventForm({
         </select>
       </label>
 
-      {kind === "LoanEvent" && <LoanForm {...formProps} />}
+      {kind === "LoanEvent" && <LoanForm {...formProps} result={result} />}
       {kind === "HomePurchaseEvent" && (
-        <HomePurchaseForm {...formProps} result={result} funding={funding} />
+        <HomePurchaseForm {...formProps} result={result} funding={funding} accountLabels={accountLabels} />
       )}
-      {kind === "OneTimeSpendEvent" && <OneTimeSpendForm {...formProps} funding={funding} />}
-      {kind === "RelationshipEvent" && <RelationshipForm {...formProps} />}
+      {kind === "OneTimeSpendEvent" && (
+        <OneTimeSpendForm {...formProps} funding={funding} accountLabels={accountLabels} />
+      )}
+      {kind === "RelationshipEvent" && <RelationshipForm {...formProps} result={result} />}
       {kind === "ChildEvent" && <ChildForm {...formProps} />}
       {kind === "SeparationEvent" && <SeparationForm {...formProps} result={result} />}
     </div>

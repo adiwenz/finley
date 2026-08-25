@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dollarsToCents, type FinancialObligation, type ProjectionSeries } from "@finley/engine";
+import { monthLabel } from "../../format";
 import { buildPerLineBudgetData, describeInsolvency } from "./perLineBudget";
 
 /** An obligation as the engine reports one, with the chart-relevant bits varied. */
@@ -132,11 +133,27 @@ describe("describeInsolvency — the a11y / summary line", () => {
   });
 
   it("names the year the plan runs out, without prescribing what to cut", () => {
+    // Months 0–11 are Year 0, so a plan that fails in its third month fails in Year 0. Asserted
+    // as the exact string: a looser /no longer financeable/ is what let this read "Year 1".
     const data = buildPerLineBudgetData(seriesOf([[rent(4_000)], [rent(4_000)]], 2));
     const summary = describeInsolvency(data) ?? "";
-    expect(summary).toMatch(/Year 1/);
-    expect(summary).toMatch(/no longer financeable/i);
+    expect(summary).toContain("From Year 0 this budget is no longer financeable");
     // It must not tell the user which line to give up — that is their decision.
     expect(summary).not.toMatch(/Rent|Fun|starv/i);
+  });
+
+  it("names the same year the banner above the chart names, for the same month", () => {
+    // The two sentences describe one fact from one number, and a reader sees them together. The
+    // headline said "From Year 31" under a banner reading "Year 30 (2056)" because this module
+    // did its own month→year arithmetic; pinning one to the other is what makes that a failure
+    // rather than a discrepancy nobody's test owns.
+    const insolventFrom = 364;
+    const months = Array.from({ length: insolventFrom }, () => [rent(4_000)]);
+    const data = buildPerLineBudgetData(seriesOf(months, insolventFrom));
+
+    expect(data.insolventFromMonth).toBe(insolventFrom);
+    // "Year 30 (2056)" → the year the headline must be built from.
+    const bannerYear = monthLabel(insolventFrom).split(" (")[0]!;
+    expect(describeInsolvency(data) ?? "").toContain(`From ${bannerYear} `);
   });
 });

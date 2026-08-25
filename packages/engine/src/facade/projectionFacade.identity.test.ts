@@ -156,6 +156,10 @@ describe("Projection root — one counter across both planes, across a round tri
       nullJurisdiction,
     );
 
+    // Sam has to leave before Kim can arrive — one partnership at a time — and the separation
+    // is beside the point here: this is about ids, and it needs two partnerings to have any.
+    reloaded.separate({ month: 30, partnerPersonId: partnerId });
+
     const held = new Set([partnerId, partnerJobId, planJobId]);
     const minted = [
       reloaded.addPartnerJob(partnerId, plainJob),

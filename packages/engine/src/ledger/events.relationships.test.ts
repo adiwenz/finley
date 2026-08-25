@@ -416,3 +416,76 @@ describe("ChildEvent", () => {
     expect(household.series.some((s) => s.role === "childCost")).toBe(false);
   });
 });
+
+/**
+ * A departing partner's DEBTS leave with them, on the same principle and by the same test as
+ * their accounts: sole ownership.
+ *
+ * Without this the household kept amortizing a departed partner's loan to term — charging it
+ * against take-home that ended at the separation month, subtracting it from household net worth
+ * forever, and eventually borrowing on the cascade to cover payments on a debt nobody in the
+ * household owed.
+ */
+describe("SeparationEvent — a departing partner's debts", () => {
+  const SEP = 24;
+  const cfg: LedgerBaseConfig = {
+    ...baseConfig,
+    horizonMonths: 60,
+    initialAccounts: [makeLiquidAccount("checking", dollarsToCents(100_000))],
+  };
+
+  function ledgerWith(loanOwnerId: string) {
+    let ledger = add(emptyLedger, {
+      id: "r1",
+      type: "RelationshipEvent",
+      month: 0,
+      person: personLit("p2", "Blake"),
+    });
+    ledger = add(ledger, {
+      id: "loan1",
+      type: "LoanEvent",
+      month: 0,
+      liabilityId: "the-car",
+      ownerId: loanOwnerId,
+      kind: "auto",
+      openingBalanceCents: dollarsToCents(24_000),
+      apr: 0,
+      termMonths: 120,
+    });
+    return add(ledger, {
+      id: "s1",
+      type: "SeparationEvent",
+      month: SEP,
+      partnerPersonId: "p2",
+      alimonyMonthlyCents: 0,
+      alimonyDurationMonths: 0,
+      childSupportMonthlyCents: 0,
+    });
+  }
+
+  it("takes the partner's own loan off the household's books at the separation month", () => {
+    const series = replayLedger(ledgerWith("p2"), cfg, nullJurisdiction);
+    // Outstanding right up to the separation...
+    expect(series.months[SEP - 1]!.liabilityBalancesCents["the-car"]).toBeGreaterThan(0);
+    // ...and gone from that month on. Not paid off — it left with its owner.
+    expect(series.months[SEP]!.liabilityBalancesCents["the-car"] ?? 0).toBe(0);
+    expect(series.months[SEP + 12]!.liabilityBalancesCents["the-car"] ?? 0).toBe(0);
+  });
+
+  it("stops charging the household for it, so net worth steps UP as the debt departs", () => {
+    const series = replayLedger(ledgerWith("p2"), cfg, nullJurisdiction);
+    const before = series.months[SEP - 1]!.netWorthNominalCents ?? 0;
+    const after = series.months[SEP]!.netWorthNominalCents ?? 0;
+    // The household is better off by exactly the debt it no longer carries.
+    expect(after).toBeGreaterThan(before);
+    expect(series.months[SEP]!.netWorthByPersonCents?.["p2"] ?? 0).toBe(0);
+  });
+
+  it("leaves the remaining person's own loan entirely alone", () => {
+    // The rule is ownership, not the separation: a debt belonging to whoever stays, stays.
+    const series = replayLedger(ledgerWith("p1"), cfg, nullJurisdiction);
+    expect(series.months[SEP]!.liabilityBalancesCents["the-car"]).toBeGreaterThan(0);
+    expect(series.months[SEP + 12]!.liabilityBalancesCents["the-car"]).toBeGreaterThan(0);
+  });
+});
+

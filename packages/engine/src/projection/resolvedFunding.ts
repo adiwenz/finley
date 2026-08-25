@@ -9,7 +9,7 @@
  * insolvency flag are identical whether or not this runs.
  *
  * The walk offers each obligation, in {@link orderObligationsByPriority} order, the month's supply
- * in strict cascade order: income cash, then the liquid-buffer drawdown, then each decumulation
+ * in strict cascade order: income cash, then each liquid buffer drawn down, then each decumulation
  * draw, then credit. Every obligation is fully funded until credit is genuinely exhausted; only
  * once the last layer runs dry does a low-priority line fall short, which is the same residual
  * the month reports as insolvency.
@@ -76,6 +76,22 @@ export interface DecumulationDraw {
 }
 
 /**
+ * One liquid buffer account's contribution to the month's obligations — the cash spend that
+ * happened before anything was sold.
+ *
+ * Per ACCOUNT rather than one household figure, because a buffer is one PER OWNER (see
+ * {@link import("./withdrawal").buildWithdrawalSources}) and the balance that actually fell is
+ * the short person's. Collapsing them onto a single id named whichever account the roster listed
+ * first: a household where one partner's pay covered their share and the other's did not reported
+ * the second partner's draw against the FIRST partner's savings, so the panel showed a name whose
+ * balance had gone UP that month.
+ */
+export interface LiquidDrawdown {
+  readonly sourceId: string;
+  readonly amountCents: Cents;
+}
+
+/**
  * The month's supply, laid out in the exact cascade order the walk consumes it. Each field is the
  * slice that layer delivered toward the automatic obligations, so Σ over all of them is the total
  * the month actually funded. Sized by the simulator from the same figures that moved the money —
@@ -84,8 +100,11 @@ export interface DecumulationDraw {
 export interface FundingSupplyPlan {
   /** Non-withdrawal net income (wages, benefits, RMDs, interest) applied to obligations. */
   readonly incomeCents: Cents;
-  /** The liquid cash buffer spent before any investment was sold; null when there is none. */
-  readonly liquidDrawdown: { readonly sourceId: string; readonly amountCents: Cents } | null;
+  /**
+   * The liquid cash buffers spent before any investment was sold, in the order the cascade drew
+   * them — each person's own before the pooled pass. Empty when the month sold nothing liquid.
+   */
+  readonly liquidDrawdowns: readonly LiquidDrawdown[];
   /** Investment liquidations, in liquidation order. */
   readonly decumulationDraws: readonly DecumulationDraw[];
   /** What the shortfall cascade borrowed onto credit toward obligations. */
@@ -168,12 +187,14 @@ function orderedLayers(supply: FundingSupplyPlan): Layer[] {
   if (supply.incomeCents > 0) {
     layers.push({ kind: "income", sourceId: INCOME_SOURCE_ID, remaining: supply.incomeCents });
   }
-  if (supply.liquidDrawdown !== null && supply.liquidDrawdown.amountCents > 0) {
-    layers.push({
-      kind: "account",
-      sourceId: supply.liquidDrawdown.sourceId,
-      remaining: supply.liquidDrawdown.amountCents,
-    });
+  for (const drawdown of supply.liquidDrawdowns) {
+    if (drawdown.amountCents > 0) {
+      layers.push({
+        kind: "account",
+        sourceId: drawdown.sourceId,
+        remaining: drawdown.amountCents,
+      });
+    }
   }
   for (const draw of supply.decumulationDraws) {
     if (draw.netDeliveredCents > 0) {

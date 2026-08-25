@@ -1,11 +1,15 @@
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
-import type { Cents } from "../money/money";
+import { apportionInOrder, type Cents } from "../money/money";
 import { accumulateEarnings, buildGovernmentBenefitSources } from "./governmentBenefit";
 import { buildRmdSources } from "./rmd";
 import { buildWithdrawalSources, DEFAULT_LIQUIDATION_ORDER } from "./withdrawal";
 import { buildFlows, type PrincipalDrawdownSource } from "./reportFlows";
 import { buildObligations, automaticFundingTotal, fundedLiabilityPayments } from "./financialObligation";
-import { resolveFundingAttribution, type FundingSupplyPlan } from "./resolvedFunding";
+import {
+  resolveFundingAttribution,
+  type FundingSupplyPlan,
+  type LiquidDrawdown,
+} from "./resolvedFunding";
 import {
   isPersonActiveAt,
   type HouseholdSimInput,
@@ -135,6 +139,40 @@ interface MonthOutcome {
  *   11. Snapshot                                          → snapshotMonth
  *
  */
+/**
+ * The obligations' slice of the month's liquid drawdown, split across the accounts that actually
+ * bore it — by the SAME weights and the SAME rounding {@link allocateMonth} debited those balances
+ * with, so the account a "Funded by" row names is the account whose balance fell.
+ *
+ * A buffer is one per OWNER, and the cascade tries each person's own before it pools (see {@link
+ * buildWithdrawalSources}), so these weights already carry the answer to "whose share went short".
+ * Reporting the whole draw against `state.liquidAccount` threw that away and named the FIRST
+ * account in the roster — in a two-earner household that is the primary's, whose balance had
+ * typically risen that month while the partner's fell by exactly the amount shown.
+ *
+ * Falls back to the household's single designated buffer when the withdrawal step predicted
+ * nothing per account, mirroring {@link allocateMonth}'s own fallback for the same case.
+ */
+function liquidDrawdownsToObligations(
+  liquidToObligationsCents: Cents,
+  byAccountCents: ReadonlyMap<string, Cents>,
+  fallbackAccountId: string | null,
+): readonly LiquidDrawdown[] {
+  if (liquidToObligationsCents <= 0) return [];
+  const weights = [...byAccountCents];
+  const split = apportionInOrder(liquidToObligationsCents, weights);
+  if (split.size === 0) {
+    return fallbackAccountId === null
+      ? []
+      : [{ sourceId: fallbackAccountId, amountCents: liquidToObligationsCents }];
+  }
+  // In the weights' own order — each person's own buffer ahead of the pooled pass — so the
+  // cascade's layers are offered in the order the cascade drew them.
+  return weights
+    .filter(([id]) => split.has(id))
+    .map(([id]) => ({ sourceId: id, amountCents: split.get(id)! }));
+}
+
 function runMonth(
   state: SimState,
   run: RunContext,
@@ -263,12 +301,12 @@ function runMonth(
   // investments untouched — for decades, since a working household's gap is small and a card
   // compounds. There is now one subtraction, so a deduction added to the waterfall is netted here
   // by construction.
-  const shortfallBeforeDecumulationCents = projectObligationShortfallCents(
+  const shortfallBeforeDecumulation = projectObligationShortfallCents(
     state,
     preDecumulationSources,
     ctx,
     jurisdiction,
-    automaticFundingCents,
+    obligations,
     month,
     priorYearSettlements,
   );
@@ -278,12 +316,20 @@ function runMonth(
   // credit cascade. No gross-up anywhere: each draw sells exactly the gap, and its realized gain
   // rides `taxableCents` into THIS year's accumulator. RMD income is already inside the gap (it
   // was income in the pass that measured it), so the draw never double-withdraws.
+  //
+  // `byPersonCents` is a DRAW-ORDER preference, not a second total: whoever's share of the gap
+  // this is tries their own accounts first, so a partner's assets are never sold to cover the
+  // other's obligation while resources of their own still sit untouched — the household total
+  // liquidated is exactly `shortfallBeforeDecumulation.totalCents` either way. That total is
+  // already net of what a partner's unspent pay covered, so no account is sold for a share
+  // somebody's income had reached.
   const withdrawal = buildWithdrawalSources(
     state,
     jurisdiction,
-    shortfallBeforeDecumulationCents,
+    shortfallBeforeDecumulation.totalCents,
     ctx,
     DEFAULT_LIQUIDATION_ORDER,
+    shortfallBeforeDecumulation.byPersonCents,
   );
   const incomeSources = [...nonWithdrawalSources, ...withdrawal.sources];
   const allocationSources = [...incomeSources, ...fundingDraw.gainSources];
@@ -296,18 +342,28 @@ function runMonth(
     taxBySourceCents,
     taxSettlementCents,
     taxSettlementBySourceCents,
+    taxSettlementByPersonCents,
+    taxSettlementBySourcePersonCents,
     deferralBySourceCents,
     contributions,
     shortfallCents: preCascadeShortfallCents,
     obligationShortfallCents: preCascadeObligationShortfallCents,
+    leftoverByPersonCents,
+    deferredByPersonCents,
+    netCashFlowByPersonCents,
+    obligationChargedByPersonCents,
+    obligationFundedByPersonCents,
+    assistanceReceivedByPersonCents,
+    assistanceGivenByPersonCents,
   } = allocateMonth(
     state,
     allocationSources,
     ctx,
     jurisdiction,
-    automaticFundingCents,
+    obligations,
     month,
     priorYearSettlements,
+    withdrawal.liquidDrawdownByAccountCents,
   );
   // Snapshot every cascade card's balance before the cascade runs, so the REAL amount it borrows
   // onto credit (see below) is measured off actual liability movement rather than inferred from
@@ -391,7 +447,7 @@ function runMonth(
   );
   // Returned basis within this month's decumulation draws, one entry per account — not income, so
   // it bands below with the other investment-principal draws rather than as capital-gains/ordinary
-  // income. `decumulationDraws` never includes the liquid account (see `buildWithdrawalSources`),
+  // income. `decumulationDraws` never includes a liquid account (see `buildWithdrawalSources`),
   // so every entry here is genuinely an investment.
   const decumulationPrincipalDraws: PrincipalDrawdownSource[] = withdrawal.decumulationDraws
     .filter((d) => d.principalCents > 0)
@@ -419,10 +475,11 @@ function runMonth(
   );
   const supply: FundingSupplyPlan = {
     incomeCents: incomeToObligationsCents,
-    liquidDrawdown:
-      state.liquidAccount !== null && liquidToObligationsCents > 0
-        ? { sourceId: state.liquidAccount.id, amountCents: liquidToObligationsCents }
-        : null,
+    liquidDrawdowns: liquidDrawdownsToObligations(
+      liquidToObligationsCents,
+      withdrawal.liquidDrawdownByAccountCents,
+      state.liquidAccount?.id ?? null,
+    ),
     decumulationDraws: withdrawal.decumulationDraws,
     creditCents: Math.max(
       0,
@@ -501,6 +558,18 @@ function runMonth(
   // explicit draws in resolution, so this base is its marginal context.
   const flows = {
     ...bands,
+    // Straight off the waterfall, not re-derived from the bands: the per-person split of the
+    // month's obligations is the waterfall's own, and re-deriving it here would be a second
+    // implementation of a rule the engine already applied.
+    leftoverByPersonCents,
+    deferredByPersonCents,
+    netCashFlowByPersonCents,
+    obligationChargedByPersonCents,
+    obligationFundedByPersonCents,
+    assistanceReceivedByPersonCents,
+    assistanceGivenByPersonCents,
+    taxSettlementByPersonCents,
+    taxSettlementBySourcePersonCents,
     resolvedFunding,
     taxableByOwnerAfterFundingCents: toTaxableRecord(fundingDraw.taxableByOwnerAfter),
     accountBalancesAfterFundingCents,
