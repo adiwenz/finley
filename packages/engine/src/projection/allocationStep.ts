@@ -1,4 +1,4 @@
-import type { Cents } from "../money/money";
+import { apportionInOrder, type Cents } from "../money/money";
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
 import type { TaxCategory } from "../money/cashFlowSeries";
 import { orderBudgetLines, resolveBudgetLineMonthlyCents } from "../budget/budgetLine";
@@ -459,21 +459,14 @@ export function allocateMonth(
   }
 
   if (result.shortfallCents > 0) {
-    const predicted = [...(liquidDrawdownByAccountCents ?? [])].filter(([, cents]) => cents > 0);
-    const totalPredicted = predicted.reduce((sum, [, cents]) => sum + cents, 0);
-    if (totalPredicted > 0) {
-      // Cumulative-rounded to the real total, same technique as `proportionalSplit` (waterfall.ts):
-      // every account's share is a whole-cent slice of `result.shortfallCents`, and the shares
-      // sum to it exactly regardless of any rounding-sized gap between the prediction and the
-      // real waterfall's own figure.
-      let prevCum = 0;
-      let acc = 0;
-      for (const [id, cents] of predicted) {
-        acc += cents;
-        const cum = Math.round((result.shortfallCents * acc) / totalPredicted);
-        const share = cum - prevCum;
-        prevCum = cum;
-        if (share === 0) continue;
+    // Cumulative-rounded to the real total: every account's share is a whole-cent slice of
+    // `result.shortfallCents`, and the shares sum to it exactly regardless of any rounding-sized
+    // gap between the prediction and the real waterfall's own figure. The SAME rule the funding
+    // attribution divides its own slice of this draw by, so the account a "Funded by" row names
+    // is the account whose balance moved here.
+    const debits = apportionInOrder(result.shortfallCents, [...(liquidDrawdownByAccountCents ?? [])]);
+    if (debits.size > 0) {
+      for (const [id, share] of debits) {
         state.assetBalances.set(id, (state.assetBalances.get(id) ?? 0) - share);
       }
     } else if (state.liquidAccount !== null) {

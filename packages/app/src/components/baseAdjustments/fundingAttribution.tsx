@@ -60,9 +60,27 @@ export interface FundingAttributionProps {
    * from. Absent for a household of one, which has nothing to disambiguate.
    */
   readonly naming?: FundingNaming;
+  /**
+   * What this list is, when it is not the month's whole funding walk. A partnered month answers
+   * "who paid" per person ({@link import("./personFunding").PersonFunding}) and leaves only the
+   * EXPLICITLY funded draws to this view — which are authored rather than derived, so the
+   * default's caveat about priority order would be the wrong thing to say over them.
+   */
+  readonly heading?: string;
+  readonly hint?: string;
 }
 
-export function FundingAttribution({ resolvedFunding, obligations, naming }: FundingAttributionProps) {
+const DEFAULT_HINT =
+  "How the month covered each obligation, in the order it drew on its money. A derived view of a " +
+  "fungible pool, not an authored fact — reordering priorities would reassign which line was financed.";
+
+export function FundingAttribution({
+  resolvedFunding,
+  obligations,
+  naming,
+  heading = "Funded by",
+  hint = DEFAULT_HINT,
+}: FundingAttributionProps) {
   const rows = useMemo(
     () => buildFundingAttribution(resolvedFunding, obligations, naming),
     [resolvedFunding, obligations, naming],
@@ -71,11 +89,8 @@ export function FundingAttribution({ resolvedFunding, obligations, naming }: Fun
 
   return (
     <section>
-      <h4 className={baseStyles.groupHeading}>Funded by</h4>
-      <p className="hint">
-        How the month covered each obligation, in the order it drew on its money. A derived view of a
-        fungible pool, not an authored fact — reordering priorities would reassign which line was financed.
-      </p>
+      <h4 className={baseStyles.groupHeading}>{heading}</h4>
+      <p className="hint">{hint}</p>
       {rows.map((row) => (
         <div key={row.obligationId} className={styles.entry} data-obligation={row.obligationId}>
           <div className={styles.obligation}>

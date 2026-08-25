@@ -1,11 +1,15 @@
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
-import type { Cents } from "../money/money";
+import { apportionInOrder, type Cents } from "../money/money";
 import { accumulateEarnings, buildGovernmentBenefitSources } from "./governmentBenefit";
 import { buildRmdSources } from "./rmd";
 import { buildWithdrawalSources, DEFAULT_LIQUIDATION_ORDER } from "./withdrawal";
 import { buildFlows, type PrincipalDrawdownSource } from "./reportFlows";
 import { buildObligations, automaticFundingTotal, fundedLiabilityPayments } from "./financialObligation";
-import { resolveFundingAttribution, type FundingSupplyPlan } from "./resolvedFunding";
+import {
+  resolveFundingAttribution,
+  type FundingSupplyPlan,
+  type LiquidDrawdown,
+} from "./resolvedFunding";
 import {
   isPersonActiveAt,
   type HouseholdSimInput,
@@ -135,6 +139,40 @@ interface MonthOutcome {
  *   11. Snapshot                                          → snapshotMonth
  *
  */
+/**
+ * The obligations' slice of the month's liquid drawdown, split across the accounts that actually
+ * bore it — by the SAME weights and the SAME rounding {@link allocateMonth} debited those balances
+ * with, so the account a "Funded by" row names is the account whose balance fell.
+ *
+ * A buffer is one per OWNER, and the cascade tries each person's own before it pools (see {@link
+ * buildWithdrawalSources}), so these weights already carry the answer to "whose share went short".
+ * Reporting the whole draw against `state.liquidAccount` threw that away and named the FIRST
+ * account in the roster — in a two-earner household that is the primary's, whose balance had
+ * typically risen that month while the partner's fell by exactly the amount shown.
+ *
+ * Falls back to the household's single designated buffer when the withdrawal step predicted
+ * nothing per account, mirroring {@link allocateMonth}'s own fallback for the same case.
+ */
+function liquidDrawdownsToObligations(
+  liquidToObligationsCents: Cents,
+  byAccountCents: ReadonlyMap<string, Cents>,
+  fallbackAccountId: string | null,
+): readonly LiquidDrawdown[] {
+  if (liquidToObligationsCents <= 0) return [];
+  const weights = [...byAccountCents];
+  const split = apportionInOrder(liquidToObligationsCents, weights);
+  if (split.size === 0) {
+    return fallbackAccountId === null
+      ? []
+      : [{ sourceId: fallbackAccountId, amountCents: liquidToObligationsCents }];
+  }
+  // In the weights' own order — each person's own buffer ahead of the pooled pass — so the
+  // cascade's layers are offered in the order the cascade drew them.
+  return weights
+    .filter(([id]) => split.has(id))
+    .map(([id]) => ({ sourceId: id, amountCents: split.get(id)! }));
+}
+
 function runMonth(
   state: SimState,
   run: RunContext,
@@ -433,10 +471,11 @@ function runMonth(
   );
   const supply: FundingSupplyPlan = {
     incomeCents: incomeToObligationsCents,
-    liquidDrawdown:
-      state.liquidAccount !== null && liquidToObligationsCents > 0
-        ? { sourceId: state.liquidAccount.id, amountCents: liquidToObligationsCents }
-        : null,
+    liquidDrawdowns: liquidDrawdownsToObligations(
+      liquidToObligationsCents,
+      withdrawal.liquidDrawdownByAccountCents,
+      state.liquidAccount?.id ?? null,
+    ),
     decumulationDraws: withdrawal.decumulationDraws,
     creditCents: Math.max(
       0,

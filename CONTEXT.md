@@ -163,6 +163,16 @@ reassigns it. Presented as a stated-rule reading, in the spirit of a **Nudge** â
 something the user authored or the ledger observed.
 _Avoid_: stating it as an observed or authored fact.
 
+**Per-person funding**:
+What a **household** of more than one is shown instead of the per-line attribution above: each
+member's authored **share**, what their own take-home reached, which of their own accounts
+covered the rest, and what a partner's covered as **assistance**. Every figure is one the
+engine decided, so this is *not* a derived interpretation and carries no such caveat. The
+distinction matters because accounts are personally owned: an arbitrary line-to-source
+assignment becomes a claim about an owner, and a claim about an owner can be simply wrong.
+_Avoid_: applying it to a household of one, which has no owner to disambiguate and keeps the
+per-line reading.
+
 **One-Time Spend**:
 A dated, source-directed cash outflow funded from named accounts in a chosen order.
 Distinguished from a dated expense override by exactly one thing: the user names *which*
