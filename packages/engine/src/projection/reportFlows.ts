@@ -179,6 +179,8 @@ export function buildFlows(
   | "netCashFlowByPersonCents"
   | "obligationChargedByPersonCents"
   | "obligationFundedByPersonCents"
+  | "assistanceReceivedByPersonCents"
+  | "assistanceGivenByPersonCents"
   | "taxSettlementByPersonCents"
   | "taxSettlementBySourcePersonCents"
 > {

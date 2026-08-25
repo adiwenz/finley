@@ -205,6 +205,18 @@ export interface ProjectionMonthFlows {
    */
   readonly obligationFundedByPersonCents: Readonly<Record<string, Cents>>;
   /**
+   * What another member's unspent current-month pay covered of this person's share, once their
+   * own income and own accounts were both spent — see {@link
+   * import("./waterfall.types").WaterfallResult.assistanceReceivedByPersonCents}.
+   *
+   * The separate figure "charged less funded" cannot give you: that difference is everything
+   * somebody else's money paid for, whether it came from a partner's paycheck or from selling a
+   * partner's holdings, and those are the two things the funding order exists to keep apart.
+   */
+  readonly assistanceReceivedByPersonCents: Readonly<Record<string, Cents>>;
+  /** The giver's side of the same cents — see {@link assistanceReceivedByPersonCents}. */
+  readonly assistanceGivenByPersonCents: Readonly<Record<string, Cents>>;
+  /**
    * April's settled balance per PERSON, SIGNED — positive is that person's bill, negative is
    * their refund. Sums to {@link taxSettlementCents}.
    *

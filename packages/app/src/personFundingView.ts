@@ -19,11 +19,12 @@
  *  2. **From income** — how much of that share their own take-home reached.
  *     `obligationFundedByPersonCents`.
  *  3. **From their own accounts** — the balances of theirs that fell to cover the rest.
- *  4. **Assistance** — what the other partner's accounts covered once their own ran out, which is
- *     help rather than a retroactive edit to the split.
+ *  4. **Assistance** — what the other partner covered once their own money ran out: their unspent
+ *     pay first (`assistanceReceivedByPersonCents`, the engine's own figure), and only then their
+ *     accounts. Help either way, and a retroactive edit to the split in neither.
  *
- * (3) and (4) are read off the funding records' account OWNERS, so no line is ever assigned to a
- * person. The one assumption is the cascade's own: a person's accounts go to their own share
+ * (3) and the account half of (4) are read off the funding records' account OWNERS, so no line is
+ * ever assigned to a person. The one assumption is the cascade's own: a person's accounts go to their own share
  * before anyone else's (`buildWithdrawalSources`, § Household funding, step 3). Anything past
  * every account is credit, which belongs to no one and is reported as the household's.
  *
@@ -84,6 +85,15 @@ export interface PersonMonthFigures {
   readonly obligationChargedByPersonCents: Readonly<Record<string, number>>;
   readonly obligationFundedByPersonCents: Readonly<Record<string, number>>;
   readonly netCashFlowByPersonCents: Readonly<Record<string, number>>;
+  /**
+   * What another member's unspent pay covered of this person's share, and the giver's side of the
+   * same cents. Read rather than inferred: help from income and help from an account are two
+   * different rungs of the funding order, and only one of them leaves a trace in the account
+   * draws below. Inferring assistance from the draws alone reported a household whose partner
+   * simply paid as a household that had sold something.
+   */
+  readonly assistanceReceivedByPersonCents: Readonly<Record<string, number>>;
+  readonly assistanceGivenByPersonCents: Readonly<Record<string, number>>;
 }
 
 /** Whose account is whose, and what to call them — the same maps the per-line view names with. */
@@ -100,7 +110,12 @@ export interface PersonFundingNaming {
  * after they left — and their presence in the list is exactly what decides whether this view is
  * shown at all.
  */
-export function fundingPeopleAt(figures: PersonMonthFigures): string[] {
+export function fundingPeopleAt(
+  figures: Pick<
+    PersonMonthFigures,
+    "obligationChargedByPersonCents" | "netCashFlowByPersonCents"
+  >,
+): string[] {
   const ids = new Set([
     ...Object.keys(figures.obligationChargedByPersonCents),
     ...Object.keys(figures.netCashFlowByPersonCents),
@@ -117,7 +132,12 @@ export function fundingPeopleAt(figures: PersonMonthFigures): string[] {
  * replaces the per-line waterfall under. Dated, not structural: a plan with two relationships in
  * it is a household of one during the years between them, and reads as one.
  */
-export function isPartneredMonth(figures: PersonMonthFigures): boolean {
+export function isPartneredMonth(
+  figures: Pick<
+    PersonMonthFigures,
+    "obligationChargedByPersonCents" | "netCashFlowByPersonCents"
+  >,
+): boolean {
   return fundingPeopleAt(figures).length > 1;
 }
 
@@ -205,8 +225,54 @@ export function buildPersonFunding(
     surplusCents.set(id, Math.max(0, drawnTotal - (gap - remaining)));
   }
 
-  // Pass two: whatever is left of somebody's accounts covers whoever is still short.
   const assistanceTo = new Map<string, Assistance[]>();
+  /** One helper's contribution, merged into whatever they have already given this person. */
+  const addAssistance = (toId: string, fromId: string, cents: number): void => {
+    if (cents <= 0) return;
+    const given = assistanceTo.get(toId) ?? [];
+    const existing = given.find((a) => a.fromPersonId === fromId);
+    if (existing === undefined) {
+      given.push({
+        fromPersonId: fromId,
+        fromName: naming.personNames.get(fromId) ?? fromId,
+        amountCents: cents,
+      });
+    } else {
+      given[given.indexOf(existing)] = { ...existing, amountCents: existing.amountCents + cents };
+    }
+    assistanceTo.set(toId, given);
+  };
+
+  // Pass one-and-a-half: the partner's own pay, which the engine decided and reports directly —
+  // the rung between a person's own accounts and their partner's. Apportioned back to the givers
+  // by what each of them gave, since the engine reports the two sides as totals.
+  const incomeGivers = people.filter((id) => (figures.assistanceGivenByPersonCents[id] ?? 0) > 0);
+  const givenTotal = incomeGivers.reduce(
+    (sum, id) => sum + (figures.assistanceGivenByPersonCents[id] ?? 0),
+    0,
+  );
+  if (givenTotal > 0) {
+    for (const id of people) {
+      const received = Math.min(
+        figures.assistanceReceivedByPersonCents[id] ?? 0,
+        gapCents.get(id) ?? 0,
+      );
+      if (received <= 0) continue;
+      let handedOut = 0;
+      incomeGivers.forEach((giver, i) => {
+        // The last giver absorbs the rounding, so the parts sum to `received` to the cent.
+        const cents =
+          i === incomeGivers.length - 1
+            ? received - handedOut
+            : Math.round((received * (figures.assistanceGivenByPersonCents[giver] ?? 0)) / givenTotal);
+        handedOut += cents;
+        addAssistance(id, giver, cents);
+      });
+      gapCents.set(id, (gapCents.get(id) ?? 0) - received);
+    }
+  }
+
+  // Pass two: whatever is left of somebody's accounts covers whoever is still short.
   const helpers = people.filter((id) => (surplusCents.get(id) ?? 0) > 0);
   const totalHelp = helpers.reduce((sum, id) => sum + (surplusCents.get(id) ?? 0), 0);
   if (totalHelp > 0) {
@@ -214,7 +280,6 @@ export function buildPersonFunding(
       const gap = gapCents.get(id) ?? 0;
       if (gap <= 0) continue;
       const covered = Math.min(gap, totalHelp);
-      const given: Assistance[] = [];
       let handedOut = 0;
       helpers.forEach((helper, i) => {
         // The last helper absorbs the rounding, so the parts sum to `covered` to the cent.
@@ -223,15 +288,8 @@ export function buildPersonFunding(
             ? covered - handedOut
             : Math.round((covered * (surplusCents.get(helper) ?? 0)) / totalHelp);
         handedOut += cents;
-        if (cents > 0) {
-          given.push({
-            fromPersonId: helper,
-            fromName: naming.personNames.get(helper) ?? helper,
-            amountCents: cents,
-          });
-        }
+        addAssistance(id, helper, cents);
       });
-      assistanceTo.set(id, given);
       gapCents.set(id, gap - covered);
     }
   }

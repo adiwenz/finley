@@ -775,6 +775,107 @@ function splitSharedObligation(
 }
 
 /**
+ * Step 3b — one member's unspent current-month pay covers what another member's own income and
+ * own accounts together cannot reach.
+ *
+ * The household's resources are not one pool, and they are not five independent ones either.
+ * They are an ORDER, and each person's share walks it from their own end: their own income,
+ * their own accounts, then a partner's income, and only then a partner's accounts. This step is
+ * the third rung. It exists because the fourth used to run in its place — the shortfall left
+ * after a person's own accounts went to the pooled decumulation pass, which sold whichever
+ * partner's holding ranked first while that partner's own pay for the very same month sat
+ * waiting to be swept into savings. A household with $2,000 of unspent income liquidated a
+ * brokerage position to find $200.
+ *
+ * The gap this closes is deliberately narrow: only the part of an authored share that the
+ * owner's OWN capacity ({@link WaterfallInput.ownFundingCapacityCents}) cannot reach. Above
+ * that, nothing changes — the owner's accounts are still spent first, on their own share, and
+ * a household whose members can each cover themselves never reaches this step at all.
+ *
+ * A personal obligation is out of scope by the same rule that has always governed it (see
+ * {@link WaterfallInput.personalObligationCentsByPerson}): a partner's income is not available
+ * for it, though their accounts remain the household's last-resort backstop. It is netted off
+ * the owner's capacity first for that reason — their own money goes to their own debt, and only
+ * what is left over of it counts toward their share.
+ *
+ * Assistance is taken OUT of the giver's leftover, so the same cent cannot be handed over here
+ * and swept into their surplus below. Nothing about the split moves: the receiver still owes
+ * their whole authored share, and both directions are reported under their own names.
+ */
+function assistFromDiscretionary(
+  input: WaterfallInput,
+  unfundedShareByPerson: ReadonlyMap<string, Cents>,
+  personalShortfallByPerson: ReadonlyMap<string, Cents>,
+  leftoverByPerson: Map<string, Cents>,
+  totalDiscretionary: Cents,
+): {
+  leftoverByPerson: Map<string, Cents>;
+  totalDiscretionary: Cents;
+  assistedCents: Cents;
+  receivedByPerson: Map<string, Cents>;
+  givenByPerson: Map<string, Cents>;
+} {
+  const receivedByPerson = new Map<string, Cents>();
+  const givenByPerson = new Map<string, Cents>();
+  const unchanged = {
+    leftoverByPerson,
+    totalDiscretionary,
+    assistedCents: 0,
+    receivedByPerson,
+    givenByPerson,
+  };
+  const capacityOf = input.ownFundingCapacityCents;
+  if (capacityOf === undefined || totalDiscretionary <= 0) return unchanged;
+
+  const needByPerson = new Map<string, Cents>();
+  let totalNeed: Cents = 0;
+  for (const pid of input.personIds) {
+    // Their own accounts, less whatever their own debt has first claim on.
+    const ownReach = Math.max(
+      0,
+      Math.max(0, capacityOf(pid)) - (personalShortfallByPerson.get(pid) ?? 0),
+    );
+    const need = Math.max(0, (unfundedShareByPerson.get(pid) ?? 0) - ownReach);
+    needByPerson.set(pid, need);
+    totalNeed += need;
+  }
+  if (totalNeed <= 0) return unchanged;
+
+  // Nobody assists and is assisted in the same month: a person with anything left over covered
+  // their own share out of income by definition, so the two sets are already disjoint. Stated
+  // as a weight anyway, because the alternative is a household quietly lending itself money.
+  const givingWeightOf = (pid: string): number =>
+    (needByPerson.get(pid) ?? 0) > 0 ? 0 : Math.max(0, leftoverByPerson.get(pid) ?? 0);
+  const offered = input.personIds.reduce((sum, pid) => sum + givingWeightOf(pid), 0);
+  // Bounded three ways, and each bound is a different fact: what is still needed, what the
+  // household's discretionary pool actually holds (already net of any deduction deficit it
+  // absorbed), and what the people willing to give are individually holding.
+  const assistedCents = Math.min(totalNeed, totalDiscretionary, offered);
+  if (assistedCents <= 0) return unchanged;
+
+  for (const [pid, cents] of proportionalSplit(
+    assistedCents,
+    input.personIds,
+    (id) => needByPerson.get(id) ?? 0,
+  )) {
+    if (cents > 0) receivedByPerson.set(pid, cents);
+  }
+  const nextLeftover = new Map(leftoverByPerson);
+  for (const [pid, cents] of proportionalSplit(assistedCents, input.personIds, givingWeightOf)) {
+    if (cents <= 0) continue;
+    givenByPerson.set(pid, cents);
+    nextLeftover.set(pid, (nextLeftover.get(pid) ?? 0) - cents);
+  }
+  return {
+    leftoverByPerson: nextLeftover,
+    totalDiscretionary: totalDiscretionary - assistedCents,
+    assistedCents,
+    receivedByPerson,
+    givenByPerson,
+  };
+}
+
+/**
  * Steps 4–6 — the deadline-paced (sinking-fund) goal loop, then the surplus.
  *
  * The deadline sets the pace, priority is scarcity triage: each dated goal is funded to its
@@ -922,13 +1023,29 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
   } = computeTakeHome(input, grossByPerson, taxableByPerson, sourceOutcomes, deferredByPerson);
   const personalCharge = chargePersonalObligations(input, takeHomeByPerson);
   const {
-    leftoverByPerson,
-    totalDiscretionary,
+    leftoverByPerson: leftoverBeforeAssistance,
+    totalDiscretionary: discretionaryBeforeAssistance,
     shortfallCents: sharedShortfallCents,
     obligationShortfallByPersonCents: sharedObligationShortfallByPersonCents,
     shareByPerson,
     fundedFromIncomeByPerson,
   } = splitSharedObligation(input, personalCharge.takeHomeByPerson);
+  // Between a person's own accounts and their partner's — see `assistFromDiscretionary`. Runs
+  // before goals and the surplus, because the money it hands over is money the giver no longer
+  // has to save.
+  const {
+    leftoverByPerson,
+    totalDiscretionary,
+    assistedCents,
+    receivedByPerson: assistanceReceivedByPersonCents,
+    givenByPerson: assistanceGivenByPersonCents,
+  } = assistFromDiscretionary(
+    input,
+    sharedObligationShortfallByPersonCents,
+    personalCharge.shortfallByPerson,
+    leftoverBeforeAssistance,
+    discretionaryBeforeAssistance,
+  );
 
   // The SIGNED companion to `leftoverByPerson`, built from the same three quantities but with
   // none of the flooring the allocation itself needs. `leftoverByPerson` is what a person has
@@ -972,12 +1089,16 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
   // personal obligation; per-person, the two never overlap (one key per person in each map), so
   // a plain sum keeps the personal shortfall from vanishing into (or double-counting with) the
   // shared figure.
-  const obligationShortfallCents = sharedShortfallCents + personalCharge.shortfallCents;
+  // Net of assistance, on both figures: a share a partner's pay has already covered is not
+  // short, and leaving it here would send decumulation to sell an account for a paid bill.
+  const obligationShortfallCents =
+    sharedShortfallCents + personalCharge.shortfallCents - assistedCents;
   const obligationShortfallByPersonCents = new Map<string, Cents>(
     input.personIds.map((pid) => [
       pid,
       (sharedObligationShortfallByPersonCents.get(pid) ?? 0) +
-        (personalCharge.shortfallByPerson.get(pid) ?? 0),
+        (personalCharge.shortfallByPerson.get(pid) ?? 0) -
+        (assistanceReceivedByPersonCents.get(pid) ?? 0),
     ]),
   );
 
@@ -1010,5 +1131,7 @@ export function runWaterfall(input: WaterfallInput): WaterfallResult {
     netCashFlowByPersonCents,
     obligationChargedByPersonCents,
     obligationFundedByPersonCents,
+    assistanceReceivedByPersonCents,
+    assistanceGivenByPersonCents,
   };
 }

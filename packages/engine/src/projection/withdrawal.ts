@@ -396,7 +396,10 @@ export function buildWithdrawalSources(
   // Shared pooled pass, in the same order as before this function took a per-person hint:
   // whatever `need` remains — a single funding-eligible person, cross-person coverage once
   // someone's own accounts ran dry, or an unattributed slice (a negative-take-home deficit
-  // the split could not name a person for). Never lets an account go negative: both passes below
+  // the split could not name a person for). The LAST rung a household's own money reaches:
+  // whatever a partner's unspent pay could cover has already left `shortfallCents` before this
+  // function was called (see {@link import("./waterfall").runWaterfall}'s assistance step), so
+  // an account is only sold here for a gap no income anywhere could close. Never lets an account go negative: both passes below
   // cap every draw at the account's own balance, same as the per-person pass above.
   if (need > 0) {
     const pooledLiquid = state.accounts.filter(isBuffer);

@@ -61,10 +61,18 @@ function funded(
 }
 
 /** A 50/50 month: each owes $2,700, and `over` says what each one's income reached. */
-const figures = (alexIncome: number, blakeIncome: number, netCashFlow = { alex: 0, blake: 0 }) => ({
+const figures = (
+  alexIncome: number,
+  blakeIncome: number,
+  netCashFlow = { alex: 0, blake: 0 },
+  /** What Alex's unspent pay covered of Blake's share — the engine's own assistance figure. */
+  alexAssists = 0,
+) => ({
   obligationChargedByPersonCents: { alex: 270_000, blake: 270_000 },
   obligationFundedByPersonCents: { alex: alexIncome, blake: blakeIncome },
   netCashFlowByPersonCents: { alex: netCashFlow.alex, blake: netCashFlow.blake },
+  assistanceReceivedByPersonCents: { alex: 0, blake: alexAssists },
+  assistanceGivenByPersonCents: { alex: alexAssists, blake: 0 },
 });
 
 /** Everything a row says covered its share — the sum that has to equal the share. */
@@ -82,7 +90,6 @@ describe("who the month was about", () => {
     // are absent — a departed partner would otherwise keep a row of zeroes forever.
     const view = fundingPeopleAt({
       obligationChargedByPersonCents: { alex: 270_000, blake: 0 },
-      obligationFundedByPersonCents: { alex: 270_000, blake: 0 },
       netCashFlowByPersonCents: { alex: 100_000, blake: 0 },
     });
     expect(view).toEqual(["alex"]);
@@ -94,7 +101,6 @@ describe("who the month was about", () => {
     expect(
       isPartneredMonth({
         obligationChargedByPersonCents: { alex: 540_000, blake: 0 },
-        obligationFundedByPersonCents: { alex: 400_000, blake: 0 },
         netCashFlowByPersonCents: { alex: -140_000, blake: 120_000 },
       }),
     ).toBe(true);
@@ -149,6 +155,47 @@ describe("what covered each person's share", () => {
     const alex = view.rows.find((r) => r.personId === "alex")!;
     expect(alex.shareCents).toBe(270_000);
     expect(alex.fromIncomeCents).toBe(270_000);
+    for (const row of view.rows) expect(coveredCents(row)).toBe(row.shareCents);
+  });
+
+  it("shows the partner's unspent pay as help, after their own account and before the partner's", () => {
+    // The rung between the two account passes. Blake is $590 short, $200 of it within their own
+    // savings; the other $390 came out of Alex's paycheck, so no account of Alex's was touched
+    // and there is nothing in the draws to read it off. The engine's own figure says so.
+    const view = buildPersonFunding(
+      figures(270_000, 211_000, { alex: 0, blake: 0 }, 39_000),
+      funded([
+        { kind: "income", sourceId: "income", amountCents: 520_000 },
+        { kind: "account", sourceId: "blake-savings", amountCents: 20_000 },
+      ]),
+      [rent],
+      naming,
+    );
+    const blake = view.rows.find((r) => r.personId === "blake")!;
+
+    expect(blake.fromOwnAccounts).toEqual([
+      { accountId: "blake-savings", label: "Blake’s cash savings", amountCents: 20_000 },
+    ]);
+    expect(blake.assistance).toEqual([{ fromPersonId: "alex", fromName: "Alex", amountCents: 39_000 }]);
+    expect(blake.shortfallCents).toBe(0);
+    for (const row of view.rows) expect(coveredCents(row)).toBe(row.shareCents);
+  });
+
+  it("merges help from one partner's pay and their accounts into a single row", () => {
+    // Two rungs, one helper, one fact: Alex helped. Splitting it into two "from Alex" lines
+    // would describe the household's plumbing rather than what happened.
+    const view = buildPersonFunding(
+      figures(270_000, 211_000, { alex: 0, blake: 0 }, 20_000),
+      funded([
+        { kind: "income", sourceId: "income", amountCents: 501_000 },
+        { kind: "account", sourceId: "alex-savings", amountCents: 39_000 },
+      ]),
+      [rent],
+      naming,
+    );
+    const blake = view.rows.find((r) => r.personId === "blake")!;
+
+    expect(blake.assistance).toEqual([{ fromPersonId: "alex", fromName: "Alex", amountCents: 59_000 }]);
     for (const row of view.rows) expect(coveredCents(row)).toBe(row.shareCents);
   });
 

@@ -114,10 +114,10 @@ describe("Funded by — a partnered month answers per person", () => {
     expect(coverage("Alex").some((l) => l.includes("Alex"))).toBe(false);
   });
 
-  it("calls it assistance when one partner's accounts cover the other's share", () => {
+  it("calls it assistance when one partner's money covers the other's share", () => {
     // By Year 5 of "Two incomes, one household" Blake's $30,000 is gone — they have been short
-    // every month since month 0 — so Alex's money is what covers Blake's share. The split has not
-    // moved: Blake is still charged 50%, and the row says who paid it instead.
+    // every month since month 0 — so Alex's unspent pay is what covers the rest of Blake's share.
+    // The split has not moved: Blake is still charged 50%, and the row says who paid it instead.
     load("partner-even-split", 60);
     const blake = coverage("Blake");
     // Still 50/50 five years on: both rows carry the same share, inflated together.

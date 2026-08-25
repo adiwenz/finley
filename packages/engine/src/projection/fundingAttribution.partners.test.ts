@@ -17,95 +17,13 @@
 import { describe, it, expect } from "vitest";
 import { Projection } from "../index";
 import { nullJurisdiction } from "../jurisdiction/jurisdiction";
-import { ref } from "../input/scenarioInput";
 import type { ScenarioInput } from "../input/scenarioInput";
 import { dollarsToCents } from "../money/cashFlowSeries";
+import { ALEX_SAVINGS, blakeSavings, partnerHousehold as household } from "./partnerHousehold.testSupport";
 import type { ResolvedFunding } from "./resolvedFunding";
-
-const START_YEAR = 2026;
-const BUDGET = dollarsToCents(5_400);
 
 /** The month every assertion reads. Month 0 is a processed month, so its own flows are real. */
 const M = 0;
-
-/**
- * Alex and Blake, both earning, against one shared budget neither paycheck alone can cover.
- *
- * Every return is 0 and there are no goals, so a balance moves for exactly one reason — something
- * drew on it — and "the balance that fell" is an unambiguous fact rather than a draw net of a
- * month's interest. Alex out-earns Blake, so which of them comes up short is decided by the
- * authored split alone, which is what makes the same fixture answer for 50/50, 70/30 and both
- * extremes.
- */
-function household(over: {
-  readonly sharePercent?: number;
-  readonly alexMonthlyDollars?: number;
-  readonly blakeMonthlyDollars?: number;
-  readonly alexSavingsDollars?: number;
-  readonly blakeSavingsDollars?: number;
-}): ScenarioInput {
-  const alexPay = over.alexMonthlyDollars ?? 4_000;
-  const blakePay = over.blakeMonthlyDollars ?? 1_200;
-  return {
-    name: "Alex",
-    startYear: START_YEAR,
-    birthYear: START_YEAR - 40,
-    lifeExpectancy: 70,
-    benefitClaimingAge: 67,
-    openingBalanceCents: dollarsToCents(over.alexSavingsDollars ?? 30_000),
-    savingsReturnPct: 0,
-    retirementReturnPct: 0,
-    brokerageReturnPct: 0,
-    inflationPct: 0,
-    goals: [],
-    budgetLines: [
-      {
-        label: "Household",
-        target: { kind: "expense" },
-        amountSource: { kind: "literal", monthlyCents: BUDGET },
-        category: "needs",
-      },
-    ],
-    jobs: [
-      {
-        startYear: START_YEAR - 20,
-        endYear: START_YEAR + 20,
-        salary: {
-          startingSalaryCents: dollarsToCents(alexPay) * 12,
-          currentSalaryCents: dollarsToCents(alexPay) * 12,
-          realGrowthPct: 0,
-        },
-      },
-    ],
-    events: [
-      {
-        type: "startPartnered",
-        ref: ref("blake"),
-        partneredForMonths: 24,
-        name: "Blake",
-        birthYear: START_YEAR - 40,
-        lifeExpectancy: 70,
-        jobs: [
-          {
-            startYear: START_YEAR - 20,
-            endYear: START_YEAR + 20,
-            salary: {
-              startingSalaryCents: dollarsToCents(blakePay) * 12,
-              currentSalaryCents: dollarsToCents(blakePay) * 12,
-              realGrowthPct: 0,
-            },
-          },
-        ],
-        accounts: {
-          savingsBalanceCents: dollarsToCents(over.blakeSavingsDollars ?? 30_000),
-          retirementBalanceCents: 0,
-          brokerageBalanceCents: 0,
-        },
-        ...(over.sharePercent === undefined ? {} : { partnerSharePercent: over.sharePercent }),
-      },
-    ],
-  };
-}
 
 /** The month's attribution and the balance change across it, read from one run. */
 function fundingAt(input: ScenarioInput): {
@@ -140,20 +58,12 @@ function drawnByAccount(
   return byAccount;
 }
 
-/** The primary's cash account and the partner's, as the standing builds name them. */
-const ALEX_SAVINGS = "savings";
-const blakeSavings = (balanceChange: ReadonlyMap<string, number>): string => {
-  const id = [...balanceChange.keys()].find((k) => k.startsWith("savings-"));
-  if (id === undefined) throw new Error("the partner has no savings account");
-  return id;
-};
-
 describe("a savings draw is attributed to the partner whose share it covered", () => {
   it("names the short partner's account under a 50/50 split, not the surplus partner's", () => {
     // $2,700 each. Alex's $4,000 covers theirs with room to spare; Blake's $1,200 leaves $1,500
     // of their own share for their own savings to find.
     const { sources, balanceChange } = fundingAt(household({ sharePercent: 50 }));
-    const blake = blakeSavings(balanceChange);
+    const blake = blakeSavings(balanceChange.keys());
     const drawn = drawnByAccount(sources);
 
     expect(drawn.get(blake)).toBe(dollarsToCents(1_500));
@@ -170,7 +80,7 @@ describe("a savings draw is attributed to the partner whose share it covered", (
     // Alex 70% ($3,780, covered), Blake 30% ($1,620) against $1,200 of pay — short $420. The
     // split moved, so the amount moves; whose account pays does not.
     const { sources, balanceChange } = fundingAt(household({ sharePercent: 30 }));
-    const blake = blakeSavings(balanceChange);
+    const blake = blakeSavings(balanceChange.keys());
     const drawn = drawnByAccount(sources);
 
     expect(drawn.get(blake)).toBe(dollarsToCents(420));
@@ -183,7 +93,7 @@ describe("a savings draw is attributed to the partner whose share it covered", (
     // Blake carries all $5,400 on $1,200 of pay, so $4,200 comes out of Blake's savings while
     // Alex — assigned nothing — banks their entire paycheck.
     const { sources, balanceChange } = fundingAt(household({ sharePercent: 100 }));
-    const blake = blakeSavings(balanceChange);
+    const blake = blakeSavings(balanceChange.keys());
     const drawn = drawnByAccount(sources);
 
     expect(drawn.get(blake)).toBe(dollarsToCents(4_200));
@@ -196,7 +106,7 @@ describe("a savings draw is attributed to the partner whose share it covered", (
     // The control for "it always blames the partner": with the split reversed it is Alex who is
     // short, and it is Alex's savings the attribution names.
     const { sources, balanceChange } = fundingAt(household({ sharePercent: 0 }));
-    const blake = blakeSavings(balanceChange);
+    const blake = blakeSavings(balanceChange.keys());
     const drawn = drawnByAccount(sources);
 
     expect(drawn.get(ALEX_SAVINGS)).toBe(dollarsToCents(1_400));
@@ -206,22 +116,21 @@ describe("a savings draw is attributed to the partner whose share it covered", (
   });
 
   it("names both accounts once the short partner's savings run out, in the order they were drawn", () => {
-    // Blake owes all $5,400 with $1,200 of pay and only $500 of their own money. Their account
-    // is emptied first and Alex's covers the rest — assistance, which is a different fact from
-    // Blake having paid it, and the only way to tell them apart is whose account is named.
+    // Blake owes all $5,400 with $1,200 of pay and only $500 of their own money, and Alex has no
+    // pay at all this month — so the only thing Alex can contribute is their savings. Blake's
+    // account is emptied first and Alex's covers the rest: assistance, which is a different fact
+    // from Blake having paid it, and the only way to tell them apart is whose account is named.
     const { sources, balanceChange } = fundingAt(
-      household({ sharePercent: 100, blakeSavingsDollars: 500 }),
+      household({ sharePercent: 100, blakeSavingsDollars: 500, alexMonthlyDollars: 0 }),
     );
-    const blake = blakeSavings(balanceChange);
+    const blake = blakeSavings(balanceChange.keys());
     const drawn = drawnByAccount(sources);
 
     expect(drawn.get(blake)).toBe(dollarsToCents(500));
     expect(drawn.get(ALEX_SAVINGS)).toBe(dollarsToCents(4_200 - 500));
-    // Both named accounts moved by exactly what was attributed to them. Alex's fall is net of the
-    // $4,000 of pay they banked, so the balance rises — the attribution is about the draw, and
-    // the reconciliation has to add the surplus back to see it.
+    // Both named accounts moved by exactly what was attributed to them.
     expect(balanceChange.get(blake)).toBe(-dollarsToCents(500));
-    expect(balanceChange.get(ALEX_SAVINGS)).toBe(dollarsToCents(4_000 - 3_700));
+    expect(balanceChange.get(ALEX_SAVINGS)).toBe(-dollarsToCents(3_700));
     // Blake's own money before Alex's: the cascade tries each person's own accounts for their own
     // share first, and the row order is what says so.
     const order = sources.filter((s) => s.kind === "account").map((s) => s.sourceId);

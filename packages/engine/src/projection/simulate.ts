@@ -320,7 +320,9 @@ function runMonth(
   // `byPersonCents` is a DRAW-ORDER preference, not a second total: whoever's share of the gap
   // this is tries their own accounts first, so a partner's assets are never sold to cover the
   // other's obligation while resources of their own still sit untouched — the household total
-  // liquidated is exactly `shortfallBeforeDecumulation.totalCents` either way.
+  // liquidated is exactly `shortfallBeforeDecumulation.totalCents` either way. That total is
+  // already net of what a partner's unspent pay covered, so no account is sold for a share
+  // somebody's income had reached.
   const withdrawal = buildWithdrawalSources(
     state,
     jurisdiction,
@@ -351,6 +353,8 @@ function runMonth(
     netCashFlowByPersonCents,
     obligationChargedByPersonCents,
     obligationFundedByPersonCents,
+    assistanceReceivedByPersonCents,
+    assistanceGivenByPersonCents,
   } = allocateMonth(
     state,
     allocationSources,
@@ -562,6 +566,8 @@ function runMonth(
     netCashFlowByPersonCents,
     obligationChargedByPersonCents,
     obligationFundedByPersonCents,
+    assistanceReceivedByPersonCents,
+    assistanceGivenByPersonCents,
     taxSettlementByPersonCents,
     taxSettlementBySourcePersonCents,
     resolvedFunding,

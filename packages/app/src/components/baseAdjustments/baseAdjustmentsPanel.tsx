@@ -173,6 +173,9 @@ export function BaseAdjustmentsPanel({
     () => ({
       obligationChargedByPersonCents: selectedFlows?.obligationChargedByPersonCents ?? EMPTY_BY_PERSON,
       obligationFundedByPersonCents: selectedFlows?.obligationFundedByPersonCents ?? EMPTY_BY_PERSON,
+      assistanceReceivedByPersonCents:
+        selectedFlows?.assistanceReceivedByPersonCents ?? EMPTY_BY_PERSON,
+      assistanceGivenByPersonCents: selectedFlows?.assistanceGivenByPersonCents ?? EMPTY_BY_PERSON,
       netCashFlowByPersonCents: selectedFlows?.netCashFlowByPersonCents ?? EMPTY_BY_PERSON,
     }),
     [selectedFlows],

@@ -228,6 +228,21 @@ function planMonthAllocation(
     accountBalanceCents: (id) => state.assetBalances.get(id) ?? 0,
     liquidAccountId: state.liquidAccount?.id ?? null,
     surplusAccountIdForPerson: (pid) => surplusAccountIdFor(state, pid),
+    // Every balance this person holds, at the top of the step. Read only to decide whether their
+    // unfunded share is beyond their own reach, which is the point a partner's unspent pay
+    // becomes the next thing to spend — see {@link WaterfallInput.ownFundingCapacityCents}.
+    // Deliberately unfiltered: decumulation will sell any account of theirs before the household
+    // borrows, so any narrower reading here would understate what they can cover themselves and
+    // call for help that is not needed.
+    //
+    // Live, not frozen: on the month's real pass, whatever decumulation already sold out of
+    // their accounts has left this figure and arrived in their take-home, so the gap and the
+    // capacity fall by the same cents and the answer is the one the sizing pass reached.
+    ownFundingCapacityCents: (pid) =>
+      state.accounts.reduce(
+        (sum, a) => (a.ownerId === pid ? sum + Math.max(0, state.assetBalances.get(a.id) ?? 0) : sum),
+        0,
+      ),
     // Income-tax withholding, computed by the waterfall per WAGE SOURCE from that source's own
     // pay. The waterfall never prices a year; this seam prices one paycheck.
     computeWageWithholdingCents: jurisdiction.computeWageWithholdingCents
@@ -435,6 +450,10 @@ export function allocateMonth(
   obligationChargedByPersonCents: Readonly<Record<string, Cents>>;
   /** See {@link WaterfallResult.obligationFundedByPersonCents}. */
   obligationFundedByPersonCents: Readonly<Record<string, Cents>>;
+  /** See {@link WaterfallResult.assistanceReceivedByPersonCents}. */
+  assistanceReceivedByPersonCents: Readonly<Record<string, Cents>>;
+  /** See {@link WaterfallResult.assistanceGivenByPersonCents}. */
+  assistanceGivenByPersonCents: Readonly<Record<string, Cents>>;
 } {
   const { input, contributions } = planMonthAllocation(
     state,
@@ -628,6 +647,8 @@ export function allocateMonth(
     netCashFlowByPersonCents: Object.fromEntries(result.netCashFlowByPersonCents),
     obligationChargedByPersonCents: Object.fromEntries(result.obligationChargedByPersonCents),
     obligationFundedByPersonCents: Object.fromEntries(result.obligationFundedByPersonCents),
+    assistanceReceivedByPersonCents: Object.fromEntries(result.assistanceReceivedByPersonCents),
+    assistanceGivenByPersonCents: Object.fromEntries(result.assistanceGivenByPersonCents),
   };
 }
 

@@ -212,6 +212,23 @@ export interface WaterfallInput {
    */
   readonly personalObligationCentsByPerson?: (personId: string) => Cents;
   /**
+   * What this person's OWN accounts could deliver toward their own charge this month — every
+   * balance they hold, whatever its tax treatment, since decumulation will sell any of them
+   * before the household borrows.
+   *
+   * Read for ONE question only: is this person's unfunded share beyond their own reach? That is
+   * the point at which the other partner's unspent pay becomes the next thing to use, and the
+   * order matters because the two are not interchangeable. Selling a partner's holding while
+   * their current-month pay sits idle in a surplus sweep converts an asset into cash the
+   * household already had — it shrinks the balance sheet to pay a bill income could have paid.
+   *
+   * A CAPACITY, not a plan: nothing here decides which account is sold, or sells one. It sizes
+   * the gap that no account of theirs can close, so {@link
+   * WaterfallResult.assistanceReceivedByPersonCents} covers exactly that much and no more.
+   * Absent → no assistance from income at all, byte-identical to before this seam existed.
+   */
+  readonly ownFundingCapacityCents?: (personId: string) => Cents;
+  /**
    * Where THIS person's surplus lands — their own account of whatever kind {@link
    * surplusDestination} names, or null when they hold none.
    *
@@ -444,9 +461,11 @@ export interface WaterfallResult {
    */
   readonly obligationShortfallByPersonCents: ReadonlyMap<string, Cents>;
   /**
-   * What each person had left once their own income had paid their personal obligations and
-   * their share of the shared ones — the per-person counterpart of `totalDiscretionary`, and
-   * the money goals, contributions and the surplus are then funded out of.
+   * What each person had left once their own income had paid their personal obligations, their
+   * share of the shared ones, and whatever of a partner's share their own pay assisted with
+   * ({@link assistanceGivenByPersonCents}) — the per-person counterpart of `totalDiscretionary`,
+   * and the money goals, contributions and the surplus are then funded out of. Help comes out
+   * here and nowhere else, which is what stops the same cent being given away and banked.
    *
    * This is per-person NET CASH FLOW as the household actually funds it: the shared-obligation
    * share is the authored {@link WaterfallInput.sharedSharePercentOf} split, not an attribution of
@@ -495,4 +514,21 @@ export interface WaterfallResult {
    *     for the person who did the helping, whose own money covered more than their own share.
    */
   readonly obligationFundedByPersonCents: ReadonlyMap<string, Cents>;
+  /**
+   * The third figure: what another member's UNSPENT current-month pay covered of this person's
+   * authored share, once their own income and their own accounts ({@link
+   * WaterfallInput.ownFundingCapacityCents}) were both exhausted.
+   *
+   * Reported rather than folded into anything, because every figure it could be folded into
+   * would then say something untrue. Added to `obligationFundedByPersonCents` it would claim
+   * their own money paid; subtracted from `obligationChargedByPersonCents` it would rewrite the
+   * authored split; left inside `obligationShortfallByPersonCents` it would send decumulation
+   * looking for accounts to sell for a bill that has already been paid.
+   *
+   * Σ === Σ {@link assistanceGivenByPersonCents}, and every cent of it has been taken out of the
+   * giver's {@link leftoverByPersonCents} — so it cannot also arrive as their surplus.
+   */
+  readonly assistanceReceivedByPersonCents: ReadonlyMap<string, Cents>;
+  /** The same cents seen from the giver: what this person's own unspent pay covered for others. */
+  readonly assistanceGivenByPersonCents: ReadonlyMap<string, Cents>;
 }

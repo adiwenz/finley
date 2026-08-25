@@ -173,6 +173,16 @@ assignment becomes a claim about an owner, and a claim about an owner can be sim
 _Avoid_: applying it to a household of one, which has no owner to disambiguate and keeps the
 per-line reading.
 
+**Funding order**:
+The sequence a household spends itself in, for one member's authored **share**: their own
+income, their own accounts, the other member's *unspent current-month income*, the other
+member's accounts, then credit. The third rung is the one that is easy to leave out, and
+leaving it out costs real money — selling a partner's holding while that partner's pay for the
+same month is on its way to a surplus sweep converts an asset into cash the household already
+had. Everything from the third rung on is **assistance**, and none of it edits the **share**.
+_Avoid_: reading it as a pooling rule. The first two rungs are exhausted per person before the
+household is asked for anything, which is what keeps an authored 70/30 from behaving as 50/50.
+
 **One-Time Spend**:
 A dated, source-directed cash outflow funded from named accounts in a chosen order.
 Distinguished from a dated expense override by exactly one thing: the user names *which*
