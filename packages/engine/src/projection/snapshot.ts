@@ -17,7 +17,11 @@ import { interpretLedger } from "../ledger/interpret";
 import type { Ledger } from "../ledger/ledger";
 import type { Person } from "../plan/person";
 import type { ProjectionSeries } from "./simulate";
-import { lifeExpectancyEndMonthExclusive, personActiveWindow } from "../job/personActiveWindow";
+import {
+  lifeExpectancyEndMonthExclusive,
+  personActiveWindow,
+  survivingPartnerTransfers,
+} from "../job/personActiveWindow";
 
 export interface SnapshotChild extends Child {
   readonly id: ChildId;
@@ -217,7 +221,29 @@ export function buildSnapshot(
   const present = householdPresenceAt(household, m);
   const ownedByMember = (owners: readonly string[]): boolean =>
     owners.length === 0 || owners.some(present);
-  const accountOwners = new Map(household.accounts.map((a) => [a.id, a.owners as readonly string[]]));
+  /**
+   * A death re-owners a deceased member's cash/brokerage accounts to their surviving partner
+   * ({@link import("../job/personActiveWindow").survivingPartnerTransfers}), so the dated
+   * snapshot has to name the SAME owner the projection is spending from — otherwise a survived
+   * death reads as "in estate" (see {@link allOwnersDead}) at every month past it, though the
+   * money is the survivor's and the estate is untouched. Retirement accounts never transfer
+   * (unmodelled inherited-distribution rules, out of scope here), so they keep the owner they
+   * were authored with.
+   */
+  const deathTransfers = survivingPartnerTransfers(household.memberships, nowYear);
+  const effectiveOwners = (owners: readonly string[], retirement: boolean): readonly string[] => {
+    if (retirement) return owners;
+    let result = owners;
+    for (const t of deathTransfers) {
+      if (t.month <= m && result.includes(t.deceasedPersonId)) {
+        result = result.map((id) => (id === t.deceasedPersonId ? t.survivorPersonId : id));
+      }
+    }
+    return result;
+  };
+  const accountOwners = new Map(
+    household.accounts.map((a) => [a.id, effectiveOwners(a.owners, a.retirement)]),
+  );
   const liabilityOwner = new Map(household.liabilities.map((l) => [l.id as string, l.ownerId as string]));
 
   const children: SnapshotChild[] = household.children

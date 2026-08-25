@@ -13,6 +13,7 @@ import type { FinancialObligation, ObligationId, ObligationSource } from "./fina
 import type { ResolvedFunding } from "./resolvedFunding";
 import type { EstateSettlement } from "./estateSettlement";
 import type { FundingFailure } from "./fundingFailure";
+import type { SurvivingPartnerTransfer } from "../job/personActiveWindow";
 import type {
   PlanDescriptor,
   SurplusDestination,
@@ -815,4 +816,14 @@ export interface HouseholdSimInput {
    * "idle" }` — the first liquid account.
    */
   readonly surplusDestination?: SurplusDestination;
+  /**
+   * Cash and taxable-brokerage accounts moving from a deceased member to their surviving
+   * partner, each dated at that member's own life-end month — see {@link
+   * import("./deathOwnershipTransfer").applyDeathOwnershipTransfers}. {@link
+   * import("./buildHouseholdInput").buildHouseholdSimInput} derives it from the same
+   * membership list every other death-boundary reads ({@link
+   * import("../job/personActiveWindow").survivingPartnerTransfers}); a hand-built engine
+   * fixture states it directly or omits it for no transfer.
+   */
+  readonly deathOwnershipTransfers?: readonly SurvivingPartnerTransfer[];
 }

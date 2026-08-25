@@ -438,21 +438,20 @@ describe("ProjectionResult reads — the household a dated snapshot belongs to",
     expect(result.snapshot(LEAVE).persons.map((m) => m.name)).not.toContain("Sam");
   });
 
-  it("does NOT treat a death as a departure — the estate is still the household's", () => {
+  it("does NOT treat a death as a departure — a survivor inherits rather than the estate absorbing it", () => {
     // Separation and death end a partnership alike, and end it differently. A partner who left
-    // took their accounts; a partner who died left theirs behind, and the snapshot goes on
-    // holding what the projection goes on carrying.
+    // took their accounts; a partner who died left theirs to the survivor, and the snapshot goes
+    // on holding what the projection goes on carrying — under the living owner's name now.
     // An expectancy of 40 against an age of 38: Sam dies two years in, well inside the horizon.
-    // Brought rich enough that the household cannot have spent it all first — an emptied estate
-    // drops off the list, and this is about what happens to one that still holds something.
     const result = partneredFrom(0, 40, dollarsToCents(5_000_000)).run(nullJurisdiction);
     const partner = result.household.memberships.find((m) => m.person.name === "Sam")!;
     expect(partner.endMonth).toBeNull();
     const last = result.series.months.length - 1;
     expect(accountsOfPartner(result, last).length).toBeGreaterThan(0);
-    // Carried, and named as what it now is rather than as a holding of somebody long gone.
+    // Carried, and named as what it now is — the surviving primary's own — never an ownerless
+    // "estate": a surviving partner was there to inherit it at the death month.
     const estate = result.snapshot(last).balances!.accounts.filter((a) => a.inEstate === true);
-    expect(estate.length).toBeGreaterThan(0);
+    expect(estate).toEqual([]);
   });
 
   it("hands over in a single month when one leaves and the next arrives", () => {

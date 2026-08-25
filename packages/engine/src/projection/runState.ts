@@ -166,9 +166,17 @@ export interface SimState {
 }
 
 export function initSimState(input: HouseholdSimInput): SimState {
+  // Cloned so a death's in-place `reassignOwner` (via `applyDeathOwnershipTransfers`) only ever
+  // touches THIS run's own copies. `input.accounts` may be the same `SimAccount` instances a
+  // longer-lived caller holds a reference to across more than one query — `fundingLookup` builds
+  // its own `ownerId` map off them and THEN runs a full projection through this function, so an
+  // in-place mutation on the shared objects would leak into a presence check for an earlier
+  // month the mutation was never asked about. `withAdditionalTransfers([])` is `SimAccount`'s
+  // existing clone primitive, asked for zero extra transfers.
+  const accounts = input.accounts.map((acc) => acc.withAdditionalTransfers([]));
   const assetBalances = new Map<string, Cents>();
   const basisByAccount = new Map<string, Cents>();
-  for (const acc of input.accounts) {
+  for (const acc of accounts) {
     assetBalances.set(acc.id, acc.openingBalanceCents);
     // A pre-tax account has zero basis by definition. Others open with unknown basis;
     // assuming basis == opening balance understates tax for an already-appreciated
@@ -241,8 +249,8 @@ export function initSimState(input: HouseholdSimInput): SimState {
   }
 
   return {
-    accounts: input.accounts,
-    liquidAccount: input.accounts.find((a) => a.liquid) ?? null,
+    accounts,
+    liquidAccount: accounts.find((a) => a.liquid) ?? null,
     liabilities,
     cascadeCards,
     assetBalances,

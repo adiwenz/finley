@@ -13,7 +13,11 @@ import { describe, expect, it } from "vitest";
 import type { Person } from "../plan/person";
 import type { PersonId } from "./job";
 import type { HouseholdMembership } from "../ledger/household";
-import { lifeExpectancyEndMonthExclusive, personActiveWindow } from "./personActiveWindow";
+import {
+  lifeExpectancyEndMonthExclusive,
+  personActiveWindow,
+  survivingPartnerTransfers,
+} from "./personActiveWindow";
 
 const NOW_YEAR = 2026;
 
@@ -94,5 +98,62 @@ describe("personActiveWindow — membership ∩ life", () => {
     const window = personActiveWindow(membership(0, null, person({ lifeExpectancy: 20 })), NOW_YEAR);
     expect(window.endMonthExclusive).toBe(0);
     expect(window.endMonthExclusive).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("survivingPartnerTransfers", () => {
+  const primary = person({ lifeExpectancy: 90 });
+  const partner = person({ id: "p2" as PersonId, lifeExpectancy: 75 });
+
+  it("transfers a dying member's money to the co-member still active that month", () => {
+    // p2 dies at month 108 (75 - 65 = 10 years old cohort quirk aside — just a fixed, finite
+    // death well before p1's), p1 lives on: p1 inherits.
+    const partnerDeath = lifeExpectancyEndMonthExclusive(partner, NOW_YEAR);
+    const transfers = survivingPartnerTransfers(
+      [membership(0, null, primary), membership(0, null, partner)],
+      NOW_YEAR,
+    );
+    expect(transfers).toEqual([
+      { deceasedPersonId: "p2", survivorPersonId: "p1", month: partnerDeath },
+    ]);
+  });
+
+  it("transfers nothing for the household's LAST death — there is no survivor left to inherit", () => {
+    // Both die the same month: nobody is active at either one's death month.
+    const transfers = survivingPartnerTransfers(
+      [
+        membership(0, null, primary),
+        membership(0, null, { ...partner, lifeExpectancy: primary.lifeExpectancy }),
+      ],
+      NOW_YEAR,
+    );
+    expect(transfers).toEqual([]);
+  });
+
+  it("transfers nothing for a household of one", () => {
+    expect(survivingPartnerTransfers([membership(0, null, primary)], NOW_YEAR)).toEqual([]);
+  });
+
+  it("transfers nothing when the member SEPARATED before dying — they took their accounts with them", () => {
+    // p2 separates at month 24, long before their own death at month 540 (85-year expectancy at
+    // the default `person()` age) — a departure, not a death, so no transfer is minted.
+    const transfers = survivingPartnerTransfers(
+      [membership(0, null, primary), membership(0, 24, partner)],
+      NOW_YEAR,
+    );
+    expect(transfers).toEqual([]);
+  });
+
+  it("transfers when a separation is dated AFTER the death — the separation never happens", () => {
+    // Symmetric to `personActiveWindow`'s own "ends at the death when the separation is dated
+    // after it": you cannot leave a household you already died out of.
+    const partnerDeath = lifeExpectancyEndMonthExclusive(partner, NOW_YEAR);
+    const transfers = survivingPartnerTransfers(
+      [membership(0, null, primary), membership(0, partnerDeath + 100, partner)],
+      NOW_YEAR,
+    );
+    expect(transfers).toEqual([
+      { deceasedPersonId: "p2", survivorPersonId: "p1", month: partnerDeath },
+    ]);
   });
 });

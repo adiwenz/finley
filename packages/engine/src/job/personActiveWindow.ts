@@ -143,3 +143,56 @@ export function memberHorizonReach(
   // A member with no reckonable death (a hand-built base with no frozen "now") bounds nothing.
   return Number.isFinite(lifeEndMonthExclusive) ? lifeEndMonthExclusive : null;
 }
+
+/** A deceased member's money moving to the partner who outlives them, dated at their death. */
+export interface SurvivingPartnerTransfer {
+  readonly deceasedPersonId: string;
+  readonly survivorPersonId: string;
+  /** The deceased's own {@link lifeExpectancyEndMonthExclusive} — the first month they are gone. */
+  readonly month: number;
+}
+
+/**
+ * Every member whose window closes by DEATH, with another member still active that same
+ * month to inherit from them — the single derivation {@link
+ * import("../projection/deathOwnershipTransfer").applyDeathOwnershipTransfers} re-owners a
+ * deceased member's cash and brokerage accounts from, and {@link
+ * import("../projection/snapshot").buildSnapshot} attributes their balance to instead of "the
+ * estate". Both read it off the same membership list and the same `nowYear`, so the projection
+ * and the dated snapshot cannot disagree about whose money a dead member's account now is.
+ *
+ * A member who SEPARATED before (or exactly at) their own death is excluded — they took their
+ * accounts with them (see the `separation` ledger handler), so death never reaches them. A member
+ * with no living co-member at their death month (the last of the household, or a household of
+ * one) transfers to nobody: that money is the estate's, not a survivor's.
+ */
+export function survivingPartnerTransfers(
+  memberships: readonly HouseholdMembership[],
+  nowYear: number | undefined,
+): readonly SurvivingPartnerTransfer[] {
+  const resolved = memberships.map((m) => ({
+    personId: m.person.id,
+    activeWindow: personActiveWindow(m, nowYear),
+    lifeEnd: lifeExpectancyEndMonthExclusive(m.person, nowYear),
+    separationMonth: m.endMonth,
+  }));
+  const transfers: SurvivingPartnerTransfer[] = [];
+  for (const member of resolved) {
+    const separatesFirst =
+      member.separationMonth !== null && member.separationMonth <= member.lifeEnd;
+    if (separatesFirst || !Number.isFinite(member.lifeEnd)) continue;
+    const survivor = resolved.find(
+      (other) =>
+        other.personId !== member.personId &&
+        other.activeWindow.startMonth <= member.lifeEnd &&
+        member.lifeEnd < other.activeWindow.endMonthExclusive,
+    );
+    if (survivor === undefined) continue;
+    transfers.push({
+      deceasedPersonId: member.personId,
+      survivorPersonId: survivor.personId,
+      month: member.lifeEnd,
+    });
+  }
+  return transfers;
+}
