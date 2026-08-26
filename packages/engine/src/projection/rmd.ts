@@ -3,7 +3,6 @@ import type { SimAccount } from "../plan/simAccount";
 import type { Jurisdiction } from "../jurisdiction/jurisdiction";
 import type { IncomeSourceMonth } from "./waterfall";
 import { isPersonActiveAt, type SimPerson } from "./simulate.types";
-import type { DecumulationDrawResult } from "./withdrawal";
 
 /**
  * A structural view rather than the mutable `SimState`, so that object stays private to the
@@ -25,8 +24,8 @@ export interface RmdState {
   readonly rmdRequiredByPersonYear: Map<string, Cents>;
   /**
    * Each person's qualifying distributions taken so far this year, keyed the same way —
-   * accumulated by {@link recordQualifyingDistributions} as ordinary decumulation draws pre-tax
-   * accounts down, and consumed (never reset mid-year) by December's true-up.
+   * accumulated by {@link recordAccountDistributions} as money actually leaves their pre-tax
+   * accounts, and consumed (never reset mid-year) by December's true-up.
    */
   readonly rmdSatisfiedByPersonYear: Map<string, Cents>;
 }
@@ -100,32 +99,54 @@ export function establishRmdRequirements(
 }
 
 /**
- * Folds this month's ordinary decumulation draws into each owner's year-to-date qualifying
- * total — every dollar a normal withdrawal pulls from a forced-distribution-eligible account
- * counts toward THEIR annual requirement, whether it lands in January or the same December
- * {@link buildRmdSources} trues up against. Takes `DecumulationDrawResult`s directly (rather
- * than re-deriving from reported income sources) so a forced-distribution-eligible account is
- * identified the same way {@link establishRmdRequirements} aggregates it — by the account's own
- * `taxProfile`, not by a label on the draw.
+ * One actual gross withdrawal out of a named account — the whole fact RMD satisfaction turns
+ * on. Every money-out mechanism in the simulator reduces to this shape, which is why the seam
+ * below takes it instead of any mechanism's own richer result type: WHY a household withdrew
+ * (ordinary decumulation, a one-time spend, a down payment) changes nothing about whether the
+ * distribution happened.
  */
-export function recordQualifyingDistributions(
+export interface AccountDistribution {
+  readonly accountId: string;
+  readonly grossWithdrawnCents: Cents;
+}
+
+/**
+ * The single seam recording actual distributions against their owner's year-to-date qualifying
+ * total: every dollar that genuinely LEFT a forced-distribution-eligible account counts toward
+ * THAT owner's annual requirement, whatever funding path pulled it and whether it lands in
+ * January or in the same December {@link buildRmdSources} trues up against. Eligibility is read
+ * off the account's own `taxProfile` — the same aggregation {@link establishRmdRequirements}
+ * priced the requirement off — so a brokerage or Roth draw is filtered here rather than at each
+ * caller, and an unknown or non-eligible `accountId` is silently ignored.
+ *
+ * Callers must pass each withdrawal ONCE: a draw represented in two internal result structures
+ * (a decumulation draw and its funding attribution, say) is two dollars of satisfaction if
+ * recorded twice, and December would then force too little.
+ *
+ * A mere balance move is not a distribution and must not be passed: an asset transfer or
+ * rebalance never leaves the retirement wrapper, and the liquid-buffer drawdown decumulation
+ * PREDICTS ({@link import("./withdrawal").WithdrawalPlan.liquidDrawdownByAccountCents}) is a
+ * forecast the allocation step later debits for real, in its own apportioned amounts — recording
+ * the forecast would credit a household for money that had not moved yet.
+ */
+export function recordAccountDistributions(
   state: RmdState,
-  decumulationDraws: readonly DecumulationDrawResult[],
+  distributions: readonly AccountDistribution[],
   month: number,
   startYear: number,
 ): void {
-  if (decumulationDraws.length === 0) return;
+  if (distributions.length === 0) return;
   const year = startYear + Math.floor(month / 12);
 
-  for (const draw of decumulationDraws) {
-    if (draw.grossWithdrawnCents <= 0) continue;
-    const account = state.accounts.find((a) => a.id === draw.sourceId);
+  for (const distribution of distributions) {
+    if (distribution.grossWithdrawnCents <= 0) continue;
+    const account = state.accounts.find((a) => a.id === distribution.accountId);
     if (account === undefined || !account.taxProfile.forcedDistributionEligible) continue;
 
     const key = yearKeyOf(account.ownerId, year);
     state.rmdSatisfiedByPersonYear.set(
       key,
-      (state.rmdSatisfiedByPersonYear.get(key) ?? 0) + draw.grossWithdrawnCents,
+      (state.rmdSatisfiedByPersonYear.get(key) ?? 0) + distribution.grossWithdrawnCents,
     );
   }
 }
@@ -133,9 +154,9 @@ export function recordQualifyingDistributions(
 /**
  * December's true-up — the ONLY month a Required Minimum Distribution is actually forced.
  * `remaining = established requirement − qualifying distributions YTD` (this same month's own
- * ordinary decumulation included, since {@link recordQualifyingDistributions} runs before this
- * is called); positive, that remainder is forced out of pre-tax accounts sequentially, same
- * aggregation as {@link establishRmdRequirements} priced it off. Zero or negative — spending
+ * withdrawals included, since {@link recordAccountDistributions} runs before this is called);
+ * positive, that remainder is forced out of pre-tax accounts sequentially, same aggregation as
+ * {@link establishRmdRequirements} priced it off. Zero or negative — spending
  * already pulled at least the requirement out of pre-tax this year — forces nothing, and
  * nothing carries the excess into a future year: `rmdSatisfiedByPersonYear` is read, never
  * written, here.

@@ -132,7 +132,7 @@ export function orderedLiquidationAccounts<T extends LiquidationRankable>(
  * Runs BEFORE December's Required Minimum Distribution true-up ({@link
  * import("./rmd").buildRmdSources}), not after: this module sizes and sells purely off the
  * household's own need, and whatever it draws from a pre-tax account counts toward that
- * person's annual requirement ({@link import("./rmd").recordQualifyingDistributions}) before
+ * person's annual requirement ({@link import("./rmd").recordAccountDistributions}) before
  * the true-up decides what — if anything — is still owed.
  */
 export interface WithdrawalPlan {

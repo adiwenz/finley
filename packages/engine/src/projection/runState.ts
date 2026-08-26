@@ -153,7 +153,7 @@ export interface SimState {
   /**
    * Each person's qualifying (forced-distribution-eligible) withdrawals so far this year, keyed
    * the same way as {@link rmdRequiredByPersonYear} — what December's true-up subtracts off the
-   * requirement before forcing the remainder. See {@link import("./rmd").recordQualifyingDistributions}.
+   * requirement before forcing the remainder. See {@link import("./rmd").recordAccountDistributions}.
    */
   readonly rmdSatisfiedByPersonYear: Map<string, Cents>;
   /**

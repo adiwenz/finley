@@ -22,6 +22,7 @@ import type { TaxCategory } from "../money/cashFlowSeries";
 import type { SimState } from "./runState";
 import type { IncomeSourceMonth } from "./waterfall";
 import type { PrincipalDrawdownSource } from "./reportFlows";
+import type { AccountDistribution } from "./rmd";
 import { attributeExplicitObligation, type ResolvedFunding } from "./resolvedFunding";
 import type { FinancialObligation } from "./financialObligation";
 import {
@@ -302,6 +303,11 @@ export function resolveOrderedFundingDraw(
  *   account, so the flow view carries explicit and automatic obligations through one shape.
  *   UNFILTERED: this is the attribution record of what the draw actually did, and a down payment
  *   still drew its accounts whether or not the cash-flow chart bands it;
+ * - `accountDistributions` — every account sale this month actually made, gross, one entry per
+ *   source drained. Not reporting: it is what the caller feeds the Required Minimum Distribution
+ *   seam ({@link import("./rmd").recordAccountDistributions}), which cares only that money left a
+ *   retirement account, never why. Credit borrows are absent — nothing was distributed — and a
+ *   blocked draw contributes nothing, since it never sold anything;
  * - `omittedSourceEventIds` — the complete set of source event IDs whose draws were not
  *   executed, including the blocking event and any later events skipped. Used to suppress all
  *   artifacts (properties, liabilities) originating from these events.
@@ -313,6 +319,7 @@ export interface FundingDrawReport {
   readonly investmentPrincipalDraws: readonly PrincipalDrawdownSource[];
   readonly taxableByOwnerAfter: TaxableByOwner;
   readonly resolvedFunding: readonly ResolvedFunding[];
+  readonly accountDistributions: readonly AccountDistribution[];
   /**
    * The first draw this month whose named sources could not cover it, if any — the block. When
    * set, this draw and every draw after it were NOT applied: no balance moved, no gain or tax
@@ -378,6 +385,7 @@ export function resolveFundingDraws(
   const resolvedFunding: ResolvedFunding[] = [];
   let liquidPrincipalDrawdownCents = 0;
   const investmentPrincipalDraws: PrincipalDrawdownSource[] = [];
+  const accountDistributions: AccountDistribution[] = [];
   let block: FundingBlock | undefined;
   const omittedSourceEventIds = new Set<string>();
 
@@ -551,6 +559,9 @@ export function resolveFundingDraws(
       }
 
       state.assetBalances.set(s.id, (state.assetBalances.get(s.id) ?? 0) - s.grossCents);
+      // Recorded here, beside the balance move itself, so the two cannot diverge: this is a real
+      // distribution the moment the account is debited, whatever the draw was for.
+      accountDistributions.push({ accountId: s.id, grossWithdrawnCents: s.grossCents });
       state.basisByAccount.set(
         s.id,
         Math.max(0, (state.basisByAccount.get(s.id) ?? 0) - s.principalCents),
@@ -597,6 +608,7 @@ export function resolveFundingDraws(
     reportedGainSources,
     liquidPrincipalDrawdownCents,
     investmentPrincipalDraws,
+    accountDistributions,
     taxableByOwnerAfter: working,
     resolvedFunding,
     ...(block !== undefined ? { block } : {}),

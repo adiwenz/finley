@@ -1,7 +1,7 @@
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
 import { apportionInOrder, type Cents } from "../money/money";
 import { accumulateEarnings, buildGovernmentBenefitSources } from "./governmentBenefit";
-import { buildRmdSources, establishRmdRequirements, recordQualifyingDistributions } from "./rmd";
+import { buildRmdSources, establishRmdRequirements, recordAccountDistributions } from "./rmd";
 import { buildWithdrawalSources, DEFAULT_LIQUIDATION_ORDER } from "./withdrawal";
 import { buildFlows, type PrincipalDrawdownSource } from "./reportFlows";
 import { buildObligations, automaticFundingTotal, fundedLiabilityPayments } from "./financialObligation";
@@ -336,10 +336,26 @@ function runMonth(
     DEFAULT_LIQUIDATION_ORDER,
     shortfallBeforeDecumulation.byPersonCents,
   );
-  // Every ordinary pre-tax draw decumulation just made counts toward the year's requirement —
-  // recorded BEFORE December's true-up below reads it, so that same month's own withdrawal is
-  // already folded into what December still owes.
-  recordQualifyingDistributions(state, withdrawal.decumulationDraws, month, startYear);
+  // Every dollar that actually LEFT an account this month, from BOTH money-out paths, offered to
+  // the year's Required Minimum Distribution tracker — which keeps only the pre-tax ones. The
+  // account drawn decides satisfaction, never the mechanism that drew it: a retirement account
+  // drained to fund a one-time spend has distributed exactly as much as an ordinary decumulation
+  // draw of the same size, and gating on the mechanism lets December force a second withdrawal on
+  // top of one that already cleared the requirement. Each withdrawal appears once — the two paths
+  // are disjoint, and neither is re-derived from a reported source. Recorded BEFORE the true-up
+  // below reads it, so this month's own withdrawals are folded into what December still owes.
+  recordAccountDistributions(
+    state,
+    [
+      ...fundingDraw.accountDistributions,
+      ...withdrawal.decumulationDraws.map((draw) => ({
+        accountId: draw.sourceId,
+        grossWithdrawnCents: draw.grossWithdrawnCents,
+      })),
+    ],
+    month,
+    startYear,
+  );
   // December only: force whatever the year's own withdrawals left owing. Arrives AFTER
   // decumulation was sized off the month's real shortfall, so this is money the household did
   // not ask for — it either reduces reliance on the credit cascade below or, once obligations
