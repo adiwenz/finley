@@ -103,9 +103,10 @@ export function orderedLiquidationAccounts<T extends LiquidationRankable>(
 }
 
 /**
- * Result of the decumulation channel, which runs BEFORE the waterfall alongside {@link
- * import("./rmd").buildRmdSources}: it pulls cash from investment accounts (mutating
- * `assetBalances`) and re-injects it as income.
+ * Result of the decumulation channel, which runs BEFORE the waterfall AND before December's
+ * Required Minimum Distribution true-up ({@link import("./rmd").buildRmdSources}) reads what it
+ * drew: it pulls cash from investment accounts (mutating `assetBalances`) and re-injects it as
+ * income.
  *
  * NEED-based, not a safe-withdrawal rate — and the need is HANDED to it, measured by the very
  * waterfall that will charge the month ({@link
@@ -128,9 +129,11 @@ export function orderedLiquidationAccounts<T extends LiquidationRankable>(
  * gain still rides `taxableCents` on the returned source, so it reaches the caller's annual
  * accumulator; it is simply not netted out of the draw itself.
  *
- * No double-withdraw against RMDs: their sources already sit in `nonWithdrawalSources` and
- * their forced draw already reduced these balances, so total pre-tax drawn settles at
- * `max(desired, required)`.
+ * Runs BEFORE December's Required Minimum Distribution true-up ({@link
+ * import("./rmd").buildRmdSources}), not after: this module sizes and sells purely off the
+ * household's own need, and whatever it draws from a pre-tax account counts toward that
+ * person's annual requirement ({@link import("./rmd").recordAccountDistributions}) before
+ * the true-up decides what — if anything — is still owed.
  */
 export interface WithdrawalPlan {
   readonly sources: IncomeSourceMonth[];

@@ -145,6 +145,18 @@ export interface SimState {
   /** Benefit accumulation/claiming reads birthYear + benefitClaimingAge. */
   readonly personsById: ReadonlyMap<string, SimPerson>;
   /**
+   * Each eligible person's Required Minimum Distribution for the year, keyed
+   * `${personId}|${year}` — established once, at the year's first month, off the balance the
+   * year opens with. See {@link import("./rmd").establishRmdRequirements}.
+   */
+  readonly rmdRequiredByPersonYear: Map<string, Cents>;
+  /**
+   * Each person's qualifying (forced-distribution-eligible) withdrawals so far this year, keyed
+   * the same way as {@link rmdRequiredByPersonYear} — what December's true-up subtracts off the
+   * requirement before forcing the remainder. See {@link import("./rmd").recordAccountDistributions}.
+   */
+  readonly rmdSatisfiedByPersonYear: Map<string, Cents>;
+  /**
    * Per-person lifetime covered earnings, seeded from the pre-now summary. Every month's
    * covered wages fold in; handed to the jurisdiction seam at claiming age.
    */
@@ -264,6 +276,8 @@ export function initSimState(input: HouseholdSimInput): SimState {
     federalTaxPaidByPersonYear: new Map<string, FederalTaxPayment>(),
     pendingTaxSettlementsByPersonYear: new Map<string, FederalTaxPayment>(),
     personsById,
+    rmdRequiredByPersonYear: new Map<string, Cents>(),
+    rmdSatisfiedByPersonYear: new Map<string, Cents>(),
     earningsByPerson,
     governmentBenefitBaseByPerson: new Map<string, Cents>(),
     lastComputedThroughYear: new Map<string, number>(),

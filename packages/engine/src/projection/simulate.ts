@@ -1,7 +1,7 @@
 import type { Jurisdiction, JurisdictionContext } from "../jurisdiction/jurisdiction";
 import { apportionInOrder, type Cents } from "../money/money";
 import { accumulateEarnings, buildGovernmentBenefitSources } from "./governmentBenefit";
-import { buildRmdSources } from "./rmd";
+import { buildRmdSources, establishRmdRequirements, recordAccountDistributions } from "./rmd";
 import { buildWithdrawalSources, DEFAULT_LIQUIDATION_ORDER } from "./withdrawal";
 import { buildFlows, type PrincipalDrawdownSource } from "./reportFlows";
 import { buildObligations, automaticFundingTotal, fundedLiabilityPayments } from "./financialObligation";
@@ -202,9 +202,12 @@ function runMonth(
   // income, so a claim landing this month sees them. Gated the same way: a benefit is priced
   // off what a person earned, and they earn nothing after they die.
   accumulateEarnings(state.earningsByPerson, activeIncomeSeries, month, year, jurisdiction);
-  // RMDs force this year's required draw out of pre-tax accounts BEFORE the waterfall
-  // runs and re-enter here as taxable ordinary income, so the withdrawal is taxed once
-  // at the single chokepoint.
+  // This year's Required Minimum Distribution, if this is the year's first month — an annual
+  // MINIMUM fixed off the balance the year opens with, not a withdrawal. Nothing is forced
+  // here; the household's own decumulation draws pre-tax down as it normally would all year,
+  // and only December's true-up (below, after decumulation runs) forces whatever those
+  // withdrawals left owing.
+  establishRmdRequirements(state, jurisdiction, month, startYear);
   const nonWithdrawalSources = [
     ...buildIncomeSources(activeIncomeSeries, month),
     // Last month's credited cash interest, taxed as ordinary income at accrual; a
@@ -217,7 +220,6 @@ function runMonth(
       startYear,
       input.benefitColaRate ?? input.annualInflationRate,
     ),
-    ...buildRmdSources(state, jurisdiction, month, startYear),
   ];
 
   // The prior tax year's remaining balance, due this month if this is April — and CONSUMED
@@ -311,11 +313,14 @@ function runMonth(
     priorYearSettlements,
   );
   // Decumulation then operates on the balances the explicit draws left behind: liquidate
-  // investment accounts BEFORE the waterfall — same seam as RMD/benefit — to close that measured
-  // gap, spending the liquid buffer first and spilling whatever the accounts cannot cover to the
-  // credit cascade. No gross-up anywhere: each draw sells exactly the gap, and its realized gain
-  // rides `taxableCents` into THIS year's accumulator. RMD income is already inside the gap (it
-  // was income in the pass that measured it), so the draw never double-withdraws.
+  // investment accounts BEFORE the waterfall — same seam as the government benefit — to close
+  // that measured gap, spending the liquid buffer first and spilling whatever the accounts
+  // cannot cover to the credit cascade. No gross-up anywhere: each draw sells exactly the gap,
+  // and its realized gain rides `taxableCents` into THIS year's accumulator. December's
+  // Required Minimum Distribution true-up (below) is not part of what this gap measured — it
+  // runs after decumulation and only ever ADDS income on top, which is why recording qualifying
+  // distributions before computing it is what keeps it from re-charging a draw decumulation
+  // already made, rather than a shared pre-pass the gap was measured against.
   //
   // `byPersonCents` is a DRAW-ORDER preference, not a second total: whoever's share of the gap
   // this is tries their own accounts first, so a partner's assets are never sold to cover the
@@ -331,7 +336,32 @@ function runMonth(
     DEFAULT_LIQUIDATION_ORDER,
     shortfallBeforeDecumulation.byPersonCents,
   );
-  const incomeSources = [...nonWithdrawalSources, ...withdrawal.sources];
+  // Every dollar that actually LEFT an account this month, from BOTH money-out paths, offered to
+  // the year's Required Minimum Distribution tracker — which keeps only the pre-tax ones. The
+  // account drawn decides satisfaction, never the mechanism that drew it: a retirement account
+  // drained to fund a one-time spend has distributed exactly as much as an ordinary decumulation
+  // draw of the same size, and gating on the mechanism lets December force a second withdrawal on
+  // top of one that already cleared the requirement. Each withdrawal appears once — the two paths
+  // are disjoint, and neither is re-derived from a reported source. Recorded BEFORE the true-up
+  // below reads it, so this month's own withdrawals are folded into what December still owes.
+  recordAccountDistributions(
+    state,
+    [
+      ...fundingDraw.accountDistributions,
+      ...withdrawal.decumulationDraws.map((draw) => ({
+        accountId: draw.sourceId,
+        grossWithdrawnCents: draw.grossWithdrawnCents,
+      })),
+    ],
+    month,
+    startYear,
+  );
+  // December only: force whatever the year's own withdrawals left owing. Arrives AFTER
+  // decumulation was sized off the month's real shortfall, so this is money the household did
+  // not ask for — it either reduces reliance on the credit cascade below or, once obligations
+  // are covered, banks straight into the surplus destination through the ordinary waterfall.
+  const rmdTrueUpSources = buildRmdSources(state, jurisdiction, month, startYear);
+  const incomeSources = [...nonWithdrawalSources, ...withdrawal.sources, ...rmdTrueUpSources];
   const allocationSources = [...incomeSources, ...fundingDraw.gainSources];
 
   const {

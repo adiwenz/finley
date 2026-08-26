@@ -10,10 +10,16 @@ import { SimCashFlowSeries, dollarsToCents } from "../money/cashFlowSeries";
 import type { Cents } from "../money/money";
 import { nullJurisdiction, type Jurisdiction } from "../jurisdiction/jurisdiction";
 import { simulateHousehold, type HouseholdSimInput, type ProjectionSeries } from "./simulate";
+import { OBLIGATION_PRIORITY, type FinancialObligation } from "./financialObligation";
 import type { SimPerson } from "./simulate.types";
-import { buildRmdSources, type RmdState } from "./rmd";
+import {
+  buildRmdSources,
+  establishRmdRequirements,
+  recordAccountDistributions,
+  type RmdState,
+} from "./rmd";
 
-/** Non-compounding by default, so balances move only by RMD withdrawal/deposit. */
+/** Non-compounding by default, so balances move only by withdrawal/deposit. */
 function account(
   id: string,
   taxProfile: SimAccountTaxProfile,
@@ -31,7 +37,7 @@ function account(
   });
 }
 
-/** Surplus idles in the liquid cash account, so an RMD's net take-home lands there. */
+/** Surplus idles in the liquid cash account, so a forced excess's net take-home lands there. */
 function baseInput(
   person: SimPerson,
   accounts: SimAccount[],
@@ -60,7 +66,7 @@ const rmdStub: Jurisdiction = {
 
 const born73In2026: SimPerson = { id: "p1", name: "You", birthYear: 1953 };
 
-/** Monthly spending, level, for the whole run. */
+/** Level monthly spending for the whole run; returns the series so a caller can override one month. */
 function spending(monthlyDollars: number): HouseholdSimInput["expenseSeries"][number] {
   return {
     series: new SimCashFlowSeries(0, dollarsToCents(monthlyDollars), { type: "fixed" }, {
@@ -70,7 +76,7 @@ function spending(monthlyDollars: number): HouseholdSimInput["expenseSeries"][nu
   };
 }
 
-/** What the sim says it forced out of pre-tax this month — the reported gross, not a residual. */
+/** What the sim forced out as this year's Required Minimum Distribution, this month. */
 function rmdAt(series: ProjectionSeries, month: number): number {
   return (series.months[month]!.flows?.incomeSources ?? [])
     .filter((source) => source.sourceId === "rmd:p1")
@@ -80,8 +86,8 @@ function rmdAt(series: ProjectionSeries, month: number): number {
 const balanceAt = (series: ProjectionSeries, month: number, id: string): number =>
   series.months[month]!.accountBalancesCents[id] ?? 0;
 
-describe("Required Minimum Distributions", () => {
-  it("forces the required amount out of pre-tax and into the taxable surplus, conserving net worth", () => {
+describe("Required Minimum Distributions — an annual minimum, trued up in December", () => {
+  it("not satisfied at all: no normal withdrawal happens, so December forces the whole requirement", () => {
     const series = simulateHousehold(
       baseInput(born73In2026, [
         account("pretax", PRE_TAX_TAX_PROFILE, 100_000),
@@ -89,27 +95,92 @@ describe("Required Minimum Distributions", () => {
       ]),
       rmdStub,
     );
-    // At month 1 (2026, age 73): 10% of $100k = $10k moves pre-tax → cash.
-    expect(series.months[1].accountBalancesCents["pretax"]).toBe(dollarsToCents(90_000));
-    expect(series.months[1].accountBalancesCents["cash"]).toBe(dollarsToCents(10_000));
+    // Nothing forced, and nothing else touches the account, before December.
+    for (let month = 0; month <= 10; month++) {
+      expect(rmdAt(series, month)).toBe(0);
+      expect(balanceAt(series, month, "pretax")).toBe(dollarsToCents(100_000));
+    }
+    // December (month 11, age 73): the full 10% of $100k moves pre-tax → cash.
+    expect(rmdAt(series, 11)).toBe(dollarsToCents(10_000));
+    expect(balanceAt(series, 11, "pretax")).toBe(dollarsToCents(90_000));
+    expect(balanceAt(series, 11, "cash")).toBe(dollarsToCents(10_000));
     // Tax-free stub → net worth unchanged, only relocated.
-    expect(series.months[1].netWorthNominalCents).toBe(dollarsToCents(100_000));
+    expect(series.months[11].netWorthNominalCents).toBe(dollarsToCents(100_000));
   });
 
-  it("fires exactly once per calendar year, not every month", () => {
+  it("fully satisfied by normal withdrawals: December forces nothing further", () => {
+    // $1,000/mo spent, cash starts empty, so every month's spending is an ordinary pre-tax
+    // draw — $11,000 qualifying YTD before December's own draw already clears the $10,000
+    // requirement, and December's own $1,000 draw only adds to the cushion.
     const series = simulateHousehold(
       baseInput(born73In2026, [
         account("pretax", PRE_TAX_TAX_PROFILE, 100_000),
         account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
-      ], { horizonMonths: 13 }),
+      ], { expenseSeries: [spending(1_000)] }),
       rmdStub,
     );
-    // No draw between the year's trigger (month 0) and the next (month 12).
-    expect(series.months[11].accountBalancesCents["pretax"]).toBe(dollarsToCents(90_000));
-    expect(series.months[11].accountBalancesCents["cash"]).toBe(dollarsToCents(10_000));
-    // Month 12 (2027, age 74): 10% of the remaining $90k = $9k.
-    expect(series.months[12].accountBalancesCents["pretax"]).toBe(dollarsToCents(81_000));
-    expect(series.months[12].accountBalancesCents["cash"]).toBe(dollarsToCents(19_000));
+    expect(rmdAt(series, 11)).toBe(0);
+    // The whole year's spending — $12,000 — came out of pre-tax, none of it forced.
+    expect(balanceAt(series, 11, "pretax")).toBe(dollarsToCents(88_000));
+    expect(balanceAt(series, 11, "cash")).toBe(0);
+  });
+
+  it("partially satisfied: December forces exactly the shortfall, no more", () => {
+    // $500/mo spent from an empty cash account draws $6,000 of ordinary pre-tax withdrawals
+    // over the year (including December's own $500) — short of the $10,000 requirement by
+    // exactly $4,000.
+    const series = simulateHousehold(
+      baseInput(born73In2026, [
+        account("pretax", PRE_TAX_TAX_PROFILE, 100_000),
+        account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
+      ], { expenseSeries: [spending(500)] }),
+      rmdStub,
+    );
+    expect(rmdAt(series, 11)).toBe(dollarsToCents(4_000));
+    // $6,000 of ordinary draws plus the $4,000 forced remainder: $10,000 total, matching the
+    // untouched-account case regardless of how it was split between the two.
+    expect(balanceAt(series, 11, "pretax")).toBe(dollarsToCents(90_000));
+    // The forced $4,000 wasn't needed for December's own $500 of spending, so it banks in full.
+    expect(balanceAt(series, 11, "cash")).toBe(dollarsToCents(4_000));
+  });
+
+  it("satisfied by a December normal withdrawal: a one-time December expense clears the year on its own", () => {
+    const flat = spending(0);
+    // A single $20,000 expense landing in December alone — no spending in any other month —
+    // forces a pre-tax draw larger than the whole year's requirement, in the same month
+    // December's true-up would otherwise fire.
+    flat.series.addOverride(11, dollarsToCents(20_000), "thisMonthOnly");
+    const series = simulateHousehold(
+      baseInput(born73In2026, [
+        account("pretax", PRE_TAX_TAX_PROFILE, 100_000),
+        account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
+      ], { expenseSeries: [flat] }),
+      rmdStub,
+    );
+    // Nothing touches the account before December's one-time expense.
+    for (let month = 0; month <= 10; month++) {
+      expect(balanceAt(series, month, "pretax")).toBe(dollarsToCents(100_000));
+    }
+    expect(rmdAt(series, 11)).toBe(0);
+    expect(balanceAt(series, 11, "pretax")).toBe(dollarsToCents(80_000));
+    expect(balanceAt(series, 11, "cash")).toBe(0);
+  });
+
+  it("fires exactly once per calendar year, in December, not every month", () => {
+    const series = simulateHousehold(
+      baseInput(born73In2026, [
+        account("pretax", PRE_TAX_TAX_PROFILE, 100_000),
+        account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
+      ], { horizonMonths: 24 }),
+      rmdStub,
+    );
+    // No draw between the first year's trigger (month 11) and the second's (month 23).
+    for (let month = 12; month <= 22; month++) expect(rmdAt(series, month)).toBe(0);
+    expect(balanceAt(series, 11, "pretax")).toBe(dollarsToCents(90_000));
+    expect(balanceAt(series, 22, "pretax")).toBe(dollarsToCents(90_000));
+    // Month 23 (2027, age 74): 10% of the remaining $90k = $9k.
+    expect(rmdAt(series, 23)).toBe(dollarsToCents(9_000));
+    expect(balanceAt(series, 23, "pretax")).toBe(dollarsToCents(81_000));
   });
 
   it("draws from forced-distribution-eligible accounts only — tax-exempt/capital-gains are exempt", () => {
@@ -121,9 +192,9 @@ describe("Required Minimum Distributions", () => {
       ]),
       rmdStub,
     );
-    expect(series.months[1].accountBalancesCents["pretax"]).toBe(dollarsToCents(90_000));
-    expect(series.months[1].accountBalancesCents["taxexempt"]).toBe(dollarsToCents(50_000));
-    expect(series.months[1].accountBalancesCents["cash"]).toBe(dollarsToCents(10_000));
+    expect(balanceAt(series, 11, "pretax")).toBe(dollarsToCents(90_000));
+    expect(balanceAt(series, 11, "taxexempt")).toBe(dollarsToCents(50_000));
+    expect(balanceAt(series, 11, "cash")).toBe(dollarsToCents(10_000));
   });
 
   it("does not fire before the holder reaches the start age", () => {
@@ -135,8 +206,8 @@ describe("Required Minimum Distributions", () => {
       ]),
       rmdStub,
     );
-    expect(series.months[11].accountBalancesCents["pretax"]).toBe(dollarsToCents(100_000));
-    expect(series.months[11].accountBalancesCents["cash"]).toBe(0);
+    expect(balanceAt(series, 11, "pretax")).toBe(dollarsToCents(100_000));
+    expect(balanceAt(series, 11, "cash")).toBe(0);
   });
 
   it("null jurisdiction: no RMD seam → pre-tax balances are left untouched", () => {
@@ -147,8 +218,8 @@ describe("Required Minimum Distributions", () => {
       ]),
       nullJurisdiction,
     );
-    expect(series.months[11].accountBalancesCents["pretax"]).toBe(dollarsToCents(100_000));
-    expect(series.months[11].accountBalancesCents["cash"]).toBe(0);
+    expect(balanceAt(series, 11, "pretax")).toBe(dollarsToCents(100_000));
+    expect(balanceAt(series, 11, "cash")).toBe(0);
   });
 });
 
@@ -187,39 +258,44 @@ describe("Required Minimum Distributions — nothing is required of the dead", (
   }
 
   it("stops distributing a partner's account once they have died", () => {
-    // Sam takes 2026's distribution in January and dies that December. 2027 and 2028 require
-    // nothing of them: the balance sits where their death left it.
+    // Sam is active for all of 2026 (window closes at month 12) and takes that year's December
+    // distribution; dead for all of 2027, so no requirement is even established for it.
     const series = simulateHousehold(household(12), rmdStub);
-    expect(series.months[11].accountBalancesCents["sams-ira"]).toBe(dollarsToCents(90_000));
-    expect(series.months[12].accountBalancesCents["sams-ira"]).toBe(dollarsToCents(90_000));
-    expect(series.months[35].accountBalancesCents["sams-ira"]).toBe(dollarsToCents(90_000));
+    expect(balanceAt(series, 11, "sams-ira")).toBe(dollarsToCents(90_000));
+    expect(balanceAt(series, 12, "sams-ira")).toBe(dollarsToCents(90_000));
+    expect(balanceAt(series, 35, "sams-ira")).toBe(dollarsToCents(90_000));
     // The account is not disinherited by the gate — it is still the household's, to the end.
     expect(series.months[35].netWorthNominalCents).toBe(dollarsToCents(100_000));
   });
 
   it("keeps distributing while they are alive, so the gate is the death and not the account", () => {
-    // The same fixture with nobody dying: three years, three distributions.
+    // The same fixture with nobody dying: three years, three December distributions.
     const series = simulateHousehold(household(undefined), rmdStub);
-    expect(series.months[35].accountBalancesCents["sams-ira"]).toBe(dollarsToCents(72_900));
+    expect(balanceAt(series, 35, "sams-ira")).toBe(dollarsToCents(72_900));
   });
 
-  it("takes the year's distribution when the death falls LATER in the same year", () => {
-    // Sam dies in July 2027, after that January's trigger — the year's requirement was already
-    // theirs, and it stands. `isPersonActiveAt` is asked at the trigger month, not at the year.
+  it("trues up the year's distribution when death falls LATER in the same year", () => {
+    // Sam dies in July 2027 (month 18), after 2027's January establishing month (12) but before
+    // that year's December true-up (23) — the requirement was already theirs when it was set,
+    // and it stands: `establishRmdRequirements` gates on eligibility, `buildRmdSources` does not.
     const series = simulateHousehold(household(18), rmdStub);
-    expect(series.months[12].accountBalancesCents["sams-ira"]).toBe(dollarsToCents(81_000));
-    expect(series.months[35].accountBalancesCents["sams-ira"]).toBe(dollarsToCents(81_000));
+    expect(balanceAt(series, 23, "sams-ira")).toBe(dollarsToCents(81_000));
+    expect(balanceAt(series, 35, "sams-ira")).toBe(dollarsToCents(81_000));
   });
 });
 
 /**
- * `buildRmdSources` directly, rather than through `simulateHousehold` — the same
- * `isPersonActiveAt` gate the death tests above exercise, but pointed at a `activeWindow` boundary
- * closed by separation rather than death. There is no separate separation-vs-death branch to test;
- * `activeWindow` is the one abstraction for both.
+ * The three-function split directly, rather than through `simulateHousehold` — the same
+ * `isPersonActiveAt` gate the death tests above exercise, but pointed at a `activeWindow`
+ * boundary closed by separation rather than death. There is no separate separation-vs-death
+ * branch to test; `activeWindow` is the one abstraction for both.
  */
-describe("Required Minimum Distributions — buildRmdSources and activeWindow", () => {
-  function state(person: SimPerson, balanceCents: Cents): { state: RmdState; ira: SimAccount } {
+describe("Required Minimum Distributions — establishRmdRequirements / buildRmdSources and activeWindow", () => {
+  function rmdState(
+    person: SimPerson,
+    balanceCents: Cents,
+    extraAccounts: SimAccount[] = [],
+  ): { state: RmdState; ira: SimAccount } {
     const ira = new SimAccount({
       id: "ira",
       ownerId: person.id,
@@ -228,53 +304,100 @@ describe("Required Minimum Distributions — buildRmdSources and activeWindow", 
       openingBalanceCents: balanceCents,
       initialAnnualRate: 0,
     });
+    const assetBalances = new Map<string, Cents>([["ira", balanceCents]]);
+    for (const a of extraAccounts) assetBalances.set(a.id, a.openingBalanceCents);
     return {
       ira,
       state: {
-        accounts: [ira],
-        assetBalances: new Map([["ira", balanceCents]]),
+        accounts: [ira, ...extraAccounts],
+        assetBalances,
         personsById: new Map([[person.id, person]]),
+        rmdRequiredByPersonYear: new Map(),
+        rmdSatisfiedByPersonYear: new Map(),
       },
     };
   }
 
   const eligible: SimPerson = { id: "p1", name: "Sam", birthYear: 1953 }; // 73 in 2026
 
-  it("an active partner with an RMD-eligible account gets an RMD", () => {
+  it("an active partner gets a requirement established in January and forced in December", () => {
     const active: SimPerson = { ...eligible, activeWindow: { startMonth: 0, endMonthExclusive: 6 } };
-    const { state: s } = state(active, dollarsToCents(100_000));
+    const { state: s } = rmdState(active, dollarsToCents(100_000));
     // Month 0 falls inside the window, which stays open through month 5.
-    const sources = buildRmdSources(s, rmdStub, 0, 2026);
+    establishRmdRequirements(s, rmdStub, 0, 2026);
+    const sources = buildRmdSources(s, rmdStub, 11, 2026);
     expect(sources).toHaveLength(1);
     expect(sources[0]!.sourceId).toBe("rmd:p1");
     expect(sources[0]!.waterfallInflowCents).toBe(dollarsToCents(10_000));
     expect(s.assetBalances.get("ira")).toBe(dollarsToCents(90_000));
   });
 
-  it("the same partner gets no RMD, and their account is untouched, once their activeWindow ends", () => {
+  it("no requirement is established once the activeWindow has already closed, so December forces nothing", () => {
     const separated: SimPerson = { ...eligible, activeWindow: { startMonth: 0, endMonthExclusive: 6 } };
-    const { state: s } = state(separated, dollarsToCents(100_000));
-    // Month 12 — the next annual trigger — falls after the window closed at month 6.
-    const sources = buildRmdSources(s, rmdStub, 12, 2026);
+    const { state: s } = rmdState(separated, dollarsToCents(100_000));
+    // Month 12 — the next annual establishing month — falls after the window closed at month 6.
+    establishRmdRequirements(s, rmdStub, 12, 2026);
+    const sources = buildRmdSources(s, rmdStub, 23, 2026);
     expect(sources).toHaveLength(0);
     expect(s.assetBalances.get("ira")).toBe(dollarsToCents(100_000));
   });
 
-  it("a person with no activeWindow keeps getting the RMD unchanged", () => {
-    const { state: s } = state(eligible, dollarsToCents(100_000));
-    const sources = buildRmdSources(s, rmdStub, 12, 2027);
+  it("a person with no activeWindow keeps getting a requirement established every year", () => {
+    const { state: s } = rmdState(eligible, dollarsToCents(100_000));
+    establishRmdRequirements(s, rmdStub, 12, 2026);
+    const sources = buildRmdSources(s, rmdStub, 23, 2026);
     expect(sources).toHaveLength(1);
     expect(s.assetBalances.get("ira")).toBe(dollarsToCents(90_000));
+  });
+
+  it("recordAccountDistributions reduces what December still owes", () => {
+    const { state: s } = rmdState(eligible, dollarsToCents(100_000));
+    establishRmdRequirements(s, rmdStub, 0, 2026);
+    recordAccountDistributions(
+      s,
+      [{ accountId: "ira", grossWithdrawnCents: dollarsToCents(4_000) }],
+      5,
+      2026,
+    );
+    const sources = buildRmdSources(s, rmdStub, 11, 2026);
+    expect(sources[0]!.waterfallInflowCents).toBe(dollarsToCents(6_000));
+    // The synthetic $4,000 draw above only updates the YTD tracker in this unit test — it
+    // never touched `assetBalances` itself (a real decumulation draw would have) — so only
+    // December's own $6,000 forced draw reduces the balance here.
+    expect(s.assetBalances.get("ira")).toBe(dollarsToCents(100_000) - dollarsToCents(6_000));
+  });
+
+  it("recordAccountDistributions ignores a draw from an account that is not forced-distribution-eligible", () => {
+    const brokerage = new SimAccount({
+      id: "brokerage",
+      ownerId: eligible.id,
+      liquid: false,
+      taxProfile: CAPITAL_GAINS_TAX_PROFILE,
+      openingBalanceCents: dollarsToCents(50_000),
+      initialAnnualRate: 0,
+    });
+    const { state: s } = rmdState(eligible, dollarsToCents(100_000), [brokerage]);
+    establishRmdRequirements(s, rmdStub, 0, 2026);
+    recordAccountDistributions(
+      s,
+      [{ accountId: "brokerage", grossWithdrawnCents: dollarsToCents(4_000) }],
+      5,
+      2026,
+    );
+    const sources = buildRmdSources(s, rmdStub, 11, 2026);
+    // The whole $10,000 requirement is still forced — the brokerage draw doesn't qualify.
+    expect(sources[0]!.waterfallInflowCents).toBe(dollarsToCents(10_000));
   });
 });
 
 /**
  * **The balance the requirement is priced off.** The IRS mechanic divides the PRIOR year-end
- * balance by the year's divisor, and the engine hands the seam the balance it holds at the trigger
- * month. Those are the same number only because of where the trigger sits in the month pipeline —
- * RMDs are built with the non-withdrawal sources, ahead of both decumulation and `compoundAssets`,
- * so January's opening balance IS December's close. Pin it: move the RMD after either step and
- * these divisions stop reconciling.
+ * balance by the year's divisor, and the engine establishes each year's requirement off the
+ * balance it holds at that year's first month — ahead of both decumulation and `compoundAssets`,
+ * so January's opening balance IS the prior December's close. Pin it: move the establishing step
+ * after either, and these divisions stop reconciling. The forced draw itself still lands in
+ * December (see the annual-minimum suite above); this suite is only about what number it trues
+ * up against.
  */
 describe("Required Minimum Distributions — priced off the prior year-end balance", () => {
   const DIVISOR: Record<number, number> = { 73: 26.5, 74: 25.5, 75: 24.6 };
@@ -307,39 +430,40 @@ describe("Required Minimum Distributions — priced off the prior year-end balan
   it("divides the prior year-end balance by the year's divisor, to the cent", () => {
     const series = growingHousehold();
     // The first year has no prior December, so it is priced off the opening balance.
-    expect(rmdAt(series, 0)).toBe(Math.round(dollarsToCents(100_000) / DIVISOR[73]!));
-    // Every year after divides the balance the previous month closed at.
-    for (const [month, age] of [[12, 74], [24, 75]] as const) {
+    expect(rmdAt(series, 11)).toBe(Math.round(dollarsToCents(100_000) / DIVISOR[73]!));
+    // Every year after divides the balance the previous December closed at.
+    for (const [month, age] of [[23, 74], [35, 75]] as const) {
       expect(rmdAt(series, month)).toBe(
-        Math.round(balanceAt(series, month - 1, "pretax") / DIVISOR[age]!),
+        Math.round(balanceAt(series, month - 12, "pretax") / DIVISOR[age]!),
       );
     }
   });
 
-  it("prices off the CLOSING balance, not the opening one — the year's growth is in the base", () => {
-    // The distinction only exists because the account compounds: had the requirement been priced
-    // off January's post-growth balance, or off the balance the year opened with a year ago, it
-    // would divide a different number. Assert the near misses are misses.
+  it("prices off the prior year's CLOSING balance, not an earlier balance from that year", () => {
+    // The distinction only exists because the account compounds: had the second year's
+    // requirement been priced off November's balance instead of December's, or off a balance
+    // from a year further back, it would divide a different number.
     const series = growingHousehold();
-    const decemberClose = balanceAt(series, 11, "pretax");
-    const januaryClose = balanceAt(series, 12, "pretax");
-    expect(decemberClose).not.toBe(januaryClose);
-    expect(rmdAt(series, 12)).toBe(Math.round(decemberClose / DIVISOR[74]!));
-    expect(rmdAt(series, 12)).not.toBe(Math.round(januaryClose / DIVISOR[74]!));
+    const novemberOfYear0 = balanceAt(series, 10, "pretax");
+    const decemberCloseOfYear0 = balanceAt(series, 11, "pretax");
+    expect(novemberOfYear0).not.toBe(decemberCloseOfYear0);
+    expect(rmdAt(series, 23)).toBe(Math.round(decemberCloseOfYear0 / DIVISOR[74]!));
+    expect(rmdAt(series, 23)).not.toBe(Math.round(novemberOfYear0 / DIVISOR[74]!));
   });
 
   /**
-   * **The round-number anchor.** A holder who turns 73 next year, holding $530,000 that does
-   * nothing at all in the meantime — no growth, no income, no spending, no tax. The prior year-end
-   * balance is $530,000 by construction, so the answer is $530,000 / 26.5 = $20,000 exactly, and
-   * any deviation is something the year did to the balance rather than a question of arithmetic.
+   * **The round-number anchor.** A holder who turns 73 the following year, holding $530,000
+   * that does nothing at all in the meantime — no growth, no income, no spending, no tax. The
+   * balance the second year opens with is $530,000 by construction, so the answer is
+   * $530,000 / 26.5 = $20,000 exactly, and any deviation is something the model did to the
+   * balance rather than a question of arithmetic.
    *
    * Deliberately the whole pipeline rather than the seam alone: the seam dividing correctly is
    * already pinned in `@finley/rules`, and every way this has been suspected of going wrong —
-   * pricing off a later balance, a stray withdrawal landing before the trigger, the year's own
-   * growth reaching the base — lives between the two.
+   * pricing off a later balance, a stray withdrawal landing before the establishing month, the
+   * year's own growth reaching the base — lives between the two.
    */
-  it("$530,000 at 73 with nothing happening in between is $20,000, to the cent", () => {
+  it("$530,000 turning 73 the following year, nothing else happening, is $20,000 in December, to the cent", () => {
     const series = simulateHousehold(
       baseInput(
         { id: "p1", name: "You", birthYear: 1954 }, // 72 in 2026, 73 in 2027
@@ -347,88 +471,155 @@ describe("Required Minimum Distributions — priced off the prior year-end balan
           account("pretax", PRE_TAX_TAX_PROFILE, 530_000),
           account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
         ],
-        { horizonMonths: 13 },
+        { horizonMonths: 24 },
       ),
       divisorStub,
     );
-    // Age 72: nothing is required, and nothing else touches the account either.
+    // Age 72 throughout 2026: nothing is required, and nothing else touches the account either.
     for (let month = 0; month <= 11; month++) {
       expect(rmdAt(series, month)).toBe(0);
       expect(balanceAt(series, month, "pretax")).toBe(dollarsToCents(530_000));
     }
-    // December 31st — the applicable balance — is the $530,000 it opened with.
-    expect(balanceAt(series, 11, "pretax")).toBe(dollarsToCents(530_000));
-    // And the year the holder turns 73 divides exactly that, by exactly 26.5.
+    // 2027 opens on exactly the $530,000 that closed 2026, and nothing forces before its own
+    // December.
+    for (let month = 12; month <= 22; month++) expect(rmdAt(series, month)).toBe(0);
     expect(DIVISOR[73]).toBe(26.5);
-    expect(rmdAt(series, 12)).toBe(dollarsToCents(20_000));
-    expect(balanceAt(series, 12, "pretax")).toBe(dollarsToCents(510_000));
+    expect(rmdAt(series, 23)).toBe(dollarsToCents(20_000));
+    expect(balanceAt(series, 23, "pretax")).toBe(dollarsToCents(510_000));
   });
 
   it("takes the distribution before the year's growth, so the withdrawn money never earns it", () => {
-    // The balance identity that makes the crossover arithmetic true: a year is
-    // `(balance − RMD) × (1 + rate)`, not `balance × (1 + rate) − RMD`. One month of 12%/yr.
+    // The balance identity that makes the crossover arithmetic true: December is
+    // `(November's close − RMD) × (1 + rate)`, not `November's close × (1 + rate) − RMD`.
     const series = growingHousehold();
-    const opening = dollarsToCents(100_000);
+    const novemberClose = balanceAt(series, 10, "pretax");
     const monthlyRate = Math.pow(1.12, 1 / 12) - 1;
-    expect(balanceAt(series, 0, "pretax")).toBe(
-      Math.round((opening - rmdAt(series, 0)) * (1 + monthlyRate)),
+    expect(balanceAt(series, 11, "pretax")).toBe(
+      Math.round((novemberClose - rmdAt(series, 11)) * (1 + monthlyRate)),
     );
   });
 });
 
 /**
- * **A distribution is forced, not requested.** Once the year's requirement is out, its proceeds are
- * ordinary household cash: spending has to consume them before anything else is sold. A household
- * required to take more than it spends should therefore make NO discretionary retirement
- * withdrawal at all, and bank the difference — the failure mode being a plan that dutifully
- * distributes $10,000, spends its cash, and then sells another $2,400 of the same account to pay
- * for groceries it had already been handed the money for.
+ * **A distribution is a distribution.** The requirement is satisfied by money actually leaving
+ * an eligible retirement account, so which internal mechanism pulled it — the month-to-month
+ * decumulation cascade, or an explicitly-funded one-time spend naming the account — cannot
+ * change what December still owes. Tracking satisfaction by mechanism instead of by account
+ * made a $20,000 January withdrawal invisible to the year, and December forced a second one on
+ * top of a requirement that had already been exceeded twice over.
  */
-describe("Required Minimum Distributions — an excess the household did not ask for", () => {
-  const YEAR_ONE_RMD = dollarsToCents(10_000);
-  const SPEND = 200;
+describe("Required Minimum Distributions — satisfied by the account drawn, not the path taken", () => {
+  /** $265,000 ÷ the age-73 divisor of 26.5 = exactly $10,000, so every figure below is round. */
+  const AGE_73_DIVISOR = 26.5;
+  const divisorStub: Jurisdiction = {
+    id: "divisor-stub",
+    computeTaxCents: () => 0,
+    computeTaxByCategoryCents: () => ({}),
+    requiredMinimumDistributionCents: (balance, ctx) =>
+      ctx.age >= 73 ? Math.round(balance / AGE_73_DIVISOR) : 0,
+  };
 
-  function household(monthlyDollars: number, horizonMonths = 13): ProjectionSeries {
-    return simulateHousehold(
+  /** A $20,000 one-time spend in January, drawing `sourceId` and nothing else all year. */
+  function januarySpend(sourceId: string): FinancialObligation {
+    return {
+      id: "draw:new-roof",
+      sourceId: "new-roof",
+      month: 0,
+      amountCents: dollarsToCents(20_000),
+      treatment: "expense",
+      funding: { kind: "explicit", orderedAccountIds: [sourceId] },
+      priority: OBLIGATION_PRIORITY.untracked,
+      sourceKind: "untracked",
+      editable: false,
+      label: "New roof",
+      category: "other",
+    };
+  }
+
+  /** What the January draw actually took out of `accountId`, gross, per the attribution record. */
+  function januaryGrossFrom(series: ProjectionSeries, accountId: string): number {
+    return (series.months[0]!.flows?.resolvedFunding ?? [])
+      .flatMap((r) => r.sources)
+      .filter((s) => s.kind === "account" && s.sourceId === accountId)
+      .reduce((total, s) => total + (s.withdrawal?.grossWithdrawnCents ?? 0), 0);
+  }
+
+  it("a one-time expense funded from the pre-tax account satisfies the year, so December forces nothing", () => {
+    const series = simulateHousehold(
       baseInput(
         born73In2026,
         [
-          account("pretax", PRE_TAX_TAX_PROFILE, 100_000),
+          account("pretax", PRE_TAX_TAX_PROFILE, 265_000),
           account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
         ],
-        { horizonMonths, expenseSeries: [spending(monthlyDollars)] },
+        { fundingDraws: [januarySpend("pretax")] },
       ),
-      rmdStub,
+      divisorStub,
     );
-  }
 
-  it("draws the requirement and nothing more when it covers the year's spending", () => {
-    // $10,000 required against $2,400 spent. The pre-tax account is touched exactly once.
-    const series = household(SPEND);
-    expect(rmdAt(series, 0)).toBe(YEAR_ONE_RMD);
-    expect(balanceAt(series, 11, "pretax")).toBe(dollarsToCents(90_000));
-    // …and the second year is priced off that untouched balance, so no drift compounds.
-    expect(rmdAt(series, 12)).toBe(dollarsToCents(9_000));
-  });
-
-  it("banks the excess as cash rather than leaving it to be re-earned", () => {
-    const series = household(SPEND);
-    expect(balanceAt(series, 11, "cash")).toBe(YEAR_ONE_RMD - dollarsToCents(SPEND * 12));
-    // Nothing was created or destroyed on the way: the year only moved money.
-    expect(series.months[11]!.netWorthNominalCents).toBe(
-      dollarsToCents(100_000) - dollarsToCents(SPEND * 12),
-    );
-  });
-
-  it("does draw again once spending outgrows the requirement, so the restraint is not inertia", () => {
-    // $24,000 spent against the same $10,000 required. The distributed cash is consumed first and
-    // the shortfall — and only the shortfall — comes out of pre-tax after it.
-    const series = household(2_000);
-    expect(rmdAt(series, 0)).toBe(YEAR_ONE_RMD);
+    // January: the spend sells $20,000 of the retirement account — a real distribution, twice
+    // the $10,000 the year requires.
+    expect(januaryGrossFrom(series, "pretax")).toBe(dollarsToCents(20_000));
+    expect(balanceAt(series, 0, "pretax")).toBe(dollarsToCents(245_000));
+    // December: `max(0, $10,000 − $20,000)` is nothing, so no forced source is emitted at all.
+    expect(rmdAt(series, 11)).toBe(0);
+    expect(
+      (series.months[11]!.flows?.incomeSources ?? []).some((s) => s.sourceId === "rmd:p1"),
+    ).toBe(false);
+    // $20,000 for the year, not $30,000: the account closes where January left it, with no
+    // growth and nothing else drawing on it.
+    expect(balanceAt(series, 11, "pretax")).toBe(dollarsToCents(245_000));
+    // Nothing was forced, so nothing banked in cash either — the whole $20,000 was spent.
     expect(balanceAt(series, 11, "cash")).toBe(0);
-    expect(balanceAt(series, 11, "pretax")).toBe(
-      dollarsToCents(100_000) - dollarsToCents(24_000),
+  });
+
+  it("the same expense funded from a brokerage does not satisfy the year, so December forces all of it", () => {
+    const series = simulateHousehold(
+      baseInput(
+        born73In2026,
+        [
+          account("pretax", PRE_TAX_TAX_PROFILE, 265_000),
+          account("brokerage", CAPITAL_GAINS_TAX_PROFILE, 20_000),
+          account("cash", CAPITAL_GAINS_TAX_PROFILE, 0, true),
+        ],
+        { fundingDraws: [januarySpend("brokerage")] },
+      ),
+      divisorStub,
     );
-    expect(series.months.every((m) => !m.isInsolvent)).toBe(true);
+
+    // The identical spend, drawn from the one account no requirement attaches to.
+    expect(januaryGrossFrom(series, "brokerage")).toBe(dollarsToCents(20_000));
+    expect(balanceAt(series, 0, "brokerage")).toBe(0);
+    expect(balanceAt(series, 0, "pretax")).toBe(dollarsToCents(265_000));
+    // The retirement account was never touched, so the full requirement is still outstanding.
+    expect(rmdAt(series, 11)).toBe(dollarsToCents(10_000));
+    expect(balanceAt(series, 11, "pretax")).toBe(dollarsToCents(255_000));
+    // Unneeded by December's own spending, the forced distribution banks.
+    expect(balanceAt(series, 11, "cash")).toBe(dollarsToCents(10_000));
+  });
+
+  it("records a distribution against its owner's year whatever mechanism reports it", () => {
+    const ira = account("ira", PRE_TAX_TAX_PROFILE, 265_000);
+    const s: RmdState = {
+      accounts: [ira],
+      assetBalances: new Map([["ira", ira.openingBalanceCents]]),
+      personsById: new Map([[born73In2026.id, born73In2026]]),
+      rmdRequiredByPersonYear: new Map(),
+      rmdSatisfiedByPersonYear: new Map(),
+    };
+    establishRmdRequirements(s, divisorStub, 0, 2026);
+    // The seam takes the account and the gross, and nothing else: a funding draw's withdrawal
+    // and a decumulation draw's are the same fact told twice.
+    recordAccountDistributions(
+      s,
+      [{ accountId: "ira", grossWithdrawnCents: dollarsToCents(20_000) }],
+      0,
+      2026,
+    );
+    expect(s.rmdSatisfiedByPersonYear.get("p1|2026")).toBe(dollarsToCents(20_000));
+    expect(buildRmdSources(s, divisorStub, 11, 2026)).toHaveLength(0);
+    // The $10,000 over-distribution stays in 2026: next year prices its own requirement off the
+    // balance and starts satisfaction from zero.
+    expect(s.rmdSatisfiedByPersonYear.get("p1|2027")).toBeUndefined();
   });
 });
