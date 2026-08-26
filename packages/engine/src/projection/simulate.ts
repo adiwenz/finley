@@ -42,6 +42,7 @@ import {
 } from "./allocationStep";
 import { dueTaxYearSettlements, finalizeTaxYear } from "./taxYearSettlement";
 import { settleEstate, type EstateSettlement } from "./estateSettlement";
+import { applyDeathOwnershipTransfers } from "./deathOwnershipTransfer";
 
 
 // Re-exported so importers (and the engine barrel in index.ts) keep resolving the
@@ -180,6 +181,10 @@ function runMonth(
   priorInsolvency: boolean,
 ): MonthOutcome {
   const { input, jurisdiction, startYear } = run;
+  // Re-owner a member who died THIS month before anything below reads account ownership — the
+  // RMD gate and the decumulation waterfall both key off `SimAccount.ownerId` directly, so
+  // mutating it here, ahead of them, is the whole fix: neither needs to know death happened.
+  applyDeathOwnershipTransfers(state.accounts, input.deathOwnershipTransfers ?? [], month);
   // Calendar year for this month's flows. Month 0 is now processed like any other, so
   // `months[0..11]` accrue a full 12 covered-earnings months in year 0 — a $5k/mo salary
   // contributes the whole $60k, closing the graph-vs-panel benefit gap. A mid-year start

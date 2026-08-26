@@ -122,7 +122,14 @@ export interface SimOneTimeTransfer {
 
 export class SimAccount {
   readonly id: string;
-  readonly ownerId: string;
+  /**
+   * Mutable, unlike every other field here: a death re-owners a deceased member's cash and
+   * brokerage accounts to the surviving partner ({@link
+   * import("../projection/deathOwnershipTransfer").applyDeathOwnershipTransfers}), in place, at
+   * the death month — so every later month's ownership-keyed read (the decumulation waterfall,
+   * the RMD gate) sees the new owner with no change to either.
+   */
+  ownerId: string;
   readonly kind: "asset";
   /**
    * Diagnostic only — nothing in the simulation reads it, but it rides through to the
@@ -205,6 +212,11 @@ export class SimAccount {
   addTransfer(transfer: SimOneTimeTransfer): void {
     this.transfers.push(transfer);
     this.transfers.sort((a, b) => a.month - b.month);
+  }
+
+  /** Re-owners this account, in place, at the death-transfer month — see {@link ownerId}. */
+  reassignOwner(newOwnerId: string): void {
+    this.ownerId = newOwnerId;
   }
 
   /**

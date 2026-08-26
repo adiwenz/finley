@@ -27,6 +27,7 @@ import {
   lifeExpectancyEndMonthExclusive,
   memberHorizonReach,
   personActiveWindow,
+  survivingPartnerTransfers,
 } from "../job/personActiveWindow";
 import { PRIMARY_PERSON_ID } from "../compile/projectionBase";
 
@@ -194,9 +195,11 @@ export function buildHouseholdSimInput(
     return memberReach === null ? last : Math.max(last ?? memberReach, memberReach);
   }, null);
   const horizonMonths = Math.max(base.horizonMonths, lastDeathMonth ?? base.horizonMonths);
+  const deathOwnershipTransfers = survivingPartnerTransfers(household.memberships, base.startYear);
 
   return {
     horizonMonths,
+    ...(deathOwnershipTransfers.length > 0 ? { deathOwnershipTransfers } : {}),
     ...(lastDeathMonth === horizonMonths
       ? { householdDeathMonthExclusive: lastDeathMonth }
       : {}),

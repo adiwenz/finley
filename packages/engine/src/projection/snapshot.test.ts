@@ -364,6 +364,35 @@ describe("buildSnapshot — the shared replay-derived model", () => {
     expect(buildSnapshot(household, 1, projection).liabilities.map((l) => l.id)).toContain("car");
     expect(buildSnapshot(household, 6, projection).liabilities.find((l) => l.id === "car")).toBeUndefined();
   });
+
+  it("stops flagging a deceased partner's account 'in estate' once a surviving partner inherits it", () => {
+    // Alex (p1) dies at month 24 (birthYear 2000 + lifeExpectancy 2, against nowYear 2000);
+    // Casey (p2, lifeExpectancy 60) joins at month 0 and outlives them — the survivor
+    // `survivingPartnerTransfers` re-owners Alex's account to.
+    const alex = { ...personLit("p1", "Alex"), birthYear: 2000, lifeExpectancy: 2 };
+    const base: LedgerBaseConfig = {
+      horizonMonths: 36,
+      annualInflationRate: 0,
+      startYear: 2000,
+      initialPersons: [alex],
+      initialAccounts: [liquid("alex-savings", dollarsToCents(100_000))],
+    };
+    const ledger = add(emptyLedger, {
+      id: "r1",
+      type: "RelationshipEvent",
+      month: 0,
+      person: { ...personLit("p2", "Casey"), lifeExpectancy: 60 },
+    });
+    const household = interpretLedger(ledger, base);
+    const projection = buildProjection(household, base, nullJurisdiction);
+
+    const before = buildSnapshot(household, 23, projection, 2000);
+    const after = buildSnapshot(household, 24, projection, 2000);
+    expect(before.balances?.accounts.find((a) => a.id === "alex-savings")?.inEstate).toBeUndefined();
+    // Pre-fix this reads `true` — the snapshot still names Alex the sole owner, and Alex alone
+    // is dead, so `allOwnersDead` fires even though Casey is alive to inherit it.
+    expect(after.balances?.accounts.find((a) => a.id === "alex-savings")?.inEstate).toBeUndefined();
+  });
 });
 
 // Properties (equity = value − mortgage)

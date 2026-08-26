@@ -9,11 +9,14 @@
  * composed of. Only the second one is closed by a death.
  *
  * The money side has its own rule, and it is about what is LEFT rather than about who is gone.
- * The simulation never filters the spendable pool by whether an owner is alive, so a deceased
- * partner's balance still funds the household and still counts in its net worth — it is the
- * estate, and it stays on the list, named as the estate. An estate with nothing in it is the one
- * row that has nothing to say: the person is gone and so is their money, so it goes too, exactly
- * as a paid-off debt and a sold property already do.
+ * A deceased partner's cash/brokerage balance moves to whichever partner survives them — a
+ * ledger-dated ownership transfer (`deathOwnershipTransfer.ts`), not a snapshot trick — so it
+ * still funds the household and still counts in its net worth, now under the survivor's name
+ * rather than flagged as an ownerless "estate". Only a balance nobody living is left to claim (a
+ * household of one, or a retirement account the transfer deliberately skips) is still called the
+ * estate. An account with nothing in it and nobody left to hold it is the one row that has
+ * nothing to say and drops, exactly as a paid-off debt and a sold property already do — an
+ * emptied account a survivor inherited stays, the same as any other of theirs.
  */
 import { describe, it, expect } from "vitest";
 import { Projection } from "../index";
@@ -97,21 +100,24 @@ describe("the dated snapshot, when a partner dies", () => {
     expect(holdsPartnerAccount(result, DEATH + 120)).toBe(true);
   });
 
-  it("calls what they left an estate only once they are gone", () => {
+  it("re-owners what they left to the survivor rather than calling it an estate", () => {
     const result = household(undefined, RICH);
-    // The same account, the same money, on both sides of one month: it is theirs while they are
-    // here, and the household's afterwards. Nothing about the balance changes at the boundary.
+    // The same account, the same money, on both sides of one month: theirs while they are here,
+    // the survivor's afterwards. Never ownerless, so never flagged as "the estate" — a living
+    // primary was there the whole time to inherit it.
     expect(partnerAccount(result, DEATH - 1)?.inEstate).toBeUndefined();
-    expect(partnerAccount(result, DEATH)?.inEstate).toBe(true);
+    expect(partnerAccount(result, DEATH)?.inEstate).toBeUndefined();
   });
 
-  it("drops an emptied estate rather than listing a dead person holding nothing", () => {
+  it("keeps an emptied inherited account rather than dropping it as somebody's estate", () => {
     // The default fixture's partner brings little enough that the household spends it on their
-    // share before they die — so the row that survived them was a name the roster had already
-    // stopped printing, against $0.
+    // share before they die — so this is the same $0 balance on both sides of the death month.
+    // It survives the boundary: the survivor inherited a real (if empty) account of their own,
+    // not an ownerless one — the same reason a living member's empty account is kept elsewhere.
     const result = household();
     expect(partnerAccount(result, DEATH - 1)?.balanceCents).toBe(0);
-    expect(holdsPartnerAccount(result, DEATH)).toBe(false);
+    expect(holdsPartnerAccount(result, DEATH)).toBe(true);
+    expect(partnerAccount(result, DEATH)?.inEstate).toBeUndefined();
   });
 
   it("keeps a LIVING member's empty account, which is still theirs to refill", () => {
